@@ -18,6 +18,12 @@ import {
   calculateLineTotal,
   roundMoney,
 } from "@/lib/currency";
+import {
+  buildDocumentCustomerSnapshot,
+  DOCUMENT_CUSTOMER_SELECT,
+  isCustomerSnapshotStatus,
+  withDocumentCustomerSnapshot,
+} from "@/lib/document-customer-snapshot";
 
 const DEFAULT_PAYMENT_DAYS = 14;
 const MIN_PAYMENT_DAYS = 1;
@@ -464,15 +470,18 @@ export async function GET(request: Request) {
       );
     }
     return NextResponse.json(
-      invoices?.map((i: any) => ({
-        ...i,
-        subtotal: roundMoney(Number(i?.subtotal ?? 0)),
-        vatAmount: roundMoney(Number(i?.vatAmount ?? 0)),
-        total: roundMoney(Number(i?.total ?? 0)),
-        sourceOfferNumber: i.sourceOfferId
-          ? offerMap[i.sourceOfferId] || null
-          : null,
-      })) ?? [],
+      invoices?.map((i: any) => {
+        const document = withDocumentCustomerSnapshot(i, "invoice");
+        return {
+          ...document,
+          subtotal: roundMoney(Number(document?.subtotal ?? 0)),
+          vatAmount: roundMoney(Number(document?.vatAmount ?? 0)),
+          total: roundMoney(Number(document?.total ?? 0)),
+          sourceOfferNumber: document.sourceOfferId
+            ? offerMap[document.sourceOfferId] || null
+            : null,
+        };
+      }) ?? [],
     );
   } catch (error: any) {
     console.error(error);
@@ -546,17 +555,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Guard: reject creation linked to an archived customer
+    // Guard: reject creation linked to an archived customer and load the
+    // exact customer state used for a possible historical snapshot.
+    let activeCustomer: any = null;
     if (data?.customerId) {
-      const activeCustomer = await prisma.customer.findFirst({
+      activeCustomer = await prisma.customer.findFirst({
         where: { id: data.customerId, userId, dataScope, deletedAt: null },
-        select: { id: true },
+        select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
         return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
       }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
+
+    const requestedStatus = String(data?.status ?? "Entwurf");
+    const customerSnapshotData =
+      activeCustomer && isCustomerSnapshotStatus("invoice", requestedStatus)
+        ? {
+            customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
+            customerSnapshotAt: new Date(),
+          }
+        : {};
 
     // Source offer must belong to the same active TEST/LIVE scope.
     if (data?.sourceOfferId) {
@@ -574,11 +594,15 @@ export async function POST(request: Request) {
         include: { customer: true, items: true },
       });
       if (existing) {
+        const responseExisting = withDocumentCustomerSnapshot(
+          existing,
+          "invoice",
+        );
         return NextResponse.json({
-          ...existing,
-          subtotal: roundMoney(Number(existing.subtotal ?? 0)),
-          vatAmount: roundMoney(Number(existing.vatAmount ?? 0)),
-          total: roundMoney(Number(existing.total ?? 0)),
+          ...responseExisting,
+          subtotal: roundMoney(Number(responseExisting.subtotal ?? 0)),
+          vatAmount: roundMoney(Number(responseExisting.vatAmount ?? 0)),
+          total: roundMoney(Number(responseExisting.total ?? 0)),
           existed: true,
         });
       }
@@ -602,7 +626,8 @@ export async function POST(request: Request) {
             invoiceDate,
             dueDate,
             notes: data?.notes || null,
-            status: data?.status ?? "Entwurf",
+            status: requestedStatus,
+            ...customerSnapshotData,
             sourceOfferId: data?.sourceOfferId ?? null,
             userId,
             dataScope,
@@ -655,11 +680,12 @@ export async function POST(request: Request) {
       targetId: invoice.id,
       request,
     });
+    const responseInvoice = withDocumentCustomerSnapshot(invoice, "invoice");
     return NextResponse.json({
-      ...invoice,
-      subtotal: roundMoney(Number(invoice?.subtotal ?? 0)),
-      vatAmount: roundMoney(Number(invoice?.vatAmount ?? 0)),
-      total: roundMoney(Number(invoice?.total ?? 0)),
+      ...responseInvoice,
+      subtotal: roundMoney(Number(responseInvoice?.subtotal ?? 0)),
+      vatAmount: roundMoney(Number(responseInvoice?.vatAmount ?? 0)),
+      total: roundMoney(Number(responseInvoice?.total ?? 0)),
     });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {

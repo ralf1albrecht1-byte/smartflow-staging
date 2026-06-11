@@ -254,6 +254,8 @@ currency      String   @default("CHF")
   invoiceDate   DateTime @default(now())
   dueDate       DateTime?
   notes         String?
+  customerSnapshot   Json?
+  customerSnapshotAt DateTime?
   sourceOfferId String?
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
@@ -302,6 +304,8 @@ currency    String   @default("CHF")
   offerDate   DateTime @default(now())
   validUntil  DateTime?
   notes       String?
+  customerSnapshot   Json?
+  customerSnapshotAt DateTime?
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
   dataScope   String   @default("TEST")

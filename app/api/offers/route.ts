@@ -18,6 +18,12 @@ import {
   calculateLineTotal,
   roundMoney,
 } from "@/lib/currency";
+import {
+  buildDocumentCustomerSnapshot,
+  DOCUMENT_CUSTOMER_SELECT,
+  isCustomerSnapshotStatus,
+  withDocumentCustomerSnapshot,
+} from "@/lib/document-customer-snapshot";
 
 const HARD_CURRENCY_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
@@ -464,12 +470,15 @@ export async function GET() {
       },
     });
     return NextResponse.json(
-      offers?.map((o: any) => ({
-        ...o,
-        subtotal: roundMoney(Number(o?.subtotal ?? 0)),
-        vatAmount: roundMoney(Number(o?.vatAmount ?? 0)),
-        total: roundMoney(Number(o?.total ?? 0)),
-      })) ?? [],
+      offers?.map((o: any) => {
+        const document = withDocumentCustomerSnapshot(o, "offer");
+        return {
+          ...document,
+          subtotal: roundMoney(Number(document?.subtotal ?? 0)),
+          vatAmount: roundMoney(Number(document?.vatAmount ?? 0)),
+          total: roundMoney(Number(document?.total ?? 0)),
+        };
+      }) ?? [],
     );
   } catch (error: any) {
     console.error(error);
@@ -540,17 +549,28 @@ export async function POST(request: Request) {
       compactOfferText(data?.notes) ||
       buildDefaultOfferPdfText(sourceOrders, items);
 
-    // Guard: reject creation linked to an archived customer
+    // Guard: reject creation linked to an archived customer and load the
+    // exact customer state used for a possible historical snapshot.
+    let activeCustomer: any = null;
     if (data?.customerId) {
-      const activeCustomer = await prisma.customer.findFirst({
+      activeCustomer = await prisma.customer.findFirst({
         where: { id: data.customerId, userId, dataScope, deletedAt: null },
-        select: { id: true },
+        select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
         return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
       }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
+
+    const requestedStatus = String(data?.status ?? "Entwurf");
+    const customerSnapshotData =
+      activeCustomer && isCustomerSnapshotStatus("offer", requestedStatus)
+        ? {
+            customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
+            customerSnapshotAt: new Date(),
+          }
+        : {};
 
     // Retry loop: guards against P2002 (unique constraint on offerNumber)
     // in case of a race condition between concurrent requests.
@@ -572,7 +592,8 @@ export async function POST(request: Request) {
             offerDate,
             validUntil,
             notes: pdfText || null,
-            status: data?.status ?? "Entwurf",
+            status: requestedStatus,
+            ...customerSnapshotData,
             items: {
               create: items.map((item: any) => ({
                 description: item?.description ?? "",
@@ -676,11 +697,12 @@ export async function POST(request: Request) {
       targetId: offer.id,
       request,
     });
+    const responseOffer = withDocumentCustomerSnapshot(offer, "offer");
     return NextResponse.json({
-      ...offer,
-      subtotal: roundMoney(Number(offer?.subtotal ?? 0)),
-      vatAmount: roundMoney(Number(offer?.vatAmount ?? 0)),
-      total: roundMoney(Number(offer?.total ?? 0)),
+      ...responseOffer,
+      subtotal: roundMoney(Number(responseOffer?.subtotal ?? 0)),
+      vatAmount: roundMoney(Number(responseOffer?.vatAmount ?? 0)),
+      total: roundMoney(Number(responseOffer?.total ?? 0)),
     });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {

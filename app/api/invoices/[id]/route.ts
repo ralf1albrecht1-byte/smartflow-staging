@@ -13,6 +13,12 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
+import {
+  buildDocumentCustomerSnapshot,
+  DOCUMENT_CUSTOMER_SELECT,
+  isCustomerSnapshotStatus,
+  withDocumentCustomerSnapshot,
+} from "@/lib/document-customer-snapshot";
 
 
 const invoiceOrderInclude = {
@@ -118,13 +124,14 @@ export async function GET(
     });
     if (!invoice)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+    const responseInvoice = withDocumentCustomerSnapshot(invoice, "invoice");
     return NextResponse.json({
-      ...invoice,
-      subtotal: Number(invoice?.subtotal ?? 0),
-      vatAmount: Number(invoice?.vatAmount ?? 0),
-      total: Number(invoice?.total ?? 0),
+      ...responseInvoice,
+      subtotal: Number(responseInvoice?.subtotal ?? 0),
+      vatAmount: Number(responseInvoice?.vatAmount ?? 0),
+      total: Number(responseInvoice?.total ?? 0),
       items:
-        invoice?.items?.map((i: any) => ({
+        responseInvoice?.items?.map((i: any) => ({
           ...i,
           quantity: Number(i?.quantity ?? 0),
           unitPrice: Number(i?.unitPrice ?? 0),
@@ -158,6 +165,26 @@ export async function PUT(
     const itemError = validateDocumentItemsForUpdate(data?.items);
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
+
+    const currentStatus = String(existing.status || "Entwurf");
+    const nextStatus = String(data?.status ?? currentStatus);
+    const currentLocked = isCustomerSnapshotStatus("invoice", currentStatus);
+    const nextLocked = isCustomerSnapshotStatus("invoice", nextStatus);
+    const nextCustomerId = String(data?.customerId || existing.customerId);
+
+    if (
+      currentLocked &&
+      data?.customerId &&
+      data.customerId !== existing.customerId
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Gesendete oder abgeschlossene Rechnungen behalten ihre historischen Kundendaten. Setzen Sie die Rechnung zuerst auf Entwurf, bevor Sie den Kunden ändern.",
+        },
+        { status: 409 },
+      );
+    }
 
     // ── Guard: block data-changing edits on archived (Erledigt) invoices ──
     // Allowed on archived: status changes (e.g. re-open) and notes.
@@ -195,17 +222,41 @@ export async function PUT(
       );
     }
 
-    // Guard: reject reassignment to an archived customer
+    // Guard: reject reassignment to an archived customer and load the
+    // customer state needed when the invoice becomes historical.
+    let activeCustomer: any = null;
     if (data?.customerId && data.customerId !== existing.customerId) {
-      const activeCustomer = await prisma.customer.findFirst({
+      activeCustomer = await prisma.customer.findFirst({
         where: { id: data.customerId, userId, dataScope, deletedAt: null },
-        select: { id: true },
+        select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
         return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
       }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
+
+    const needsCustomerSnapshot =
+      nextLocked && (!currentLocked || !existing.customerSnapshot);
+    if (needsCustomerSnapshot && !activeCustomer) {
+      activeCustomer = await prisma.customer.findFirst({
+        where: { id: nextCustomerId, userId, dataScope, deletedAt: null },
+        select: DOCUMENT_CUSTOMER_SELECT,
+      });
+      if (!activeCustomer) {
+        return NextResponse.json(
+          { error: "Kundendaten für den historischen Rechnungsstand konnten nicht geladen werden." },
+          { status: 409 },
+        );
+      }
+    }
+
+    const customerSnapshotData = needsCustomerSnapshot
+      ? {
+          customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
+          customerSnapshotAt: new Date(),
+        }
+      : {};
 
     const parsedInvoiceDate =
       data?.invoiceDate !== undefined
@@ -265,6 +316,7 @@ export async function PUT(
       updateData.archivedPdfPath = null;
     }
     if (data?.status !== undefined) updateData.status = data.status;
+    Object.assign(updateData, customerSnapshotData);
     if (data?.notes !== undefined) updateData.notes = data.notes;
     if (data?.currency !== undefined)
       updateData.currency = data.currency === "EUR" ? "EUR" : "CHF";
@@ -338,13 +390,17 @@ export async function PUT(
       createArchivedPdfSnapshot(params?.id, userId).catch(() => {});
     }
 
+    const responseUpdatedInvoice = withDocumentCustomerSnapshot(
+      invoice,
+      "invoice",
+    );
     return NextResponse.json({
-      ...invoice,
-      subtotal: Number(invoice?.subtotal ?? 0),
-      vatAmount: Number(invoice?.vatAmount ?? 0),
-      total: Number(invoice?.total ?? 0),
+      ...responseUpdatedInvoice,
+      subtotal: Number(responseUpdatedInvoice?.subtotal ?? 0),
+      vatAmount: Number(responseUpdatedInvoice?.vatAmount ?? 0),
+      total: Number(responseUpdatedInvoice?.total ?? 0),
       items:
-        invoice?.items?.map((i: any) => ({
+        responseUpdatedInvoice?.items?.map((i: any) => ({
           ...i,
           quantity: Number(i?.quantity ?? 0),
           unitPrice: Number(i?.unitPrice ?? 0),

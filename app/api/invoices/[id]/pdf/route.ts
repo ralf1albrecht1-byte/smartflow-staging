@@ -12,6 +12,7 @@ import {
   getSessionUser,
 } from "@/lib/get-session";
 import { getOrCreateArchivedPdf } from "@/lib/archived-pdf";
+import { withDocumentCustomerSnapshot } from "@/lib/document-customer-snapshot";
 import { logAuditAsync, EVENTS, AREAS } from "@/lib/audit";
 
 const SECURITY_HEADERS = {
@@ -182,10 +183,12 @@ export async function GET(
       `[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${invoice.userId} | docId=${invoice.id} | invoiceNumber=${invoice.invoiceNumber} | status=${invoice.status} | ts=${ts}`,
     );
 
+    const invoiceForPdf = withDocumentCustomerSnapshot(invoice, "invoice");
+
     if (invoice.status === "Erledigt") {
       try {
         const { buffer } = await getOrCreateArchivedPdf(
-          invoice,
+          invoiceForPdf,
           companySettings,
         );
 
@@ -262,11 +265,11 @@ export async function GET(
 
     const htmlContent = generateInvoiceHtml(
       {
-        ...invoice,
-        subtotal: Number(invoice?.subtotal ?? 0),
-        vatAmount: Number(invoice?.vatAmount ?? 0),
-        total: Number(invoice?.total ?? 0),
-        items: invoice?.items?.map((i: any) => ({
+        ...invoiceForPdf,
+        subtotal: Number(invoiceForPdf?.subtotal ?? 0),
+        vatAmount: Number(invoiceForPdf?.vatAmount ?? 0),
+        total: Number(invoiceForPdf?.total ?? 0),
+        items: invoiceForPdf?.items?.map((i: any) => ({
           ...i,
           quantity: Number(i?.quantity ?? 0),
           unitPrice: Number(i?.unitPrice ?? 0),

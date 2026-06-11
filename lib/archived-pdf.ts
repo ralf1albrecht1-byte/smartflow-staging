@@ -7,19 +7,21 @@ import puppeteer from 'puppeteer';
 import { prisma } from '@/lib/prisma';
 import { uploadBufferToS3, downloadBufferFromS3 } from '@/lib/s3';
 import { generateInvoiceHtml } from '@/lib/pdf-templates';
+import { withDocumentCustomerSnapshot } from '@/lib/document-customer-snapshot';
 
 async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Buffer> {
-const invoiceCurrency = invoice?.currency === 'EUR' ? 'EUR' : 'CHF';
+const invoiceForPdf = withDocumentCustomerSnapshot(invoice, 'invoice');
+const invoiceCurrency = invoiceForPdf?.currency === 'EUR' ? 'EUR' : 'CHF';
 const safeCompanySettings = companySettings
   ? { ...companySettings, currency: invoiceCurrency }
   : { currency: invoiceCurrency };
   const htmlContent = generateInvoiceHtml(
     {
-      ...invoice,
-      subtotal: Number(invoice?.subtotal ?? 0),
-      vatAmount: Number(invoice?.vatAmount ?? 0),
-      total: Number(invoice?.total ?? 0),
-      items: invoice?.items?.map((item: any) => ({
+      ...invoiceForPdf,
+      subtotal: Number(invoiceForPdf?.subtotal ?? 0),
+      vatAmount: Number(invoiceForPdf?.vatAmount ?? 0),
+      total: Number(invoiceForPdf?.total ?? 0),
+      items: invoiceForPdf?.items?.map((item: any) => ({
         ...item,
         quantity: Number(item?.quantity ?? 0),
         unitPrice: Number(item?.unitPrice ?? 0),

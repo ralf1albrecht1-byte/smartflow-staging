@@ -12,6 +12,12 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
+import {
+  buildDocumentCustomerSnapshot,
+  DOCUMENT_CUSTOMER_SELECT,
+  isCustomerSnapshotStatus,
+  withDocumentCustomerSnapshot,
+} from "@/lib/document-customer-snapshot";
 
 function validateDocumentItemsForUpdate(items: any[]) {
   if (!Array.isArray(items)) return null;
@@ -131,13 +137,14 @@ export async function GET(
     });
     if (!offer)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+    const responseOffer = withDocumentCustomerSnapshot(offer, "offer");
     return NextResponse.json({
-      ...offer,
-      subtotal: Number(offer?.subtotal ?? 0),
-      vatAmount: Number(offer?.vatAmount ?? 0),
-      total: Number(offer?.total ?? 0),
+      ...responseOffer,
+      subtotal: Number(responseOffer?.subtotal ?? 0),
+      vatAmount: Number(responseOffer?.vatAmount ?? 0),
+      total: Number(responseOffer?.total ?? 0),
       items:
-        offer?.items?.map((i: any) => ({
+        responseOffer?.items?.map((i: any) => ({
           ...i,
           quantity: Number(i?.quantity ?? 0),
           unitPrice: Number(i?.unitPrice ?? 0),
@@ -176,17 +183,61 @@ export async function PUT(
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
 
-    // Guard: reject reassignment to an archived customer
+    const currentStatus = String(existing.status || "Entwurf");
+    const nextStatus = String(data?.status ?? currentStatus);
+    const currentLocked = isCustomerSnapshotStatus("offer", currentStatus);
+    const nextLocked = isCustomerSnapshotStatus("offer", nextStatus);
+    const nextCustomerId = String(data?.customerId || existing.customerId);
+
+    // Historical offers must not silently change their linked customer. To
+    // correct one, reopen it as a draft first and then resend it.
+    if (
+      currentLocked &&
+      data?.customerId &&
+      data.customerId !== existing.customerId
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Gesendete oder abgelehnte Angebote behalten ihre historischen Kundendaten. Setzen Sie das Angebot zuerst auf Entwurf, bevor Sie den Kunden ändern.",
+        },
+        { status: 409 },
+      );
+    }
+
+    let activeCustomer: any = null;
     if (data?.customerId && data.customerId !== existing.customerId) {
-      const activeCustomer = await prisma.customer.findFirst({
+      activeCustomer = await prisma.customer.findFirst({
         where: { id: data.customerId, userId, dataScope, deletedAt: null },
-        select: { id: true },
+        select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
         return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
       }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
+
+    const needsCustomerSnapshot =
+      nextLocked && (!currentLocked || !existing.customerSnapshot);
+    if (needsCustomerSnapshot && !activeCustomer) {
+      activeCustomer = await prisma.customer.findFirst({
+        where: { id: nextCustomerId, userId, dataScope, deletedAt: null },
+        select: DOCUMENT_CUSTOMER_SELECT,
+      });
+      if (!activeCustomer) {
+        return NextResponse.json(
+          { error: "Kundendaten für den historischen Angebotsstand konnten nicht geladen werden." },
+          { status: 409 },
+        );
+      }
+    }
+
+    const customerSnapshotData = needsCustomerSnapshot
+      ? {
+          customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
+          customerSnapshotAt: new Date(),
+        }
+      : {};
 
     // If items are provided, update items and recalculate totals
     if (data.items && Array.isArray(data.items)) {
@@ -233,6 +284,7 @@ export async function PUT(
           vatRate,
           vatAmount,
           total,
+          ...customerSnapshotData,
           items: { create: itemsData },
         },
         include: {
@@ -252,7 +304,9 @@ export async function PUT(
         targetId: params?.id,
         request,
       });
-      return NextResponse.json(offer);
+      return NextResponse.json(
+        withDocumentCustomerSnapshot(offer, "offer"),
+      );
     }
 
     // Simple update (status/notes/customerId — no items recalculation)
@@ -266,6 +320,7 @@ export async function PUT(
       simpleData.offerDate = offerDate;
       simpleData.validUntil = validUntil;
     }
+    Object.assign(simpleData, customerSnapshotData);
     const offer = await prisma.offer.update({
       where: { id: params?.id },
       data: simpleData,
@@ -286,7 +341,9 @@ export async function PUT(
       targetId: params?.id,
       request,
     });
-    return NextResponse.json(offer);
+    return NextResponse.json(
+      withDocumentCustomerSnapshot(offer, "offer"),
+    );
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

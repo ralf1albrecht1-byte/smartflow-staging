@@ -12,6 +12,7 @@ import {
   getSessionUser,
 } from "@/lib/get-session";
 import { logAuditAsync, EVENTS, AREAS } from "@/lib/audit";
+import { withDocumentCustomerSnapshot } from "@/lib/document-customer-snapshot";
 
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
@@ -211,7 +212,8 @@ export async function GET(
       `[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`,
     );
 
-    const offerCurrency = offer.currency === "EUR" ? "EUR" : "CHF";
+    const offerForPdf = withDocumentCustomerSnapshot(offer, "offer");
+    const offerCurrency = offerForPdf.currency === "EUR" ? "EUR" : "CHF";
 
     const offerCompanySettings: any = companySettings
       ? { ...companySettings, currency: offerCurrency }
@@ -229,11 +231,11 @@ export async function GET(
 
     const htmlContent = generateOfferHtml(
       {
-        ...offer,
-        subtotal: Number(offer?.subtotal ?? 0),
-        vatAmount: Number(offer?.vatAmount ?? 0),
-        total: Number(offer?.total ?? 0),
-        items: offer?.items?.map((i: any) => ({
+        ...offerForPdf,
+        subtotal: Number(offerForPdf?.subtotal ?? 0),
+        vatAmount: Number(offerForPdf?.vatAmount ?? 0),
+        total: Number(offerForPdf?.total ?? 0),
+        items: offerForPdf?.items?.map((i: any) => ({
           ...i,
           quantity: Number(i?.quantity ?? 0),
           unitPrice: Number(i?.unitPrice ?? 0),
