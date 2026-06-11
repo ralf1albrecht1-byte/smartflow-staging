@@ -640,6 +640,88 @@ function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): st
 const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
 
 type OfferPdfMeta = { title: string; text: string };
+
+function OfferWhatsAppPdfIcon({
+  className = "h-4 w-4",
+}: {
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.2 19.1 6 15.9a7.4 7.4 0 1 1 2.8 2.7z" />
+      <path d="M9.1 8.7c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.7 1.6c.1.3.1.5-.1.7l-.4.5c.6 1.1 1.4 1.9 2.5 2.5l.5-.4c.2-.2.5-.2.7-.1l1.6.7c.3.1.4.3.4.5v.5c0 .3 0 .5-.5.7-.6.3-1.4.4-2.5 0-2.4-.8-4.4-2.8-5.2-5.2-.4-1.1-.3-1.9 0-2.5z" />
+    </svg>
+  );
+}
+
+function OfferDirectPdfIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6 shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        d="M6.5 2.75h7l4 4v14.5h-11z"
+        fill="white"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 2.75v4h4"
+        fill="none"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <rect x="4.15" y="11" width="15.7" height="6.45" rx="1.25" fill="#dc2626" />
+      <text
+        x="12"
+        y="15.55"
+        textAnchor="middle"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="4.75"
+        fontWeight="800"
+        fill="white"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+}
+
+function OfferPdfDocumentIcon() {
+  return (
+    <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+      <FileText className="h-5 w-5" strokeWidth={1.9} />
+      <span className="absolute inset-x-[3px] top-[7px] rounded-[2px] bg-current px-[1px] py-[0.5px] text-center text-[5px] font-black leading-none text-white dark:text-slate-950">
+        PDF
+      </span>
+    </span>
+  );
+}
+
+function OfferPdfWhatsAppIcon() {
+  return (
+    <span className="relative inline-flex h-5 w-6 shrink-0 items-center justify-start">
+      <OfferPdfDocumentIcon />
+      <span className="absolute -bottom-1 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-200 bg-emerald-500 text-white shadow-sm dark:border-emerald-700">
+        <OfferWhatsAppPdfIcon className="h-3 w-3" />
+      </span>
+    </span>
+  );
+}
+
 type OfferOperationalChip = {
   key: string;
   title: string;
@@ -5599,6 +5681,49 @@ export default function AngebotePage() {
                     </div>
                   );
 
+                  const renderOfferQuickActions = () => (
+                    <div
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 md:mr-[36%] dark:border-slate-700"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void downloadPdf(off.id);
+                        }}
+                        className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 shadow-sm transition hover:-translate-y-px hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        title="PDF herunterladen"
+                        aria-label="PDF herunterladen"
+                      >
+                        <OfferDirectPdfIcon />
+                      </button>
+                      {whatsappEnabled && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void sendPdfToWhatsApp(off);
+                          }}
+                          disabled={downloading === off.id}
+                          className="inline-flex h-8 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:-translate-y-px hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+                          title="PDF per WhatsApp senden"
+                          aria-label="PDF per WhatsApp senden"
+                        >
+                          {downloading === off.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <OfferPdfWhatsAppIcon />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ||
                     serviceReview.blockerCount > 0 ||
@@ -5692,6 +5817,7 @@ export default function AngebotePage() {
                                   <FileCheck className="w-3.5 h-3.5 text-primary" />
                                   Bearbeiten
                                 </button>
+                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -5704,32 +5830,7 @@ export default function AngebotePage() {
                                   <FileText className="w-3.5 h-3.5 text-blue-600" />
                                   Zur Rechnung
                                 </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
-                                    downloadPdf(off.id);
-                                  }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                >
-                                  <Download className="w-3.5 h-3.5 text-green-600" />
-                                  PDF herunterladen
-                                </button>
-                                {whatsappEnabled && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const menu = e.currentTarget.closest("details");
-                                      if (menu instanceof HTMLDetailsElement) menu.open = false;
-                                      sendPdfToWhatsApp(off);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                    PDF an WhatsApp senden
-                                  </button>
-                                )}
+                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -5742,7 +5843,7 @@ export default function AngebotePage() {
                                   <Undo2 className="w-3.5 h-3.5 text-amber-600" />
                                   Zurück zu Auftrag
                                 </button>
-                                <div className="border-t my-0.5" />
+                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -5881,6 +5982,7 @@ export default function AngebotePage() {
                                         ))}
                                       </select>
                                       {renderOfferCompactFunctionalChips()}
+                                      {renderOfferQuickActions()}
                                       {useTouchChipPopovers ? (
                                         (serviceReview.reviewCount > 0 ||
                                           serviceReview.blockerCount > 0 ||
@@ -6304,6 +6406,7 @@ export default function AngebotePage() {
                                   ))}
 
 
+                                  {renderOfferQuickActions()}
                                   {useTouchChipPopovers ? (
                                     (serviceReview.reviewCount > 0 ||
                                       serviceReview.blockerCount > 0 ||

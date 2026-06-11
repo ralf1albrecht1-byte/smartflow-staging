@@ -4386,7 +4386,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="ml-4 inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 sm:ml-8 sm:pl-6 lg:ml-10 lg:pl-8 dark:border-slate-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 md:mr-[36%] dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
