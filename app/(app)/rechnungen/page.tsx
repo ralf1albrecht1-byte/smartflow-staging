@@ -1400,6 +1400,114 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
   );
 }
 
+type InvoiceMobileServiceSheetStateV17_90L174 = {
+  title: string;
+  entries: InvoiceServiceReviewEntry[];
+  siteGroups: InvoiceServiceReviewSiteGroup[];
+};
+
+function InvoiceMobileServiceReviewSheetV17_90L174({
+  state,
+  onClose,
+}: {
+  state: InvoiceMobileServiceSheetStateV17_90L174;
+  onClose: () => void;
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = state.siteGroups.length > 1;
+
+  return (
+    <div className="fixed inset-0 z-[12000]">
+      <button
+        type="button"
+        aria-label="Leistungsübersicht schließen"
+        className="absolute inset-0 bg-black/25 backdrop-blur-[1px]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed left-3 right-3 top-1/2 flex max-h-[82vh] min-h-0 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:left-1/2 sm:right-auto sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <div className="min-w-0 truncate text-base font-bold text-slate-950 dark:text-slate-50">
+            {state.title}
+          </div>
+          <button
+            type="button"
+            aria-label="Leistungsübersicht schließen"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-5">
+          {multipleSites ? (
+            <div className="space-y-2">
+              {state.siteGroups.map((group, groupIndex) => {
+                const active = activeSiteKey === group.key;
+                const address = [
+                  group.site?.siteAddress,
+                  [group.site?.sitePlz, group.site?.siteCity]
+                    .filter(Boolean)
+                    .join(" "),
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Adresse nicht angegeben";
+                return (
+                  <div
+                    key={`invoice_mobile_group_${group.key}`}
+                    className={`overflow-hidden rounded-xl border ${
+                      active
+                        ? "border-cyan-300"
+                        : "border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className={`flex w-full items-start justify-between gap-3 p-3 text-left ${
+                        active
+                          ? "bg-cyan-50 dark:bg-cyan-950/30"
+                          : "bg-slate-50 dark:bg-slate-800/60"
+                      }`}
+                      onClick={() =>
+                        setActiveSiteKey((current) =>
+                          current === group.key ? null : group.key,
+                        )
+                      }
+                    >
+                      <span className="min-w-0">
+                        <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
+                          {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                        </span>
+                        <span className="mt-0.5 block break-words text-[11px] text-slate-600 dark:text-slate-300">
+                          {address}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
+                        Leistungen prüfen · {group.entries.length}
+                      </span>
+                    </button>
+                    {active && (
+                      <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <InvoiceServiceReviewSectionsV17_90L135G
+                          entries={group.entries}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <InvoiceServiceReviewSectionsV17_90L135G entries={state.entries} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvoiceExecutionSitesTooltip({
   sites,
 }: {
@@ -1550,6 +1658,8 @@ export default function RechnungenPage() {
   const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
   const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
   const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(false);
+  const [activeInvoiceServiceSheet, setActiveInvoiceServiceSheet] =
+    useState<InvoiceMobileServiceSheetStateV17_90L174 | null>(null);
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
 
   useEffect(() => {
@@ -3415,6 +3525,12 @@ export default function RechnungenPage() {
 
   return (
     <div className="space-y-4 pb-16 md:pb-8">
+      {activeInvoiceServiceSheet && (
+        <InvoiceMobileServiceReviewSheetV17_90L174
+          state={activeInvoiceServiceSheet}
+          onClose={() => setActiveInvoiceServiceSheet(null)}
+        />
+      )}
       <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
         <span className="font-display text-sm font-bold sm:text-base">Rechnungen</span>
       </div>
@@ -3665,6 +3781,14 @@ export default function RechnungenPage() {
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
+                          if (useTouchChipPopovers) {
+                            setActiveInvoiceServiceSheet({
+                              title,
+                              entries,
+                              siteGroups,
+                            });
+                            return;
+                          }
                           openEditInvoice(inv, { focusItems: true });
                           setExpandedItemIndex(null);
                         }}
@@ -3676,14 +3800,16 @@ export default function RechnungenPage() {
                       >
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>{entries.length}</span>
-                        <InvoiceViewportTooltip preferredWidth={432}>
-                          <InvoiceServiceReviewTooltipContentV17_90L135G
-                            total={entries.length}
-                            entries={entries}
-                            siteGroups={siteGroups}
-                            title={title}
-                          />
-                        </InvoiceViewportTooltip>
+                        {!useTouchChipPopovers && (
+                          <InvoiceViewportTooltip preferredWidth={432}>
+                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                              total={entries.length}
+                              entries={entries}
+                              siteGroups={siteGroups}
+                              title={title}
+                            />
+                          </InvoiceViewportTooltip>
+                        )}
                       </button>
                     );
                   };
@@ -3692,17 +3818,46 @@ export default function RechnungenPage() {
                     placement: "compact" | "expanded" = "compact",
                   ) =>
                     invoiceYellowReviewEntries.length > 0 ||
-                    invoiceBlockerEntries.length > 0 ? (
+                    invoiceBlockerEntries.length > 0 ||
+                    Boolean(invoiceAppointmentDisplayLabel) ? (
                       <span
                         className={
                           placement === "compact"
-                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
-                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[64%] md:right-40 md:ml-0 md:justify-center md:pr-3"
+                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[64%] md:right-40 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
                       >
                         <span className="inline-flex items-center gap-1.5">
                           {renderInvoiceCompactReviewChip("yellow")}
                           {renderInvoiceCompactReviewChip("red")}
+                          {invoiceAppointmentDisplayLabel && (
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                              className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                              aria-label={invoiceAppointmentDisplayLabel}
+                            >
+                              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                              {invoiceAppointmentChipLabels.dateOnly && (
+                                <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                  {invoiceAppointmentChipLabels.dateOnly}
+                                </span>
+                              )}
+                              <span className="sr-only">
+                                {invoiceAppointmentChipLabels.full}
+                              </span>
+                              <InvoiceViewportTooltip preferredWidth={320}>
+                                <InvoiceAppointmentTooltipContentV17_90L169
+                                  text={invoiceAppointmentDisplayLabel}
+                                />
+                              </InvoiceViewportTooltip>
+                            </button>
+                          )}
                         </span>
                       </span>
                     ) : null;
@@ -3927,6 +4082,9 @@ export default function RechnungenPage() {
                                           </option>
                                         ))}
                                       </select>
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold text-muted-foreground">
+                                        Leistungen · {visibleItems.length}
+                                      </span>
                                       {renderInvoiceCompactFunctionalChips()}
                                       {useTouchChipPopovers ? (
                                         (invoiceYellowReviewEntries.length > 0 ||
@@ -3962,28 +4120,7 @@ export default function RechnungenPage() {
                                       ) : (
                                         <>
                                           {renderInvoiceServicesChip("compact")}
-                                          {invoiceAppointmentDisplayLabel && (
-                                            <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
-                                              <button
-                                                type="button"
-                                                onPointerDown={(event) => event.stopPropagation()}
-                                                onTouchStart={(event) => event.stopPropagation()}
-                                                onClick={(event) => {
-                                                  event.preventDefault();
-                                                  event.stopPropagation();
-                                                }}
-                                                className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                                aria-label={invoiceAppointmentDisplayLabel}
-                                              >
-                                                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                                <InvoiceViewportTooltip preferredWidth={320}>
-                                                  <InvoiceAppointmentTooltipContentV17_90L169
-                                                    text={invoiceAppointmentDisplayLabel}
-                                                  />
-                                                </InvoiceViewportTooltip>
-                                              </button>
-                                            </span>
-                                          )}
+
                                         </>
                                       )}
                                     </div>
@@ -3998,34 +4135,6 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                                    {!useTouchChipPopovers && invoiceAppointmentDisplayLabel && (
-                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
-                                        <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                        }}
-                                        className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                        aria-label={invoiceAppointmentDisplayLabel}
-                                      >
-                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {invoiceAppointmentChipLabels.dateOnly && (
-                                          <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                            {invoiceAppointmentChipLabels.dateOnly}
-                                          </span>
-                                        )}
-                                        <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
-                                        <InvoiceViewportTooltip preferredWidth={320}>
-                                        <InvoiceAppointmentTooltipContentV17_90L169
-                                          text={invoiceAppointmentDisplayLabel}
-                                        />
-                                      </InvoiceViewportTooltip>
-                                        </button>
-                                      </span>
-                                    )}
                                     <div className="flex min-w-0 items-center justify-end gap-2 self-end pr-3 sm:pr-5">
                                       <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                         {formatCurrency(
@@ -4246,28 +4355,6 @@ export default function RechnungenPage() {
                                 ) : (
                                   <>
                                     {renderInvoiceServicesChip("expanded")}
-                                    {invoiceAppointmentDisplayLabel && (
-                                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
-                                        <button
-                                          type="button"
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                          onTouchStart={(event) => event.stopPropagation()}
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                          }}
-                                          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                          aria-label={invoiceAppointmentDisplayLabel}
-                                        >
-                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                          <InvoiceViewportTooltip preferredWidth={320}>
-                                            <InvoiceAppointmentTooltipContentV17_90L169
-                                              text={invoiceAppointmentDisplayLabel}
-                                            />
-                                          </InvoiceViewportTooltip>
-                                        </button>
-                                      </span>
-                                    )}
                                   </>
                                 )}
                                 {dueLabel && (
@@ -4280,34 +4367,6 @@ export default function RechnungenPage() {
                               <div className="relative mt-3 flex min-h-0 items-start justify-end gap-3 border-t pt-2 sm:min-h-12 sm:justify-between sm:pt-3">
                                 <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
                                 <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                                  {!useTouchChipPopovers && invoiceAppointmentDisplayLabel && (
-                                  <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
-                                    <button
-                                      type="button"
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                      }}
-                                      className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                      aria-label={invoiceAppointmentDisplayLabel}
-                                    >
-                                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {invoiceAppointmentChipLabels.dateOnly && (
-                                          <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                            {invoiceAppointmentChipLabels.dateOnly}
-                                          </span>
-                                        )}
-                                        <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
-                                      <InvoiceViewportTooltip preferredWidth={320}>
-                                        <InvoiceAppointmentTooltipContentV17_90L169
-                                          text={invoiceAppointmentDisplayLabel}
-                                        />
-                                      </InvoiceViewportTooltip>
-                                    </button>
-                                  </span>
-                                  )}
                                   <div className="shrink-0 text-right">
                                     <div
                                       className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
@@ -5603,25 +5662,61 @@ export default function RechnungenPage() {
                                       services || [],
                                       currency,
                                     );
-                                  if (groupReviewEntries.length === 0) return null;
+                                  const groupBlockerEntries = groupReviewEntries.filter(
+                                    (entry) => entry.category === "blocker",
+                                  );
+                                  const groupYellowEntries = groupReviewEntries.filter(
+                                    (entry) => entry.category !== "blocker",
+                                  );
+                                  if (
+                                    groupYellowEntries.length === 0 &&
+                                    groupBlockerEntries.length === 0
+                                  )
+                                    return null;
                                   return (
-                                    <span
-                                      className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={(event) => event.stopPropagation()}
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                    >
-                                      <span className="truncate whitespace-nowrap">
-                                        Leistungen prüfen · {groupReviewEntries.length}
-                                      </span>
-                                      <InvoiceViewportTooltip preferredWidth={432}>
-                                        <InvoiceServiceReviewTooltipContentV17_90L135G
-                                          total={groupReviewEntries.length}
-                                          entries={groupReviewEntries}
-                                        />
-                                      </InvoiceViewportTooltip>
-                                    </span>
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {groupYellowEntries.length > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          <span className="truncate whitespace-nowrap">
+                                            Leistungen prüfen · {groupYellowEntries.length}
+                                          </span>
+                                          <InvoiceViewportTooltip preferredWidth={432}>
+                                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                                              total={groupYellowEntries.length}
+                                              entries={groupYellowEntries}
+                                              title={`Leistungen prüfen · ${groupYellowEntries.length}`}
+                                            />
+                                          </InvoiceViewportTooltip>
+                                        </span>
+                                      )}
+                                      {groupBlockerEntries.length > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          <span className="truncate whitespace-nowrap">
+                                            Rechnung prüfen · {groupBlockerEntries.length}
+                                          </span>
+                                          <InvoiceViewportTooltip preferredWidth={432}>
+                                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                                              total={groupBlockerEntries.length}
+                                              entries={groupBlockerEntries}
+                                              title={`Rechnung prüfen · ${groupBlockerEntries.length}`}
+                                            />
+                                          </InvoiceViewportTooltip>
+                                        </span>
+                                      )}
+                                    </div>
                                   );
                                 })()}
                               </div>

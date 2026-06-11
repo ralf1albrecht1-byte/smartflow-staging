@@ -2059,7 +2059,7 @@ function buildOfferServiceReviewSiteGroupsV17_90L135G(
   sites: OfferExecutionSite[],
   services: any[],
   currency: "CHF" | "EUR",
-  mode: "review" | "all" = "review",
+  mode: "review" | "blocker" | "all" = "review",
 ): OfferServiceReviewSiteGroup[] {
   return groupOfferItemsByExecutionSite(offer.items || [], sites)
     .map((group) => {
@@ -2071,7 +2071,9 @@ function buildOfferServiceReviewSiteGroupsV17_90L135G(
       const sections =
         mode === "review"
           ? summary.reviewSections
-          : [...summary.blockerSections, ...summary.reviewSections];
+          : mode === "blocker"
+            ? summary.blockerSections
+            : [...summary.blockerSections, ...summary.reviewSections];
       const count = sections.reduce(
         (sum, section) => sum + section.items.length,
         0,
@@ -2389,6 +2391,7 @@ type OfferMobileTooltipState = {
   jobHints?: string[];
   reviewTitle?: string;
   reviewSections?: OfferServiceReviewSection[];
+  reviewSiteGroups?: OfferServiceReviewSiteGroup[];
   kind?: "service_review" | "execution_address" | "default";
   anchorRect?: {
     top: number;
@@ -2591,6 +2594,7 @@ export default function AngebotePage() {
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
+  const [activeMobileReviewSiteKey, setActiveMobileReviewSiteKey] = useState<string | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
   const [offerCardExpansionRestored, setOfferCardExpansionRestored] = useState(false);
@@ -3972,6 +3976,27 @@ export default function AngebotePage() {
     }
   };
 
+  const getOfferToInvoiceBlockersV17_90L174 = (
+    entries: Array<{
+      description?: string | null;
+      quantity?: string | number | null;
+      unit?: string | null;
+      unitPrice?: string | number | null;
+    }>,
+  ) => {
+    const blockers: string[] = [];
+    if (!entries.length) blockers.push("Keine Leistungen vorhanden");
+    entries.forEach((entry, index) => {
+      const label = String(entry.description || "").trim() || `Position ${index + 1}`;
+      if (!String(entry.description || "").trim()) blockers.push(`${label}: Leistung fehlt`);
+      if (!String(entry.unit || "").trim() || /^(?:prüfen|pruefen)$/i.test(String(entry.unit || "").trim()))
+        blockers.push(`${label}: Einheit fehlt`);
+      if (Number(entry.quantity || 0) <= 0) blockers.push(`${label}: Menge fehlt`);
+      if (Number(entry.unitPrice || 0) <= 0) blockers.push(`${label}: Preis fehlt`);
+    });
+    return Array.from(new Set(blockers));
+  };
+
   // Save + Create Invoice → navigate to /rechnungen
   const saveAndCreateInvoice = async () => {
     setSaving(true);
@@ -3995,7 +4020,7 @@ export default function AngebotePage() {
           ? saved.items.map((i: any) => ({
               description: i.description ?? "",
               quantity: String(i.quantity ?? 0),
-              unit: i.unit ?? "Stunde",
+              unit: i.unit ?? "",
               unitPrice: String(i.unitPrice ?? 0),
               siteName: i.siteName || null,
               siteAddress: i.siteAddress || null,
@@ -4005,6 +4030,12 @@ export default function AngebotePage() {
               sourceOrderId: i.sourceOrderId || null,
             }))
           : items;
+      const conversionBlockers = getOfferToInvoiceBlockersV17_90L174(offerItems);
+      if (conversionBlockers.length > 0) {
+        toast.error(`Rechnung nicht möglich: ${conversionBlockers.slice(0, 3).join(", ")}`);
+        setSaving(false);
+        return;
+      }
 
       // Carry over linked order IDs so intake time & communication data are preserved
       const linkedOrderIds =
@@ -4060,7 +4091,24 @@ export default function AngebotePage() {
         window.location.href = "/rechnungen";
       } else {
         const errData = await invRes.json().catch(() => null);
-        toast.error(errData?.error || "Rechnung konnte nicht erstellt werden");
+        const apiBlockers = Array.isArray(errData?.blockers)
+          ? errData.blockers
+              .flatMap((entry: any) =>
+                Array.isArray(entry?.blockers)
+                  ? entry.blockers
+                  : typeof entry === "string"
+                    ? [entry]
+                    : [],
+              )
+              .filter(Boolean)
+              .slice(0, 3)
+              .join(", ")
+          : "";
+        toast.error(
+          apiBlockers
+            ? `Rechnung nicht möglich: ${apiBlockers}`
+            : errData?.error || "Rechnung konnte nicht erstellt werden",
+        );
       }
     } catch (err) {
       console.error("saveAndCreateInvoice error:", err);
@@ -4249,8 +4297,8 @@ export default function AngebotePage() {
     const invoiceItems =
       off.items?.map((it: any) => ({
         description: it.description ?? "",
-        quantity: String(it.quantity ?? 1),
-        unit: it.unit ?? "Stunde",
+        quantity: String(it.quantity ?? 0),
+        unit: it.unit ?? "",
         unitPrice: String(it.unitPrice ?? 0),
         siteName: it.siteName || null,
         siteAddress: it.siteAddress || null,
@@ -4259,6 +4307,12 @@ export default function AngebotePage() {
         siteNote: it.siteNote || null,
         sourceOrderId: it.sourceOrderId || null,
       })) ?? [];
+    const conversionBlockers = getOfferToInvoiceBlockersV17_90L174(invoiceItems);
+    if (conversionBlockers.length > 0) {
+      toast.error(`Rechnung nicht möglich: ${conversionBlockers.slice(0, 3).join(", ")}`);
+      openEditOffer(off);
+      return;
+    }
     try {
       // Carry over linked order IDs so intake time is preserved on the invoice
       const linkedOrderIds = off.orders?.map((o) => o.id).filter(Boolean) ?? [];
@@ -4300,7 +4354,25 @@ export default function AngebotePage() {
         }
         window.location.href = "/rechnungen";
       } else {
-        toast.error("Rechnung konnte nicht erstellt werden");
+        const errData = await invRes.json().catch(() => null);
+        const apiBlockers = Array.isArray(errData?.blockers)
+          ? errData.blockers
+              .flatMap((entry: any) =>
+                Array.isArray(entry?.blockers)
+                  ? entry.blockers
+                  : typeof entry === "string"
+                    ? [entry]
+                    : [],
+              )
+              .filter(Boolean)
+              .slice(0, 3)
+              .join(", ")
+          : "";
+        toast.error(
+          apiBlockers
+            ? `Rechnung nicht möglich: ${apiBlockers}`
+            : errData?.error || "Rechnung konnte nicht erstellt werden",
+        );
       }
     } catch {
       toast.error("Fehler beim Erstellen der Rechnung");
@@ -4332,7 +4404,10 @@ export default function AngebotePage() {
         activeMobileTooltip.reviewSections &&
           activeMobileTooltip.reviewSections.length > 0,
       );
-    const closeSheet = () => setActiveMobileTooltip(null);
+    const closeSheet = () => {
+      setActiveMobileTooltip(null);
+      setActiveMobileReviewSiteKey(null);
+    };
 
     if (!isServiceReview) {
       const viewportWidth =
@@ -4494,24 +4569,75 @@ export default function AngebotePage() {
 
     const sheetTitle =
       activeMobileTooltip.reviewTitle || "Leistungen prüfen";
+    const reviewSiteGroups = activeMobileTooltip.reviewSiteGroups || [];
+    const renderOfferMobileReviewSections = (
+      sections: OfferServiceReviewSection[],
+      keyPrefix: string,
+    ) => (
+      <div className="space-y-3">
+        {sections.map((section, sectionIndex) => (
+          <div
+            key={`${keyPrefix}_section_${sectionIndex}`}
+            className={
+              sectionIndex > 0
+                ? "border-t border-slate-200 pt-3 dark:border-slate-700"
+                : ""
+            }
+          >
+            <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </div>
+            <div className="space-y-2">
+              {section.items.map((item, itemIndex) => (
+                <div
+                  key={`${keyPrefix}_item_${sectionIndex}_${itemIndex}`}
+                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+                >
+                  <div className="font-bold text-slate-950 dark:text-slate-50">
+                    * {item.title}
+                  </div>
+                  {item.details.map((detail, detailIndex) => {
+                    const trimmedDetail = detail.trim();
+                    const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                      trimmedDetail,
+                    );
+                    const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                    return (
+                      <div
+                        key={`${keyPrefix}_detail_${sectionIndex}_${itemIndex}_${detailIndex}`}
+                        className={`break-words text-[13px] ${
+                          isCurrentPrice
+                            ? "font-bold text-slate-950 dark:text-slate-50"
+                            : isCatalogPrice
+                              ? "font-normal text-slate-500 dark:text-slate-400"
+                              : "text-slate-600 dark:text-slate-300"
+                        }`}
+                      >
+                        {detail}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
 
     return (
       <div className="fixed inset-0 z-[12000]">
         <button
           type="button"
           aria-label="Hinweis schließen"
-          className="absolute inset-0 cursor-default bg-black/20 backdrop-blur-[1px]"
+          className="absolute inset-0 cursor-default bg-black/25 backdrop-blur-[1px]"
           onClick={(event) => {
             event.stopPropagation();
             closeSheet();
           }}
         />
         <div
-          className="fixed left-2 right-2 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          style={{
-            top: "max(0.75rem, env(safe-area-inset-top))",
-            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
-          }}
+          className="fixed left-3 right-3 top-1/2 flex max-h-[82vh] min-h-0 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:left-1/2 sm:right-auto sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
@@ -4528,63 +4654,71 @@ export default function AngebotePage() {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-6">
-            {activeMobileTooltip.reviewSections &&
-              activeMobileTooltip.reviewSections.length > 0 && (
-                <div className="space-y-3">
-                  {activeMobileTooltip.reviewSections.map(
-                    (section, sectionIndex) => (
-                      <div
-                        key={`offer_mobile_review_section_${sectionIndex}`}
-                        className={`${
-                          sectionIndex > 0
-                            ? "border-t border-slate-200 pt-3 dark:border-slate-700"
-                            : ""
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-5">
+            {reviewSiteGroups.length > 1 ? (
+              <div className="space-y-2">
+                {reviewSiteGroups.map((group, groupIndex) => {
+                  const active = activeMobileReviewSiteKey === group.key;
+                  const address = [
+                    group.site?.siteAddress,
+                    [group.site?.sitePlz, group.site?.siteCity]
+                      .filter(Boolean)
+                      .join(" "),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Adresse nicht angegeben";
+                  return (
+                    <div
+                      key={`offer_mobile_group_${group.key}`}
+                      className={`overflow-hidden rounded-xl border ${
+                        active
+                          ? "border-cyan-300"
+                          : "border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`flex w-full items-start justify-between gap-3 p-3 text-left ${
+                          active
+                            ? "bg-cyan-50 dark:bg-cyan-950/30"
+                            : "bg-slate-50 dark:bg-slate-800/60"
                         }`}
+                        onClick={() =>
+                          setActiveMobileReviewSiteKey((current) =>
+                            current === group.key ? null : group.key,
+                          )
+                        }
                       >
-                        <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                          {section.title}
+                        <span className="min-w-0">
+                          <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
+                            {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                          </span>
+                          <span className="mt-0.5 block break-words text-[11px] text-slate-600 dark:text-slate-300">
+                            {address}
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
+                          Leistungen prüfen · {group.count}
+                        </span>
+                      </button>
+                      {active && (
+                        <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          {renderOfferMobileReviewSections(
+                            group.sections,
+                            `offer_mobile_group_${group.key}`,
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          {section.items.map((item, itemIndex) => (
-                            <div
-                              key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
-                              className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
-                            >
-                              <div className="font-bold text-slate-950 dark:text-slate-50">
-                                * {item.title}
-                              </div>
-                              {item.details.map((detail, detailIndex) => {
-                                const trimmedDetail = detail.trim();
-                                const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
-                                  trimmedDetail,
-                                );
-                                const isCatalogPrice = /^Katalogpreis:/i.test(
-                                  trimmedDetail,
-                                );
-                                return (
-                                  <div
-                                    key={`offer_mobile_review_detail_${detailIndex}`}
-                                    className={`break-words text-[13px] ${
-                                      isCurrentPrice
-                                        ? "font-bold text-slate-950 dark:text-slate-50"
-                                        : isCatalogPrice
-                                          ? "font-normal text-slate-500 dark:text-slate-400"
-                                          : "text-slate-600 dark:text-slate-300"
-                                    }`}
-                                  >
-                                    {detail}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              renderOfferMobileReviewSections(
+                activeMobileTooltip.reviewSections || [],
+                "offer_mobile_review",
+              )
+            )}
           </div>
         </div>
       </div>
@@ -4899,6 +5033,14 @@ export default function AngebotePage() {
                       offerCurrency,
                       "review",
                     );
+                  const offerBlockerSiteGroups =
+                    buildOfferServiceReviewSiteGroupsV17_90L135G(
+                      off,
+                      offerExecutionSites,
+                      services,
+                      offerCurrency,
+                      "blocker",
+                    );
                   const mobileOfferServiceNames = (off.items || [])
                     .map((item: any) => String(item?.description || "").trim())
                     .filter(Boolean);
@@ -4947,6 +5089,9 @@ export default function AngebotePage() {
                                   key: `${off.id}:${slot}:${tone}`,
                                   reviewTitle: title,
                                   reviewSections: sections,
+                                  reviewSiteGroups: isRed
+                                    ? offerBlockerSiteGroups
+                                    : offerReviewSiteGroups,
                                 },
                                 event,
                               )
@@ -4964,7 +5109,7 @@ export default function AngebotePage() {
                           <OfferServiceReviewTooltip
                             title={title}
                             sections={sections}
-                            siteGroups={isRed ? [] : offerReviewSiteGroups}
+                            siteGroups={isRed ? offerBlockerSiteGroups : offerReviewSiteGroups}
                             align="right"
                           />
                         )}
@@ -5193,8 +5338,9 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ||
-                    serviceReview.blockerCount > 0 ? (
-                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                    serviceReview.blockerCount > 0 ||
+                    Boolean(appointmentDisplayLabel) ? (
+                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[64%] md:right-40 md:ml-0 md:justify-center md:pr-3">
                         <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
@@ -5203,6 +5349,31 @@ export default function AngebotePage() {
                           {renderOfferCompactReviewChip(
                             "red",
                             "compact-service-blocker",
+                          )}
+                          {appointmentDisplayLabel && (
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) =>
+                                openOfferChipTarget(
+                                  "details",
+                                  event,
+                                  appointmentDisplayLabel,
+                                )
+                              }
+                              className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                              aria-label={appointmentDisplayLabel}
+                            >
+                              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                              {appointmentChipLabels.dateOnly && (
+                                <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                  {appointmentChipLabels.dateOnly}
+                                </span>
+                              )}
+                              <span className="sr-only">{appointmentChipLabels.full}</span>
+                              <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                            </button>
                           )}
                         </span>
                       </span>
@@ -5443,6 +5614,9 @@ export default function AngebotePage() {
                                           </option>
                                         ))}
                                       </select>
+                                      <span className="inline-flex h-7 shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                        Leistungen · {mobileOfferServiceNames.length}
+                                      </span>
                                       {renderOfferCompactFunctionalChips()}
                                       {useTouchChipPopovers ? (
                                         (serviceReview.reviewCount > 0 ||
@@ -5486,29 +5660,6 @@ export default function AngebotePage() {
                                       ) : (
                                         <>
                                           {renderOfferCompactServiceReviewChip()}
-                                          {appointmentDisplayLabel && (
-                                            <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
-                                              <button
-                                                type="button"
-                                                onPointerDown={(event) => event.stopPropagation()}
-                                                onTouchStart={(event) => event.stopPropagation()}
-                                                onClick={(event) => {
-                                                  event.preventDefault();
-                                                  event.stopPropagation();
-                                                  openOfferSection(
-                                                    off,
-                                                    "details",
-                                                    appointmentDisplayLabel,
-                                                  );
-                                                }}
-                                                className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                                aria-label={appointmentDisplayLabel}
-                                              >
-                                                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                                <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                              </button>
-                                            </span>
-                                          )}
                                         </>
                                       )}
                                     </div>
@@ -5525,34 +5676,6 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                                    {!useTouchChipPopovers && appointmentDisplayLabel && (
-                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
-                                        <button
-                                          type="button"
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                          onTouchStart={(event) => event.stopPropagation()}
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            openOfferSection(
-                                              off,
-                                              "details",
-                                              appointmentDisplayLabel,
-                                            );
-                                          }}
-                                          className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                        >
-                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                          {appointmentChipLabels.dateOnly && (
-                                            <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                              {appointmentChipLabels.dateOnly}
-                                            </span>
-                                          )}
-                                          <span className="sr-only">{appointmentChipLabels.full}</span>
-                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                        </button>
-                                      </span>
-                                    )}
                                     <div className="flex min-w-0 items-center justify-end gap-2 self-end">
                                       <div className="shrink-0 text-right">
                                         <div className="font-mono text-sm font-bold tabular-nums">
@@ -5958,8 +6081,9 @@ export default function AngebotePage() {
                                   ) : (
                                     <>
                                       {(serviceReview.reviewCount > 0 ||
-                                        serviceReview.blockerCount > 0) && (
-                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                        serviceReview.blockerCount > 0 ||
+                                        Boolean(appointmentDisplayLabel)) && (
+                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[64%] md:right-40 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                           <span className="inline-flex items-center gap-1.5">
                                             {renderOfferCompactReviewChip(
                                               "yellow",
@@ -5969,28 +6093,31 @@ export default function AngebotePage() {
                                               "red",
                                               "expanded-service-blocker",
                                             )}
+                                            {appointmentDisplayLabel && (
+                                              <button
+                                                type="button"
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onTouchStart={(event) => event.stopPropagation()}
+                                                onClick={(event) =>
+                                                  openOfferChipTarget(
+                                                    "details",
+                                                    event,
+                                                    appointmentDisplayLabel,
+                                                  )
+                                                }
+                                                className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                                                aria-label={appointmentDisplayLabel}
+                                              >
+                                                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                {appointmentChipLabels.dateOnly && (
+                                                  <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                                    {appointmentChipLabels.dateOnly}
+                                                  </span>
+                                                )}
+                                                <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                              </button>
+                                            )}
                                           </span>
-                                        </span>
-                                      )}
-                                      {appointmentDisplayLabel && (
-                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
-                                          <button
-                                            type="button"
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onTouchStart={(event) => event.stopPropagation()}
-                                            onClick={(event) =>
-                                              openOfferChipTarget(
-                                                "details",
-                                                event,
-                                                appointmentDisplayLabel,
-                                              )
-                                            }
-                                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
-                                            aria-label={appointmentDisplayLabel}
-                                          >
-                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                          </button>
                                         </span>
                                       )}
                                     </>
@@ -6001,33 +6128,6 @@ export default function AngebotePage() {
                                   <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                                   <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                                    {!useTouchChipPopovers && appointmentDisplayLabel && (
-                                      <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
-                                        <button
-                                          type="button"
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                          onTouchStart={(event) => event.stopPropagation()}
-                                          onClick={(event) =>
-                                            openOfferChipTarget(
-                                              "details",
-                                              event,
-                                              appointmentDisplayLabel,
-                                            )
-                                          }
-                                          className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                        >
-                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                          {appointmentChipLabels.dateOnly && (
-                                            <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                              {appointmentChipLabels.dateOnly}
-                                            </span>
-                                          )}
-                                          <span className="sr-only">{appointmentChipLabels.full}</span>
-                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                        </button>
-                                      </span>
-                                    )}
-
                                     <div className="shrink-0 whitespace-nowrap text-right leading-tight">
                                       <div className="font-mono text-[16px] font-bold tabular-nums">
                                         {formatCurrency(
@@ -7516,32 +7616,51 @@ export default function AngebotePage() {
                                     services || [],
                                     currency,
                                   );
-                                  const groupSections = [
-                                    ...groupSummary.blockerSections,
-                                    ...groupSummary.reviewSections,
-                                  ];
-                                  const groupReviewCount = groupSections.reduce(
-                                    (sum, section) => sum + section.items.length,
-                                    0,
-                                  );
-                                  if (groupReviewCount === 0) return null;
+                                  if (
+                                    groupSummary.reviewCount === 0 &&
+                                    groupSummary.blockerCount === 0
+                                  )
+                                    return null;
                                   return (
-                                    <span
-                                      className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={(event) => event.stopPropagation()}
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                    >
-                                      <span className="truncate whitespace-nowrap">
-                                        Leistungen prüfen · {groupReviewCount}
-                                      </span>
-                                      <OfferServiceReviewTooltip
-                                        title={`Leistungen prüfen · ${groupReviewCount}`}
-                                        sections={groupSections}
-                                        align="left"
-                                      />
-                                    </span>
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {groupSummary.reviewCount > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          <span className="truncate whitespace-nowrap">
+                                            Leistungen prüfen · {groupSummary.reviewCount}
+                                          </span>
+                                          <OfferServiceReviewTooltip
+                                            title={`Leistungen prüfen · ${groupSummary.reviewCount}`}
+                                            sections={groupSummary.reviewSections}
+                                            align="left"
+                                          />
+                                        </span>
+                                      )}
+                                      {groupSummary.blockerCount > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          <span className="truncate whitespace-nowrap">
+                                            Angebot prüfen · {groupSummary.blockerCount}
+                                          </span>
+                                          <OfferServiceReviewTooltip
+                                            title={`Angebot prüfen · ${groupSummary.blockerCount}`}
+                                            sections={groupSummary.blockerSections}
+                                            align="left"
+                                          />
+                                        </span>
+                                      )}
+                                    </div>
                                   );
                                 })()}
                               </div>

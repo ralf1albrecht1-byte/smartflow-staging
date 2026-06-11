@@ -562,6 +562,43 @@ type OrderServiceReviewGroup = {
   tooltip: string;
 };
 
+type OrderMobileServiceReviewSectionV17_90L174 = {
+  title: string;
+  items: Array<{ title: string; details: string[] }>;
+};
+
+const parseOrderServiceReviewTooltipV17_90L174 = (
+  tooltip: string,
+): OrderMobileServiceReviewSectionV17_90L174[] =>
+  String(tooltip || "")
+    .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
+    .map((sectionText) => {
+      const lines = sectionText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const title = lines.shift() || "Leistungen prüfen";
+      const items: Array<{ title: string; details: string[] }> = [];
+      let current: { title: string; details: string[] } | null = null;
+
+      lines.forEach((line) => {
+        if (/^(?:\*|•)\s+/.test(line)) {
+          const content = line.replace(/^(?:\*|•)\s*/, "").trim();
+          const [itemTitle, ...detailParts] = content.split(/\s+—\s+/);
+          current = {
+            title: itemTitle || "Leistung",
+            details: detailParts.length ? [detailParts.join(" — ")] : [],
+          };
+          items.push(current);
+          return;
+        }
+        if (current) current.details.push(line);
+      });
+
+      return { title, items };
+    })
+    .filter((section) => section.items.length > 0);
+
 type ReviewBadge = {
   key: string;
   label: string;
@@ -9832,7 +9869,9 @@ export default function AuftraegePage() {
       width: number;
       height: number;
     };
+    serviceReviewGroups?: OrderServiceReviewGroup[];
   } | null>(null);
+  const [activeMobileReviewGroupKey, setActiveMobileReviewGroupKey] = useState<string | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOrderCardIds, setExpandedOrderCardIds] = useState<Set<string>>(new Set());
   const [orderCardExpansionRestored, setOrderCardExpansionRestored] = useState(false);
@@ -13898,22 +13937,11 @@ export default function AuftraegePage() {
       // V17.90L61: An offer must receive the exact saved order positions.
       // Do not merge "equivalent" rows here: separate work areas can share the
       // same quantity/price and still be distinct contractual positions.
-      const orderItems =
-        saved.items && saved.items.length > 0
-          ? saved.items
-          : [
-              {
-                serviceName: saved.serviceName ?? "",
-                description: saved.serviceName ?? saved.description ?? "",
-                quantity: saved.quantity ?? 1,
-                unit: saved.priceType ?? "Stunde",
-                unitPrice: saved.unitPrice ?? 0,
-              },
-            ];
+      const orderItems = Array.isArray(saved.items) ? saved.items : [];
       const offerItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
-        quantity: String(i.quantity ?? 1),
-        unit: i.unit ?? "Stunde",
+        quantity: String(i.quantity ?? 0),
+        unit: i.unit ?? "",
         unitPrice: String(i.unitPrice ?? 0),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
@@ -13980,22 +14008,11 @@ export default function AuftraegePage() {
 
       // Keep every saved position one-to-one. Equivalent rows can belong to
       // different execution sites and must never be merged for an invoice.
-      const orderItems =
-        saved.items && saved.items.length > 0
-          ? saved.items
-          : [
-              {
-                serviceName: saved.serviceName ?? "",
-                description: saved.serviceName ?? saved.description ?? "",
-                quantity: saved.quantity ?? 1,
-                unit: saved.priceType ?? "Stunde",
-                unitPrice: saved.unitPrice ?? 0,
-              },
-            ];
+      const orderItems = Array.isArray(saved.items) ? saved.items : [];
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
-        quantity: String(i.quantity ?? 1),
-        unit: i.unit ?? "Stunde",
+        quantity: String(i.quantity ?? 0),
+        unit: i.unit ?? "",
         unitPrice: String(i.unitPrice ?? 0),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
@@ -14451,23 +14468,13 @@ export default function AuftraegePage() {
 
     // Direct API create — no extra dialog
     // V17.90L61: Preserve every source order item one-to-one in the offer.
-    const orderItems =
-      sourceOrder.items && sourceOrder.items.length > 0
-        ? sourceOrder.items
-        : [
-            {
-              serviceName: sourceOrder.serviceName ?? "",
-              description:
-                sourceOrder.serviceName ?? sourceOrder.description ?? "",
-              quantity: sourceOrder.quantity ?? 1,
-              unit: sourceOrder.priceType ?? "Stunde",
-              unitPrice: sourceOrder.unitPrice ?? 0,
-            },
-          ];
+    const orderItems = Array.isArray(sourceOrder.items)
+      ? sourceOrder.items
+      : [];
     const offerItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
-      quantity: String(i.quantity ?? 1),
-      unit: i.unit ?? "Stunde",
+      quantity: String(i.quantity ?? 0),
+      unit: i.unit ?? "",
       unitPrice: String(i.unitPrice ?? 0),
       siteName: i.workSite?.siteName || null,
       siteAddress: i.workSite?.siteAddress || null,
@@ -14506,7 +14513,13 @@ export default function AuftraegePage() {
         );
         window.location.href = "/angebote";
       } else {
-        toast.error("Angebot konnte nicht erstellt werden");
+        const errorPayload = await res.json().catch(() => null);
+        const blockers = formatDocumentApiBlockersV17_90L36(errorPayload);
+        toast.error(
+          blockers
+            ? `Angebot nicht möglich: ${blockers}`
+            : errorPayload?.error || "Angebot konnte nicht erstellt werden",
+        );
       }
     } catch {
       toast.error("Fehler beim Erstellen des Angebots");
@@ -14523,23 +14536,13 @@ export default function AuftraegePage() {
     // Direct API create — no extra dialog
     // Keep every source position one-to-one. Equivalent rows can belong to
     // different execution sites and must never be merged for an invoice.
-    const orderItems =
-      sourceOrder.items && sourceOrder.items.length > 0
-        ? sourceOrder.items
-        : [
-            {
-              serviceName: sourceOrder.serviceName ?? "",
-              description:
-                sourceOrder.serviceName ?? sourceOrder.description ?? "",
-              quantity: sourceOrder.quantity ?? 1,
-              unit: sourceOrder.priceType ?? "Stunde",
-              unitPrice: sourceOrder.unitPrice ?? 0,
-            },
-          ];
+    const orderItems = Array.isArray(sourceOrder.items)
+      ? sourceOrder.items
+      : [];
     const invoiceItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
-      quantity: String(i.quantity ?? 1),
-      unit: i.unit ?? "Stunde",
+      quantity: String(i.quantity ?? 0),
+      unit: i.unit ?? "",
       unitPrice: String(i.unitPrice ?? 0),
       siteName: i.workSite?.siteName || null,
       siteAddress: i.workSite?.siteAddress || null,
@@ -14578,7 +14581,13 @@ export default function AuftraegePage() {
         );
         window.location.href = "/rechnungen";
       } else {
-        toast.error("Rechnung konnte nicht erstellt werden");
+        const errorPayload = await res.json().catch(() => null);
+        const blockers = formatDocumentApiBlockersV17_90L36(errorPayload);
+        toast.error(
+          blockers
+            ? `Rechnung nicht möglich: ${blockers}`
+            : errorPayload?.error || "Rechnung konnte nicht erstellt werden",
+        );
       }
     } catch {
       toast.error("Fehler beim Erstellen der Rechnung");
@@ -14778,39 +14787,13 @@ export default function AuftraegePage() {
       activeMobileTooltip.kind === "operational_danger";
     const isOperationalHint = activeMobileTooltip.kind === "operational_hint";
     const serviceReviewSections = isServiceReview
-      ? tooltip
-          .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
-          .map((sectionText) => {
-            const lines = sectionText
-              .split("\n")
-              .map((line) => line.trim())
-              .filter(Boolean);
-            const title = lines.shift() || "Leistungen prüfen";
-            const items: Array<{ title: string; details: string[] }> = [];
-            let current: { title: string; details: string[] } | null = null;
-
-            lines.forEach((line) => {
-              if (/^(?:\*|•)\s+/.test(line)) {
-                const content = line.replace(/^(?:\*|•)\s*/, "").trim();
-                const [itemTitle, ...detailParts] = content.split(/\s+—\s+/);
-                current = {
-                  title: itemTitle || "Leistung",
-                  details: detailParts.length ? [detailParts.join(" — ")] : [],
-                };
-                items.push(current);
-                return;
-              }
-              if (current) current.details.push(line);
-            });
-
-            return { title, items };
-          })
-          .filter((section) => section.items.length > 0)
+      ? parseOrderServiceReviewTooltipV17_90L174(tooltip)
       : [];
 
     const closeSheet = () => {
       setActiveMobileTooltipKey(null);
       setActiveMobileTooltip(null);
+      setActiveMobileReviewGroupKey(null);
     };
 
     if (!isServiceReview) {
@@ -14962,23 +14945,75 @@ export default function AuftraegePage() {
     }
 
     const sheetTitle = activeMobileTooltip.title || "Leistungen prüfen";
+    const reviewGroups = activeMobileTooltip.serviceReviewGroups || [];
+    const renderMobileServiceSections = (
+      sections: OrderMobileServiceReviewSectionV17_90L174[],
+      keyPrefix: string,
+    ) => (
+      <div className="space-y-3">
+        {sections.map((section, sectionIndex) => (
+          <div
+            key={`${keyPrefix}_section_${sectionIndex}`}
+            className={
+              sectionIndex > 0
+                ? "border-t border-slate-200 pt-3 dark:border-slate-700"
+                : ""
+            }
+          >
+            <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </div>
+            <div className="space-y-2">
+              {section.items.map((item, itemIndex) => (
+                <div
+                  key={`${keyPrefix}_item_${sectionIndex}_${itemIndex}`}
+                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+                >
+                  <div className="font-bold text-slate-950 dark:text-slate-50">
+                    * {item.title}
+                  </div>
+                  {item.details.map((detail, detailIndex) => {
+                    const trimmedDetail = detail.trim();
+                    const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                      trimmedDetail,
+                    );
+                    const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                    return (
+                      <div
+                        key={`${keyPrefix}_detail_${sectionIndex}_${itemIndex}_${detailIndex}`}
+                        className={`break-words text-[13px] ${
+                          isCurrentPrice
+                            ? "font-bold text-slate-950 dark:text-slate-50"
+                            : isCatalogPrice
+                              ? "font-normal text-slate-500 dark:text-slate-400"
+                              : "text-slate-600 dark:text-slate-300"
+                        }`}
+                      >
+                        {detail}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+
     return (
       <div className="fixed inset-0 z-[12000]">
         <button
           type="button"
           aria-label="Hinweis schließen"
-          className="absolute inset-0 cursor-default bg-black/20 backdrop-blur-[1px]"
+          className="absolute inset-0 cursor-default bg-black/25 backdrop-blur-[1px]"
           onClick={(event) => {
             event.stopPropagation();
             closeSheet();
           }}
         />
         <div
-          className="fixed left-2 right-2 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          style={{
-            top: "max(0.75rem, env(safe-area-inset-top))",
-            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
-          }}
+          className="fixed left-3 right-3 top-1/2 flex max-h-[82vh] min-h-0 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:left-1/2 sm:right-auto sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
@@ -14994,58 +15029,66 @@ export default function AuftraegePage() {
               <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 pb-6">
-            <div className="space-y-3">
-              {serviceReviewSections.map((section, sectionIndex) => (
-                <div
-                  key={`order_mobile_review_section_${sectionIndex}`}
-                  className={`${
-                    sectionIndex > 0
-                      ? "border-t border-slate-200 pt-3 dark:border-slate-700"
-                      : ""
-                  }`}
-                >
-                  <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                    {section.title}
-                  </div>
-                  <div className="space-y-2">
-                    {section.items.map((item, itemIndex) => (
-                      <div
-                        key={`order_mobile_review_item_${sectionIndex}_${itemIndex}`}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 pb-5">
+            {reviewGroups.length > 1 ? (
+              <div className="space-y-2">
+                {reviewGroups.map((group, groupIndex) => {
+                  const active = activeMobileReviewGroupKey === group.key;
+                  const groupSections = parseOrderServiceReviewTooltipV17_90L174(
+                    group.tooltip,
+                  );
+                  return (
+                    <div
+                      key={`order_mobile_group_${group.key}`}
+                      className={`overflow-hidden rounded-xl border ${
+                        active
+                          ? "border-cyan-300"
+                          : "border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`flex w-full items-start justify-between gap-3 p-3 text-left ${
+                          active
+                            ? "bg-cyan-50 dark:bg-cyan-950/30"
+                            : "bg-slate-50 dark:bg-slate-800/60"
+                        }`}
+                        onClick={() =>
+                          setActiveMobileReviewGroupKey((current) =>
+                            current === group.key ? null : group.key,
+                          )
+                        }
                       >
-                        <div className="font-bold text-slate-950 dark:text-slate-50">
-                          * {item.title}
+                        <span className="min-w-0">
+                          <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
+                            {groupIndex + 1}. {group.title}
+                          </span>
+                          <span className="mt-0.5 block break-words text-[11px] text-slate-600 dark:text-slate-300">
+                            {group.address || "Adresse nicht angegeben"}
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
+                          Leistungen prüfen · {group.count}
+                        </span>
+                      </button>
+                      {active && (
+                        <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          {renderMobileServiceSections(
+                            groupSections,
+                            `order_mobile_group_${group.key}`,
+                          )}
                         </div>
-                        {item.details.map((detail, detailIndex) => {
-                          const trimmedDetail = detail.trim();
-                          const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
-                            trimmedDetail,
-                          );
-                          const isCatalogPrice = /^Katalogpreis:/i.test(
-                            trimmedDetail,
-                          );
-                          return (
-                            <div
-                              key={`order_mobile_review_detail_${detailIndex}`}
-                              className={`break-words text-[13px] ${
-                                isCurrentPrice
-                                  ? "font-bold text-slate-950 dark:text-slate-50"
-                                  : isCatalogPrice
-                                    ? "font-normal text-slate-500 dark:text-slate-400"
-                                    : "text-slate-600 dark:text-slate-300"
-                              }`}
-                            >
-                              {detail}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              renderMobileServiceSections(
+                serviceReviewSections,
+                "order_mobile_review",
+              )
+            )}
           </div>
         </div>
       </div>
@@ -15431,6 +15474,10 @@ export default function AuftraegePage() {
                               height: rect.height,
                             }
                           : undefined,
+                        serviceReviewGroups:
+                          badge.key === "service_review_summary"
+                            ? badge.serviceReviewGroups
+                            : undefined,
                       }
                     : null,
                 );
@@ -15917,6 +15964,9 @@ export default function AuftraegePage() {
                                     </option>
                                   ))}
                                 </select>
+                                <span className="inline-flex h-7 shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                  Leistungen · {mobileOrderServiceNames.length}
+                                </span>
 
                                 {!hasMultipleMergedData && (
                                   <div
@@ -15970,27 +16020,24 @@ export default function AuftraegePage() {
                                   )
                                 ) : (
                                   <>
-                                    {orderedRightSideBadges.length > 0 && (
-                                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                                    {(orderedRightSideBadges.length > 0 || appointmentBadges.length > 0) && (
+                                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[64%] md:right-40 md:ml-0 md:justify-center md:pr-3">
                                         <span className="inline-flex items-center gap-1.5">
                                           {orderedRightSideBadges.map((badge) =>
                                             renderInteractiveMobileRightReviewBadge(badge),
                                           )}
+                                          {appointmentBadges.slice(0, 1).map((badge) => (
+                                            <span key={`compact_desktop_appointment_${badge.key}`} className="inline-flex shrink-0">
+                                              {renderResponsiveAppointmentBadge(
+                                                badge,
+                                                "compact_desktop_appointment",
+                                                "left",
+                                              )}
+                                            </span>
+                                          ))}
                                         </span>
                                       </span>
                                     )}
-                                    {appointmentBadges.slice(0, 1).map((badge) => (
-                                      <span
-                                        key={`compact_mobile_appointment_wrap_${badge.key}`}
-                                        className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
-                                      >
-                                        {renderResponsiveAppointmentBadge(
-                                          badge,
-                                          "compact_mobile_appointment",
-                                          "left",
-                                        )}
-                                      </span>
-                                    ))}
                                   </>
                                 )}
                               </div>
@@ -16007,19 +16054,6 @@ export default function AuftraegePage() {
                               </div>
                             </div>
                             <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                              {!useTouchChipPopovers &&
-                                appointmentBadges.slice(0, 1).map((badge) => (
-                                  <span
-                                    key={`compact_appointment_wrap_${badge.key}`}
-                                    className="inline-flex min-w-0 items-center justify-center self-end"
-                                  >
-                                    {renderResponsiveAppointmentBadge(
-                                      badge,
-                                      "compact_header_appointment",
-                                      "left",
-                                    )}
-                                  </span>
-                                ))}
                               <div className="flex min-w-0 items-center justify-end gap-2 self-end">
                                 <div className="shrink-0 text-right">
                                   <div className="font-mono text-sm font-bold tabular-nums">
@@ -16180,27 +16214,24 @@ export default function AuftraegePage() {
                             )
                           ) : (
                             <>
-                              {orderedRightSideBadges.length > 0 && (
-                                <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                              {(orderedRightSideBadges.length > 0 || appointmentBadges.length > 0) && (
+                                <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[64%] md:right-40 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                   <span className="inline-flex items-center gap-1.5">
                                     {orderedRightSideBadges.map((badge) =>
                                       renderInteractiveMobileRightReviewBadge(badge),
                                     )}
+                                    {appointmentBadges.slice(0, 1).map((badge) => (
+                                      <span key={`expanded_desktop_appointment_${badge.key}`} className="inline-flex shrink-0">
+                                        {renderResponsiveAppointmentBadge(
+                                          badge,
+                                          "expanded_desktop_appointment",
+                                          "left",
+                                        )}
+                                      </span>
+                                    ))}
                                   </span>
                                 </span>
                               )}
-                              {appointmentBadges.slice(0, 1).map((badge) => (
-                                <span
-                                  key={`expanded_mobile_appointment_wrap_${badge.key}`}
-                                  className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
-                                >
-                                  {renderResponsiveAppointmentBadge(
-                                    badge,
-                                    "expanded_mobile_appointment",
-                                    "left",
-                                  )}
-                                </span>
-                              ))}
                             </>
                           )}
                         </div>
@@ -16210,20 +16241,6 @@ export default function AuftraegePage() {
                           <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                           <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                            {!useTouchChipPopovers &&
-                              appointmentBadges.slice(0, 1).map((badge) => (
-                                <span
-                                  key={`mobile_appointment_wrap_${badge.key}`}
-                                  className="hidden min-w-0 items-center justify-center self-end sm:inline-flex"
-                                >
-                                  {renderResponsiveAppointmentBadge(
-                                    badge,
-                                    "mobile_appointment",
-                                    "left",
-                                  )}
-                                </span>
-                              ))}
-
                             <div className="shrink-0 whitespace-nowrap text-right leading-tight">
                               <div className="font-mono text-[16px] font-bold tabular-nums">
                                 {formatCurrency(
@@ -18090,6 +18107,33 @@ export default function AuftraegePage() {
 
                             return combineCatalogReviewBadges(badges);
                           })();
+                          const groupBlockerItemsV17_90L174 = groupItems
+                            .map((groupItem) => {
+                              const reasons: string[] = [];
+                              const serviceName = compactText(groupItem.serviceName) || "Leistung";
+                              if (isUnresolvedConversionServiceNameV17_90L36b(groupItem.serviceName))
+                                reasons.push("Leistung fehlt");
+                              if (isUnresolvedConversionUnitV17_90L36b(groupItem.unit))
+                                reasons.push("Einheit fehlt");
+                              if (Number(groupItem.quantity || 0) <= 0)
+                                reasons.push("Menge fehlt");
+                              if (Number(groupItem.unitPrice || 0) <= 0)
+                                reasons.push("Preis fehlt");
+                              return reasons.length > 0
+                                ? { serviceName, reasons }
+                                : null;
+                            })
+                            .filter(Boolean) as Array<{
+                              serviceName: string;
+                              reasons: string[];
+                            }>;
+                          const groupBlockerTooltipV17_90L174 =
+                            groupBlockerItemsV17_90L174
+                              .map(
+                                (entry) =>
+                                  `* ${entry.serviceName} — ${entry.reasons.join(", ")}`,
+                              )
+                              .join("\n");
                           const siteHasRequiredInfo = site
                             ? hasWorkSiteContent(site)
                             : false;
@@ -18185,29 +18229,59 @@ export default function AuftraegePage() {
                                           </span>
                                         )}
                                       </div>
-                                      {groupReviewSummaryV17_90L135G.count > 0 && (
-                                        <span
-                                          className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
-                                          role="button"
-                                          tabIndex={0}
-                                          onClick={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                        >
-                                          <span className="truncate whitespace-nowrap">
-                                            Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
-                                          </span>
-                                          <ViewportAwareOrderServiceTooltip
-                                            badge={{
-                                              key: `site_service_review_${site?.id || "general"}`,
-                                              label: `Leistungen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
-                                              className:
-                                                "border-amber-300 bg-amber-100 text-amber-900",
-                                              tooltip:
-                                                groupReviewSummaryV17_90L135G.tooltip,
-                                            }}
-                                            align="left"
-                                          />
-                                        </span>
+                                      {(groupReviewSummaryV17_90L135G.count > 0 ||
+                                        groupBlockerItemsV17_90L174.length > 0) && (
+                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                          {groupReviewSummaryV17_90L135G.count > 0 && (
+                                            <span
+                                              className="relative inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={(event) => event.stopPropagation()}
+                                              onPointerDown={(event) => event.stopPropagation()}
+                                            >
+                                              <span className="truncate whitespace-nowrap">
+                                                Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                              </span>
+                                              <ViewportAwareOrderServiceTooltip
+                                                badge={{
+                                                  key: `site_service_review_${site?.id || "general"}`,
+                                                  label: `Leistungen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
+                                                  className:
+                                                    "border-amber-300 bg-amber-100 text-amber-900",
+                                                  tooltip:
+                                                    groupReviewSummaryV17_90L135G.tooltip,
+                                                }}
+                                                align="left"
+                                              />
+                                            </span>
+                                          )}
+                                          {groupBlockerItemsV17_90L174.length > 0 && (
+                                            <span
+                                              className="relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800"
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={(event) => event.stopPropagation()}
+                                              onPointerDown={(event) => event.stopPropagation()}
+                                            >
+                                              <AlertTriangle className="h-3 w-3 shrink-0" />
+                                              <span className="truncate whitespace-nowrap">
+                                                Auftrag prüfen · {groupBlockerItemsV17_90L174.length}
+                                              </span>
+                                              <ViewportAwareOrderServiceTooltip
+                                                badge={{
+                                                  key: `site_order_blocker_${site?.id || "general"}`,
+                                                  label: `Auftrag prüfen · ${groupBlockerItemsV17_90L174.length}`,
+                                                  className:
+                                                    "border-red-300 bg-red-100 text-red-800",
+                                                  tooltip:
+                                                    groupBlockerTooltipV17_90L174,
+                                                }}
+                                                align="left"
+                                              />
+                                            </span>
+                                          )}
+                                        </div>
                                       )}
                                       <div className="mt-0.5 text-xs text-muted-foreground">
                                         {site
