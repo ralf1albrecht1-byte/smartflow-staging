@@ -200,7 +200,7 @@ type AdaptiveAppointmentLabels = {
 };
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
-  const full = compactOfferValue(value) || "Termin klären";
+  const full = compactOfferValue(value);
   const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
@@ -224,7 +224,7 @@ type StructuredOfferAppointmentTooltipV17_90L169 = {
 const parseOfferAppointmentTooltipV17_90L169 = (
   value: unknown,
 ): StructuredOfferAppointmentTooltipV17_90L169 => {
-  const fallback = compactOfferValue(value) || "Termin klären";
+  const fallback = compactOfferValue(value);
   const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
   const dateMatch = source.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
   const date = dateMatch
@@ -3258,8 +3258,8 @@ export default function AngebotePage() {
     setItems((current) => [
       {
         description: svc?.name ?? "",
-        quantity: "1",
-        unit: svc?.unit ?? "Stunde",
+        quantity: "",
+        unit: compactOfferValue(svc?.unit) || "",
         unitPrice: String(svc?.defaultPrice ?? 0),
       },
       ...current,
@@ -3278,12 +3278,12 @@ export default function AngebotePage() {
     if (svc) {
       updateItem(idx, "description", svc.name);
       updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
-      updateItem(idx, "unit", svc.unit ?? "Stunde");
+      updateItem(idx, "unit", compactOfferValue(svc.unit));
     } else if (!name) {
       updateItem(idx, "description", "");
       updateItem(idx, "unitPrice", "");
       updateItem(idx, "quantity", "");
-      updateItem(idx, "unit", "Stunde");
+      updateItem(idx, "unit", "");
     } else {
       updateItem(idx, "description", name);
     }
@@ -4851,8 +4851,7 @@ export default function AngebotePage() {
                       .filter(Boolean)
                       .join("\n"),
                   );
-                  const appointmentDisplayLabel =
-                    appointmentLabel || "Termin klären";
+                  const appointmentDisplayLabel = appointmentLabel;
                   const appointmentChipLabels =
                     buildAdaptiveAppointmentLabels(appointmentDisplayLabel);
                   const contactAction = buildOfferContactAction(
@@ -5449,44 +5448,46 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <div className="ml-auto flex min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700">
-                                    <span className="inline-flex min-w-0 items-center justify-center self-end">
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          if (useTouchChipPopovers) {
-                                            toggleOfferMobileTooltip(
-                                              {
-                                                key: `${off.id}:compact-appointment`,
-                                                text: appointmentDisplayLabel,
-                                              },
-                                              event,
-                                            );
-                                          } else {
-                                            openOfferSection(
-                                              off,
-                                              "details",
-                                              appointmentDisplayLabel,
-                                            );
-                                          }
-                                        }}
-                                        className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                      >
-                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {appointmentChipLabels.dateOnly && (
-                                          <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                            {appointmentChipLabels.dateOnly}
-                                          </span>
-                                        )}
-                                        <span className="sr-only">{appointmentChipLabels.full}</span>
-                                        {!useTouchChipPopovers && (
-                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                        )}
-                                      </button>
-                                    </span>
+                                    {appointmentDisplayLabel && (
+                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            if (useTouchChipPopovers) {
+                                              toggleOfferMobileTooltip(
+                                                {
+                                                  key: `${off.id}:compact-appointment`,
+                                                  text: appointmentDisplayLabel,
+                                                },
+                                                event,
+                                              );
+                                            } else {
+                                              openOfferSection(
+                                                off,
+                                                "details",
+                                                appointmentDisplayLabel,
+                                              );
+                                            }
+                                          }}
+                                          className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                                        >
+                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                          {appointmentChipLabels.dateOnly && (
+                                            <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                              {appointmentChipLabels.dateOnly}
+                                            </span>
+                                          )}
+                                          <span className="sr-only">{appointmentChipLabels.full}</span>
+                                          {!useTouchChipPopovers && (
+                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                          )}
+                                        </button>
+                                      </span>
+                                    )}
                                     <div className="flex min-w-0 items-center justify-end gap-2 self-end">
                                       <div className="shrink-0 text-right">
                                         <div className="font-mono text-sm font-bold tabular-nums">
@@ -5873,40 +5874,42 @@ export default function AngebotePage() {
                                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
 
                                   <div className="ml-auto flex shrink-0 flex-col items-end gap-2 border-l border-slate-200 pl-3 dark:border-slate-700">
-                                    <span className="inline-flex min-w-0 items-center justify-center self-end">
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          useTouchChipPopovers
-                                            ? toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:appointment`,
-                                                  text: appointmentDisplayLabel,
-                                                },
-                                                event,
-                                              )
-                                            : openOfferChipTarget(
-                                                "details",
-                                                event,
-                                                appointmentDisplayLabel,
-                                              )
-                                        }
-                                        className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
-                                      >
-                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {appointmentChipLabels.dateOnly && (
-                                          <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
-                                            {appointmentChipLabels.dateOnly}
-                                          </span>
-                                        )}
-                                        <span className="sr-only">{appointmentChipLabels.full}</span>
-                                        {!useTouchChipPopovers && (
-                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                        )}
-                                      </button>
-                                    </span>
+                                    {appointmentDisplayLabel && (
+                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) =>
+                                            useTouchChipPopovers
+                                              ? toggleOfferMobileTooltip(
+                                                  {
+                                                    key: `${off.id}:appointment`,
+                                                    text: appointmentDisplayLabel,
+                                                  },
+                                                  event,
+                                                )
+                                              : openOfferChipTarget(
+                                                  "details",
+                                                  event,
+                                                  appointmentDisplayLabel,
+                                                )
+                                          }
+                                          className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                                        >
+                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                          {appointmentChipLabels.dateOnly && (
+                                            <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                              {appointmentChipLabels.dateOnly}
+                                            </span>
+                                          )}
+                                          <span className="sr-only">{appointmentChipLabels.full}</span>
+                                          {!useTouchChipPopovers && (
+                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                          )}
+                                        </button>
+                                      </span>
+                                    )}
 
                                     <div className="shrink-0 whitespace-nowrap text-right leading-tight">
                                       <div className="font-mono text-[16px] font-bold tabular-nums">
@@ -6734,7 +6737,7 @@ export default function AngebotePage() {
                           toggleOfferExecutionAddressEditor();
                         }
                       }}
-                      className={`-m-1 flex flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors ${
+                      className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
                         executionSites.length > 0
                           ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
                           : ""
@@ -6750,23 +6753,22 @@ export default function AngebotePage() {
                             setExecutionAddressEnabled(event.target.checked)
                           }
                         />
-                        <span>
-                          <span className="block text-sm font-semibold">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold leading-5">
                             Ausführungsadresse abweichend von Rechnungsadresse
                           </span>
-                          <span className="block text-xs text-muted-foreground">
-                            Nur aktivieren, wenn die Arbeit an einem anderen Ort
-                            ausgeführt wird.
+                          <span className="block max-w-2xl text-xs leading-4 text-muted-foreground">
+                            Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
                           </span>
                         </span>
                       </div>
                       {executionSites.length > 0 && !editingExecutionAddress && (
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-7 shrink-0 px-2 text-xs"
+                            className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                             onClick={addExecutionSite}
                             disabled={saving}
                           >
@@ -6777,7 +6779,7 @@ export default function AngebotePage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-7 shrink-0 px-2 text-xs"
+                            className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                             onClick={() => setEditingExecutionAddress(true)}
                             disabled={saving}
                           >

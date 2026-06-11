@@ -10987,7 +10987,13 @@ export default function AuftraegePage() {
               canonicalServiceNameForOrderItem(service.name),
             ) === targetNameKey,
         );
-        const currentUnitKey = normalizePriceUnitForCompare(item.unit);
+        const isBlankItemBeforeCatalogSelection =
+          !compactText(item.serviceName) &&
+          Number(item.unitPrice || 0) <= 0 &&
+          Number(item.quantity || 0) <= 0;
+        const currentUnitKey = isBlankItemBeforeCatalogSelection
+          ? ""
+          : normalizePriceUnitForCompare(item.unit);
         const currentPrice = Number(item.unitPrice || 0);
         const svc =
           svcOpt ||
@@ -11056,15 +11062,18 @@ export default function AuftraegePage() {
             currentUnitKey.includes("pruefen") ||
             currentUnitKey.includes("prufen");
           const catalogUnit = compactText(svc.unit);
-          const nextUnit = currentUnitIsOpen
-            ? catalogUnit || "Stunde"
-            : currentUnit || catalogUnit || "Stunde";
+          // Eine bewusste Katalogauswahl übernimmt immer exakt die im Katalog
+          // gespeicherte Einheit. Ein alter Standardwert wie "Stunde" darf
+          // nicht an der neuen Position hängen bleiben.
+          const nextUnit = catalogUnit || "Einheit prüfen";
           const nextPrice =
             Number(item.unitPrice || 0) > 0
               ? item.unitPrice
               : String(svc.defaultPrice ?? 0);
+          // Bei einer neuen/leeren Position wird keine Menge erfunden.
+          // Erst die bewusste Eingabe des Nutzers bestätigt die Menge.
           const nextQuantity =
-            Number(item.quantity || 0) > 0 ? item.quantity : "1";
+            Number(item.quantity || 0) > 0 ? item.quantity : "";
           const catalogSelectionResolvesOpenUnit = Boolean(
             currentUnitIsOpen &&
               catalogUnit &&
@@ -11094,7 +11103,7 @@ export default function AuftraegePage() {
             serviceName: "",
             unitPrice: "",
             quantity: "",
-            unit: "Stunde",
+            unit: "Einheit prüfen",
           };
         }
 
@@ -17088,7 +17097,7 @@ export default function AuftraegePage() {
                         toggleOrderExecutionAddressEditor();
                       }
                     }}
-                    className={`-m-1 flex flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors ${
+                    className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
                       form.siteAddressDifferent
                         ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
                         : ""
@@ -17131,22 +17140,21 @@ export default function AuftraegePage() {
                         className="mt-1"
                       />
                       <span className="min-w-0">
-                        <span className="block text-sm font-semibold">
+                        <span className="block text-sm font-semibold leading-5">
                           Ausführungsadresse abweichend von Rechnungsadresse
                         </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
-                          ausgeführt wird.
+                        <span className="block max-w-2xl text-xs leading-4 text-muted-foreground">
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
                         </span>
                       </span>
                     </div>
                     {form.siteAddressDifferent && !siteAddressEditing && (
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          className="h-7 px-2 text-xs"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                           onClick={addFormWorkSite}
                           disabled={saving}
                         >
@@ -17157,7 +17165,7 @@ export default function AuftraegePage() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          className="h-7 px-2 text-xs"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                           onClick={() => setSiteAddressEditing(true)}
                           disabled={saving}
                         >

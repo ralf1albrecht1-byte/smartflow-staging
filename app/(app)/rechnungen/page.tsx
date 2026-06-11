@@ -2435,12 +2435,12 @@ export default function RechnungenPage() {
       // Rechnungen starten bewusst ohne automatisch übernommenen Katalogpreis.
       // Der Preis muss für diese konkrete Rechnung bestätigt/eingetragen werden.
       updateItem(idx, "unitPrice", "0");
-      updateItem(idx, "unit", svc.unit ?? "Stunde");
+      updateItem(idx, "unit", compactInvoiceValue(svc.unit));
     } else if (!name) {
       updateItem(idx, "description", "");
       updateItem(idx, "unitPrice", "");
       updateItem(idx, "quantity", "");
-      updateItem(idx, "unit", "Stunde");
+      updateItem(idx, "unit", "");
     } else {
       updateItem(idx, "description", name);
     }
@@ -4667,7 +4667,7 @@ export default function RechnungenPage() {
                         );
                       }
                     }}
-                    className={`-m-1 flex flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors ${
+                    className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
                       newInvoiceExecutionSite
                         ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
                         : ""
@@ -4685,23 +4685,22 @@ export default function RechnungenPage() {
                           )
                         }
                       />
-                      <span>
-                        <span className="block text-sm font-semibold">
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold leading-5">
                           Ausführungsadresse abweichend von Rechnungsadresse
                         </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
-                          ausgeführt wird.
+                        <span className="block max-w-2xl text-xs leading-4 text-muted-foreground">
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
                         </span>
                       </span>
                     </div>
                     {newInvoiceExecutionSite && !editingExecutionAddress && (
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-7 shrink-0 px-2 text-xs"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                           onClick={addInvoiceExecutionSite}
                           disabled={saving}
                         >
@@ -4712,7 +4711,7 @@ export default function RechnungenPage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-7 shrink-0 px-2 text-xs"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
                           onClick={() => setEditingExecutionAddress(true)}
                           disabled={saving}
                         >
@@ -4892,7 +4891,7 @@ export default function RechnungenPage() {
                             toggleInvoiceExecutionAddressEditor(executionSite);
                           }
                         }}
-                        className="-m-1 flex cursor-pointer flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                        className="-m-1 grid cursor-pointer grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:hover:bg-cyan-900/30"
                       >
                         <div className="flex min-w-0 flex-1 items-start gap-2">
                           <input
@@ -4904,16 +4903,16 @@ export default function RechnungenPage() {
                             aria-label="Ausführungsadresse abweichend"
                           />
                           <div className="min-w-0">
-                            <div className="font-semibold">
+                            <div className="font-semibold leading-5">
                               Ausführungsadresse abweichend von Rechnungsadresse
                             </div>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="max-w-2xl text-xs leading-4 text-muted-foreground">
                               Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
                             </p>
                           </div>
                         </div>
                         {!editingExecutionAddress && (
-                          <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                             <button
                               type="button"
                               onClick={(event) => {
@@ -4921,7 +4920,7 @@ export default function RechnungenPage() {
                                 addInvoiceExecutionSite();
                               }}
                               disabled={saving}
-                              className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                              className="inline-flex h-7 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
                             >
                               <Plus className="mr-1 h-3.5 w-3.5" />
                               Arbeitsort hinzufügen
@@ -4933,7 +4932,7 @@ export default function RechnungenPage() {
                                 setEditingExecutionAddress(true);
                               }}
                               disabled={saving}
-                              className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                              className="inline-flex h-7 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
                             >
                               <Pencil className="mr-1 h-3.5 w-3.5" />
                               Bearbeiten
