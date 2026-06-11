@@ -7506,6 +7506,28 @@ function recognitionWarningCoveredByCanonicalV17_90L89(
   }
 }
 
+// V17.90L175: Review/status text is metadata, never a service.
+function isRecognitionReviewStateOnlyNameV17_90L175(
+  value?: string | null,
+): boolean {
+  const key = canonicalServiceKeyV17_90L88(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!key) return true;
+  const roleTokens = new Set([
+    "preis", "preise", "price", "prices", "prix", "prezzo",
+    "menge", "mengen", "quantity", "quantities", "quantite", "quantita",
+    "einheit", "einheiten", "unit", "units", "unite", "unita",
+    "offen", "unklar", "unbekannt", "pruefen", "prufen", "klaeren",
+    "noch", "fehlt", "fehlend", "tbd", "open", "unclear", "unknown",
+    "missing", "check", "verify", "pending", "ouvert", "incertain",
+    "aperto", "verificare", "definire",
+  ]);
+  const tokens = key.split(" ").filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => roleTokens.has(token));
+}
+
 // V17.90L120: A later read-only validator must never create a second
 // recognition proposal from the same evidence line when the canonical first-AI
 // item already exists as an editable open-price position. The existing item is
@@ -7519,31 +7541,53 @@ function recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
   try {
     const raw = decodeURIComponent(warning.slice("recognition_review:".length));
     const payload = JSON.parse(raw) as {
+      serviceName?: string;
       sourceText?: string;
       unitPrice?: number;
+      quantity?: number;
+      unit?: string;
     };
     const evidenceKey = canonicalEvidenceKeyV17_90L88(payload.sourceText);
-    if (!evidenceKey || Number(payload.unitPrice || 0) > 0) return false;
+    if (Number(payload.unitPrice || 0) > 0) return false;
+    const statusOnlyName = isRecognitionReviewStateOnlyNameV17_90L175(
+      payload.serviceName,
+    );
+    const payloadQuantity = Number(payload.quantity || 0);
+    const payloadUnit = getServiceUnitType(payload.unit || "");
 
     return canonicalItems.some((canonical) => {
       const canonicalEvidenceKey = canonicalEvidenceKeyV17_90L88(
         canonical.sourceText || canonical.evidence || canonical.description,
       );
       const sameEvidence = Boolean(
-        canonicalEvidenceKey &&
+        evidenceKey &&
+          canonicalEvidenceKey &&
           (canonicalEvidenceKey === evidenceKey ||
-            (canonicalEvidenceKey.length >= 12 &&
-              evidenceKey.length >= 12 &&
+            (canonicalEvidenceKey.length >= 8 &&
+              evidenceKey.length >= 8 &&
               (canonicalEvidenceKey.includes(evidenceKey) ||
                 evidenceKey.includes(canonicalEvidenceKey)))),
       );
+      const sameQuantity =
+        payloadQuantity <= 0 ||
+        Number(canonical.quantity || 0) <= 0 ||
+        Math.abs(Number(canonical.quantity || 0) - payloadQuantity) < 0.0001;
+      const canonicalUnit = getServiceUnitType(canonical.unit || "");
+      const sameUnit =
+        !payloadUnit || !canonicalUnit || payloadUnit === canonicalUnit;
       const canonicalPriceOpen = Boolean(
         Number(canonical.unitPrice || 0) <= 0 &&
           String(canonical.reviewReason || "").startsWith("price_unclear:") &&
           canonical.serviceName &&
           !isInternalReviewServiceNameV17_90L(canonical.serviceName),
       );
-      return sameEvidence && canonicalPriceOpen;
+
+      return Boolean(
+        canonicalPriceOpen &&
+          sameQuantity &&
+          sameUnit &&
+          (sameEvidence || statusOnlyName),
+      );
     });
   } catch {
     return false;
@@ -7575,6 +7619,18 @@ function filterReadOnlyRiskWarningsV17_90L89(
     // L98: shadow findings are log-only diagnostics and never become review
     // reasons, chips or document blockers.
     if (warning.startsWith("shadow_")) return false;
+    if (warning.startsWith("recognition_review:")) {
+      try {
+        const payload = JSON.parse(
+          decodeURIComponent(warning.slice("recognition_review:".length)),
+        ) as { serviceName?: string };
+        if (isRecognitionReviewStateOnlyNameV17_90L175(payload.serviceName)) {
+          return false;
+        }
+      } catch {
+        // Keep malformed warnings fail-closed; only valid status fragments are dropped.
+      }
+    }
     if (
       recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
         warning,

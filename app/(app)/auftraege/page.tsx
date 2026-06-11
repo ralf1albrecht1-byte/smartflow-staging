@@ -3023,19 +3023,15 @@ const getMultipleAppointmentBadge = (
   const callbackTimeKey = normalizeForMatch(callbackTime);
   const callbackTimeDigits = callbackTimeKey.replace(/[^0-9]/g, "");
 
-  const structuredDetails = dedupeAppointmentDetails([
+  // V17.90L175: A merged order can contain one structured appointment and
+  // additional appointments only in the linked/raw source text. Always combine
+  // all read-only sources before deduplication; never discard the raw source
+  // merely because one structured appointment already exists.
+  const details = dedupeAppointmentDetails([
     ...extractAppointmentDetailsFromRawText(order.specialNotes),
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-  ]);
-  const fallbackRawDetails = structuredDetails.length
-    ? []
-    : dedupeAppointmentDetails([
-        ...extractAppointmentDetailsFromRawText(
-          order.notes,
-          order.audioTranscript,
-        ),
-      ]);
-  const details = [...structuredDetails, ...fallbackRawDetails].filter((detail) => {
+    ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
+  ]).filter((detail) => {
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
@@ -3834,6 +3830,35 @@ const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
   return result;
 };
 
+// V17.90L175: The red dog chip contains dog information only. Contact
+// numbers/channels accidentally attached to a dog sentence stay in the
+// communication chips and must not be repeated in the danger popover.
+const sanitizeDogOnlyTooltipV17_90L175 = (value?: string | null) => {
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|\s*[|]\s*/g)
+    .map((line) =>
+      compactText(
+        line
+          .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+          .replace(/^\s*Kontakt vor Ort\s*:\s*/i, "")
+          .replace(/\s*[·|,-]\s*(?:Tel\.?|Telefon|SMS|WhatsApp|E-?Mail)\b[\s\S]*$/i, "")
+          .replace(/\s+(?:Tel\.?|Telefon)\s*[:.]?\s*\+?\d[\d\s()./-]{6,}.*$/i, "")
+          .replace(/\s+\+?\d[\d\s()./-]{6,}\s*(?:·|,|-)?\s*(?:nur\s+)?(?:SMS|WhatsApp|anrufen|Telefon).*$/i, ""),
+      ),
+    )
+    .filter((line) => /\b(?:hund|dog|chien|cane|perro)\b/i.test(line));
+
+  const unique: string[] = [];
+  for (const line of lines) {
+    const key = normalizeForMatch(line);
+    if (!key || unique.some((existing) => normalizeForMatch(existing) === key)) continue;
+    unique.push(line);
+  }
+  return unique.join("\n");
+};
+
 const getOperationalBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -3859,7 +3884,7 @@ const getOperationalBadges = (
       label: label === "Hund" ? "Hund" : "Achtung",
       className: redWarningClass,
       icon: true,
-      tooltip,
+      tooltip: label === "Hund" ? sanitizeDogOnlyTooltipV17_90L175(tooltip) : tooltip,
       focusTarget: "specialNotes",
     });
 
@@ -7874,6 +7899,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   const anchorRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
@@ -7895,6 +7921,16 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
+  };
+  const clearAutoCloseTimer = () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  };
+  const scheduleAutoClose = () => {
+    clearAutoCloseTimer();
+    autoCloseTimerRef.current = setTimeout(() => setOpen(false), 3000);
   };
 
   const calculatePosition = () => {
@@ -7960,6 +7996,21 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
+  const openTooltipByClick = () => {
+    if (open) {
+      clearOpenTimer();
+      clearHideTimer();
+      clearAutoCloseTimer();
+      setOpen(false);
+      return;
+    }
+    clearOpenTimer();
+    clearHideTimer();
+    const nextPosition = calculatePosition();
+    if (nextPosition) setPosition(nextPosition);
+    setOpen(true);
+    scheduleAutoClose();
+  };
   const scheduleShowTooltip = () => {
     clearHideTimer();
     clearOpenTimer();
@@ -7991,14 +8042,17 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
     trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
+    trigger.addEventListener("click", openTooltipByClick);
 
     return () => {
       trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
       trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
+      trigger.removeEventListener("click", openTooltipByClick);
       clearOpenTimer();
       clearHideTimer();
+      clearAutoCloseTimer();
     };
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
@@ -8027,7 +8081,10 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         createPortal(
         <span
           role="tooltip"
-          onPointerEnter={clearHideTimer}
+          onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
+          onPointerDown={clearAutoCloseTimer}
+          onPointerUp={scheduleAutoClose}
+          onScroll={clearAutoCloseTimer}
           onPointerLeave={scheduleHideTooltip}
           style={{
             left: position.left,
@@ -9871,6 +9928,31 @@ export default function AuftraegePage() {
     };
     serviceReviewGroups?: OrderServiceReviewGroup[];
   } | null>(null);
+  const mobileInfoAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearMobileInfoAutoCloseV17_90L175 = () => {
+    if (mobileInfoAutoCloseTimerRef.current) {
+      clearTimeout(mobileInfoAutoCloseTimerRef.current);
+      mobileInfoAutoCloseTimerRef.current = null;
+    }
+  };
+  const scheduleMobileInfoAutoCloseV17_90L175 = () => {
+    clearMobileInfoAutoCloseV17_90L175();
+    if (!activeMobileTooltip || activeMobileTooltip.kind === "service_review") return;
+    mobileInfoAutoCloseTimerRef.current = setTimeout(() => {
+      setActiveMobileTooltipKey(null);
+      setActiveMobileTooltip(null);
+      setActiveMobileReviewGroupKey(null);
+    }, 3000);
+  };
+  useEffect(() => {
+    if (!activeMobileTooltip || activeMobileTooltip.kind === "service_review") {
+      clearMobileInfoAutoCloseV17_90L175();
+      return;
+    }
+    scheduleMobileInfoAutoCloseV17_90L175();
+    return clearMobileInfoAutoCloseV17_90L175;
+  }, [activeMobileTooltip?.key]);
+
   const [activeMobileReviewGroupKey, setActiveMobileReviewGroupKey] = useState<string | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOrderCardIds, setExpandedOrderCardIds] = useState<Set<string>>(new Set());
@@ -14857,6 +14939,11 @@ export default function AuftraegePage() {
             className="fixed overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             style={positionStyle}
             onClick={(event) => event.stopPropagation()}
+            onPointerDown={clearMobileInfoAutoCloseV17_90L175}
+            onPointerUp={scheduleMobileInfoAutoCloseV17_90L175}
+            onTouchStart={clearMobileInfoAutoCloseV17_90L175}
+            onTouchEnd={scheduleMobileInfoAutoCloseV17_90L175}
+            onScroll={clearMobileInfoAutoCloseV17_90L175}
           >
             {isSpecialNotesSummary && specialSummarySections ? (
               <div className="space-y-2">

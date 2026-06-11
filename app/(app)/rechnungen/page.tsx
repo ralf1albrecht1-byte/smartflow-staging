@@ -855,39 +855,59 @@ function formatInvoiceAppointmentLabel(invoice: Invoice): string {
     return "";
   };
 
-  for (const order of invoice.orders || []) {
+  const entries: Array<{ site: string; label: string }> = [];
+  for (const [index, order] of (invoice.orders || []).entries()) {
+    let label = "";
     const directRaw = compactInvoiceValue(order?.date);
     if (directRaw) {
       const directDate = new Date(directRaw);
       if (!Number.isNaN(directDate.getTime())) {
-        const formatted = formatParsedDate(directDate, directRaw);
-        if (formatted) return formatted;
+        label = formatParsedDate(directDate, directRaw);
       }
-      const parsedDirect = parseAppointmentLine(directRaw);
-      if (parsedDirect) return parsedDirect;
+      if (!label) label = parseAppointmentLine(directRaw);
     }
-
-    const parsedText = parseAppointmentLine(
-      [order?.specialNotes, order?.notes, order?.description]
-        .filter(Boolean)
-        .join("\n"),
-    );
-    if (parsedText) return parsedText;
+    if (!label) {
+      label = parseAppointmentLine(
+        [order?.specialNotes, order?.notes, order?.description]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+    if (!label) continue;
+    const site =
+      compactInvoiceValue(order?.workSites?.[0]?.siteName) ||
+      compactInvoiceValue(order?.siteName) ||
+      compactInvoiceValue(order?.executionSiteName) ||
+      `Arbeitsort ${index + 1}`;
+    entries.push({ site, label });
   }
 
-  return "";
+  const unique = entries.filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          compactInvoiceValue(candidate.site).toLowerCase() === compactInvoiceValue(entry.site).toLowerCase() &&
+          compactInvoiceValue(candidate.label).toLowerCase() === compactInvoiceValue(entry.label).toLowerCase(),
+      ) === index,
+  );
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0].label;
+  return [`Termine · ${unique.length}`, ...unique.map((entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`)].join("\n");
 }
 
 function InvoiceViewportTooltip({
   children,
   preferredWidth = 420,
+  autoClose = true,
 }: {
   children: any;
   preferredWidth?: number;
+  autoClose?: boolean;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
@@ -908,6 +928,17 @@ function InvoiceViewportTooltip({
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
+  };
+  const clearAutoCloseTimer = () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  };
+  const scheduleAutoClose = () => {
+    clearAutoCloseTimer();
+    if (!autoClose) return;
+    autoCloseTimerRef.current = setTimeout(() => setOpen(false), 3000);
   };
   const calculatePosition = () => {
     const trigger = anchorRef.current?.parentElement as HTMLElement | null;
@@ -979,14 +1010,26 @@ function InvoiceViewportTooltip({
     trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHide);
     trigger.addEventListener("focusin", openTooltipImmediately);
+    const clicked = () => {
+      if (open) {
+        clearAutoCloseTimer();
+        setOpen(false);
+        return;
+      }
+      openTooltipImmediately();
+      scheduleAutoClose();
+    };
     trigger.addEventListener("focusout", focusOut);
+    trigger.addEventListener("click", clicked);
     return () => {
       trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHide);
       trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", focusOut);
+      trigger.removeEventListener("click", clicked);
       clearOpenTimer();
       clearHideTimer();
+      clearAutoCloseTimer();
     };
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
@@ -1013,7 +1056,10 @@ function InvoiceViewportTooltip({
         createPortal(
         <span
           role="tooltip"
-          onPointerEnter={clearHideTimer}
+          onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
+          onPointerDown={clearAutoCloseTimer}
+          onPointerUp={scheduleAutoClose}
+          onScroll={clearAutoCloseTimer}
           onPointerLeave={scheduleHide}
           style={{
             left: position.left,
@@ -3801,7 +3847,7 @@ export default function RechnungenPage() {
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>{entries.length}</span>
                         {!useTouchChipPopovers && (
-                          <InvoiceViewportTooltip preferredWidth={432}>
+                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
                             <InvoiceServiceReviewTooltipContentV17_90L135G
                               total={entries.length}
                               entries={entries}
@@ -5686,7 +5732,7 @@ export default function RechnungenPage() {
                                           <span className="truncate whitespace-nowrap">
                                             Leistungen prüfen · {groupYellowEntries.length}
                                           </span>
-                                          <InvoiceViewportTooltip preferredWidth={432}>
+                                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
                                             <InvoiceServiceReviewTooltipContentV17_90L135G
                                               total={groupYellowEntries.length}
                                               entries={groupYellowEntries}
@@ -5707,7 +5753,7 @@ export default function RechnungenPage() {
                                           <span className="truncate whitespace-nowrap">
                                             Rechnung prüfen · {groupBlockerEntries.length}
                                           </span>
-                                          <InvoiceViewportTooltip preferredWidth={432}>
+                                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
                                             <InvoiceServiceReviewTooltipContentV17_90L135G
                                               total={groupBlockerEntries.length}
                                               entries={groupBlockerEntries}

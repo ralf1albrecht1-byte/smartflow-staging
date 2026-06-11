@@ -436,6 +436,26 @@ function encodeShadowRecognitionWarningV17_90L98(
   return `shadow_${encodeRecognitionReviewWarningV17_90L69(explicit)}`;
 }
 
+// V17.90L175: Review/status wording is not a service name.
+function isReviewStateOnlyServiceNameV17_90L175(value?: string | null): boolean {
+  const key = normalizeCompare(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!key) return true;
+  const tokens = key.split(" ").filter(Boolean);
+  const roleTokens = new Set([
+    "preis", "preise", "price", "prices", "prix", "prezzo",
+    "menge", "mengen", "quantity", "quantities", "quantite", "quantita",
+    "einheit", "einheiten", "unit", "units", "unite", "unita",
+    "offen", "unklar", "unbekannt", "pruefen", "prufen", "klaeren",
+    "noch", "fehlt", "fehlend", "tbd", "open", "unclear", "unknown",
+    "missing", "check", "verify", "pending", "ouvert", "incertain",
+    "aperto", "verificare", "definire",
+  ]);
+  return tokens.length > 0 && tokens.every((token) => roleTokens.has(token));
+}
+
 function isShadowOnlyRiskWarningV17_90L98(warning: string): boolean {
   return warning.startsWith("shadow_");
 }
@@ -507,7 +527,8 @@ function extractOpenPriceRecognitionItemsV17_90L90(
       !serviceName ||
       serviceName === "Unbekannte Leistung" ||
       serviceKey.length < 4 ||
-      isPriceAnchorOnlyServiceName(serviceName)
+      isPriceAnchorOnlyServiceName(serviceName) ||
+      isReviewStateOnlyServiceNameV17_90L175(serviceName)
     ) {
       continue;
     }
@@ -585,7 +606,8 @@ function isSafeSecondaryRecognitionCandidateV17_90L91(
     !serviceName ||
     serviceName === "Unbekannte Leistung" ||
     serviceKey.length < 4 ||
-    isPriceAnchorOnlyServiceName(serviceName)
+    isPriceAnchorOnlyServiceName(serviceName) ||
+    isReviewStateOnlyServiceNameV17_90L175(serviceName)
   ) {
     return false;
   }
@@ -635,32 +657,53 @@ function openPriceRecognitionCoveredV17_90L90(
   const candidateEvidence = normalizeCompare(
     candidate.sourceText || candidate.evidence || candidate.description,
   );
+  const candidateQuantity = Number(candidate.quantity || 0);
+  const candidateUnit = normalizeCompare(candidate.unit || "");
 
   return items.some((item) => {
-    if (
-      !recognitionServiceNamesCompatibleV17_90L69(
-        item.serviceName,
-        candidate.serviceName,
-      )
-    ) {
-      return false;
-    }
-
     const itemEvidence = normalizeCompare(
       item.sourceText || item.evidence || item.description,
     );
-    if (!candidateEvidence || !itemEvidence) return true;
+    const sameService = recognitionServiceNamesCompatibleV17_90L69(
+      item.serviceName,
+      candidate.serviceName,
+    );
+    const evidenceOverlap = Boolean(
+      candidateEvidence &&
+        itemEvidence &&
+        (candidateEvidence === itemEvidence ||
+          candidateEvidence.includes(itemEvidence) ||
+          itemEvidence.includes(candidateEvidence)),
+    );
+    const sameQuantity =
+      candidateQuantity <= 0 ||
+      Number(item.quantity || 0) <= 0 ||
+      Math.abs(Number(item.quantity || 0) - candidateQuantity) < 0.0001;
+    const itemUnit = normalizeCompare(item.unit || "");
+    const sameUnit =
+      !candidateUnit ||
+      !itemUnit ||
+      candidateUnit === itemUnit ||
+      candidateUnit.includes(itemUnit) ||
+      itemUnit.includes(candidateUnit);
+    const itemAlreadyOpenPrice = Boolean(
+      Number(item.unitPrice || 0) <= 0 &&
+        (String(item.reviewReason || "").startsWith("price_unclear:") ||
+          hasUnclearPriceSignal(
+            item.sourceText || item.evidence || item.description || "",
+          )),
+    );
 
-    return (
-      candidateEvidence === itemEvidence ||
-      candidateEvidence.includes(itemEvidence) ||
-      itemEvidence.includes(candidateEvidence) ||
-      normalizeCompare(item.serviceName) ===
-        normalizeCompare(candidate.serviceName)
+    return Boolean(
+      itemAlreadyOpenPrice &&
+        sameQuantity &&
+        sameUnit &&
+        (sameService ||
+          evidenceOverlap ||
+          isReviewStateOnlyServiceNameV17_90L175(candidate.serviceName)),
     );
   });
 }
-
 
 // V17.90L99: Strict, deterministic extraction of an explicitly unresolved
 // work scope. This is not a second whole-message service parser: it only emits

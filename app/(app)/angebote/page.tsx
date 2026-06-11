@@ -596,6 +596,37 @@ function extractOfferAppointmentLabel(value?: string | null): string {
 }
 
 
+function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): string {
+  const entries = (Array.isArray(orders) ? orders : [])
+    .map((order, index) => {
+      const label = extractOfferAppointmentLabel(
+        [order?.date, order?.specialNotes, order?.notes, order?.description]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      if (!label) return null;
+      const site =
+        compactOfferValue(order?.workSites?.[0]?.siteName) ||
+        compactOfferValue(order?.siteName) ||
+        compactOfferValue(order?.executionSiteName) ||
+        `Arbeitsort ${index + 1}`;
+      return { site, label };
+    })
+    .filter(Boolean) as Array<{ site: string; label: string }>;
+
+  const unique = entries.filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          normalizeOfferHint(candidate.site) === normalizeOfferHint(entry.site) &&
+          normalizeOfferHint(candidate.label) === normalizeOfferHint(entry.label),
+      ) === index,
+  );
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0].label;
+  return [`Termine · ${unique.length}`, ...unique.map((entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`)].join("\n");
+}
+
 const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
 
 type OfferPdfMeta = { title: string; text: string };
@@ -1009,6 +1040,17 @@ function buildOfferParkingChipV17_90L99(
   };
 }
 
+function sanitizeOfferDogLineV17_90L175(value?: string | null): string {
+  return String(value || "")
+    .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+    .replace(/^\s*Kontakt vor Ort\s*:\s*/i, "")
+    .replace(/\s*[·|,-]\s*(?:Tel\.?|Telefon|SMS|WhatsApp|E-?Mail)\b[\s\S]*$/i, "")
+    .replace(/\s+(?:Tel\.?|Telefon)\s*[:.]?\s*\+?\d[\d\s()./-]{6,}.*$/i, "")
+    .replace(/\s+\+?\d[\d\s()./-]{6,}\s*(?:·|,|-)?\s*(?:nur\s+)?(?:SMS|WhatsApp|anrufen|Telefon).*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildOfferOperationalChips(
   safetyWarnings: string[],
   jobHints: string[],
@@ -1034,7 +1076,8 @@ function buildOfferOperationalChips(
     const text = normalizeOfferHint(line);
     if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/.test(text)) return;
     if (isOfferDogHint(line)) {
-      pushOrMerge({ key: "dog", title: line, icon: "🐶", tone: "danger" });
+      const dogOnly = sanitizeOfferDogLineV17_90L175(line);
+      if (dogOnly) pushOrMerge({ key: "dog", title: dogOnly, icon: "🐶", tone: "danger" });
       return;
     }
     pushOrMerge({ key: "danger", title: line, icon: "⚠️", tone: "danger" });
@@ -1465,6 +1508,7 @@ function OfferViewportTooltipV17_95({
   const anchorRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
@@ -1485,6 +1529,16 @@ function OfferViewportTooltipV17_95({
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
+  };
+  const clearAutoCloseTimer = () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  };
+  const scheduleAutoClose = () => {
+    clearAutoCloseTimer();
+    autoCloseTimerRef.current = setTimeout(() => setOpen(false), 3000);
   };
 
   const calculatePosition = () => {
@@ -1559,14 +1613,26 @@ function OfferViewportTooltipV17_95({
     trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHide);
     trigger.addEventListener("focusin", openTooltipImmediately);
+    const clicked = () => {
+      if (open) {
+        clearAutoCloseTimer();
+        setOpen(false);
+        return;
+      }
+      openTooltipImmediately();
+      scheduleAutoClose();
+    };
     trigger.addEventListener("focusout", focusOut);
+    trigger.addEventListener("click", clicked);
     return () => {
       trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHide);
       trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", focusOut);
+      trigger.removeEventListener("click", clicked);
       clearOpenTimer();
       clearHideTimer();
+      clearAutoCloseTimer();
     };
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
@@ -1593,7 +1659,10 @@ function OfferViewportTooltipV17_95({
         createPortal(
         <span
           role="tooltip"
-          onPointerEnter={clearHideTimer}
+          onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
+          onPointerDown={clearAutoCloseTimer}
+          onPointerUp={scheduleAutoClose}
+          onScroll={clearAutoCloseTimer}
           onPointerLeave={scheduleHide}
           style={{
             left: position.left,
@@ -2594,6 +2663,26 @@ export default function AngebotePage() {
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
+  const offerMobileInfoAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearOfferMobileInfoAutoCloseV17_90L175 = () => {
+    if (offerMobileInfoAutoCloseTimerRef.current) {
+      clearTimeout(offerMobileInfoAutoCloseTimerRef.current);
+      offerMobileInfoAutoCloseTimerRef.current = null;
+    }
+  };
+  const scheduleOfferMobileInfoAutoCloseV17_90L175 = () => {
+    clearOfferMobileInfoAutoCloseV17_90L175();
+    if (!activeMobileTooltip || activeMobileTooltip.kind === "service_review") return;
+    offerMobileInfoAutoCloseTimerRef.current = setTimeout(() => setActiveMobileTooltip(null), 3000);
+  };
+  useEffect(() => {
+    if (!activeMobileTooltip || activeMobileTooltip.kind === "service_review") {
+      clearOfferMobileInfoAutoCloseV17_90L175();
+      return;
+    }
+    scheduleOfferMobileInfoAutoCloseV17_90L175();
+    return clearOfferMobileInfoAutoCloseV17_90L175;
+  }, [activeMobileTooltip?.key]);
   const [activeMobileReviewSiteKey, setActiveMobileReviewSiteKey] = useState<string | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
@@ -4470,6 +4559,11 @@ export default function AngebotePage() {
             className="fixed overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             style={positionStyle}
             onClick={(event) => event.stopPropagation()}
+            onPointerDown={clearOfferMobileInfoAutoCloseV17_90L175}
+            onPointerUp={scheduleOfferMobileInfoAutoCloseV17_90L175}
+            onTouchStart={clearOfferMobileInfoAutoCloseV17_90L175}
+            onTouchEnd={scheduleOfferMobileInfoAutoCloseV17_90L175}
+            onScroll={clearOfferMobileInfoAutoCloseV17_90L175}
           >
             {activeMobileTooltip.kind === "execution_address" ? (
               <div>
@@ -4980,11 +5074,13 @@ export default function AngebotePage() {
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );
-                  const appointmentLabel = extractOfferAppointmentLabel(
-                    [orderCtx.specialNotes, orderCtx.notes]
-                      .filter(Boolean)
-                      .join("\n"),
-                  );
+                  const appointmentLabel =
+                    extractMergedOfferAppointmentLabelV17_90L175(off.orders) ||
+                    extractOfferAppointmentLabel(
+                      [orderCtx.specialNotes, orderCtx.notes]
+                        .filter(Boolean)
+                        .join("\n"),
+                    );
                   const appointmentDisplayLabel = appointmentLabel;
                   const appointmentChipLabels =
                     buildAdaptiveAppointmentLabels(appointmentDisplayLabel);

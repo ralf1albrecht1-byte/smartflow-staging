@@ -51,6 +51,215 @@ function actionHref(entry: MergedContactReviewEntry): string | undefined {
   return `tel:${phone}`;
 }
 
+function normalizeContactTextV17_90L175(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9@+]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function communicationRecordSiteLabelV17_90L175(
+  record: any,
+  index: number,
+): string {
+  return String(
+    record?.workSites?.[0]?.siteName ||
+      record?.siteName ||
+      record?.executionSiteName ||
+      record?.customer?.name ||
+      `Arbeitsort ${index + 1}`,
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function communicationRecordTextV17_90L175(record: any): string {
+  return [
+    record?.notes,
+    record?.specialNotes,
+    record?.description,
+    record?.audioTranscript,
+    record?.customerMessage,
+    record?.sourceText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+type ExplicitMergedContactV17_90L175 = {
+  siteLabel: string;
+  contactName: string;
+  contactValue: string;
+  channelLabel: string;
+  detail: string;
+};
+
+function explicitMergedContactsV17_90L175(
+  records: CommunicationData[] | null | undefined,
+): ExplicitMergedContactV17_90L175[] {
+  const result: ExplicitMergedContactV17_90L175[] = [];
+  (Array.isArray(records) ? records : []).forEach((record: any, recordIndex) => {
+    const workSites = Array.isArray(record?.workSites) ? record.workSites : [];
+    const fullText = communicationRecordTextV17_90L175(record)
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const rawMergedText = String(record?.notes || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const sectionSource = /(?:Hauptauftrag:|Zusammengeführt mit:)/i.test(rawMergedText)
+      ? rawMergedText
+      : fullText;
+    const mergedParts = sectionSource
+      .split(/\n?\s*(?:[-─]{3,}\s*)?(?:Zusammengeführt mit:|Hauptauftrag:)\s*\n?/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const sections =
+      workSites.length > 1 && mergedParts.length > 1
+        ? mergedParts.map((text, index) => ({
+            text,
+            siteLabel: String(
+              workSites[index]?.siteName ||
+                workSites[index]?.name ||
+                `Arbeitsort ${index + 1}`,
+            )
+              .replace(/\s+/g, " ")
+              .trim(),
+          }))
+        : [
+            {
+              text: fullText,
+              siteLabel: communicationRecordSiteLabelV17_90L175(
+                record,
+                recordIndex,
+              ),
+            },
+          ];
+
+    for (const section of sections) {
+      const segments = section.text
+        .split(/\n+|(?<=[.!?])\s+/g)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+
+      for (const line of segments) {
+        // A polluted dog/contact sentence must stay in the red dog chip and may
+        // never become a selectable contact entry.
+        if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) continue;
+
+        const email = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+        const phone = line.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.trim();
+        if (!email && !phone) continue;
+
+        const normalized = normalizeContactTextV17_90L175(line);
+        const channel = /\bwhatsapp\b/.test(normalized)
+          ? "WhatsApp"
+          : /\bsms\b/.test(normalized)
+            ? "SMS"
+            : /\b(?:e mail|email|mail)\b/.test(normalized) || email
+              ? "E-Mail"
+              : /\b(?:anruf|anrufen|telefon|rueckruf|ruckruf|call)\b/.test(
+                    normalized,
+                  )
+                ? "Telefon"
+                : "";
+
+        // Plain customer/master-data phone or e-mail lines are not worksite
+        // contacts. A selectable merged contact needs an explicit operational
+        // instruction such as SMS, WhatsApp, call-back or contact on site.
+        if (!channel) continue;
+        const hasOperationalContactSignal =
+          /\b(?:vorher|nur\s+sms|sms\s+an|whatsapp|anrufen|anruf|rueckruf|rückruf|kontakt\s+vor\s+ort|vor\s+arbeitsbeginn|vor\s+ausfuehrung|vor\s+ausführung|erreichbar|melden)\b/i.test(
+            line,
+          );
+        if (!hasOperationalContactSignal) continue;
+
+        const value = email || phone || "";
+        let contactName = channel;
+        if (phone) {
+          const before = line.slice(0, line.indexOf(phone));
+          const nameMatch =
+            before.match(
+              /([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'’-]+(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'’-]+){1,2})\s+(?:unter|an)\s*$/,
+            ) ||
+            before.match(
+              /(?:kontakt(?:\s+vor\s+ort)?\s*:?|bei)\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'’-]+(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'’-]+){0,2})\s*$/,
+            );
+          if (nameMatch?.[1]) contactName = nameMatch[1].trim();
+        }
+
+        result.push({
+          siteLabel: section.siteLabel,
+          contactName,
+          contactValue: value,
+          channelLabel: channel,
+          detail: line,
+        });
+      }
+    }
+  });
+
+  return result.filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          normalizeContactTextV17_90L175(candidate.siteLabel) ===
+            normalizeContactTextV17_90L175(entry.siteLabel) &&
+          normalizePhoneForAction(candidate.contactValue) ===
+            normalizePhoneForAction(entry.contactValue) &&
+          normalizeContactTextV17_90L175(candidate.channelLabel) ===
+            normalizeContactTextV17_90L175(entry.channelLabel),
+      ) === index,
+  );
+}
+
+function sanitizeMergedContactReviewEntriesV17_90L175(
+  records: CommunicationData[] | null | undefined,
+  fallbackEntries: MergedContactReviewEntry[],
+): MergedContactReviewEntry[] {
+  const explicit = explicitMergedContactsV17_90L175(records);
+  if (explicit.length > 0) {
+    return explicit.map((entry, index) => {
+      const template =
+        fallbackEntries.find(
+          (candidate) =>
+            normalizeContactTextV17_90L175(candidate.siteLabel) ===
+            normalizeContactTextV17_90L175(entry.siteLabel),
+        ) || fallbackEntries[index] || ({} as MergedContactReviewEntry);
+      return {
+        ...template,
+        siteLabel: entry.siteLabel,
+        contactName: entry.contactName,
+        contactValue: entry.contactValue,
+        channelLabel: entry.channelLabel,
+        detail: entry.detail,
+        href: undefined,
+      } as MergedContactReviewEntry;
+    });
+  }
+
+  // Fail closed for old/partial data: remove dog rows and exact duplicate
+  // fallback contacts rather than assigning a company master number to every
+  // worksite.
+  return fallbackEntries.filter((entry, index, all) => {
+    const joined = `${entry.contactName || ""} ${entry.detail || ""}`;
+    if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(joined)) return false;
+    const siteKey = normalizeContactTextV17_90L175(entry.siteLabel);
+    const valueKey = normalizePhoneForAction(entry.contactValue);
+    const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
+    return (
+      all.findIndex(
+        (candidate) =>
+          normalizeContactTextV17_90L175(candidate.siteLabel) === siteKey &&
+          normalizePhoneForAction(candidate.contactValue) === valueKey &&
+          normalizeContactTextV17_90L175(candidate.channelLabel) === channelKey,
+      ) === index
+    );
+  });
+}
+
 function ContactEntries({
   entries,
   onAction,
@@ -110,10 +319,10 @@ export function MergedContactReviewChip({
   compact?: boolean;
   className?: string;
 }) {
-  const entries = useMemo(
-    () => buildMergedContactReviewEntries(records),
-    [records],
-  );
+  const entries = useMemo(() => {
+    const fallback = buildMergedContactReviewEntries(records);
+    return sanitizeMergedContactReviewEntriesV17_90L175(records, fallback);
+  }, [records]);
   const [open, setOpen] = useState(false);
   const [touchMode, setTouchMode] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 12, width: 360 });
