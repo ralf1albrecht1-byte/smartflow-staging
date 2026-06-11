@@ -1820,6 +1820,37 @@ const statusColors: Record<string, string> = {
   Bezahlt: "bg-green-100 text-green-800",
 };
 
+// Native <select> elements can keep the previously painted background in
+// Chromium when a compact card is collapsed. Inline colors are used in
+// addition to the Tailwind classes so the closed control always reflects the
+// currently selected invoice status.
+const statusInlineStyles = {
+  Entwurf: {
+    backgroundColor: "#f3f4f6",
+    color: "#1f2937",
+    borderColor: "#d1d5db",
+  },
+  Gesendet: {
+    backgroundColor: "#dbeafe",
+    color: "#1e40af",
+    borderColor: "#93c5fd",
+  },
+  Überfällig: {
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+    borderColor: "#fca5a5",
+  },
+  Bezahlt: {
+    backgroundColor: "#dcfce7",
+    color: "#166534",
+    borderColor: "#86efac",
+  },
+} as const;
+
+const getInvoiceStatusInlineStyle = (status: string) =>
+  statusInlineStyles[status as keyof typeof statusInlineStyles] ||
+  statusInlineStyles.Entwurf;
+
 // Invoice statuses shown in the dropdown.
 // Order matters: Entwurf → Gesendet → Überfällig → Bezahlt reflects the
 // real-world lifecycle.
@@ -2257,9 +2288,12 @@ export default function RechnungenPage() {
     }
   };
 
-  const load = async () => {
-    setLoading(true);
-    setLoadError(null);
+  const load = async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     const paymentTermsPromise = fetch(
       "/api/settings/invoice-payment-terms",
       { cache: "no-store" },
@@ -2281,8 +2315,10 @@ export default function RechnungenPage() {
     const paymentTerms = await paymentTermsPromise;
     // If most critical endpoints failed, show error state
     if (errors.length >= 2) {
-      setLoadError(errors);
-      setLoading(false);
+      if (!silent) {
+        setLoadError(errors);
+        setLoading(false);
+      }
       return;
     }
     // Filter out "Erledigt" invoices (they go to archiv)
@@ -2335,7 +2371,7 @@ export default function RechnungenPage() {
     }
     if (errors.length > 0)
       toast.error("Einige Daten konnten nicht vollständig geladen werden");
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
   useEffect(() => {
     load();
@@ -2343,7 +2379,10 @@ export default function RechnungenPage() {
 
   useEffect(() => {
     const refreshVisibleList = () => {
-      if (!dialogOpen) void load();
+      // Background refreshes must not replace the complete list with the
+      // loading screen. That caused a visible flash on the first click after
+      // returning to this browser tab.
+      if (!dialogOpen) void load({ silent: true });
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshVisibleList();
@@ -4046,7 +4085,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="inline-flex shrink-0 items-center gap-1"
+                      className="ml-3 inline-flex shrink-0 items-center gap-1 sm:ml-6 lg:ml-8"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -4077,9 +4116,12 @@ export default function RechnungenPage() {
                           {downloading === inv.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <MessageCircle className="h-3.5 w-3.5" />
+                            <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                              <MessageCircle className="h-4 w-4" />
+                              <FileText className="absolute -bottom-1 -right-1 h-2.5 w-2.5 rounded-[2px] bg-emerald-50 p-[1px] text-emerald-800 dark:bg-emerald-950" />
+                            </span>
                           )}
-                          <span className="hidden xl:inline">WhatsApp</span>
+                          <span className="hidden lg:inline">PDF → WhatsApp</span>
                         </button>
                       )}
                     </div>
@@ -4444,16 +4486,23 @@ export default function RechnungenPage() {
                                         className={`h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                                           statusColors[effectiveStatus] || statusColors.Entwurf
                                         }`}
+                                        style={getInvoiceStatusInlineStyle(
+                                          effectiveStatus,
+                                        )}
                                         aria-label={`Status bearbeiten: ${effectiveStatus}`}
                                       >
                                         {invoiceStatuses.map((status) => (
-                                          <option key={status} value={status}>
+                                          <option
+                                            key={status}
+                                            value={status}
+                                            style={getInvoiceStatusInlineStyle(status)}
+                                          >
                                             {status}
                                           </option>
                                         ))}
                                       </select>
-                                      {renderInvoiceQuickActions()}
                                       {renderInvoiceCompactFunctionalChips()}
+                                      {renderInvoiceQuickActions()}
                                       {useTouchChipPopovers ? (
                                         (invoiceYellowReviewEntries.length > 0 ||
                                           invoiceBlockerEntries.length > 0 ||
@@ -4669,6 +4718,9 @@ export default function RechnungenPage() {
                                   className={`h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium ${
                                     statusColors[effectiveStatus] || statusColors.Entwurf
                                   }`}
+                                  style={getInvoiceStatusInlineStyle(
+                                    effectiveStatus,
+                                  )}
                                   value={effectiveStatus}
                                   onChange={(event) =>
                                     updateStatus(event, inv.id, event.target.value)
@@ -4686,8 +4738,8 @@ export default function RechnungenPage() {
                                     </option>
                                   ))}
                                 </select>
-                                {renderInvoiceQuickActions()}
                                 {renderInvoiceCompactFunctionalChips()}
+                                {renderInvoiceQuickActions()}
                                 {useTouchChipPopovers ? (
                                   (invoiceYellowReviewEntries.length > 0 ||
                                     invoiceBlockerEntries.length > 0 ||
