@@ -2557,6 +2557,37 @@ const extractAppointmentBadge = (
   return getAppointmentBadgeVisual(appointmentMoment, parts, orderStatus);
 };
 
+const EXECUTION_ROLE_LABEL_KEYS_V17_90L176 = [
+  "ausfuehrungsadresse",
+  "ausfuehrungsort",
+  "ausfuehrung",
+  "arbeitsadresse",
+  "arbeitsort",
+  "einsatzadresse",
+  "einsatzort",
+  "objektadresse",
+  "objekt",
+  "baustelle",
+  "work site",
+  "job site",
+  "adresse de travail",
+];
+
+const isBrokenWorkSiteRoleFragmentV17_90L176 = (
+  value?: string | null,
+): boolean => {
+  const key = normalizeForMatch(value).replace(/\s+/g, " ").trim();
+  if (!key) return true;
+  if (EXECUTION_ROLE_LABEL_KEYS_V17_90L176.includes(key)) return true;
+
+  // Structural suffix fragments such as "sort" from "Ausführungsort" are
+  // field-label debris, not real object names. This does not classify service
+  // vocabulary; it only validates address-role labels.
+  return EXECUTION_ROLE_LABEL_KEYS_V17_90L176.some(
+    (label) => key.length >= 3 && key.length < label.length && label.endsWith(key),
+  );
+};
+
 type AppointmentDetail = {
   site: string;
   address: string;
@@ -2915,11 +2946,161 @@ const compactAppointmentNoticeV17_90L86 = (
   return channel;
 };
 
+const splitMergedOrderSourceSectionsV17_90L176 = (
+  order: Order,
+): string[] => {
+  const source = [order.notes, order.audioTranscript]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const parts = source
+    .split(
+      /\n?\s*(?:[-─]{3,}\s*)?(?:Hauptauftrag:|Zusammengeführt mit:)\s*\n?/i,
+    )
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 1 ? parts : [source];
+};
+
+const extractMergedSectionSiteLabelV17_90L176 = (
+  section?: string | null,
+): string => {
+  const lines = String(section || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+  const marker =
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|work\s*site|job\s*site)\s*:?\s*(.*)$/i;
+  const stop = /^(?:termin|leistung|leistungen|rechnung|rechnungsadresse|kontakt|telefon|e-?mail|sms|whatsapp|hinweis|besonderheiten)\b/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(marker);
+    if (!match) continue;
+    const inline = compactText(match[1]);
+    if (
+      inline &&
+      !isBrokenWorkSiteRoleFragmentV17_90L176(inline) &&
+      !looksLikeAddressLine(inline)
+    ) {
+      return inline;
+    }
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const candidate = compactText(lines[index + offset]);
+      if (!candidate || stop.test(candidate)) break;
+      if (looksLikeAddressLine(candidate)) continue;
+      if (!isBrokenWorkSiteRoleFragmentV17_90L176(candidate)) return candidate;
+    }
+  }
+  return "";
+};
+
+const extractMergedAppointmentLabelV17_90L176 = (line: string) => {
+  const direct = extractAppointmentDetailLabel(line);
+  const date = normalizeAppointmentDateLabel(line);
+  const time = normalizeAppointmentTimeLabel(line);
+  const weekday = line.match(
+    /\b(?:nächsten|naechsten|kommenden|diesen)?\s*(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/i,
+  )?.[1];
+  const relative = line.match(/\b(heute|morgen|übermorgen|uebermorgen)\b/i)?.[1];
+  const dayLabel = date || weekday || relative || "";
+  const structured = [dayLabel, time].filter(Boolean).join(" · ");
+  return structured || direct;
+};
+
+const extractMergedAppointmentDetailsV17_90L176 = (
+  order: Order,
+): AppointmentDetail[] => {
+  const sections = splitMergedOrderSourceSectionsV17_90L176(order);
+  const workSites = Array.isArray(order.workSites)
+    ? [...order.workSites].sort(
+        (a, b) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+  const merged =
+    sections.length > 1 ||
+    workSites.length > 1 ||
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1) ||
+    order.reviewReasons?.includes("manual_order_merge") ||
+    order.reviewReasons?.includes("double_merge");
+  if (!merged) return [];
+
+  const result: AppointmentDetail[] = [];
+  sections.forEach((section, sectionIndex) => {
+    const sectionKey = normalizeForMatch(section);
+    const matchingSite =
+      workSites.find((site) => {
+        const addressKey = normalizeForMatch(site?.siteAddress);
+        const placeKey = normalizeForMatch(
+          [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
+        );
+        return Boolean(
+          (addressKey && sectionKey.includes(addressKey)) ||
+            (placeKey && sectionKey.includes(placeKey)),
+        );
+      }) || workSites[sectionIndex];
+    const inferredSite = extractMergedSectionSiteLabelV17_90L176(section);
+    const storedSite = compactText(matchingSite?.siteName);
+    const site =
+      storedSite && !isBrokenWorkSiteRoleFragmentV17_90L176(storedSite)
+        ? storedSite
+        : inferredSite || compactText(matchingSite?.siteAddress);
+    const address = [
+      compactText(matchingSite?.siteAddress),
+      [compactText(matchingSite?.sitePlz), compactText(matchingSite?.siteCity)]
+        .filter(Boolean)
+        .join(" "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    const lines = [
+      ...section
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+|(?<=[.!?])\s+/g),
+      ...extractEmbeddedAppointmentLinesV17_90L80(section),
+    ]
+      .map((line) => compactText(line))
+      .filter(Boolean);
+
+    for (const line of lines) {
+      if (!hasExplicitAppointmentBadgeSignalV17_90L10(line)) continue;
+      if (
+        isAppointmentContactTimeLine(line) ||
+        isPreArrivalInstructionLine(line) ||
+        isResourceAvailabilityTimeLineV17_90L84(line)
+      ) {
+        continue;
+      }
+      const label = extractMergedAppointmentLabelV17_90L176(line);
+      if (!label) continue;
+      result.push({ site, address, label, reason: line });
+    }
+  });
+
+  return dedupeAppointmentDetails(result);
+};
+
 const formatAppointmentDetailsTooltip = (details: AppointmentDetail[]) =>
   details
     .map((detail, index) => {
       const notice = compactAppointmentNoticeV17_90L86(detail.reason);
-      return `${index + 1}. ${[detail.label, notice].filter(Boolean).join(" · ")}`;
+      const place = detail.site || detail.address;
+      return `${index + 1}. ${[
+        place ? `${place} — ${detail.label}` : detail.label,
+        notice,
+      ]
+        .filter(Boolean)
+        .join(" · ")}`;
     })
     .join("\n");
 
@@ -3027,11 +3208,16 @@ const getMultipleAppointmentBadge = (
   // additional appointments only in the linked/raw source text. Always combine
   // all read-only sources before deduplication; never discard the raw source
   // merely because one structured appointment already exists.
-  const details = dedupeAppointmentDetails([
-    ...extractAppointmentDetailsFromRawText(order.specialNotes),
-    ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-    ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
-  ]).filter((detail) => {
+  const mergedDetails = extractMergedAppointmentDetailsV17_90L176(order);
+  const details = dedupeAppointmentDetails(
+    mergedDetails.length > 0
+      ? mergedDetails
+      : [
+          ...extractAppointmentDetailsFromRawText(order.specialNotes),
+          ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
+          ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
+        ],
+  ).filter((detail) => {
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
@@ -3833,6 +4019,15 @@ const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
 // V17.90L175: The red dog chip contains dog information only. Contact
 // numbers/channels accidentally attached to a dog sentence stay in the
 // communication chips and must not be repeated in the danger popover.
+const dogTooltipSemanticKeyV17_90L176 = (value?: string | null) =>
+  normalizeForMatch(value)
+    .replace(
+      /\b(?:ein|eine|einen|einem|einer|der|die|das|ist|sind|war|waren|befindet|befinden|sich|steht|stehen|sitzt|sitzen|liegt|liegen)\b/g,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
 const sanitizeDogOnlyTooltipV17_90L175 = (value?: string | null) => {
   const lines = String(value || "")
     .replace(/\r\n/g, "\n")
@@ -3852,8 +4047,20 @@ const sanitizeDogOnlyTooltipV17_90L175 = (value?: string | null) => {
 
   const unique: string[] = [];
   for (const line of lines) {
-    const key = normalizeForMatch(line);
-    if (!key || unique.some((existing) => normalizeForMatch(existing) === key)) continue;
+    const key = dogTooltipSemanticKeyV17_90L176(line);
+    if (!key) continue;
+    const duplicateIndex = unique.findIndex((existing) => {
+      const existingKey = dogTooltipSemanticKeyV17_90L176(existing);
+      return (
+        existingKey === key ||
+        existingKey.includes(key) ||
+        key.includes(existingKey)
+      );
+    });
+    if (duplicateIndex >= 0) {
+      if (line.length > unique[duplicateIndex].length) unique[duplicateIndex] = line;
+      continue;
+    }
     unique.push(line);
   }
   return unique.join("\n");
@@ -5540,9 +5747,14 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     // V17.63: role labels and broken role-label fragments are not real
     // execution-site names. Do not persist/display fragments like "sadresse".
     // This is deliberately structural UI cleanup, not a service-name mapping.
-    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|strasse|strasse str|str|strasse|straße|street|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
-      key,
-    );
+    if (
+      /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|strasse|strasse str|str|strasse|straße|street|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
+        key,
+      )
+    ) {
+      return true;
+    }
+    return isBrokenWorkSiteRoleFragmentV17_90L176(candidate);
   };
 
   if (isGenericAddressRoleLabel(text)) return "";
@@ -5671,6 +5883,45 @@ const inferOrderExecutionSiteName = (order?: Order | null) =>
     order?.description,
     order?.audioTranscript,
   );
+
+const repairOrderWorkSiteNamesForDisplayV17_90L176 = (
+  order: Order,
+): Order => {
+  if (!Array.isArray(order.workSites) || order.workSites.length === 0)
+    return order;
+
+  const sections = splitMergedOrderSourceSectionsV17_90L176(order);
+  const repairedSites = order.workSites.map((site, index) => {
+    const current = cleanWorkSiteDisplayName(site.siteName);
+    if (current) return current === site.siteName ? site : { ...site, siteName: current };
+
+    const addressKey = normalizeForMatch(site.siteAddress);
+    const placeKey = normalizeForMatch(
+      [site.sitePlz, site.siteCity].filter(Boolean).join(" "),
+    );
+    const matchingSection =
+      sections.find((section) => {
+        const sectionKey = normalizeForMatch(section);
+        return Boolean(
+          (addressKey && sectionKey.includes(addressKey)) ||
+            (placeKey && sectionKey.includes(placeKey)),
+        );
+      }) || sections[index];
+    const inferred = extractMergedSectionSiteLabelV17_90L176(matchingSection);
+    return inferred ? { ...site, siteName: inferred } : { ...site, siteName: null };
+  });
+
+  const primary =
+    repairedSites.find((site) => site.isPrimary) || repairedSites[0] || null;
+  return {
+    ...order,
+    workSites: repairedSites,
+    siteName:
+      cleanWorkSiteDisplayName(order.siteName) ||
+      cleanWorkSiteDisplayName(primary?.siteName) ||
+      null,
+  };
+};
 
 const formatExecutionAddressTooltip = (order: Order) => {
   const workSites = (order.workSites ?? [])
@@ -5934,12 +6185,60 @@ const hasMergedMultipleContactData = (
   if (order.reviewReasons?.includes("merged_multiple_contact_data"))
     return true;
 
+  const rawSource = [order.notes, order.specialNotes, order.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
     order.reviewReasons?.includes("double_merge") ||
-    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1);
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1) ||
+    (Array.isArray(order.workSites) && order.workSites.length > 1) ||
+    /(?:Hauptauftrag:|Zusammengeführt mit:)/i.test(rawSource);
 
   if (!isMergedOrder) return false;
+
+  const companyContactKeys = new Set<string>();
+  const operationalContactKeys = new Set<string>();
+  const phoneKey = (value?: string | null) => {
+    const digits = String(value || "").replace(/\D/g, "");
+    return digits.length >= 7 ? `phone:${digits}` : "";
+  };
+  const emailKey = (value?: string | null) => {
+    const email = compactText(value).toLowerCase();
+    return email.includes("@") ? `mail:${email}` : "";
+  };
+
+  // Company/billing contact is one role and is never copied to every site.
+  const companyPhoneKey = phoneKey(order.customer?.phone);
+  const companyEmailKey = emailKey(order.customer?.email);
+  if (companyPhoneKey) companyContactKeys.add(companyPhoneKey);
+  if (companyEmailKey) companyContactKeys.add(companyEmailKey);
+
+  const operationalLines = rawSource
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean)
+    .filter((line) => !/\b(?:hund|dog|chien|cane|perro)\b/i.test(line))
+    .filter((line) =>
+      /\b(?:sms|whats\s*app|whatsapp|anrufen|anruf|rückruf|rueckruf|kontakt\s+vor\s+ort|vor\s+arbeitsbeginn|vor\s+ausführung|vor\s+ausfuehrung|erreichbar|melden|e-?mail)\b/i.test(
+        line,
+      ),
+    );
+
+  for (const line of operationalLines) {
+    const phones = line.match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+    phones.forEach((phone) => {
+      const key = phoneKey(phone);
+      if (key) operationalContactKeys.add(key);
+    });
+    const emails = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+    emails.forEach((email) => {
+      const key = emailKey(email);
+      if (key) operationalContactKeys.add(key);
+    });
+  }
 
   const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
   const groupedContactLines = notes.jobHints.filter((line) => {
@@ -5949,24 +6248,11 @@ const hasMergedMultipleContactData = (
     );
   });
 
-  const phoneCandidates =
-    [
-      order.customer?.phone,
-      order.notes,
-      order.specialNotes,
-      order.audioTranscript,
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
-
-  const uniquePhones = new Set(
-    phoneCandidates
-      .map((phone) => phone.replace(/\D/g, ""))
-      .filter((phone) => phone.length >= 7),
+  return (
+    operationalContactKeys.size > 1 ||
+    (operationalContactKeys.size > 0 && companyContactKeys.size > 0) ||
+    groupedContactLines.length > 1
   );
-
-  return groupedContactLines.length > 1 || uniquePhones.size > 1;
 };
 
 const normalizeAddressPartForCompare = (value?: string | null) =>
@@ -8994,7 +9280,10 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? (
-        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+        <Icon
+          className={badge.key === "danger_dog" ? "h-5 w-5" : "h-3.5 w-3.5"}
+          strokeWidth={2.2}
+        />
       ) : (
         badge.label.slice(0, 1)
       )}
@@ -10096,7 +10385,9 @@ export default function AuftraegePage() {
       return;
     }
 
-    const ordersFromApi = o ?? [];
+    const ordersFromApi = (o ?? []).map((order) =>
+      repairOrderWorkSiteNamesForDisplayV17_90L176(order),
+    );
     const initialCustMap = new Map<string, Customer>();
     ordersFromApi.forEach((order: any) => {
       if (order.customer && !initialCustMap.has(order.customer.id)) {
@@ -15762,7 +16053,13 @@ export default function AuftraegePage() {
                   } ${mobileIconBadgeClass(badge)}`}
                 >
                   <Icon
-                    className={isGenericDangerWarning ? "h-4 w-4" : "h-3.5 w-3.5"}
+                    className={
+                      badge.key === "danger_dog"
+                        ? "h-5 w-5"
+                        : isGenericDangerWarning
+                          ? "h-4 w-4"
+                          : "h-3.5 w-3.5"
+                    }
                     strokeWidth={2.2}
                   />
                   {renderMobileChipTooltip(badge, tooltipSlot, "left")}

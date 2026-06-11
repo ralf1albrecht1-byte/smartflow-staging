@@ -1594,6 +1594,28 @@ function hasExplicitExecutionNotBillingAddressDirectiveV17_51(
   );
 }
 
+function isBrokenExecutionSiteRoleFragmentV17_90L176(
+  value?: string | null,
+): boolean {
+  const key = normalizeUnitText(value || "").replace(/\s+/g, " ").trim();
+  if (!key) return true;
+  const labels = [
+    "ausfuehrungsadresse",
+    "ausfuehrungsort",
+    "ausfuehrung",
+    "arbeitsadresse",
+    "arbeitsort",
+    "einsatzort",
+    "objekt",
+    "baustelle",
+    "work site",
+    "job site",
+  ];
+  return labels.some(
+    (label) => key === label || (key.length >= 3 && key.length < label.length && label.endsWith(key)),
+  );
+}
+
 function extractAiStructuredExecutionAddress(
   aiExecutionAddress: any,
   customer?: {
@@ -1620,9 +1642,12 @@ function extractAiStructuredExecutionAddress(
   );
   if (confidence === "niedrig") return null;
 
-  const siteName = cleanExecutionSiteNameCandidate(
+  const rawSiteName = cleanExecutionSiteNameCandidate(
     normalizeStructuredTextField(aiExecutionAddress.name),
   );
+  const siteName = isBrokenExecutionSiteRoleFragmentV17_90L176(rawSiteName)
+    ? null
+    : rawSiteName;
   const rawExecutionStreet = normalizeStructuredTextField(
     aiExecutionAddress.strasse,
   );
@@ -13982,7 +14007,10 @@ export async function processIncomingMessage(
   if (
     extractedExecutionAddress &&
     explicitExecutionSiteDescriptor &&
-    !extractedExecutionAddress.siteName
+    (!extractedExecutionAddress.siteName ||
+      isBrokenExecutionSiteRoleFragmentV17_90L176(
+        extractedExecutionAddress.siteName,
+      ))
   ) {
     // V17.90L103: Original-text parsing may fill a missing object name, but it
     // may not replace the populated first-AI site name.

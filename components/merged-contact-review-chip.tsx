@@ -61,6 +61,53 @@ function normalizeContactTextV17_90L175(value: unknown): string {
     .trim();
 }
 
+function isBrokenMergedSiteLabelV17_90L176(value: unknown): boolean {
+  const key = normalizeContactTextV17_90L175(value);
+  if (!key) return true;
+  const labels = [
+    "ausfuhrungsadresse",
+    "ausfuhrungsort",
+    "ausfuhrung",
+    "arbeitsadresse",
+    "arbeitsort",
+    "einsatzort",
+    "objekt",
+    "baustelle",
+    "work site",
+    "job site",
+  ];
+  return labels.some(
+    (label) => key === label || (key.length >= 3 && key.length < label.length && label.endsWith(key)),
+  );
+}
+
+function mergedSectionSiteLabelV17_90L176(text: string): string {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const marker =
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|work\s*site|job\s*site)\s*:?\s*(.*)$/i;
+  const address = /\b(?:strasse|straße|weg|gasse|platz|allee|ring|rue|route|via|street|road)\b.*\d|\b\d{4,5}\b/i;
+  const stop = /^(?:termin|leistung|leistungen|rechnung|kontakt|telefon|sms|whatsapp|e-?mail)\b/i;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(marker);
+    if (!match) continue;
+    const inline = String(match[1] || "").trim();
+    if (inline && !isBrokenMergedSiteLabelV17_90L176(inline) && !address.test(inline))
+      return inline;
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const candidate = lines[index + offset];
+      if (!candidate || stop.test(candidate)) break;
+      if (address.test(candidate)) continue;
+      if (!isBrokenMergedSiteLabelV17_90L176(candidate)) return candidate;
+    }
+  }
+  return "";
+}
+
 function communicationRecordSiteLabelV17_90L175(
   record: any,
   index: number,
@@ -102,6 +149,29 @@ function explicitMergedContactsV17_90L175(
 ): ExplicitMergedContactV17_90L175[] {
   const result: ExplicitMergedContactV17_90L175[] = [];
   (Array.isArray(records) ? records : []).forEach((record: any, recordIndex) => {
+    const companyLabel = String(record?.customer?.name || "Firma / Rechnungsadresse")
+      .replace(/\s+/g, " ")
+      .trim();
+    const companyPhone = String(record?.customer?.phone || "").trim();
+    const companyEmail = String(record?.customer?.email || "").trim();
+    if (companyPhone) {
+      result.push({
+        siteLabel: companyLabel,
+        contactName: "Firmenkontakt",
+        contactValue: companyPhone,
+        channelLabel: "Telefon",
+        detail: "Telefon der Rechnungsadresse",
+      });
+    }
+    if (companyEmail) {
+      result.push({
+        siteLabel: companyLabel,
+        contactName: "Firmenkontakt",
+        contactValue: companyEmail,
+        channelLabel: "E-Mail",
+        detail: "E-Mail der Rechnungsadresse",
+      });
+    }
     const workSites = Array.isArray(record?.workSites) ? record.workSites : [];
     const fullText = communicationRecordTextV17_90L175(record)
       .replace(/\r\n/g, "\n")
@@ -118,16 +188,29 @@ function explicitMergedContactsV17_90L175(
       .filter(Boolean);
     const sections =
       workSites.length > 1 && mergedParts.length > 1
-        ? mergedParts.map((text, index) => ({
-            text,
-            siteLabel: String(
-              workSites[index]?.siteName ||
-                workSites[index]?.name ||
-                `Arbeitsort ${index + 1}`,
+        ? mergedParts.map((text, index) => {
+            const storedLabel = String(
+              workSites[index]?.siteName || workSites[index]?.name || "",
             )
               .replace(/\s+/g, " ")
-              .trim(),
-          }))
+              .trim();
+            const inferredLabel = mergedSectionSiteLabelV17_90L176(text);
+            const addressLabel = [
+              workSites[index]?.siteAddress,
+              [workSites[index]?.sitePlz, workSites[index]?.siteCity]
+                .filter(Boolean)
+                .join(" "),
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return {
+              text,
+              siteLabel:
+                storedLabel && !isBrokenMergedSiteLabelV17_90L176(storedLabel)
+                  ? storedLabel
+                  : inferredLabel || addressLabel || `Arbeitsort ${index + 1}`,
+            };
+          })
         : [
             {
               text: fullText,

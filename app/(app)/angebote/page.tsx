@@ -4482,7 +4482,9 @@ export default function AngebotePage() {
     );
     const textValue = String(activeMobileTooltip.text || "").trim();
     const mobileTooltipKeyTail = activeMobileTooltip.key.split(":").pop() || "";
-    const isAppointmentTooltip = mobileTooltipKeyTail === "appointment";
+    const isAppointmentTooltip =
+      /(?:^|[-_])appointments?(?:[-_]|$)/i.test(mobileTooltipKeyTail) ||
+      mobileTooltipKeyTail === "appointment";
     const isOperationalDanger = ["dog", "danger"].includes(mobileTooltipKeyTail);
     const isOperationalWarning = ["parking", "ladder", "key", "access"].includes(
       mobileTooltipKeyTail,
