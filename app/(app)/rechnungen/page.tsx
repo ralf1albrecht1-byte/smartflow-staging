@@ -773,126 +773,259 @@ function getTodayInvoiceDateInputValue(): string {
   return `${year}-${month}-${day}`;
 }
 
-function formatInvoiceAppointmentLabel(invoice: Invoice): string {
-  const formatParsedDate = (date: Date, raw: string) => {
-    if (Number.isNaN(date.getTime())) return "";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const appointmentDay = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-    );
-    if (appointmentDay.getTime() < today.getTime()) return "";
+type InvoiceAppointmentEntryV17_90L177R = {
+  site: string;
+  label: string;
+  source: string;
+};
 
-    const dateLabel = date.toLocaleDateString("de-CH", {
-      day: "2-digit",
-      month: "2-digit",
-    });
-    const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(raw);
-    const timeLabel = hasTime
-      ? date.toLocaleTimeString("de-CH", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-    return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
-  };
+function normalizeInvoiceAppointmentKeyV17_90L177R(value?: string | null): string {
+  return compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const parseAppointmentLine = (value?: string | null) => {
-    const source = String(value || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "");
-    const line = source
-      .split(/\n+/g)
-      .map((entry) => entry.trim())
-      .find((entry) =>
-        /\b(?:termin|datum|zeitfenster|appointment|ausführung|ausfuehrung)\b/i.test(
-          entry,
-        ),
-      );
-    if (!line) return "";
-
-    const dateMatch = line.match(
-      /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
-    );
-    const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
-    const timeMatches = Array.from(
-      lineWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
-    );
-    const times = timeMatches
-      .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
-      .filter((time, index, all) => all.indexOf(time) === index);
-    const timeLabel =
-      times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
-
-    if (dateMatch) {
-      const currentYear = new Date().getFullYear();
-      const rawYear = dateMatch[3];
-      const year = rawYear
-        ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear)
-        : currentYear;
-      const month = Number(dateMatch[2]) - 1;
-      const day = Number(dateMatch[1]);
-      const firstTime = times[0]?.split(":") || [];
-      const parsed = new Date(
-        year,
-        month,
-        day,
-        Number(firstTime[0] || 0),
-        Number(firstTime[1] || 0),
-      );
-      const formatted = formatParsedDate(parsed, `${dateMatch[0]} ${times[0] || ""}`);
-      if (!formatted) return "";
-      const dateLabel = `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.`;
-      return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
-    }
-
-    if (timeLabel) return `Termin ${timeLabel}`;
-    if (/\btermin\b.*\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line))
-      return "Termin klären";
+function parseInvoiceAppointmentLineV17_90L177R(
+  value?: string | null,
+): string {
+  const line = compactInvoiceValue(
+    String(value || "").replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, ""),
+  );
+  if (!line) return "";
+  if (
+    !/\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(
+      line,
+    )
+  ) {
     return "";
-  };
-
-  const entries: Array<{ site: string; label: string }> = [];
-  for (const [index, order] of (invoice.orders || []).entries()) {
-    let label = "";
-    const directRaw = compactInvoiceValue(order?.date);
-    if (directRaw) {
-      const directDate = new Date(directRaw);
-      if (!Number.isNaN(directDate.getTime())) {
-        label = formatParsedDate(directDate, directRaw);
-      }
-      if (!label) label = parseAppointmentLine(directRaw);
-    }
-    if (!label) {
-      label = parseAppointmentLine(
-        [order?.specialNotes, order?.notes, order?.description]
-          .filter(Boolean)
-          .join("\n"),
-      );
-    }
-    if (!label) continue;
-    const site =
-      compactInvoiceValue(order?.workSites?.[0]?.siteName) ||
-      compactInvoiceValue(order?.siteName) ||
-      
-      `Arbeitsort ${index + 1}`;
-    entries.push({ site, label });
   }
 
-  const unique = entries.filter(
-    (entry, index, all) =>
-      all.findIndex(
-        (candidate) =>
-          compactInvoiceValue(candidate.site).toLowerCase() === compactInvoiceValue(entry.site).toLowerCase() &&
-          compactInvoiceValue(candidate.label).toLowerCase() === compactInvoiceValue(entry.label).toLowerCase(),
-      ) === index,
+  const dateMatch = line.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
   );
-  if (unique.length === 0) return "";
-  if (unique.length === 1) return unique[0].label;
-  return [`Termine · ${unique.length}`, ...unique.map((entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`)].join("\n");
+  const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
+  const timeMatches = Array.from(
+    lineWithoutDate.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+  );
+  const times = timeMatches
+    .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
+    .filter((time, index, all) => all.indexOf(time) === index);
+  const timeLabel =
+    times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, "0");
+    const month = dateMatch[2].padStart(2, "0");
+    const year = dateMatch[3]
+      ? String(dateMatch[3]).length === 2
+        ? `20${dateMatch[3]}`
+        : String(dateMatch[3])
+      : "";
+    const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+    return `Termin ${dateLabel}${timeLabel ? ` · ${timeLabel}` : ""}`;
+  }
+
+  if (timeLabel) {
+    const relativeDate = line.match(
+      /\b(?:heute|morgen|übermorgen|uebermorgen|nächsten?\s+(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)|kommenden?\s+(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+    )?.[0];
+    return `Termin${relativeDate ? ` ${relativeDate}` : ""} · ${timeLabel}`;
+  }
+
+  if (/\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line)) {
+    return "Termin klären";
+  }
+
+  return "";
+}
+
+function splitInvoiceAppointmentSectionsV17_90L177R(
+  value?: string | null,
+): string[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const sections = source
+    .split(
+      /\n\s*(?:─{3,}|-{3,})\s*\n|\n\s*(?:Hauptauftrag|Zusammengeführt mit|Zusammengefuehrt mit)\s*:\s*/gi,
+    )
+    .map((section) => section.trim())
+    .filter(Boolean);
+  return sections.length > 0 ? sections : [source];
+}
+
+function extractInvoiceAppointmentLinesV17_90L177R(
+  value?: string | null,
+): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line))
+    .filter((line) => Boolean(parseInvoiceAppointmentLineV17_90L177R(line)));
+}
+
+function resolveInvoiceAppointmentSiteV17_90L177R(
+  order: NonNullable<Invoice["orders"]>[number],
+  section: string,
+  sectionIndex: number,
+): string {
+  const workSites = Array.isArray(order?.workSites)
+    ? [...order.workSites].sort(
+        (a, b) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+  const sectionKey = normalizeInvoiceAppointmentKeyV17_90L177R(section);
+  const matchingSite = workSites.find((site) => {
+    const candidates = [
+      site?.siteName,
+      site?.siteAddress,
+      [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
+    ]
+      .map((value) => normalizeInvoiceAppointmentKeyV17_90L177R(value))
+      .filter(Boolean);
+    return candidates.some((candidate) => sectionKey.includes(candidate));
+  });
+  const fallbackSite = matchingSite || workSites[sectionIndex] || workSites[0];
+  return (
+    compactInvoiceValue(fallbackSite?.siteName) ||
+    compactInvoiceValue(fallbackSite?.siteAddress) ||
+    compactInvoiceValue(order?.siteName) ||
+    compactInvoiceValue(order?.siteAddress) ||
+    `Arbeitsort ${sectionIndex + 1}`
+  );
+}
+
+function collectInvoiceAppointmentEntriesV17_90L177R(
+  invoice: Invoice,
+): InvoiceAppointmentEntryV17_90L177R[] {
+  const entries: InvoiceAppointmentEntryV17_90L177R[] = [];
+
+  const addEntry = (entry: InvoiceAppointmentEntryV17_90L177R) => {
+    const labelKey = normalizeInvoiceAppointmentKeyV17_90L177R(entry.label);
+    if (!labelKey) return;
+    const siteKey = normalizeInvoiceAppointmentKeyV17_90L177R(entry.site);
+    const exactIndex = entries.findIndex(
+      (current) =>
+        normalizeInvoiceAppointmentKeyV17_90L177R(current.label) === labelKey &&
+        normalizeInvoiceAppointmentKeyV17_90L177R(current.site) === siteKey,
+    );
+    if (exactIndex >= 0) {
+      if (entry.source.length > entries[exactIndex].source.length) {
+        entries[exactIndex] = entry;
+      }
+      return;
+    }
+
+    const looseIndex = entries.findIndex((current) => {
+      if (
+        normalizeInvoiceAppointmentKeyV17_90L177R(current.label) !== labelKey
+      ) {
+        return false;
+      }
+      const currentSite = normalizeInvoiceAppointmentKeyV17_90L177R(
+        current.site,
+      );
+      return !currentSite || !siteKey || /^arbeitsort \d+$/.test(currentSite);
+    });
+    if (looseIndex >= 0) {
+      const current = entries[looseIndex];
+      entries[looseIndex] = {
+        site:
+          /^arbeitsort \d+$/i.test(current.site) &&
+          !/^arbeitsort \d+$/i.test(entry.site)
+            ? entry.site
+            : current.site,
+        label: current.label,
+        source:
+          current.source.length >= entry.source.length
+            ? current.source
+            : entry.source,
+      };
+      return;
+    }
+
+    entries.push(entry);
+  };
+
+  for (const [orderIndex, order] of (invoice.orders || []).entries()) {
+    const combinedSource = [
+      order?.specialNotes,
+      order?.notes,
+      order?.description,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const sections = splitInvoiceAppointmentSectionsV17_90L177R(combinedSource);
+
+    sections.forEach((section, sectionIndex) => {
+      const site = resolveInvoiceAppointmentSiteV17_90L177R(
+        order,
+        section,
+        sectionIndex,
+      );
+      for (const line of extractInvoiceAppointmentLinesV17_90L177R(section)) {
+        const label = parseInvoiceAppointmentLineV17_90L177R(line);
+        if (!label) continue;
+        addEntry({ site, label, source: line });
+      }
+    });
+
+    const directRaw = compactInvoiceValue(order?.date);
+    if (directRaw) {
+      let directLabel = "";
+      const directDate = new Date(directRaw);
+      if (!Number.isNaN(directDate.getTime())) {
+        const day = String(directDate.getDate()).padStart(2, "0");
+        const month = String(directDate.getMonth() + 1).padStart(2, "0");
+        const year = directDate.getFullYear();
+        const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(directRaw);
+        const time = hasTime
+          ? directDate.toLocaleTimeString("de-CH", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "";
+        directLabel = `Termin ${day}.${month}.${year}${time ? ` · ${time}` : ""}`;
+      } else {
+        directLabel = parseInvoiceAppointmentLineV17_90L177R(directRaw);
+      }
+      if (directLabel) {
+        addEntry({
+          site: resolveInvoiceAppointmentSiteV17_90L177R(
+            order,
+            combinedSource,
+            orderIndex,
+          ),
+          label: directLabel,
+          source: directRaw,
+        });
+      }
+    }
+  }
+
+  return entries;
+}
+
+function formatInvoiceAppointmentLabel(invoice: Invoice): string {
+  const entries = collectInvoiceAppointmentEntriesV17_90L177R(invoice);
+  if (entries.length === 0) return "";
+  if (entries.length === 1) return entries[0].label;
+  return [
+    `Termine · ${entries.length}`,
+    ...entries.map(
+      (entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`,
+    ),
+  ].join("\n");
 }
 
 function InvoiceViewportTooltip({
@@ -1084,6 +1217,61 @@ function InvoiceAppointmentTooltipContentV17_90L169({
 }: {
   text: string;
 }) {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const multiple = /^Termine\s*·\s*\d+/i.test(lines[0] || "");
+
+  if (multiple) {
+    const entries = lines.slice(1).map((line, index) => {
+      const cleaned = line.replace(/^\d+\.\s*/, "").trim();
+      const markerIndex = cleaned.toLowerCase().lastIndexOf(": termin");
+      const site =
+        markerIndex >= 0
+          ? cleaned.slice(0, markerIndex).trim()
+          : `Arbeitsort ${index + 1}`;
+      const appointment =
+        markerIndex >= 0
+          ? cleaned.slice(markerIndex + 2).trim()
+          : cleaned;
+      return { site, appointment };
+    });
+
+    return (
+      <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+        <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
+          <CalendarDays className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+          {lines[0]}
+        </span>
+        <span className="block space-y-2">
+          {entries.map((entry, index) => {
+            const parts = parseInvoiceAppointmentTooltipV17_90L169(
+              entry.appointment,
+            );
+            return (
+              <span
+                key={`${entry.site}-${entry.appointment}-${index}`}
+                className="block rounded-lg border border-violet-200 bg-white/80 p-2.5 dark:border-violet-800/60 dark:bg-slate-950/25"
+              >
+                <span className="block break-words text-[12px] font-extrabold leading-tight">
+                  {index + 1}. {entry.site}
+                </span>
+                <span className="mt-1.5 block text-[12px] font-semibold leading-relaxed">
+                  {[parts.date, parts.time, parts.note]
+                    .filter(Boolean)
+                    .join(" · ") || parts.fallback}
+                </span>
+              </span>
+            );
+          })}
+        </span>
+      </span>
+    );
+  }
+
   const parts = parseInvoiceAppointmentTooltipV17_90L169(text);
   return (
     <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
@@ -1119,7 +1307,6 @@ function InvoiceAppointmentTooltipContentV17_90L169({
     </span>
   );
 }
-
 
 // V17.90L136: Einheitliche Leistungsdarstellung innen und außen.
 function InvoiceServiceReviewSectionsV17_90L135G({
