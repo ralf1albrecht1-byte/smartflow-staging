@@ -877,7 +877,7 @@ function formatInvoiceAppointmentLabel(invoice: Invoice): string {
     const site =
       compactInvoiceValue(order?.workSites?.[0]?.siteName) ||
       compactInvoiceValue(order?.siteName) ||
-      compactInvoiceValue(order?.executionSiteName) ||
+      
       `Arbeitsort ${index + 1}`;
     entries.push({ site, label });
   }
