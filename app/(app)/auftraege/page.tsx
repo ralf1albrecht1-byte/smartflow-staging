@@ -16038,9 +16038,11 @@ export default function AuftraegePage() {
             const compactExecutionAddressBadge =
               mobileAddressBadges.find((badge) => badge.key === "site_address") ||
               null;
-            // V17.90L206: Blocking customer/execution-address reviews must be
-            // visible on the closed card next to the execution-site chip. They
-            // are navigation controls, not passive tooltip-only badges.
+            // V17.90L206/L207: Blocking customer/execution-address reviews
+            // stay in the same wrapping header row immediately after the
+            // execution-site chip. The price has its own grid column, so the
+            // header must not reserve an additional 40% width. Only genuine
+            // lack of space may move a review chip to the next line.
             const compactHeaderReviewBadges = leftSystemBadges.filter((badge) =>
               ["customer_review", "address_review"].includes(badge.key),
             );
@@ -16615,7 +16617,7 @@ export default function AuftraegePage() {
                         >
                           <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                             <div className="min-w-0">
-                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:pr-[40%]">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                   {o.createdAt
                                     ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
@@ -16639,7 +16641,7 @@ export default function AuftraegePage() {
                                     : o.customer?.name || "–"}
                                 </span>
                                 {compactExecutionAddressBadge && (
-                                  <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]">
+                                  <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-none sm:max-w-[18rem]">
                                     {renderInteractiveMobileTextBadge(
                                       compactExecutionAddressBadge,
                                       "compact_header_address",
@@ -16822,7 +16824,7 @@ export default function AuftraegePage() {
                               </span>
                             )}
                           {compactExecutionAddressBadge && (
-                            <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]">
+                            <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-none sm:max-w-[18rem]">
                               {renderInteractiveMobileTextBadge(
                                 compactExecutionAddressBadge,
                                 "mobile_header_address",

@@ -220,18 +220,23 @@ function parseCandidate(candidate: CanonicalFactCandidateV2): ParsedFact | null 
   const text = compact(candidate.text)
     .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
     .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
+    .replace(/^\s*[-•*]\s*/, "")
     .trim();
   if (!text || incompleteFact(text) || /\[object Object\]/i.test(text)) return null;
 
   const normalized = normalize(text);
   const foundConcepts = concepts(text);
+  const normalizedRole: CanonicalFactRoleV2 =
+    candidate.role === "parking" || foundConcepts.includes("parking")
+      ? "parking"
+      : candidate.role;
   const numericValues = numbers(text);
   const codeMatches = Array.from(
     text.matchAll(/\b(?:code|codice|codigo)\s*[:#-]?\s*(\d{2,12})\b/gi),
   ).map((match) => match[1]);
   const base: Omit<ParsedFact, "semanticKey"> = {
-    role: candidate.role,
-    kind: inferKind(candidate.role, text),
+    role: normalizedRole,
+    kind: inferKind(normalizedRole, text),
     text,
     normalized,
     codes: Array.from(new Set(codeMatches)),
@@ -348,7 +353,15 @@ function choosePreferred(
   right: ParsedFact,
   translationText?: string | null,
 ): ParsedFact {
-  const preferredRole = roleRank[right.role] > roleRank[left.role] ? right.role : left.role;
+  const preferredRole: CanonicalFactRoleV2 =
+    left.kind === "hazard" || right.kind === "hazard"
+      ? "safety"
+      : ["parking_space", "parking_instruction"].includes(left.kind) ||
+          ["parking_space", "parking_instruction"].includes(right.kind)
+        ? "parking"
+        : roleRank[right.role] > roleRank[left.role]
+          ? right.role
+          : left.role;
   const leftScore = textScore(left, translationText);
   const rightScore = textScore(right, translationText);
   const textWinner = rightScore > leftScore ? right : left;
@@ -446,17 +459,38 @@ function extractExplicitNegativeParkingCandidates(
   return output;
 }
 
+const isParkingFact = (fact: ParsedFact): boolean =>
+  fact.role === "parking" ||
+  fact.concepts.includes("parking") ||
+  fact.kind === "parking_space" ||
+  fact.kind === "parking_instruction";
+
 function isPositiveParkingContradictedBySource(
   fact: ParsedFact,
-  hasExplicitNegativeParking: boolean,
+  explicitNegativeParkingFacts: ParsedFact[],
 ): boolean {
-  return Boolean(
-    hasExplicitNegativeParking &&
-      fact.role === "parking" &&
-      fact.concepts.includes("parking") &&
-      !fact.negated &&
-      fact.numericValues.length === 0,
-  );
+  if (
+    explicitNegativeParkingFacts.length === 0 ||
+    !isParkingFact(fact) ||
+    fact.negated ||
+    fact.numericValues.length > 0
+  ) {
+    return false;
+  }
+
+  const factTokens = meaningfulTokens(fact.text);
+  return explicitNegativeParkingFacts.some((negativeFact) => {
+    const negativeTokens = meaningfulTokens(negativeFact.text);
+    const shared = factTokens.filter((token) => negativeTokens.includes(token));
+    const containment =
+      shared.length / Math.max(1, Math.min(factTokens.length, negativeTokens.length));
+    return (
+      negativeFact.normalized.includes(fact.normalized) ||
+      fact.normalized.includes(negativeFact.normalized) ||
+      shared.length >= 2 ||
+      containment >= 0.6
+    );
+  });
 }
 
 function isCoveredByStructuredContext(
@@ -491,16 +525,22 @@ export function assembleCanonicalFactsV2(args: {
 } {
   const context = args.context || {};
   const negativeParkingCandidates = extractExplicitNegativeParkingCandidates(context);
-  const hasExplicitNegativeParking = negativeParkingCandidates.length > 0;
+  const explicitNegativeParkingFacts = negativeParkingCandidates
+    .map(parseCandidate)
+    .filter((fact): fact is ParsedFact => Boolean(fact));
   const parsed = [...args.candidates, ...negativeParkingCandidates]
     .map(parseCandidate)
     .filter((fact): fact is ParsedFact => Boolean(fact))
     .filter((fact) => !isCoveredByStructuredContext(fact, context))
+    // V17.90L207: A source-level negation is authoritative. Positive
+    // fragments generated from the same clause (for example "Parkplatz
+    // vorhanden" or only "Lieferwagen kurz abstellen") may not reverse
+    // or duplicate the explicit statement "Kein Parkplatz vorhanden ...".
     .filter(
       (fact) =>
         !isPositiveParkingContradictedBySource(
           fact,
-          hasExplicitNegativeParking,
+          explicitNegativeParkingFacts,
         ),
     );
 
