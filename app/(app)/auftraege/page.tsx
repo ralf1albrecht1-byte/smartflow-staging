@@ -6768,6 +6768,7 @@ const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
       reason === "address_role_uncertain" ||
       reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
       reason === "execution_address_incomplete" ||
+      reason === "intake_risk:execution_address_incomplete" ||
       reason.startsWith("intake_address:"),
   ) ?? false;
 
@@ -12474,6 +12475,7 @@ export default function AuftraegePage() {
     reason === "address_role_uncertain" ||
     reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
     reason === "execution_address_incomplete" ||
+    reason === "intake_risk:execution_address_incomplete" ||
     reason.startsWith("intake_address:");
 
   const removeAddressRoleReviewReasonsV17_64 = (reasons: string[] = []) =>
@@ -14147,6 +14149,7 @@ export default function AuftraegePage() {
       reason === "address_role_uncertain" ||
       reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
       reason === "execution_address_incomplete" ||
+      reason === "intake_risk:execution_address_incomplete" ||
       reason.startsWith("intake_address:");
 
     // V17.20: ReviewReasons pro Leistung bereinigen, nicht erst wenn alle

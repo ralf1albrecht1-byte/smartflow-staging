@@ -1773,6 +1773,29 @@ function enrichExecutionSiteNameFromEvidenceV17_90L203(args: {
   return best;
 }
 
+// V17.90L208: Remove only a dangling grammatical connector from an already
+// verified object label when the actual street is stored separately. Example:
+// "Lagergebäude, an der" + "Seestrasse 58" becomes "Lagergebäude". This is
+// structural cleanup, not a translation or service-word rewrite.
+function trimDanglingExecutionSiteConnectorV17_90L208(args: {
+  siteName?: string | null;
+  siteAddress?: string | null;
+}): string | null {
+  const siteName = cleanExecutionSiteNameCandidate(args.siteName);
+  const siteAddress = cleanExecutionStreetCandidate(args.siteAddress);
+  if (!siteName || !siteAddress) return siteName;
+
+  const trimmed = siteName
+    .replace(
+      /(?:[,;:]\s*)?\b(?:an|bei|in|auf|vor|hinter|neben|gegenüber|gegenueber)\s+(?:der|dem|den|die|das)\s*$/iu,
+      "",
+    )
+    .replace(/[,;:\s]+$/g, "")
+    .trim();
+
+  return cleanExecutionSiteNameCandidate(trimmed) || siteName;
+}
+
 function extractAiStructuredExecutionAddress(
   aiExecutionAddress: any,
   customer?: {
@@ -15358,13 +15381,17 @@ export async function processIncomingMessage(
   }
 
   if (extractedExecutionAddress) {
+    const enrichedSiteNameV17_90L203 = enrichExecutionSiteNameFromEvidenceV17_90L203({
+      currentName: extractedExecutionAddress.siteName,
+      siteAddress: extractedExecutionAddress.siteAddress,
+      originalText: messageText,
+      translatedText: translationText,
+    });
     extractedExecutionAddress = {
       ...extractedExecutionAddress,
-      siteName: enrichExecutionSiteNameFromEvidenceV17_90L203({
-        currentName: extractedExecutionAddress.siteName,
+      siteName: trimDanglingExecutionSiteConnectorV17_90L208({
+        siteName: enrichedSiteNameV17_90L203,
         siteAddress: extractedExecutionAddress.siteAddress,
-        originalText: messageText,
-        translatedText: translationText,
       }),
     };
   }
@@ -15732,6 +15759,7 @@ export async function processIncomingMessage(
             name: onsiteContactHint.contactName || null,
             phone: onsiteContactHint.phone || null,
             channel: onsiteContactHint.preferredChannel || null,
+            noPhoneCall: onsiteContactHint.noPhoneCall,
           }
         : null,
       appointments: structuredAppointmentHintsV17_90L86,

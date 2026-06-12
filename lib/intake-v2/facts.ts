@@ -17,6 +17,7 @@ export type CanonicalFactAssemblerContextV2 = {
     name?: string | null;
     phone?: string | null;
     channel?: string | null;
+    noPhoneCall?: boolean | null;
   } | null;
   appointments?: string[];
 };
@@ -512,7 +513,16 @@ function isCoveredByStructuredContext(
   const sameNumber = factNumbers.length === 0 || factNumbers.some((number) => combined.includes(number));
   const sameChannel = fact.concepts
     .filter((value) => ["whatsapp", "sms", "call"].includes(value))
-    .every((value) => combined.includes(value));
+    .every((value) => {
+      if (
+        value === "call" &&
+        fact.negated &&
+        context.onsiteContact?.noPhoneCall === true
+      ) {
+        return true;
+      }
+      return combined.includes(value);
+    });
   return sameNumber && sameChannel;
 }
 
