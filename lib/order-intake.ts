@@ -4700,6 +4700,83 @@ function preferTranslatedCanonicalRoleVariantsV17_90L201(
   return dedupeTranslatedRoleVariantsV17_90L201(preferred, translationText);
 }
 
+function extractTranslatedRoleCandidatesV17_90L202(
+  translationText: string | null | undefined,
+  role: "access" | "parking" | "other",
+): string[] {
+  const sentences = String(translationText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+(?=[A-ZÄÖÜ])/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const pattern =
+    role === "access"
+      ? /\b(?:schlüssel|schluessel|code|zutritt|zugang|eingang|empfang|schlüsselbox|schluesselbox|badge|tor)\b/i
+      : role === "parking"
+        ? /\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|stellplatz|rampe)\b/i
+        : /\b(?:leiter|stapler|maschine|material|mitbringen|vor\s+ort|flüssigkeiten|fluessigkeiten|computer|ausstecken|strom|ruhig|schlafen)\b/i;
+
+  return sentences
+    .filter((line) => pattern.test(line))
+    .map((line) =>
+      line
+        .replace(/^\s*(?:achtung|hinweis|zugang|parken|parkierung)\s*:\s*/i, "")
+        .replace(/^[,.\-–—\s]+|[,.\-–—\s]+$/g, "")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+function preferCompleteTranslatedRoleVariantsV17_90L202(
+  lines: string[],
+  translationText?: string | null,
+): string[] {
+  const deduped = dedupeTranslatedRoleVariantsV17_90L201(lines, translationText);
+  const tokenSet = (value: string) =>
+    new Set(
+      canonicalRoleVariantKeyV17_90L201(value)
+        .split(/\s+/g)
+        .filter(
+          (token) =>
+            token.length >= 3 &&
+            !/^(?:der|die|das|ein|eine|einer|einem|einen|ist|sind|im|in|am|an|bei|beim|zur|zum|nicht|kein|keine|keinen|sondern)$/.test(
+              token,
+            ),
+        ),
+    );
+
+  return deduped.filter((line, index, all) => {
+    const lineScore = translatedRoleEvidenceScoreV17_90L201(
+      line,
+      translationText,
+    );
+    const lineTokens = tokenSet(line);
+    const lineInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
+
+    return !all.some((candidate, candidateIndex) => {
+      if (candidateIndex === index) return false;
+      const candidateScore = translatedRoleEvidenceScoreV17_90L201(
+        candidate,
+        translationText,
+      );
+      if (candidateScore <= lineScore) return false;
+      if (
+        canonicalRoleInvariantTokensV17_90L201(candidate).join("|") !==
+        lineInvariants
+      ) {
+        return false;
+      }
+      const candidateTokens = tokenSet(candidate);
+      const lineIsSubset = [...lineTokens].every((token) =>
+        candidateTokens.has(token),
+      );
+      return lineIsSubset && candidateTokens.size > lineTokens.size;
+    });
+  });
+}
+
 function dedupeProtectedStructuredRoleLinesV17_90L103(
   lines: string[],
 ): string[] {
@@ -7548,10 +7625,12 @@ function parsePositiveCanonicalNumberV17_90L89(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-// V17.90L199: Structured quantity/unit data belongs in its own fields, not in
-// the visible service name. Remove only a trailing amount phrase whose number
-// exactly equals the canonical quantity. Floor identifiers such as "5. Etage"
-// remain untouched when the actual quantity is different (for example 1).
+// V17.90L199/L202: Structured quantity/unit data belongs in its own
+// fields, not in the visible service name. Remove only amount phrases whose
+// number exactly equals the canonical quantity. Explicit units may occur in
+// the middle of a translated label ("Boden 85 m² reinigen"). Floor/room
+// identifiers such as "5. Etage" remain untouched because they are not
+// canonical quantity-unit phrases.
 function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
   serviceName: string;
   quantity: number;
@@ -7568,20 +7647,34 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
     .map((part) => escapeRegExpLocal(part))
     .join("[.,]");
 
-  // Explicit units are case-insensitive. A free count noun is accepted only
-  // when it starts uppercase, so an action such as "Halle 2 reinigen" cannot
-  // be mistaken for duplicated quantity data.
+  const explicitUnitPattern =
+    String.raw`m(?:²|2|³|3)|qm|quadratmeter(?:n)?|kubikmeter(?:n)?|meter(?:n)?|laufmeter(?:n)?|stück(?:e|en)?|stueck(?:e|en)?|stk\.?|stunden?|std\.?|tage?n?|pauschale?n?`;
+  const explicitQuantityUnitAnywhere = new RegExp(
+    `\\b${quantityPattern}\\s*(?:${explicitUnitPattern})(?=\\s|$|[,;:.])`,
+    "giu",
+  );
   const explicitUnitSuffix = new RegExp(
-    `\\s+${quantityPattern}\\s+(?:m(?:²|2|³|3)|qm|quadratmeter(?:n)?|kubikmeter(?:n)?|meter(?:n)?|laufmeter(?:n)?|stück(?:e|en)?|stueck(?:e|en)?|stk\\.?|stunden?|std\\.?|tage?n?|pauschale?n?)\\s*$`,
+    `\\s+${quantityPattern}\\s+(?:${explicitUnitPattern})\\s*$`,
     "iu",
   );
+  // A free count noun is accepted only at the end and only when it starts
+  // uppercase. This keeps identifiers such as "Halle 2" intact.
   const structuralCountSuffix = new RegExp(
     `\\s+${quantityPattern}\\s+[A-ZÄÖÜ][\\p{L}'’.-]{1,30}\\s*$`,
     "u",
   );
+
+  const leadingQuantity = new RegExp(
+    `^${quantityPattern}\\s+(?=\\p{L})`,
+    "iu",
+  );
   const cleaned = original
+    .replace(explicitQuantityUnitAnywhere, " ")
     .replace(explicitUnitSuffix, "")
     .replace(structuralCountSuffix, "")
+    .replace(/^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i, "")
+    .replace(leadingQuantity, "")
+    .replace(/\s+/g, " ")
     .replace(/[,;:\s]+$/g, "")
     .trim();
 
@@ -7589,10 +7682,11 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
 }
 
 
-// V17.90L200: Prefer a clean, line-local German service label from the
-// item's own evidence or the generated German working translation before the
-// canonical lock. This is evidence-driven, not a service-word mapping:
-// quantity, unit and price must identify exactly one compatible source line.
+// V17.90L200/L202: Prefer a clean, line-local German service label from
+// the item's own evidence or the generated German working translation before
+// the canonical lock. Exact quantity/unit/price identity is the boundary; no
+// service-word mapping is used. Translated candidates outrank raw-language
+// candidates, while ambiguous numeric collisions remain fail-closed.
 function preferLineLocalGermanServiceNameV17_90L200(args: {
   rawServiceName: string;
   sourceText: string;
@@ -7617,6 +7711,7 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
     const b = normalize(right);
     if (!a || !b) return false;
     if (a === b || a.includes(b) || b.includes(a)) return true;
+    if (canonicalRoleEditSimilarityV17_90L201(a, b) >= 0.78) return true;
 
     const tokens = (value: string) =>
       value.split(/\s+/g).filter((token) => token.length >= 4);
@@ -7627,8 +7722,9 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
     return shared / Math.min(aTokens.length, bTokens.length) >= 0.6;
   };
 
-  const candidates: string[] = [];
-  const addCandidate = (value: string) => {
+  const sourceCandidates: string[] = [];
+  const translatedCandidates: string[] = [];
+  const addCandidate = (value: string, origin: "source" | "translated") => {
     const explicitUnit = detectExplicitUnitFromEvidenceLineV17_90L3(value);
     if (
       explicitUnit &&
@@ -7652,8 +7748,25 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
     ) {
       return;
     }
-    if (!labelsAreStructurallyCompatible(fallback, candidate)) return;
-    candidates.push(candidate);
+
+    if (
+      origin === "source" &&
+      !labelsAreStructurallyCompatible(fallback, candidate)
+    ) {
+      return;
+    }
+
+    if (
+      origin === "translated" &&
+      !isUsableGermanServiceLabelV17_90L(candidate) &&
+      !labelsAreStructurallyCompatible(fallback, candidate)
+    ) {
+      return;
+    }
+
+    (origin === "translated" ? translatedCandidates : sourceCandidates).push(
+      candidate,
+    );
   };
 
   if (
@@ -7663,14 +7776,14 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
       unitPrice: args.unitPrice,
     })
   ) {
-    addCandidate(args.sourceText);
+    addCandidate(args.sourceText, "source");
   }
 
-  const translated = String(args.translatedText || '').trim();
+  const translated = String(args.translatedText || "").trim();
   if (translated) {
     translated
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
       .split(/\n+/g)
       .map((line) => line.trim())
       .filter(Boolean)
@@ -7680,7 +7793,7 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
           unitPrice: args.unitPrice,
         }),
       )
-      .forEach(addCandidate);
+      .forEach((line) => addCandidate(line, "translated"));
 
     extractTranslatedPricedServiceSegmentsV17_66(translated)
       .filter(
@@ -7689,16 +7802,153 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
           Math.abs(segment.unitPrice - args.unitPrice) < 0.0001 &&
           getServiceUnitType(segment.unit) === getServiceUnitType(args.unit),
       )
-      .forEach((segment) => addCandidate(segment.serviceName));
+      .forEach((segment) => addCandidate(segment.serviceName, "translated"));
   }
 
-  const uniqueCandidates = Array.from(
-    new Map(
-      candidates.map((candidate) => [normalizeUnitText(candidate), candidate]),
-    ).values(),
+  const unique = (values: string[]) =>
+    Array.from(
+      new Map(values.map((candidate) => [normalizeUnitText(candidate), candidate]))
+        .values(),
+    );
+  const uniqueTranslated = unique(translatedCandidates);
+  if (uniqueTranslated.length === 1) return uniqueTranslated[0];
+  if (uniqueTranslated.length > 1) return fallback;
+
+  const uniqueSource = unique(sourceCandidates);
+  return uniqueSource.length === 1 ? uniqueSource[0] : fallback;
+}
+
+function canonicalServiceActionV17_90L202(value: unknown): string | null {
+  const key = normalizeUnitText(value);
+  const match = key.match(
+    /\b(reinigen|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren|putzen|montieren|ersetzen|reparieren|entkalken|verlegen|befestigen|pruefen|kontrollieren|erstellen)\b/,
+  );
+  return match?.[1] || null;
+}
+
+function completeCanonicalServiceNamesV17_90L202(
+  items: CanonicalAiOrderItemV17_90L88[],
+): CanonicalAiOrderItemV17_90L88[] {
+  const cleanedNames = items.map((item) =>
+    stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+      serviceName: String(item.serviceName || "")
+        .replace(
+          /^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i,
+          "",
+        )
+        .trim(),
+      quantity: Number(item.quantity || 0),
+    }),
   );
 
-  return uniqueCandidates.length === 1 ? uniqueCandidates[0] : fallback;
+  const actionCounts = new Map<string, number>();
+  cleanedNames.forEach((name) => {
+    const action = canonicalServiceActionV17_90L202(name);
+    if (action) actionCounts.set(action, (actionCounts.get(action) || 0) + 1);
+  });
+  const rankedActions = [...actionCounts.entries()].sort(
+    (left, right) => right[1] - left[1],
+  );
+  const dominantAction =
+    rankedActions.length > 0 &&
+    rankedActions[0][1] >= 2 &&
+    (rankedActions.length === 1 || rankedActions[0][1] > rankedActions[1][1])
+      ? rankedActions[0][0]
+      : null;
+
+  return items.map((item, index) => {
+    let serviceName = cleanedNames[index];
+    const hasAction = Boolean(canonicalServiceActionV17_90L202(serviceName));
+    const ownEvidenceIsPriced = translatedLineMatchesItemNumbersV17_90L(
+      String(item.sourceText || item.evidence || item.description || ""),
+      { quantity: item.quantity, unitPrice: item.unitPrice },
+    );
+    const canInheritDominantAction = Boolean(
+      dominantAction &&
+        !hasAction &&
+        getServiceUnitType(item.unit) !== "flat" &&
+        Number(item.quantity || 0) > 0 &&
+        Number(item.unitPrice || 0) > 0 &&
+        ownEvidenceIsPriced &&
+        serviceName &&
+        !isInternalReviewServiceNameV17_90L(serviceName),
+    );
+    if (canInheritDominantAction) {
+      serviceName = `${serviceName} ${dominantAction}`.replace(/\s+/g, " ").trim();
+    }
+
+    return {
+      ...item,
+      serviceName: normalizeVisibleServiceNameCasingV17_66(serviceName),
+    };
+  });
+}
+
+function repairCanonicalServiceSpellingFromContextV17_90L202(
+  items: CanonicalAiOrderItemV17_90L88[],
+  contextText?: string | null,
+): CanonicalAiOrderItemV17_90L88[] {
+  const contextTokens = String(contextText || "").match(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{6,}/gu) || [];
+  if (contextTokens.length === 0) return items;
+
+  const normalizeToken = (value: string) => normalizeUnitText(value).replace(/[^a-z0-9]/g, "");
+  const stop = new Set([
+    "reinigen", "reinigung", "abstauben", "abwischen", "streichen",
+    "schleifen", "schneiden", "entsorgen", "sortieren", "putzen",
+    "montieren", "ersetzen", "reparieren", "entkalken", "verlegen",
+    "befestigen", "pruefen", "kontrollieren", "erstellen",
+  ]);
+
+  return items.map((item) => {
+    const words = String(item.serviceName || "").split(/(\s+)/);
+    let changed = false;
+    const repaired = words.map((word) => {
+      const current = normalizeToken(word);
+      if (current.length < 6 || stop.has(current)) return word;
+
+      const matches = contextTokens
+        .map((candidate) => {
+          const normalizedCandidate = normalizeToken(candidate);
+          const baseCandidate =
+            normalizedCandidate.endsWith("s") && normalizedCandidate.length > 7
+              ? normalizedCandidate.slice(0, -1)
+              : normalizedCandidate;
+          const score = canonicalRoleEditSimilarityV17_90L201(
+            current,
+            baseCandidate,
+          );
+          return { candidate, baseCandidate, score };
+        })
+        .filter(
+          (entry) =>
+            entry.baseCandidate !== current &&
+            entry.baseCandidate.slice(0, 4) === current.slice(0, 4) &&
+            Math.abs(entry.baseCandidate.length - current.length) <= 2 &&
+            entry.score >= 0.9,
+        )
+        .sort((left, right) => right.score - left.score);
+
+      if (matches.length !== 1 && matches[0]?.score === matches[1]?.score) return word;
+      const best = matches[0];
+      if (!best) return word;
+
+      let replacement = best.candidate;
+      if (normalizeToken(replacement).endsWith("s") && !current.endsWith("s")) {
+        replacement = replacement.slice(0, -1);
+      }
+      if (/^[A-ZÄÖÜ]/u.test(word)) {
+        replacement = `${replacement.charAt(0).toUpperCase()}${replacement.slice(1)}`;
+      } else {
+        replacement = `${replacement.charAt(0).toLowerCase()}${replacement.slice(1)}`;
+      }
+      changed = true;
+      return replacement;
+    });
+
+    return changed
+      ? { ...item, serviceName: repaired.join("") }
+      : item;
+  });
 }
 
 function extractLeadingCountFromEvidenceV17_90L89(
@@ -7752,10 +8002,11 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   translatedText?: string | null,
+  contextText?: string | null,
 ): CanonicalAiOrderItemV17_90L88[] {
   if (!Array.isArray(rawItems)) return [];
 
-  return rawItems
+  const builtItems = rawItems
     .map((raw, canonicalOrder) => {
       const sourceText = compactText(
         raw?.sourceText ||
@@ -7918,6 +8169,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
       } as CanonicalAiOrderItemV17_90L88;
     })
     .filter(Boolean) as CanonicalAiOrderItemV17_90L88[];
+
+  return repairCanonicalServiceSpellingFromContextV17_90L202(
+    completeCanonicalServiceNamesV17_90L202(builtItems),
+    contextText,
+  );
 }
 
 function canonicalItemMatchScoreV17_90L88(
@@ -8729,18 +8985,23 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
   if (!label) return "";
 
   label = label
-    // V17.90L26: visible labels must not start with the count. Quantity lives
-    // in the Menge field, e.g. "18 Tische ..." -> "Tische ...".
-    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)\b\s*/i, "")
+    .replace(
+      /^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i,
+      "",
+    )
+    // Visible labels must not start with the count. Quantity lives in its field.
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)(?=\s|$|[,;:.])\s*/i, "")
     .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
     .replace(
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
       "",
     )
     .replace(/\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
+    // L202: Quantity/unit may stand before the action in a translated line.
+    // Remove only explicit measure phrases, not identifiers such as "5. Etage".
     .replace(
-      /\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
-      "",
+      /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|pieces?|pezzi|s[aä]cke|saecke|kg|kilogramm|liter)(?=\s|$|[,;:.])/giu,
+      " ",
     )
     .replace(/^[\s:;,.\-–—]+|[\s:;,.\-–—]+$/g, "")
     .replace(/\s+/g, " ")
@@ -11194,6 +11455,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
 - Jede Arbeitsposition muss eine echte fachliche Tätigkeit oder Kostenposition sein. Reine Preis-/Rechenfragmente wie "à 6.50", "je 8.-", "mal 9", "CHF 35", "pro m2" sind NIEMALS eigene arbeitspositionen.
 - service_name/name immer als sauberen deutschen Leistungsnamen ausgeben. Mundart, Französisch, Englisch oder Rohformulierungen nicht sichtbar speichern.
+- Jeder sichtbare Leistungsname muss die eigentliche Tätigkeit enthalten. Reine Objekt-/Bereichsbezeichnungen wie „Fenster innen“ oder „Tische im Gemeinschaftsraum“ sind unvollständig; formuliere z. B. „Fenster innen reinigen“ bzw. „Tische im Gemeinschaftsraum reinigen“.
+- Entferne Mengen, Einheiten, Preise und führende Verbindungswörter wie „und“ aus service_name/name. Diese Informationen gehören ausschließlich in die strukturierten Felder und die Evidence.
+- Schreibe sichtbare Leistungsnamen orthografisch korrektes Standarddeutsch; übernimm keine Dialekt-Schreibfehler in den Leistungsnamen.
 - Wenn die Kundenzeile in Mundart, Französisch, Englisch, Italienisch, Spanisch oder gemischt formuliert ist, übersetze die Bedeutung zuerst semantisch in professionelles Deutsch und speichere nur diese deutsche Form als name/action_name. Der Originalwortlaut bleibt ausschließlich in raw/evidence/sourceText.
 - Fail-closed-Regel: Wenn du keinen kurzen professionellen deutschen Leistungsnamen aus genau derselben Mengen-/Preis-Zeile bilden kannst, lasse service_name/name/action_name leer/null. Speichere niemals einen ganzen Kundensatz, Terminwunsch, Zugangshinweis, Kommunikationshinweis oder Feldlabel als sichtbare Leistung.
 - Sichtbare Leistungsnamen müssen eine echte Tätigkeit oder Kostenposition ausdrücken. Wenn eine Preiszeile nur Bereich + Objekt + Menge + Preis enthält, formuliere daraus eine einzige deutsche Leistung mit Objekt und Bereich, z. B. sinngemäß "Boden Gemeinschaftsraum reinigen" statt Rohsprache oder zwei Split-Positionen.
@@ -13129,6 +13393,39 @@ export async function processIncomingMessage(
     translationText,
   );
 
+  // V17.90L202: The independent semantic checker may correct only the role of
+  // an already existing, byte-preserved note before the canonical seal. It may
+  // not rewrite text or invent a fact. Findings are already restricted to
+  // high confidence; dogs remain protected by the checker itself.
+  for (const finding of readOnlySpecialNoteRoleFindingsV17_90L106) {
+    const findingKey = normalizeSemanticText(finding.text);
+    if (!findingKey) continue;
+
+    if (finding.expectedRole === "gefahr") {
+      const index = hinweisItems.findIndex(
+        (line) => normalizeSemanticText(line) === findingKey,
+      );
+      if (index >= 0) {
+        const [line] = hinweisItems.splice(index, 1);
+        gefahrItems = dedupeTranslatedRoleVariantsV17_90L201(
+          [...gefahrItems, line],
+          translationText,
+        );
+      }
+    } else if (finding.expectedRole === "hinweis") {
+      const index = gefahrItems.findIndex(
+        (line) => normalizeSemanticText(line) === findingKey,
+      );
+      if (index >= 0) {
+        const [line] = gefahrItems.splice(index, 1);
+        hinweisItems = dedupeTranslatedRoleVariantsV17_90L201(
+          [...hinweisItems, line],
+          translationText,
+        );
+      }
+    }
+  }
+
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
     jobHints: hinweisItems,
@@ -13224,7 +13521,13 @@ export async function processIncomingMessage(
 
 
   const canonicalAiOrderItemsV17_90L88 =
-    buildCanonicalAiOrderItemsV17_90L88(aiWorkItemsRaw, translationText);
+    buildCanonicalAiOrderItemsV17_90L88(
+      aiWorkItemsRaw,
+      translationText,
+      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+        .filter(Boolean)
+        .join("\n"),
+    );
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
@@ -15088,31 +15391,47 @@ export async function processIncomingMessage(
   // V17.90L195: Role-local display arrays are cleaned once at the intake
   // boundary. Contact, appointment, access, code and parking are never rebuilt
   // from specialNotes by the UI.
+  const translatedAccessCandidatesV17_90L202 =
+    extractTranslatedRoleCandidatesV17_90L202(translationText, "access");
+  const translatedParkingCandidatesV17_90L202 =
+    extractTranslatedRoleCandidatesV17_90L202(translationText, "parking");
+  const translatedOtherCandidatesV17_90L202 =
+    extractTranslatedRoleCandidatesV17_90L202(translationText, "other");
+
   const canonicalAccessRolesV17_90L195 =
-    preferTranslatedCanonicalRoleVariantsV17_90L201(
-      canonicalizeStructuredRoleLinesV17_90L195(
-        parsed.auftrag?.zugangshinweise,
-        "access",
+    preferCompleteTranslatedRoleVariantsV17_90L202(
+      preferTranslatedCanonicalRoleVariantsV17_90L201(
+        canonicalizeStructuredRoleLinesV17_90L195(
+          [parsed.auftrag?.zugangshinweise, ...translatedAccessCandidatesV17_90L202],
+          "access",
+        ),
+        [...hinweisItems, ...translatedAccessCandidatesV17_90L202],
+        translationText,
       ),
-      hinweisItems,
       translationText,
     );
   const canonicalParkingRolesV17_90L195 =
-    preferTranslatedCanonicalRoleVariantsV17_90L201(
-      canonicalizeStructuredRoleLinesV17_90L195(
-        parsed.auftrag?.parkhinweise,
-        "parking",
+    preferCompleteTranslatedRoleVariantsV17_90L202(
+      preferTranslatedCanonicalRoleVariantsV17_90L201(
+        canonicalizeStructuredRoleLinesV17_90L195(
+          [parsed.auftrag?.parkhinweise, ...translatedParkingCandidatesV17_90L202],
+          "parking",
+        ),
+        [...hinweisItems, ...translatedParkingCandidatesV17_90L202],
+        translationText,
       ),
-      hinweisItems,
       translationText,
     );
   const canonicalOtherRolesV17_90L195 =
-    preferTranslatedCanonicalRoleVariantsV17_90L201(
-      canonicalizeStructuredRoleLinesV17_90L195(
-        parsed.auftrag?.sonstige_hinweise,
-        "other",
+    preferCompleteTranslatedRoleVariantsV17_90L202(
+      preferTranslatedCanonicalRoleVariantsV17_90L201(
+        canonicalizeStructuredRoleLinesV17_90L195(
+          [parsed.auftrag?.sonstige_hinweise, ...translatedOtherCandidatesV17_90L202],
+          "other",
+        ),
+        [...hinweisItems, ...translatedOtherCandidatesV17_90L202],
+        translationText,
       ),
-      hinweisItems,
       translationText,
     );
   const canonicalProtectedRoleLinesV17_90L195 = [
