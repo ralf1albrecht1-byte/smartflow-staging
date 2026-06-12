@@ -15229,13 +15229,23 @@ export async function processIncomingMessage(
         intakeValidation.finalCurrency,
       );
   }
+  const canonicalPostLockActiveV17_90L209 = Boolean(
+    canonicalAiOrderItemsV17_90L88.length > 0 &&
+      !canonicalPersistenceViolationV17_90L98 &&
+      canonicalItemsStableAfterValidationV17_90L89(
+        canonicalAiOrderItemsV17_90L88,
+        finalOrderItems,
+        intakeValidation.finalCurrency,
+      ),
+  );
+
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
     "05c_final_source_of_truth",
     {
       canonicalCount: canonicalAiOrderItemsV17_90L88.length,
-      stable: !canonicalPersistenceViolationV17_90L98,
+      stable: canonicalPostLockActiveV17_90L209,
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
@@ -15243,6 +15253,15 @@ export async function processIncomingMessage(
     console.error(
       `[${source}] canonical persistence invariant unresolved; order remains blocked for manual review`,
     );
+  }
+
+  // V17.90L209: Freeze the stable item graph immediately after 05c. From this
+  // point onward only detached diagnostic copies may be inspected; the exact
+  // canonical values used for the snapshot and database cannot be mutated.
+  if (canonicalPostLockActiveV17_90L209) {
+    finalOrderItems = Object.freeze(
+      finalOrderItems.map((item) => Object.freeze({ ...item })),
+    ) as unknown as typeof finalOrderItems;
   }
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
@@ -15369,15 +15388,31 @@ export async function processIncomingMessage(
     executionAddressCustomerContext.customerCity
   ) {
     const sameAddressWorkArea = sameAddressWorkAreaDescriptorV17_66(validationSourceText);
-    extractedExecutionAddress = sameAddressWorkArea
-      ? {
-          siteName: sameAddressWorkArea,
-          siteAddress: executionAddressCustomerContext.customerAddress,
-          sitePlz: executionAddressCustomerContext.customerPlz,
-          siteCity: executionAddressCustomerContext.customerCity,
-          siteNote: null,
-        }
-      : null;
+    const sameAddressWorkAreaKeyV17_90L209 = normalizeUnitText(
+      sameAddressWorkArea || "",
+    )
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const isGenericSameAddressLabelV17_90L209 =
+      !sameAddressWorkAreaKeyV17_90L209 ||
+      /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb)$/.test(
+        sameAddressWorkAreaKeyV17_90L209,
+      );
+
+    // "Gleiche Adresse wie Firma" is an address-role instruction, not a new
+    // work-site name. Keep a genuinely named work area, but never materialize
+    // generic labels such as "Firma" or "wie Firma" as a separate site.
+    extractedExecutionAddress =
+      sameAddressWorkArea && !isGenericSameAddressLabelV17_90L209
+        ? {
+            siteName: sameAddressWorkArea,
+            siteAddress: executionAddressCustomerContext.customerAddress,
+            sitePlz: executionAddressCustomerContext.customerPlz,
+            siteCity: executionAddressCustomerContext.customerCity,
+            siteNote: null,
+          }
+        : null;
   }
 
   if (extractedExecutionAddress) {
@@ -15417,6 +15452,16 @@ export async function processIncomingMessage(
   );
 
   // V17.90L24b: globaler Prüfer braucht den bereits berechneten Totalwert.
+  // V17.90L209: The final canonical service rows are now a runtime write
+  // boundary, not only a comparison target. Every post-lock checker receives
+  // detached copies, so an accidental mutation inside diagnostics can never
+  // alter the rows that will be sealed and persisted.
+  const postLockDiagnosticItemsV17_90L209 = finalOrderItems.map((item) => ({
+    ...item,
+  }));
+  const postLockRecognitionCandidatesV17_90L209 =
+    secondaryRecognitionCandidatesV17_90L91.map((item) => ({ ...item }));
+
   const readOnlyRiskValidator = runReadOnlyIntakeRiskValidator({
     originalText: validationSourceText,
     billingCustomer: {
@@ -15431,8 +15476,8 @@ export async function processIncomingMessage(
     executionAddress: extractedExecutionAddress || null,
     detectedCurrencies: intakeValidation.detectedCurrencies,
     finalCurrency: intakeValidation.finalCurrency,
-    orderItems: finalOrderItems,
-    recognitionCandidates: secondaryRecognitionCandidatesV17_90L91,
+    orderItems: postLockDiagnosticItemsV17_90L209,
+    recognitionCandidates: postLockRecognitionCandidatesV17_90L209,
     specialNotes: finalSpecialNotes,
     finalTotal: totalPrice,
   });
@@ -15452,8 +15497,26 @@ export async function processIncomingMessage(
       intakeValidation.finalCurrency,
     );
 
+  // V17.90L209: Once 05c is stable, every later risk/recognition result is
+  // diagnostics-only. It must never create reviewReasons, chips, proposals or
+  // document blockers. Genuine unresolved fields already live on the sealed
+  // canonical items/customer/address/contact data and remain visible there.
+  const persistedReadOnlyRiskWarningsV17_90L209 =
+    canonicalPostLockActiveV17_90L209
+      ? []
+      : filteredReadOnlyRiskWarningsV17_90L89;
+
+  if (
+    canonicalPostLockActiveV17_90L209 &&
+    filteredReadOnlyRiskWarningsV17_90L89.length > 0
+  ) {
+    console.info(
+      `[${source}] 🔒 Post-canonical risk findings suppressed from persistence: ${filteredReadOnlyRiskWarningsV17_90L89.join(", ")}`,
+    );
+  }
+
   const structuralRiskReviewReasons =
-    filteredReadOnlyRiskWarningsV17_90L89.map(
+    persistedReadOnlyRiskWarningsV17_90L209.map(
       (warning) => `intake_risk:${warning}`,
     );
 
@@ -15479,7 +15542,7 @@ export async function processIncomingMessage(
   }
 
   // --- UNIT MISMATCH CHECK ---
-  const unitMismatchReasons: string[] = [];
+  const unitMismatchDiagnosticsV17_90L209: string[] = [];
 
   const normalizeUnitForReview = (value?: string | null) => {
     const v = normalizeUnitText(value || "");
@@ -15559,10 +15622,23 @@ export async function processIncomingMessage(
     const detectedUnit = detectUnitInsideOwnItemText(item.description);
 
     if (detectedUnit && expectedUnit && detectedUnit !== expectedUnit) {
-      unitMismatchReasons.push(
+      unitMismatchDiagnosticsV17_90L209.push(
         `unit_mismatch:${item.serviceName}:${detectedUnit}:${expectedUnit}`,
       );
     }
+  }
+
+  const unitMismatchReasons = canonicalPostLockActiveV17_90L209
+    ? []
+    : unitMismatchDiagnosticsV17_90L209;
+
+  if (
+    canonicalPostLockActiveV17_90L209 &&
+    unitMismatchDiagnosticsV17_90L209.length > 0
+  ) {
+    console.info(
+      `[${source}] 🔒 Post-canonical unit/catalog findings suppressed from persistence: ${unitMismatchDiagnosticsV17_90L209.join(", ")}`,
+    );
   }
 
   // --- Description ---
@@ -15603,20 +15679,24 @@ export async function processIncomingMessage(
   }
 
   const filteredValidationReviewReasonsV17_90L89 =
-    filterLegacyValidationReviewReasonsV17_90L89(
-      intakeValidation.reviewReasons,
-      finalOrderItems,
-      intakeValidation.finalCurrency,
-    );
+    canonicalPostLockActiveV17_90L209
+      ? []
+      : filterLegacyValidationReviewReasonsV17_90L89(
+          intakeValidation.reviewReasons,
+          finalOrderItems,
+          intakeValidation.finalCurrency,
+        );
 
-  const allReviewReasons: string[] = Array.from(new Set([
+  let allReviewReasons: string[] = Array.from(new Set([
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
     ...customerGuardReviewReasons,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
-    ...unitlessQuantityGuardBeforePersist.reviewReasons,
+    ...(canonicalPostLockActiveV17_90L209
+      ? []
+      : unitlessQuantityGuardBeforePersist.reviewReasons),
     ...structuralRiskReviewReasons,
     ...(canonicalPersistenceViolationV17_90L98
       ? ["canonical_persistence_violation"]
@@ -15627,6 +15707,32 @@ export async function processIncomingMessage(
   if (autoReuseTags.length > 0) {
     for (const tag of autoReuseTags) {
       if (!allReviewReasons.includes(tag)) allReviewReasons.push(tag);
+    }
+  }
+
+  // V17.90L209 hard invariant: no post-lock diagnostic namespace may leak
+  // into persisted review metadata. This final allow-boundary protects future
+  // refactors even if another checker is accidentally appended above.
+  if (canonicalPostLockActiveV17_90L209) {
+    const forbiddenPostCanonicalReasonsV17_90L209 = allReviewReasons.filter(
+      (reason) =>
+        reason.startsWith("intake_risk:") ||
+        reason.startsWith("unit_mismatch:") ||
+        reason.startsWith("recognition_review:") ||
+        reason === "recognition_review" ||
+        reason === "priced_service_line_missing_or_mismatched" ||
+        reason === "item_evidence_not_line_local",
+    );
+    if (forbiddenPostCanonicalReasonsV17_90L209.length > 0) {
+      console.error(
+        `[${source}] 🔒 Removed forbidden post-canonical review metadata: ${forbiddenPostCanonicalReasonsV17_90L209.join(", ")}`,
+      );
+      const forbiddenSetV17_90L209 = new Set(
+        forbiddenPostCanonicalReasonsV17_90L209,
+      );
+      allReviewReasons = allReviewReasons.filter(
+        (reason) => !forbiddenSetV17_90L209.has(reason),
+      );
     }
   }
 

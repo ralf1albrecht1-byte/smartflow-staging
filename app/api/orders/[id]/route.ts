@@ -164,6 +164,10 @@ function isHourUnitForPersistedRepair(value?: string | null) {
 }
 
 function shouldRunPersistedHourRepairForOrder(order: any) {
+  // V17.90L209: Sealed Intake V2 orders are immutable for automatic repair.
+  // Explicit user edits use the normal PUT path; GET/list requests are read-only.
+  if (hasCanonicalIntakeProtectionV2(order)) return false;
+
   const items = Array.isArray(order?.items) ? order.items : [];
   if (items.length === 0) return false;
 

@@ -4081,7 +4081,9 @@ const buildSpecialNotesSummaryTooltipV17_91 = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ) => {
   const summary = buildOrderInfoSummaryV17_65(order, parsedNotes);
-  const compactPrimary = compactImportantInfoLinesV17_90L73(summary.primary);
+  const compactPrimary = getCanonicalIntakeV2(order)
+    ? summary.primary
+    : compactImportantInfoLinesV17_90L73(summary.primary);
   return [
     summary.safety.length ? ["Gefahr / Achtung", ...summary.safety].join("\n") : "",
     compactPrimary.length ? ["Wichtige Informationen", ...compactPrimary].join("\n") : "",
@@ -4527,9 +4529,14 @@ const parseRecognitionReviewReasonV17_90L69 = (
 };
 
 const getRecognitionReviewDetailsV17_90L69 = (order?:
-  | Pick<Order, "reviewReasons">
-  | null) =>
-  Array.from(
+  | Pick<Order, "reviewReasons" | "intakeSchemaVersion" | "intakeSnapshot">
+  | null) => {
+  // V17.90L209: A valid sealed Intake V2 snapshot owns all unresolved item
+  // states. Legacy recognition proposals are post-canonical diagnostics and
+  // must never become a second red card/chip in the UI.
+  if (getCanonicalIntakeV2(order)) return [];
+
+  return Array.from(
     new Map(
       (order?.reviewReasons || [])
         .map(parseRecognitionReviewReasonV17_90L69)
@@ -4547,9 +4554,13 @@ const getRecognitionReviewDetailsV17_90L69 = (order?:
         ] as const),
     ).values(),
   );
+};
 
 const hasRecognitionReviewV17_90L69 = (
-  order?: Pick<Order, "reviewReasons" | "items"> | null,
+  order?: Pick<
+    Order,
+    "reviewReasons" | "items" | "intakeSchemaVersion" | "intakeSnapshot"
+  > | null,
 ) => {
   const details = getRecognitionReviewDetailsV17_90L69(order);
   if (details.length > 0) {
@@ -4684,7 +4695,10 @@ const recognitionReviewDetailMatchesItemV17_90L69 = (
 };
 
 const getActiveRecognitionReviewDetailsV17_90L80 = (
-  order?: Pick<Order, "reviewReasons" | "items"> | null,
+  order?: Pick<
+    Order,
+    "reviewReasons" | "items" | "intakeSchemaVersion" | "intakeSnapshot"
+  > | null,
 ) =>
   getRecognitionReviewDetailsV17_90L69(order).filter(
     (detail) =>
@@ -10031,7 +10045,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Währung prüfen");
   }
 
-  if (reviewReasons.some(isRecognitionReviewReasonV17_90L69)) {
+  if (
+    !getCanonicalIntakeV2(order) &&
+    reviewReasons.some(isRecognitionReviewReasonV17_90L69)
+  ) {
     blockers.push("Erkennung prüfen");
   }
 
@@ -13661,9 +13678,9 @@ export default function AuftraegePage() {
         return classifySpecialNoteRoleV17_90L93(line) === "safety";
       });
   const primaryInfoLines = formInfoSummary.primary;
-  const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
-    primaryInfoLines,
-  );
+  const compactPrimaryInfoLines: string[] = canonicalFormInfoV2
+    ? [...primaryInfoLines]
+    : compactImportantInfoLinesV17_90L73(primaryInfoLines);
   const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints
     .filter(isPrimaryOrderInfoHintV17_65)
     .filter((line) =>
