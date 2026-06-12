@@ -1652,6 +1652,76 @@ function isBrokenExecutionSiteRoleFragmentV17_90L176(
   );
 }
 
+// V17.90L199: When the deterministic original-text extractor and the first AI
+// identify the same execution address, prefer the fuller original object name.
+// This preserves proper names ("Bâtiment Les Cèdres") and complete site scopes
+// ("Sonnenhof Haus C und D") without changing the address role.
+function preferOriginalExecutionSiteNameV17_90L199(args: {
+  aiAddress: {
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  };
+  originalAddress: {
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  };
+}): string | null {
+  const aiName = cleanExecutionSiteNameCandidate(args.aiAddress.siteName);
+  const originalName = cleanExecutionSiteNameCandidate(
+    args.originalAddress.siteName,
+  );
+  if (!originalName) return aiName;
+  if (!aiName) return originalName;
+
+  const fieldsCompatible = (
+    left?: string | null,
+    right?: string | null,
+  ) => {
+    const a = normalizeUnitText(left || "");
+    const b = normalizeUnitText(right || "");
+    return !a || !b || a === b;
+  };
+  const sameAddress =
+    fieldsCompatible(args.aiAddress.siteAddress, args.originalAddress.siteAddress) &&
+    fieldsCompatible(args.aiAddress.sitePlz, args.originalAddress.sitePlz) &&
+    fieldsCompatible(args.aiAddress.siteCity, args.originalAddress.siteCity) &&
+    Boolean(
+      args.aiAddress.siteAddress ||
+        args.originalAddress.siteAddress ||
+        args.aiAddress.siteCity ||
+        args.originalAddress.siteCity,
+    );
+  if (!sameAddress) return aiName;
+
+  const aiKey = normalizeUnitText(aiName);
+  const originalKey = normalizeUnitText(originalName);
+  if (!aiKey || !originalKey) return aiName;
+  if (aiKey === originalKey) return originalName;
+  if (
+    originalKey.startsWith(`${aiKey} `) ||
+    originalKey.includes(` ${aiKey} `)
+  ) {
+    return originalName;
+  }
+
+  const aiTokens = aiKey.split(/\s+/g).filter(Boolean);
+  const originalTokens = originalKey.split(/\s+/g).filter(Boolean);
+  let sharedTail = 0;
+  while (
+    sharedTail < aiTokens.length &&
+    sharedTail < originalTokens.length &&
+    aiTokens[aiTokens.length - 1 - sharedTail] ===
+      originalTokens[originalTokens.length - 1 - sharedTail]
+  ) {
+    sharedTail += 1;
+  }
+  return sharedTail >= 2 ? originalName : aiName;
+}
+
 function extractAiStructuredExecutionAddress(
   aiExecutionAddress: any,
   customer?: {
@@ -3947,9 +4017,31 @@ function buildStructuredAppointmentHintsV17_90L86(
     const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
       ? Math.round(minutesRaw)
       : 0;
-    const announcementChannel = normalizeAiContactChannelV17_90L86(
+    let announcementChannel = normalizeAiContactChannelV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
+
+    // V17.90L199: If the structured channel is missing, preserve an explicit
+    // line-local instruction such as "15 Minuten vorher anrufen". This creates
+    // the correct communication chip without inventing an on-site contact.
+    if (!announcementChannel && minutes) {
+      const evidenceChannel = normalizeAiContactChannelV17_90L86(
+        appointment?.evidence,
+      );
+      if (evidenceChannel) {
+        announcementChannel = evidenceChannel;
+      } else {
+        const minutePattern = new RegExp(
+          `\\b${minutes}\\s*(?:min(?:ute)?n?)?\\s*vorher[\\s\\S]{0,80}`,
+          "i",
+        );
+        const nearbyInstruction = String(rawText || "").match(minutePattern)?.[0] || "";
+        announcementChannel = normalizeAiContactChannelV17_90L86(
+          nearbyInstruction,
+        );
+      }
+    }
+
     const notice = minutes
       ? `${minutes} Minuten vorher${
           announcementChannel === "sms"
@@ -7316,6 +7408,46 @@ function parsePositiveCanonicalNumberV17_90L89(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+// V17.90L199: Structured quantity/unit data belongs in its own fields, not in
+// the visible service name. Remove only a trailing amount phrase whose number
+// exactly equals the canonical quantity. Floor identifiers such as "5. Etage"
+// remain untouched when the actual quantity is different (for example 1).
+function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
+  serviceName: string;
+  quantity: number;
+}): string {
+  const original = compactText(args.serviceName);
+  const quantity = Number(args.quantity || 0);
+  if (!original || !Number.isFinite(quantity) || quantity <= 0) return original;
+
+  const quantityLabel = Number.isInteger(quantity)
+    ? String(quantity)
+    : String(Number(quantity.toFixed(4)));
+  const quantityPattern = quantityLabel
+    .split(".")
+    .map((part) => escapeRegExpLocal(part))
+    .join("[.,]");
+
+  // Explicit units are case-insensitive. A free count noun is accepted only
+  // when it starts uppercase, so an action such as "Halle 2 reinigen" cannot
+  // be mistaken for duplicated quantity data.
+  const explicitUnitSuffix = new RegExp(
+    `\\s+${quantityPattern}\\s+(?:m(?:²|2|³|3)|qm|quadratmeter(?:n)?|kubikmeter(?:n)?|meter(?:n)?|laufmeter(?:n)?|stück(?:e|en)?|stueck(?:e|en)?|stk\\.?|stunden?|std\\.?|tage?n?|pauschale?n?)\\s*$`,
+    "iu",
+  );
+  const structuralCountSuffix = new RegExp(
+    `\\s+${quantityPattern}\\s+[A-ZÄÖÜ][\\p{L}'’.-]{1,30}\\s*$`,
+    "u",
+  );
+  const cleaned = original
+    .replace(explicitUnitSuffix, "")
+    .replace(structuralCountSuffix, "")
+    .replace(/[,;:\s]+$/g, "")
+    .trim();
+
+  return cleaned.length >= 4 && /\p{L}/u.test(cleaned) ? cleaned : original;
+}
+
 function extractLeadingCountFromEvidenceV17_90L89(
   value: unknown,
 ): number {
@@ -7387,12 +7519,6 @@ function buildCanonicalAiOrderItemsV17_90L88(
           raw?.matched_service_name ||
           "",
       );
-      // V17.90L104: The first-AI service name is authoritative. Evidence is
-      // retained for review, but may never be appended to or used to rewrite
-      // the visible name after the AI pass.
-      const serviceName = rawServiceName
-        ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
-        : "";
       const confidenceKey = normalizeUnitText(raw?.confidence || "");
       const confidence =
         confidenceKey.includes("niedrig") || confidenceKey.includes("low")
@@ -7470,6 +7596,16 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const detectedCurrency =
         compactText(raw?.currency || detectCurrencyFromText(sourceText) || "")
           .toUpperCase() || null;
+
+      // V17.90L104/L199: Keep the first-AI semantic action authoritative, but
+      // remove duplicated structured amount data before the canonical lock.
+      const cleanedServiceName = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+        serviceName: rawServiceName,
+        quantity,
+      });
+      const serviceName = cleanedServiceName
+        ? `${cleanedServiceName.charAt(0).toUpperCase()}${cleanedServiceName.slice(1)}`
+        : "";
 
       const safeName = Boolean(
         serviceName &&
@@ -14314,10 +14450,10 @@ export async function processIncomingMessage(
 
   if (aiStructuredExecutionAddress && explicitPartialExecutionAddressFallback) {
     protectedExecutionAddressCandidateV17_90L103 = {
-      siteName:
-        aiStructuredExecutionAddress.siteName ||
-        explicitPartialExecutionAddressFallback.siteName ||
-        null,
+      siteName: preferOriginalExecutionSiteNameV17_90L199({
+        aiAddress: aiStructuredExecutionAddress,
+        originalAddress: explicitPartialExecutionAddressFallback,
+      }),
       siteAddress:
         aiStructuredExecutionAddress.siteAddress ||
         explicitPartialExecutionAddressFallback.siteAddress ||
