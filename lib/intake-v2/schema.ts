@@ -41,10 +41,31 @@ export type CanonicalFactRoleV2 =
   | "other"
   | "ordinary";
 
+export type CanonicalFactKindV2 =
+  | "hazard"
+  | "key_location"
+  | "access_code"
+  | "entrance"
+  | "access_instruction"
+  | "parking_space"
+  | "parking_instruction"
+  | "equipment"
+  | "work_instruction"
+  | "communication"
+  | "appointment"
+  | "generic";
+
 export type CanonicalFactV2 = {
   factId: string;
+  /** Stable business-meaning identity, independent of wording/dialect. */
+  semanticKey?: string;
   role: CanonicalFactRoleV2;
+  kind?: CanonicalFactKindV2;
   text: string;
+  code?: string | null;
+  number?: string | null;
+  negated?: boolean;
+  evidence?: string[];
   evidenceSource: "ai_structured" | "normalized_translation" | "canonical_assembler";
 };
 

@@ -30,11 +30,8 @@ import {
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
 import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
-import {
-  INTAKE_V2_SCHEMA_VERSION,
-  type CanonicalFactRoleV2,
-  type CanonicalFactV2,
-} from "@/lib/intake-v2/schema";
+import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
+import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
 
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
@@ -4864,196 +4861,8 @@ function preferCompleteTranslatedRoleVariantsV17_90L202(
 }
 
 
-// V17.90L203: One canonical assembler owns all operational facts before the
-// seal. Role-local helper paths may propose facts, but they can no longer
-// serialize the same business statement twice or assign it to two roles.
-type CanonicalFactCandidateV17_90L203 = {
-  role: CanonicalFactRoleV2;
-  text: string;
-};
-
-const canonicalFactRoleRankV17_90L203: Record<CanonicalFactRoleV2, number> = {
-  safety: 5,
-  access: 4,
-  parking: 3,
-  other: 2,
-  ordinary: 1,
-};
-
-function canonicalFactTokensV17_90L203(value: unknown): Set<string> {
-  const ignored = new Set([
-    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer",
-    "einem", "einen", "ist", "sind", "wird", "werden", "im", "in", "am",
-    "an", "auf", "bei", "beim", "zur", "zum", "von", "vor", "und", "oder",
-    "bitte", "hinweis", "achtung", "zugang", "parken", "parkierung",
-  ]);
-  return new Set(
-    canonicalRoleVariantKeyV17_90L201(value)
-      .split(/\s+/g)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 2 && !ignored.has(token)),
-  );
-}
-
-function canonicalFactInvariantSetV17_90L203(value: unknown): Set<string> {
-  return new Set(canonicalRoleInvariantTokensV17_90L201(value));
-}
-
-function setIsSubsetV17_90L203(left: Set<string>, right: Set<string>): boolean {
-  return [...left].every((value) => right.has(value));
-}
-
-function isCanonicalFactReferenceFragmentV17_90L203(
-  value: unknown,
-): boolean {
-  const tokens = canonicalFactTokensV17_90L203(value);
-  const invariants = canonicalFactInvariantSetV17_90L203(value);
-  return invariants.size > 0 && tokens.size <= 2;
-}
-
-function canonicalFactsEquivalentV17_90L203(
-  leftValue: unknown,
-  rightValue: unknown,
-): boolean {
-  const left = canonicalRoleVariantKeyV17_90L201(leftValue);
-  const right = canonicalRoleVariantKeyV17_90L201(rightValue);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  if (
-    hasCanonicalRoleNegationV17_90L201(leftValue) !==
-      hasCanonicalRoleNegationV17_90L201(rightValue) &&
-    !isCanonicalFactReferenceFragmentV17_90L203(leftValue) &&
-    !isCanonicalFactReferenceFragmentV17_90L203(rightValue)
-  ) {
-    return false;
-  }
-
-  const leftInvariants = canonicalFactInvariantSetV17_90L203(leftValue);
-  const rightInvariants = canonicalFactInvariantSetV17_90L203(rightValue);
-  if (
-    leftInvariants.size > 0 &&
-    rightInvariants.size > 0 &&
-    !setIsSubsetV17_90L203(leftInvariants, rightInvariants) &&
-    !setIsSubsetV17_90L203(rightInvariants, leftInvariants)
-  ) {
-    return false;
-  }
-
-  if (left.includes(right) || right.includes(left)) return true;
-
-  const leftTokens = canonicalFactTokensV17_90L203(leftValue);
-  const rightTokens = canonicalFactTokensV17_90L203(rightValue);
-  if (leftTokens.size === 0 || rightTokens.size === 0) return false;
-  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
-  const containment = intersection / Math.min(leftTokens.size, rightTokens.size);
-  const union = new Set([...leftTokens, ...rightTokens]).size;
-  const jaccard = union > 0 ? intersection / union : 0;
-
-  // A short fragment can be absorbed by a fuller statement, including a code
-  // or location suffix. Different numbered facts remain separate because the
-  // invariant-set check above rejects conflicting numbers.
-  if (intersection >= 2 && containment >= 0.75) return true;
-  if (intersection >= 3 && jaccard >= 0.62) return true;
-
-  return (
-    leftInvariants.size === rightInvariants.size &&
-    setIsSubsetV17_90L203(leftInvariants, rightInvariants) &&
-    canonicalRoleEditSimilarityV17_90L201(left, right) >= 0.84
-  );
-}
-
-function canonicalFactTextScoreV17_90L203(
-  value: string,
-  translationText?: string | null,
-): number {
-  const tokens = canonicalFactTokensV17_90L203(value);
-  const invariants = canonicalFactInvariantSetV17_90L203(value);
-  return (
-    translatedRoleEvidenceScoreV17_90L201(value, translationText) * 100 +
-    (hasCanonicalRoleNegationV17_90L201(value) ? 25 : 0) +
-    invariants.size * 12 +
-    tokens.size * 3 +
-    Math.min(value.length, 320) / 40
-  );
-}
-
-function assembleCanonicalBusinessFactsV17_90L203(args: {
-  safety: string[];
-  access: string[];
-  parking: string[];
-  other: string[];
-  ordinary: string[];
-  translationText?: string | null;
-}): {
-  facts: CanonicalFactV2[];
-  roles: Record<CanonicalFactRoleV2, string[]>;
-} {
-  const candidates: CanonicalFactCandidateV17_90L203[] = (
-    Object.entries({
-      safety: args.safety,
-      access: args.access,
-      parking: args.parking,
-      other: args.other,
-      ordinary: args.ordinary,
-    }) as Array<[CanonicalFactRoleV2, string[]]>
-  ).flatMap(([role, lines]) =>
-    lines.map((rawText) => ({
-      role,
-      text: String(rawText || "")
-        .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
-        .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
-        .replace(/\s+/g, " ")
-        .trim(),
-    })),
-  ).filter((candidate) => Boolean(candidate.text));
-
-  const assembled: CanonicalFactCandidateV17_90L203[] = [];
-  for (const candidate of candidates) {
-    const duplicateIndex = assembled.findIndex((existing) =>
-      canonicalFactsEquivalentV17_90L203(existing.text, candidate.text),
-    );
-    if (duplicateIndex < 0) {
-      assembled.push(candidate);
-      continue;
-    }
-
-    const existing = assembled[duplicateIndex];
-    const preferredRole =
-      canonicalFactRoleRankV17_90L203[candidate.role] >
-      canonicalFactRoleRankV17_90L203[existing.role]
-        ? candidate.role
-        : existing.role;
-    const preferredText =
-      canonicalFactTextScoreV17_90L203(candidate.text, args.translationText) >
-      canonicalFactTextScoreV17_90L203(existing.text, args.translationText)
-        ? candidate.text
-        : existing.text;
-    assembled[duplicateIndex] = { role: preferredRole, text: preferredText };
-  }
-
-  const facts: CanonicalFactV2[] = assembled.map((entry) => ({
-    factId:
-      `fact_${createCanonicalSourceFingerprintV17_90L194(
-        canonicalRoleVariantKeyV17_90L201(entry.text),
-      ) || "unknown"}`,
-    role: entry.role,
-    text: entry.text,
-    evidenceSource:
-      translatedRoleEvidenceScoreV17_90L201(entry.text, args.translationText) > 0
-        ? "normalized_translation"
-        : "canonical_assembler",
-  }));
-
-  const roles: Record<CanonicalFactRoleV2, string[]> = {
-    safety: [],
-    access: [],
-    parking: [],
-    other: [],
-    ordinary: [],
-  };
-  for (const fact of facts) roles[fact.role].push(fact.text);
-  return { facts, roles };
-}
+// V17.90L204: Canonical business-fact assembly lives exclusively in
+// lib/intake-v2/facts.ts. No second local assembler may rewrite sealed facts.
 
 function dedupeProtectedStructuredRoleLinesV17_90L103(
   lines: string[],
@@ -8277,6 +8086,105 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
   return (moneyMatches?.length || 0) === 1;
 }
 
+
+// V17.90L204: A number attached to a singular floor/location label is a
+// location identifier (for example "6 Etage" = 6th floor), not a billable
+// quantity. This guard is line-local and does not depend on service words.
+type OrdinalLocationEvidenceV17_90L204 = {
+  number: number;
+  label: "Etage" | "Stockwerk" | "Geschoss" | "Floor" | "Piano";
+};
+
+function detectSingularOrdinalLocationEvidenceV17_90L204(
+  value: unknown,
+): OrdinalLocationEvidenceV17_90L204 | null {
+  const source = compactText(value);
+  if (!source) return null;
+
+  const match = source.match(
+    /\b(\d{1,2})(?:\.)?\s*(etage|stock(?:werk)?|geschoss|floor|storey|étage|piano)\b(?!\s*(?:n|s|e))/iu,
+  );
+  if (!match?.[1] || !match[2]) return null;
+
+  // Explicit count/multiplication evidence still wins. The guard only handles
+  // a singular location identifier without a count unit.
+  const around = source.slice(
+    Math.max(0, (match.index || 0) - 18),
+    Math.min(source.length, (match.index || 0) + match[0].length + 18),
+  );
+  if (
+    /\b(?:stueck|stück|stk\.?|pieces?|pcs\.?|unit(?:s|és)?|x|mal)\b/iu.test(
+      around,
+    )
+  ) {
+    return null;
+  }
+
+  const rawLabel = normalizeUnitText(match[2]);
+  const label: OrdinalLocationEvidenceV17_90L204["label"] =
+    rawLabel.startsWith("stock")
+      ? "Stockwerk"
+      : rawLabel === "geschoss"
+        ? "Geschoss"
+        : rawLabel === "floor" || rawLabel === "storey"
+          ? "Floor"
+          : rawLabel === "piano"
+            ? "Piano"
+            : "Etage";
+  return { number: Number(match[1]), label };
+}
+
+function normalizeOrdinalLocationServiceNameV17_90L204(args: {
+  serviceName: string;
+  ordinal: OrdinalLocationEvidenceV17_90L204;
+}): string {
+  const original = compactText(args.serviceName);
+  if (!original) return original;
+
+  const number = String(args.ordinal.number);
+  const locationPattern =
+    args.ordinal.label === "Stockwerk"
+      ? "Stockwerke?"
+      : args.ordinal.label === "Geschoss"
+        ? "Geschosse?"
+        : args.ordinal.label === "Floor"
+          ? "Floors?"
+          : args.ordinal.label === "Piano"
+            ? "Piani|Piano"
+            : "Etagen?";
+
+  let normalized = original.replace(
+    new RegExp(`\\b${number}\\s*\\.?\\s*(?:${locationPattern})\\b`, "iu"),
+    `${number}. ${args.ordinal.label === "Floor" || args.ordinal.label === "Piano" ? "Etage" : args.ordinal.label}`,
+  );
+
+  // If the model pluralized the immediately preceding German location/object
+  // noun only because it misread the ordinal as a count, normalize the common
+  // German plural suffix morphologically. This is not service classification.
+  normalized = normalized.replace(
+    new RegExp(
+      `\\b([\\p{L}-]+?)(böden|boeden|räume|raeume|gänge|gaenge|flächen|flaechen|häuser|haeuser)\\s+${number}\\.`,
+      "iu",
+    ),
+    (_match, prefix: string, suffix: string) => {
+      const suffixKey = normalizeUnitText(suffix);
+      const singular =
+        suffixKey === "boeden"
+          ? "boden"
+          : suffixKey === "raeume"
+            ? "raum"
+            : suffixKey === "gaenge"
+              ? "gang"
+              : suffixKey === "flaechen"
+                ? "fläche"
+                : "haus";
+      return `${prefix}${singular} ${number}.`;
+    },
+  );
+
+  return normalized.replace(/\s+/g, " ").trim();
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   translatedText?: string | null,
@@ -8370,6 +8278,19 @@ function buildCanonicalAiOrderItemsV17_90L88(
         unitSource = "structural_flat";
       }
 
+      const ordinalLocationEvidenceV17_90L204 =
+        detectSingularOrdinalLocationEvidenceV17_90L204(sourceText);
+      if (
+        ordinalLocationEvidenceV17_90L204 &&
+        unitPrice > 0 &&
+        quantity === ordinalLocationEvidenceV17_90L204.number &&
+        (unitType === "piece" || unitType === "unknown")
+      ) {
+        quantity = 1;
+        unitType = "flat";
+        unitSource = "structural_flat";
+      }
+
       if (quantity <= 0 && unitType === "flat" && unitPrice > 0) quantity = 1;
 
       const unit =
@@ -8391,8 +8312,14 @@ function buildCanonicalAiOrderItemsV17_90L88(
         unitPrice,
         unit,
       });
-      const serviceName = cleanedServiceName
-        ? `${cleanedServiceName.charAt(0).toUpperCase()}${cleanedServiceName.slice(1)}`
+      const ordinalSafeServiceName = ordinalLocationEvidenceV17_90L204
+        ? normalizeOrdinalLocationServiceNameV17_90L204({
+            serviceName: cleanedServiceName,
+            ordinal: ordinalLocationEvidenceV17_90L204,
+          })
+        : cleanedServiceName;
+      const serviceName = ordinalSafeServiceName
+        ? `${ordinalSafeServiceName.charAt(0).toUpperCase()}${ordinalSafeServiceName.slice(1)}`
         : "";
 
       const safeName = Boolean(
@@ -11765,6 +11692,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Wenn eine zweite Position nur aus einem Ort, Raum, Bereich, Stockwerk, Gebäude-Teil oder Titel der gleichen Zeile besteht, ist sie keine eigene Leistung. Die echte Leistung ist die semantische Arbeit aus dieser Zeile.
 - Zweiter-Prüfer-Regel: Menge, Einheit, Preis und Währung müssen aus derselben Leistungszeile oder einem eindeutig verbundenen Satz stammen. Zahlen aus PLZ, Hausnummer, Telefonnummer, Uhrzeit, Adresse oder vorheriger/nächster Leistungszeile dürfen nie auf eine andere Leistung übertragen werden.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
+- Standortzahlen sind keine Mengen: Eine Zahl vor einem SINGULAREN Stockwerks-/Lagewort wie "6 Etage", "2 Stock", "3. Geschoss" oder "4 floor" bezeichnet die Lage/Ordnungszahl. Sie darf nicht als 6/2/3/4 Stück berechnet werden. Bei genau einem Preis für diese Zeile: Menge = 1, Einheit = Pauschal und die Lage bleibt im Leistungsnamen, z. B. "... 6. Etage reinigen". Nur eine ausdrücklich plurale Anzahl oder ein eigenes Zähl-/Multiplikationssignal darf als Menge gelten.
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
 - Erkenne semantisch, ob neben der Rechnungsadresse ein anderer Ort genannt wird, an dem gearbeitet wird.
@@ -15739,49 +15667,73 @@ export async function processIncomingMessage(
       translationText,
     );
 
-  const protectedFactLinesV17_90L203 = [
-    ...gefahrItems,
-    onsiteContactHint.hint || "",
-    ...structuredAppointmentHintsV17_90L86,
-    ...accessFactCandidatesV17_90L203,
-    ...parkingFactCandidatesV17_90L203,
-    ...otherFactCandidatesV17_90L203,
-  ].filter(Boolean);
   const ordinaryFactCandidatesV17_90L203 =
-    dedupeTranslatedRoleVariantsV17_90L201(
-      hinweisItems.filter((line) =>
-        !protectedFactLinesV17_90L203.some((protectedLine) =>
-          canonicalFactsEquivalentV17_90L203(protectedLine, line),
-        ),
-      ),
-      translationText,
-    );
+    dedupeTranslatedRoleVariantsV17_90L201(hinweisItems, translationText);
 
-  const canonicalFactAssemblyV17_90L203 =
-    assembleCanonicalBusinessFactsV17_90L203({
-      safety: gefahrItems,
-      access: accessFactCandidatesV17_90L203,
-      parking: parkingFactCandidatesV17_90L203,
-      other: otherFactCandidatesV17_90L203,
-      ordinary: ordinaryFactCandidatesV17_90L203,
+  const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
+    candidates: [
+      ...gefahrItems.map((text) => ({
+        role: "safety" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+      ...accessFactCandidatesV17_90L203.map((text) => ({
+        role: "access" as const,
+        text,
+        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+          ? ("normalized_translation" as const)
+          : ("ai_structured" as const),
+      })),
+      ...parkingFactCandidatesV17_90L203.map((text) => ({
+        role: "parking" as const,
+        text,
+        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+          ? ("normalized_translation" as const)
+          : ("ai_structured" as const),
+      })),
+      ...otherFactCandidatesV17_90L203.map((text) => ({
+        role: "other" as const,
+        text,
+        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+          ? ("normalized_translation" as const)
+          : ("ai_structured" as const),
+      })),
+      ...ordinaryFactCandidatesV17_90L203.map((text) => ({
+        role: "ordinary" as const,
+        text,
+        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+          ? ("normalized_translation" as const)
+          : ("ai_structured" as const),
+      })),
+    ],
+    context: {
       translationText,
-    });
+      onsiteContact: onsiteContactHint.hint
+        ? {
+            name: onsiteContactHint.contactName || null,
+            phone: onsiteContactHint.phone || null,
+            channel: onsiteContactHint.preferredChannel || null,
+          }
+        : null,
+      appointments: structuredAppointmentHintsV17_90L86,
+    },
+  });
 
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
         onsiteContactHint.hint || "",
         ...structuredAppointmentHintsV17_90L86,
-        ...canonicalFactAssemblyV17_90L203.roles.access,
-        ...canonicalFactAssemblyV17_90L203.roles.parking,
-        ...canonicalFactAssemblyV17_90L203.roles.other,
-        ...canonicalFactAssemblyV17_90L203.roles.ordinary,
+        ...canonicalFactAssemblyV17_90L204.roles.access,
+        ...canonicalFactAssemblyV17_90L204.roles.parking,
+        ...canonicalFactAssemblyV17_90L204.roles.other,
+        ...canonicalFactAssemblyV17_90L204.roles.ordinary,
       ],
       translationText,
     );
   finalSpecialNotes =
     buildSpecialNotes({
-      safetyWarnings: canonicalFactAssemblyV17_90L203.roles.safety,
+      safetyWarnings: canonicalFactAssemblyV17_90L204.roles.safety,
       jobHints: canonicalSpecialNoteHintsV17_90L203,
       preserveStructuredRoles: true,
     }) || null;
@@ -15791,8 +15743,8 @@ export async function processIncomingMessage(
     intakeDiagnosticTraceId,
     "06a_canonical_fact_assembler",
     {
-      factCount: canonicalFactAssemblyV17_90L203.facts.length,
-      facts: canonicalFactAssemblyV17_90L203.facts.map((fact) => ({
+      factCount: canonicalFactAssemblyV17_90L204.facts.length,
+      facts: canonicalFactAssemblyV17_90L204.facts.map((fact) => ({
         factId: fact.factId,
         role: fact.role,
         text: redactIntakeDiagnosticText(fact.text, 320),
@@ -15835,8 +15787,8 @@ export async function processIncomingMessage(
         }
       : null,
     appointments: structuredAppointmentHintsV17_90L86,
-    roles: canonicalFactAssemblyV17_90L203.roles,
-    facts: canonicalFactAssemblyV17_90L203.facts,
+    roles: canonicalFactAssemblyV17_90L204.roles,
+    facts: canonicalFactAssemblyV17_90L204.facts,
     items: finalOrderItems.map((item) => {
       const sourceText = String(
         (item as any).sourceText ||
