@@ -3856,10 +3856,6 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
 
   const phonePatternV17_90L81 = /\+?\d[\d\s().\/-]{6,}\d/g;
   const isUsablePhoneV17_90L81 = (value: string) => {
-    const compact = value.replace(/\s+/g, "").trim();
-    // Dates such as 22.06.2026 previously matched the loose phone regex and
-    // produced a false contact summary. Date-shaped values are never phones.
-    if (/^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}$/.test(compact)) return false;
     const digits = value.replace(/\D/g, "");
     return digits.length >= 7 && digits.length <= 15;
   };
@@ -3886,12 +3882,9 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
       })[0] ||
     source.find(
       (line) =>
-        /\b(?:kontakt(?:\s+vor\s+ort)?|ansprechperson|vor\s+ort|tel\.?|telefon|phone|mobile|handy|natel|unter\s+(?:der\s+)?(?:nummer\s+)?)\b/i.test(
+        /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf)\b/i.test(
           line,
-        ) &&
-        (line.match(phonePatternV17_90L81) || []).some(
-          isUsablePhoneV17_90L81,
-        ),
+        ) && Boolean(line.match(phonePatternV17_90L81)),
     );
   const contactPhone =
     (contactLine?.match(phonePatternV17_90L81) || [])
@@ -13629,30 +13622,42 @@ export default function AuftraegePage() {
     : [];
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
-  const formInfoSummary = buildOrderInfoSummaryV17_65(
-    {
-      specialNotes: form.specialNotes,
-      notes: currentEditOrder?.notes || form.notes,
-      audioTranscript: currentEditOrder?.audioTranscript || null,
-      intakeSchemaVersion: currentEditOrder?.intakeSchemaVersion || null,
-      intakeSnapshot: currentEditOrder?.intakeSnapshot || null,
-    },
-    parsedFormSpecialNotes,
-  );
-  // V17.90L122: Only actual safety roles remain in the red block. Legacy
-  // misclassified operational lines are displayed as normal hints instead.
-  const reclassifiedLegacySafetyHints = uniqueOrderInfoLinesV17_66(
-    parsedFormSpecialNotes.safetyWarnings,
-  ).filter((line) => {
-    if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return false;
-    return classifySpecialNoteRoleV17_90L93(line) !== "safety";
-  });
-  const dangerNoteLines = uniqueOrderInfoLinesV17_66(
-    parsedFormSpecialNotes.safetyWarnings,
-  ).filter((line) => {
-    if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return true;
-    return classifySpecialNoteRoleV17_90L93(line) === "safety";
-  });
+  const canonicalFormSnapshotV2 = currentEditOrder
+    ? getCanonicalIntakeV2(currentEditOrder)
+    : null;
+  const canonicalFormInfoV2 = canonicalFormSnapshotV2
+    ? canonicalOrderInfoV2(canonicalFormSnapshotV2)
+    : null;
+  const formInfoSummary =
+    canonicalFormInfoV2 ||
+    buildOrderInfoSummaryV17_65(
+      {
+        specialNotes: form.specialNotes,
+        notes: currentEditOrder?.notes || form.notes,
+        audioTranscript: currentEditOrder?.audioTranscript || null,
+        intakeSchemaVersion: currentEditOrder?.intakeSchemaVersion || null,
+        intakeSnapshot: currentEditOrder?.intakeSnapshot || null,
+      },
+      parsedFormSpecialNotes,
+    );
+  // V17.90L205: For sealed Intake V2 orders, the editor renders the canonical
+  // roles directly. It must not reclassify safety facts from legacy notes.
+  const reclassifiedLegacySafetyHints = canonicalFormInfoV2
+    ? []
+    : uniqueOrderInfoLinesV17_66(
+        parsedFormSpecialNotes.safetyWarnings,
+      ).filter((line) => {
+        if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return false;
+        return classifySpecialNoteRoleV17_90L93(line) !== "safety";
+      });
+  const dangerNoteLines = canonicalFormInfoV2
+    ? canonicalFormInfoV2.safety
+    : uniqueOrderInfoLinesV17_66(
+        parsedFormSpecialNotes.safetyWarnings,
+      ).filter((line) => {
+        if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return true;
+        return classifySpecialNoteRoleV17_90L93(line) === "safety";
+      });
   const primaryInfoLines = formInfoSummary.primary;
   const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
     primaryInfoLines,
@@ -13667,7 +13672,7 @@ export default function AuftraegePage() {
   const preservedParkingJobHints = parsedFormSpecialNotes.jobHints.filter(
     isParkingOrderInfoLineV17_90L101,
   );
-  const editableAdditionalJobHints = uniqueOrderInfoLinesV17_66([
+  const legacyEditableAdditionalJobHints = uniqueOrderInfoLinesV17_66([
     ...parsedFormSpecialNotes.jobHints,
     ...reclassifiedLegacySafetyHints,
   ])
@@ -13678,6 +13683,11 @@ export default function AuftraegePage() {
           orderInfoLinesEquivalentV17_66(primaryLine, line),
         ),
     );
+  // Canonical additional facts already contain parking, ordinary hints and
+  // other operational information, while safety remains exclusively red.
+  const editableAdditionalJobHints = canonicalFormInfoV2
+    ? canonicalFormInfoV2.additional
+    : legacyEditableAdditionalJobHints;
   const normalSpecialNotesText = formatSpecialNotesForDisplay(
     editableAdditionalJobHints,
   );
