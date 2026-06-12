@@ -4560,6 +4560,146 @@ function dedupeSpecialNoteLines(lines: string[]): string[] {
 // V17.90L103: First-AI structured roles are immutable business data.
 // Downstream code may remove only exact formatting duplicates; it may not
 // translate, rewrite, split, merge, promote or demote a role statement.
+// V17.90L201: Conservative semantic dedupe for original/translation role
+// variants. This uses generic string similarity and invariant evidence only;
+// it does not contain dialect-, customer- or service-specific word mappings.
+function canonicalRoleVariantKeyV17_90L201(value: unknown): string {
+  return normalizeSemanticText(String(value || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalRoleInvariantTokensV17_90L201(value: unknown): string[] {
+  return Array.from(
+    new Set(
+      canonicalRoleVariantKeyV17_90L201(value).match(/\b\d+(?:[.,]\d+)?\b/g) || [],
+    ),
+  ).sort();
+}
+
+function hasCanonicalRoleNegationV17_90L201(value: unknown): boolean {
+  return /\b(?:nicht|kein|keine|keinen|keinem|keiner|ohne|never|not|no|sans|pas|non|sin|senza)\b/i.test(
+    canonicalRoleVariantKeyV17_90L201(value),
+  );
+}
+
+function canonicalRoleEditSimilarityV17_90L201(
+  leftValue: unknown,
+  rightValue: unknown,
+): number {
+  const left = canonicalRoleVariantKeyV17_90L201(leftValue);
+  const right = canonicalRoleVariantKeyV17_90L201(rightValue);
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost =
+        left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + substitutionCost,
+      );
+    }
+    for (let index = 0; index < current.length; index += 1) {
+      previous[index] = current[index];
+    }
+  }
+
+  const distance = previous[right.length] || 0;
+  return 1 - distance / Math.max(left.length, right.length);
+}
+
+function canonicalRoleLinesEquivalentV17_90L201(
+  left: unknown,
+  right: unknown,
+): boolean {
+  const leftKey = canonicalRoleVariantKeyV17_90L201(left);
+  const rightKey = canonicalRoleVariantKeyV17_90L201(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+
+  // Numbers/codes and logical polarity are invariant evidence. A shorter
+  // paraphrase must never suppress a different code, parking number or a
+  // negated instruction merely because the surrounding wording is similar.
+  const leftInvariants = canonicalRoleInvariantTokensV17_90L201(left);
+  const rightInvariants = canonicalRoleInvariantTokensV17_90L201(right);
+  if (leftInvariants.join("|") !== rightInvariants.join("|")) return false;
+  if (hasCanonicalRoleNegationV17_90L201(left) !== hasCanonicalRoleNegationV17_90L201(right)) {
+    return false;
+  }
+
+  if (leftKey.includes(rightKey) || rightKey.includes(leftKey)) return true;
+  return canonicalRoleEditSimilarityV17_90L201(leftKey, rightKey) >= 0.82;
+}
+
+function translatedRoleEvidenceScoreV17_90L201(
+  line: string,
+  translationText?: string | null,
+): number {
+  const lineKey = canonicalRoleVariantKeyV17_90L201(line);
+  const translationKey = canonicalRoleVariantKeyV17_90L201(translationText);
+  if (!lineKey || !translationKey) return 0;
+  if (translationKey.includes(lineKey)) return 3;
+
+  const lineTokens = lineKey.split(/\s+/g).filter((token) => token.length >= 3);
+  if (lineTokens.length === 0) return 0;
+  const matched = lineTokens.filter((token) => translationKey.includes(token)).length;
+  return matched / lineTokens.length >= 0.8 ? 1 : 0;
+}
+
+function dedupeTranslatedRoleVariantsV17_90L201(
+  lines: string[],
+  translationText?: string | null,
+): string[] {
+  const result: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "").replace(/\s+/g, " ").trim();
+    if (!line || /\[object Object\]/i.test(line)) continue;
+
+    const duplicateIndex = result.findIndex((existing) =>
+      canonicalRoleLinesEquivalentV17_90L201(existing, line),
+    );
+    if (duplicateIndex < 0) {
+      result.push(line);
+      continue;
+    }
+
+    const existingScore = translatedRoleEvidenceScoreV17_90L201(
+      result[duplicateIndex],
+      translationText,
+    );
+    const candidateScore = translatedRoleEvidenceScoreV17_90L201(
+      line,
+      translationText,
+    );
+    if (candidateScore > existingScore) result[duplicateIndex] = line;
+  }
+
+  return result;
+}
+
+function preferTranslatedCanonicalRoleVariantsV17_90L201(
+  protectedLines: string[],
+  candidateLines: string[],
+  translationText?: string | null,
+): string[] {
+  const preferred = protectedLines.map((protectedLine) => {
+    const equivalents = candidateLines.filter((candidate) =>
+      canonicalRoleLinesEquivalentV17_90L201(protectedLine, candidate),
+    );
+    return dedupeTranslatedRoleVariantsV17_90L201(
+      [protectedLine, ...equivalents],
+      translationText,
+    )[0] || protectedLine;
+  });
+  return dedupeTranslatedRoleVariantsV17_90L201(preferred, translationText);
+}
+
 function dedupeProtectedStructuredRoleLinesV17_90L103(
   lines: string[],
 ): string[] {
@@ -12981,6 +13121,14 @@ export async function processIncomingMessage(
     );
   }
 
+  // V17.90L201: If original and normalized working text produced two
+  // near-identical role statements, keep only one. Prefer the exact wording
+  // present in the normalized German working text. No new fact is generated.
+  hinweisItems = dedupeTranslatedRoleVariantsV17_90L201(
+    hinweisItems,
+    translationText,
+  );
+
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
     jobHints: hinweisItems,
@@ -14941,39 +15089,50 @@ export async function processIncomingMessage(
   // boundary. Contact, appointment, access, code and parking are never rebuilt
   // from specialNotes by the UI.
   const canonicalAccessRolesV17_90L195 =
-    canonicalizeStructuredRoleLinesV17_90L195(
-      parsed.auftrag?.zugangshinweise,
-      "access",
+    preferTranslatedCanonicalRoleVariantsV17_90L201(
+      canonicalizeStructuredRoleLinesV17_90L195(
+        parsed.auftrag?.zugangshinweise,
+        "access",
+      ),
+      hinweisItems,
+      translationText,
     );
   const canonicalParkingRolesV17_90L195 =
-    canonicalizeStructuredRoleLinesV17_90L195(
-      parsed.auftrag?.parkhinweise,
-      "parking",
+    preferTranslatedCanonicalRoleVariantsV17_90L201(
+      canonicalizeStructuredRoleLinesV17_90L195(
+        parsed.auftrag?.parkhinweise,
+        "parking",
+      ),
+      hinweisItems,
+      translationText,
     );
   const canonicalOtherRolesV17_90L195 =
-    canonicalizeStructuredRoleLinesV17_90L195(
-      parsed.auftrag?.sonstige_hinweise,
-      "other",
+    preferTranslatedCanonicalRoleVariantsV17_90L201(
+      canonicalizeStructuredRoleLinesV17_90L195(
+        parsed.auftrag?.sonstige_hinweise,
+        "other",
+      ),
+      hinweisItems,
+      translationText,
     );
-  const canonicalProtectedRoleKeysV17_90L195 = [
+  const canonicalProtectedRoleLinesV17_90L195 = [
     onsiteContactHint.hint || "",
     ...structuredAppointmentHintsV17_90L86,
     ...canonicalAccessRolesV17_90L195,
     ...canonicalParkingRolesV17_90L195,
     ...canonicalOtherRolesV17_90L195,
-  ]
-    .map((line) => normalizeSemanticText(line))
-    .filter(Boolean);
-  const canonicalOrdinaryRolesV17_90L195 = hinweisItems.filter((line) => {
-    const key = normalizeSemanticText(line);
-    if (!key) return false;
-    return !canonicalProtectedRoleKeysV17_90L195.some(
-      (protectedKey) =>
-        protectedKey === key ||
-        protectedKey.includes(key) ||
-        key.includes(protectedKey),
+  ].filter(Boolean);
+  const canonicalOrdinaryRolesV17_90L195 =
+    dedupeTranslatedRoleVariantsV17_90L201(
+      hinweisItems.filter((line) => {
+        const key = normalizeSemanticText(line);
+        if (!key) return false;
+        return !canonicalProtectedRoleLinesV17_90L195.some((protectedLine) =>
+          canonicalRoleLinesEquivalentV17_90L201(protectedLine, line),
+        );
+      }),
+      translationText,
     );
-  });
 
   // V17.90L195: Full canonical boundary for every business role, not only
   // service rows. Later UI/API code must use this snapshot and must not
