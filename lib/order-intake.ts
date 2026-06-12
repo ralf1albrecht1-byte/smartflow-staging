@@ -24,14 +24,12 @@ import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repai
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   applyUnitlessQuantityPriceLineGuard,
-  extractExecutionAddressFromText,
   extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99,
   runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
 import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
 import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
-import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
 
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
@@ -66,6 +64,24 @@ function redactIntakeDiagnosticText(value: unknown, maxLength = 1800): string {
 
 // V17.90L194: Stable, non-secret fingerprint for line-local intake evidence.
 // This is used for dedupe/audit only; it is not a cryptographic identifier.
+function deepFreezeFirstAiValueV17_90L210<T>(
+  value: T,
+  seen = new WeakSet<object>(),
+): T {
+  if (!value || typeof value !== "object") return value;
+  const objectValue = value as unknown as object;
+  if (seen.has(objectValue)) return value;
+  seen.add(objectValue);
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    deepFreezeFirstAiValueV17_90L210(child, seen);
+  }
+  return Object.freeze(value);
+}
+
+function cloneFirstAiValueV17_90L210<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
 function createCanonicalSourceFingerprintV17_90L194(value: unknown): string | null {
   const normalized = String(value || "")
     .toLowerCase()
@@ -3070,69 +3086,52 @@ function applySafeBillingCustomerGuard(args: {
   evidence: SafeBillingCustomerEvidence;
   allowSelfIntroName: boolean;
 }): { changed: boolean; reviewReason: string | null } {
-  const { kundeData, evidence, allowSelfIntroName } = args;
-  const before = JSON.stringify({
-    name: kundeData.name || null,
-    strasse: kundeData.strasse || null,
-    hausnummer: kundeData.hausnummer || null,
-    plz: kundeData.plz || null,
-    ort: kundeData.ort || null,
-    telefon: kundeData.telefon || null,
-    email: kundeData.email || null,
-  });
+  const { kundeData, evidence } = args;
+
+  // V17.90L210: This guard is strictly read-only. The first structured AI
+  // customer may be marked for review, but no field may be cleared, replaced
+  // or reconstructed from a second parser before the canonical seal.
+  const aiName = cleanBillingCustomerNameCandidate(kundeData?.name || null);
+  const aiStreet = compactText(
+    [kundeData?.strasse, kundeData?.hausnummer].filter(Boolean).join(" "),
+  );
+  const aiPlz = compactText(kundeData?.plz);
+  const aiCity = compactText(kundeData?.ort);
+  const hasCompleteAiBillingBlock = Boolean(
+    aiName && aiStreet && aiPlz && aiCity,
+  );
+  const hasAnyAiBillingValue = Boolean(
+    aiName ||
+      aiStreet ||
+      aiPlz ||
+      aiCity ||
+      compactText(kundeData?.telefon) ||
+      compactText(kundeData?.email),
+  );
 
   if (!evidence.hasReliableCustomerBlock) {
-    const safeSelfIntroName = allowSelfIntroName
-      ? cleanBillingCustomerNameCandidate(kundeData.name || null)
-      : null;
-
-    // No verified billing block means: leave customer master fields empty.
-    // Execution address and onsite contact stay only in order/site/special notes.
-    kundeData.name = safeSelfIntroName || null;
-    kundeData.strasse = null;
-    kundeData.hausnummer = null;
-    kundeData.plz = null;
-    kundeData.ort = null;
-    kundeData.telefon = null;
-    kundeData.email = null;
-
-    const after = JSON.stringify({
-      name: kundeData.name || null,
-      strasse: kundeData.strasse || null,
-      hausnummer: kundeData.hausnummer || null,
-      plz: kundeData.plz || null,
-      ort: kundeData.ort || null,
-      telefon: kundeData.telefon || null,
-      email: kundeData.email || null,
-    });
-
     return {
-      changed: before !== after,
-      reviewReason: "customer_data_uncertain_no_billing_block",
+      changed: false,
+      reviewReason:
+        hasCompleteAiBillingBlock || !hasAnyAiBillingValue
+          ? null
+          : "customer_data_uncertain_no_billing_block",
     };
   }
 
-  kundeData.name = evidence.name || null;
-  kundeData.strasse = evidence.street || null;
-  kundeData.hausnummer = null;
-  kundeData.plz = evidence.plz || null;
-  kundeData.ort = evidence.city || null;
-  kundeData.telefon = evidence.phone || null;
-  kundeData.email = evidence.email || null;
-
-  const after = JSON.stringify({
-    name: kundeData.name || null,
-    strasse: kundeData.strasse || null,
-    hausnummer: kundeData.hausnummer || null,
-    plz: kundeData.plz || null,
-    ort: kundeData.ort || null,
-    telefon: kundeData.telefon || null,
-    email: kundeData.email || null,
-  });
+  // The deterministic evidence parser is advisory only. A mismatch becomes a
+  // review finding; it never overwrites the structured AI fields.
+  const evidenceStreet = compactText(evidence.street);
+  const hasMaterialMismatch = Boolean(
+    (evidence.name && aiName && normalizeUnitText(evidence.name) !== normalizeUnitText(aiName)) ||
+      (evidenceStreet && aiStreet && normalizeUnitText(evidenceStreet) !== normalizeUnitText(aiStreet)) ||
+      (evidence.plz && aiPlz && compactText(evidence.plz) !== aiPlz) ||
+      (evidence.city && aiCity && normalizeUnitText(evidence.city) !== normalizeUnitText(aiCity)),
+  );
 
   return {
-    changed: before !== after,
-    reviewReason: null,
+    changed: false,
+    reviewReason: hasMaterialMismatch ? "customer_evidence_mismatch" : null,
   };
 }
 
@@ -4059,44 +4058,9 @@ function sourceSupportsAppointmentPartV17_90L86(
 }
 
 
-function inferAppointmentNoticeV17_90L203(
-  appointment: AiAppointmentV17_90L86,
-  rawText: string,
-): { minutes: number; channel: OnsiteContactChannel } {
-  const source = [appointment?.evidence, rawText]
-    .filter(Boolean)
-    .join("\n")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!source) return { minutes: 0, channel: null };
-
-  const noticePatterns = [
-    /\b(\d{1,3})\s*(?:min(?:ute)?n?)?\s*(?:vorher|vor\s+ankunft)\b[^.!?\n]{0,100}/i,
-    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:before|prior\s+to)\b[^.!?\n]{0,100}/i,
-    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:avant|prima|antes)\b[^.!?\n]{0,100}/i,
-  ];
-  let matched = "";
-  let minutes = 0;
-  for (const pattern of noticePatterns) {
-    const match = source.match(pattern);
-    const numeric = Number(match?.[1] || 0);
-    if (match && Number.isFinite(numeric) && numeric > 0 && numeric <= 240) {
-      matched = match[0];
-      minutes = Math.round(numeric);
-      break;
-    }
-  }
-  if (!minutes) return { minutes: 0, channel: null };
-
-  const channel =
-    normalizeAiContactChannelV17_90L86(matched) ||
-    normalizeAiContactChannelV17_90L86(source);
-  return { minutes, channel };
-}
-
 function buildStructuredAppointmentHintsV17_90L86(
   appointments: AiAppointmentV17_90L86[] | null | undefined,
-  rawText: string,
+  _rawText: string,
 ): string[] {
   if (!Array.isArray(appointments)) return [];
   const result: string[] = [];
@@ -4112,16 +4076,7 @@ function buildStructuredAppointmentHintsV17_90L86(
     const rawDate = appointment?.datum || appointment?.date || null;
     const rawStart = appointment?.von || appointment?.start || null;
     const rawEnd = appointment?.bis || appointment?.end || null;
-    let date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
-    if (date && /\.\d{4}$/.test(date)) {
-      const dayMonth = date.match(/^(\d{2})\.(\d{2})\./);
-      const sourceHasYear = dayMonth
-        ? new RegExp(
-            `(?:^|\\D)0?${Number(dayMonth[1])}[.\\/-]0?${Number(dayMonth[2])}[.\\/-]\\d{2,4}(?:$|\\D)`,
-          ).test(rawText)
-        : false;
-      if (!sourceHasYear) date = date.replace(/\.\d{4}$/, ".");
-    }
+    const date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
 
@@ -4130,34 +4085,22 @@ function buildStructuredAppointmentHintsV17_90L86(
     // create a review warning, but must not silently remove the appointment
     // from the order or its Important information section.
 
-    const inferredNoticeV17_90L203 = inferAppointmentNoticeV17_90L203(
-      appointment,
-      rawText,
-    );
+    // V17.90L210: Appointment values come only from the structured AI object.
+    // Evidence and raw text are never used to add a date, time, notice or channel.
     const explicitMinutesRaw = Number(
       appointment?.ankuendigung_minuten ??
         appointment?.announcement_minutes ??
         0,
     );
-    const minutesRaw =
-      Number.isFinite(explicitMinutesRaw) && explicitMinutesRaw > 0
-        ? explicitMinutesRaw
-        : inferredNoticeV17_90L203.minutes;
-    const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
-      ? Math.round(minutesRaw)
-      : 0;
-    let announcementChannel = normalizeAiContactChannelV17_90L86(
+    const minutes =
+      Number.isFinite(explicitMinutesRaw) &&
+      explicitMinutesRaw > 0 &&
+      explicitMinutesRaw <= 240
+        ? Math.round(explicitMinutesRaw)
+        : 0;
+    const announcementChannel = normalizeAiContactChannelV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
-
-    // V17.90L203: Contact and appointment structures are checked together.
-    // If the structured appointment omitted an explicit notice that is present
-    // in its evidence/raw message, preserve it instead of silently dropping it.
-    if (!announcementChannel && minutes) {
-      announcementChannel =
-        inferredNoticeV17_90L203.channel ||
-        normalizeAiContactChannelV17_90L86(appointment?.evidence);
-    }
 
     const notice = minutes
       ? `${minutes} Minuten vorher${
@@ -12378,6 +12321,20 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L210: Hard AI-first boundary. This is the exact structured model
+  // result before any legacy guard, parser, fallback, validator or UI helper
+  // can inspect it. Downstream code may create review findings, but canonical
+  // values are always rebuilt from this immutable source.
+  const firstAiStructuredV17_90L210 = deepFreezeFirstAiValueV17_90L210(
+    cloneFirstAiValueV17_90L210({
+      kunde: parsed.kunde || {},
+      auftrag: parsed.auftrag || {},
+      service: parsed.service || {},
+      kundenabgleich: parsed.kundenabgleich || {},
+      system: parsed.system || {},
+    }),
+  );
+
   const firstAiDangerRoleLinesV17_90L106 = extractRoleReviewLinesV17_90L106(
     parsed.auftrag?.gefahren ??
       parsed.auftrag?.warnhinweise ??
@@ -12447,7 +12404,9 @@ export async function processIncomingMessage(
   let matchId = abgleich.bestehende_kunden_id || "";
 
   // Ensure address is split properly
-  const kundeData = parsed.kunde || {};
+  const kundeData = cloneFirstAiValueV17_90L210(
+    firstAiStructuredV17_90L210.kunde || {},
+  );
 
   // V16.9: Telefonnummern aus "Kontakt vor Ort" dürfen nicht als normale
   // Kundentelefonnummer gespeichert oder für Matching verwendet werden.
@@ -12456,16 +12415,38 @@ export async function processIncomingMessage(
   // Hauswart Meier
   // Tel. 079 123 45 67
   // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
-  let onsiteContactHint = extractOnsiteContactHint(
-    messageText,
-    kundeData.telefon || null,
-    parsed.auftrag?.kontakt_vor_ort || null,
-  );
+  const firstAiOnsiteContactV17_90L210 =
+    firstAiStructuredV17_90L210.auftrag?.kontakt_vor_ort || null;
+  let onsiteContactHint = firstAiOnsiteContactV17_90L210 &&
+    firstAiOnsiteContactV17_90L210.vorhanden !== false
+    ? buildOnsiteContactHintV17_90L86({
+        source: "",
+        candidateCustomerPhone: kundeData.telefon || null,
+        phone:
+          firstAiOnsiteContactV17_90L210.telefon ||
+          firstAiOnsiteContactV17_90L210.phone ||
+          null,
+        contactName: cleanLikelyContactNameV17_90L86(
+          firstAiOnsiteContactV17_90L210.name,
+        ),
+        preferredChannel: normalizeAiContactChannelV17_90L86(
+          firstAiOnsiteContactV17_90L210.kanal ||
+            firstAiOnsiteContactV17_90L210.channel,
+        ),
+        noPhoneCall: Boolean(
+          firstAiOnsiteContactV17_90L210.nicht_anrufen ??
+            firstAiOnsiteContactV17_90L210.no_phone_call ??
+            false,
+        ),
+      })
+    : buildOnsiteContactHintV17_90L86({
+        source: "",
+        candidateCustomerPhone: kundeData.telefon || null,
+      });
   if (onsiteContactHint.phoneBelongsToSiteContact) {
-    console.log(
-      `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
+    console.info(
+      `[${source}] 🔒 customer/on-site phone overlap detected but first-AI customer phone preserved: ${maskPhoneForLog(kundeData.telefon || null)}`,
     );
-    kundeData.telefon = null;
   }
 
   // V17.90L87: The model can occasionally omit kunde.name and matchId even
@@ -12486,9 +12467,8 @@ export async function processIncomingMessage(
     if (mentionedCustomer) {
       matchId = mentionedCustomer.id;
       abgleichStatus = "moeglicher_treffer";
-      if (!String(kundeData.name || "").trim()) {
-        kundeData.name = mentionedCustomer.name;
-      }
+      // V17.90L210: Bind the existing customer id without writing its name
+      // back into the first-AI customer object.
       console.log(
         `[${source}] 🎯 EXPLICIT REUSE FALLBACK → candidate ${mentionedCustomer.name} (${mentionedCustomer.id})`,
       );
@@ -12537,7 +12517,6 @@ export async function processIncomingMessage(
     if (mentionedCustomer) {
       matchId = mentionedCustomer.id;
       abgleichStatus = "moeglicher_treffer";
-      kundeData.name = mentionedCustomer.name;
       console.log(
         `[${source}] 🎯 CANONICAL CUSTOMER REUSE → ${mentionedCustomer.name} (${mentionedCustomer.id})`,
       );
@@ -12561,7 +12540,6 @@ export async function processIncomingMessage(
     ) {
       matchId = preferredStoredCustomerV17_90L88B.id;
       abgleichStatus = "moeglicher_treffer";
-      kundeData.name = preferredStoredCustomerV17_90L88B.name;
       console.log(
         `[${source}] 🎯 PREFERRED COMPLETE CUSTOMER REUSE → ${preferredStoredCustomerV17_90L88B.name} (${preferredStoredCustomerV17_90L88B.customerNumber || preferredStoredCustomerV17_90L88B.id})`,
       );
@@ -12605,23 +12583,14 @@ export async function processIncomingMessage(
     invalidStandaloneCities.has(normalizedOrtCandidate) &&
     !hasStrongCustomerData
   ) {
-    console.log(
-      `[${source}] 🚫 Removed invalid AI city extraction: "${kundeData.ort}"`,
+    console.warn(
+      `[${source}] ⚠ structured AI city looks like work text and remains review-only: "${kundeData.ort}"`,
     );
-    kundeData.ort = null;
   }
 
-  let selfIntroFallbackUsed = false;
-  if (!llmExtractedName) {
-    const selfIntroName = extractSelfIntroductionName(messageText);
-    if (selfIntroName) {
-      kundeData.name = selfIntroName;
-      selfIntroFallbackUsed = true;
-      console.log(
-        `[${source}] 🪪 Selbstvorstellungs-Safety-Net griff: kunde.name='${selfIntroName}' (LLM hatte leer/null geliefert)`,
-      );
-    }
-  }
+  // V17.90L210: No raw-text self-introduction fallback may write into the
+  // structured AI customer. Missing names remain missing and reviewable.
+  const selfIntroFallbackUsed = false;
 
   // V16.39: no name rescue from raw wording. The AI must sort the billing
   // customer into structured fields; if it does not, the customer stays empty
@@ -12656,39 +12625,25 @@ export async function processIncomingMessage(
     parsed.system.needs_review = true;
   }
 
-  // V17.90L195: Resolve the customer phone only inside the bounded billing
-  // block. A verified named on-site phone is explicitly excluded. No fallback
-  // from specialNotes, appointment text or the complete message is permitted.
-  const canonicalBillingPhoneV17_90L195 = extractCanonicalBillingPhoneV17_90L195({
-    rawText: messageText,
-    aiBillingPhone: billingEvidence.phone || kundeData.telefon || null,
-    onsitePhone: onsiteContactHint.phone,
-    onsiteContactName: onsiteContactHint.contactName,
-  });
-  kundeData.telefon = canonicalBillingPhoneV17_90L195;
-  billingEvidence.phone = canonicalBillingPhoneV17_90L195;
+  // V17.90L210: Customer phone and e-mail are read directly from the first
+  // structured AI customer. Legacy bounded-text resolvers are diagnostic-only
+  // and may no longer replace or clear either field.
+  const canonicalBillingPhoneV17_90L195 =
+    compactText(kundeData.telefon) || null;
+  const canonicalBillingEmailV17_90L196 =
+    compactText(kundeData.email) || null;
 
-  const canonicalBillingEmailV17_90L196 = extractCanonicalBillingEmailV17_90L196({
-    rawText: messageText,
-    aiBillingEmail: billingEvidence.email || kundeData.email || null,
-  });
-  kundeData.email = canonicalBillingEmailV17_90L196;
-  billingEvidence.email = canonicalBillingEmailV17_90L196;
-
-  // A phone-only AI "on-site contact" that is identical to the bounded billing
-  // phone is not an on-site person. Keller-style "bitte vorher anrufen" remains
-  // an appointment/communication instruction, while the office number stays on
-  // the billing customer.
+  // V17.90L210: Customer/contact role conflicts are review metadata only.
+  // The structured AI contact is never deleted or rebuilt from surrounding text.
   if (
-    !onsiteContactHint.contactName &&
     normalizePhoneDigits(onsiteContactHint.phone) &&
     normalizePhoneDigits(onsiteContactHint.phone) ===
-      normalizePhoneDigits(canonicalBillingPhoneV17_90L195)
+      normalizePhoneDigits(canonicalBillingPhoneV17_90L195) &&
+    onsiteContactHint.contactName
   ) {
-    onsiteContactHint = buildOnsiteContactHintV17_90L86({
-      source: messageText,
-      candidateCustomerPhone: canonicalBillingPhoneV17_90L195,
-    });
+    customerGuardReviewReasons.push("customer_and_onsite_phone_same");
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
 
   function looksLikeWeakCityOnlyFromWorkText(
@@ -12718,7 +12673,9 @@ export async function processIncomingMessage(
   }
 
   if (looksLikeWeakCityOnlyFromWorkText(kundeData, messageText)) {
-    kundeData.ort = null;
+    customerGuardReviewReasons.push("customer_city_evidence_uncertain");
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
 
   const addr = ensureAddressSplit({
@@ -12760,15 +12717,10 @@ export async function processIncomingMessage(
         bCity: executionPlzCity.city,
       })
     ) {
-      kundeData.strasse = null;
-      kundeData.hausnummer = null;
-      kundeData.plz = null;
-      kundeData.ort = null;
-      addr.street = null;
-      addr.plz = null;
-      addr.city = null;
+      // V17.90L210: A role conflict is review metadata only. Preserve the AI
+      // billing values unchanged instead of clearing them before the seal.
       customerGuardReviewReasons.push(
-        "customer_address_cleared_execution_site_only_v17_51",
+        "customer_address_role_conflict_execution_site",
       );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
@@ -12781,10 +12733,12 @@ export async function processIncomingMessage(
       normalizeUnitText(messageText),
     )
   ) {
-    console.log(
-      `[${source}] 🚫 Removed invalid addr.city from work phrase: "${addr.city}"`,
+    console.warn(
+      `[${source}] ⚠ AI city may originate from a work phrase: "${addr.city}"`,
     );
-    addr.city = null;
+    customerGuardReviewReasons.push("customer_city_evidence_uncertain");
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
 
   const addressRoleSafetyV17_61 = shouldQuarantineBillingAddressRoleV17_61({
@@ -12804,22 +12758,27 @@ export async function processIncomingMessage(
   });
 
   if (addressRoleSafetyV17_61.quarantine) {
-    console.log(
-      `[${source}] 🛡️ ambiguous address role → customer billing address kept empty; order marked for address review`,
+    console.warn(
+      `[${source}] ⚠ ambiguous address role detected; AI billing values preserved and review-only finding recorded`,
     );
-    kundeData.strasse = null;
-    kundeData.hausnummer = null;
-    kundeData.plz = null;
-    kundeData.ort = null;
-    addr.street = null;
-    addr.plz = null;
-    addr.city = null;
   }
 
+  const hasCompleteStructuredAiBillingV17_90L210 = Boolean(
+    cleanAiStructuredBillingName(kundeData.name || null) &&
+      addr.street &&
+      addr.plz &&
+      addr.city,
+  );
   if (addressRoleSafetyV17_61.reviewReasons.length > 0) {
-    customerGuardReviewReasons.push(...addressRoleSafetyV17_61.reviewReasons);
-    parsed.system = parsed.system || {};
-    parsed.system.needs_review = true;
+    if (hasCompleteStructuredAiBillingV17_90L210) {
+      console.info(
+        `[${source}] 🔒 legacy address-role findings kept diagnostic-only because the first AI supplied a complete billing block`,
+      );
+    } else {
+      customerGuardReviewReasons.push(...addressRoleSafetyV17_61.reviewReasons);
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+    }
   }
 
   // V17.90L197 / Intake V2: this bounded customer object is immutable and is
@@ -13216,20 +13175,10 @@ export async function processIncomingMessage(
 
   // Create new customer if not auto-assigned
   if (!customerId) {
-    // ═══ DEFENSE-IN-DEPTH: only persist master data fields that are
-    // demonstrably present in the raw incoming message (text + audio transcript).
-    // This blocks silent partial inheritance of city/ZIP/street/phone/email from
-    // any existing customer record, even if a future LLM/model regression tries
-    // to copy fields from the `bestehende_kunden` prompt list into `kunde.*`.
-    // Applies to the CREATE path only — improve-existing (auto_assign) goes
-    // through protectCustomerData and is unchanged.
-    // messageText already contains the audio transcript (transcription happens
-    // in the webhook before processIncomingMessage is called). For image-only
-    // messages messageText is empty → sanitize drops every auto-derived field.
-    // Note: phone/email are NOT auto-persisted from webhook intake today
-    // (historical conservative default). We still run them through the sanitizer
-    // to keep the audit trail accurate about what the LLM tried to set.
-    const sanitized = sanitizeNewCustomerFields({
+    // V17.90L210: The structured AI customer is the only write source. The
+    // legacy raw-text sanitizer remains diagnostic and may never remove or
+    // replace a field that the model already assigned to the billing role.
+    const sanitizerDiagnosticV17_90L210 = sanitizeNewCustomerFields({
       rawText: messageText,
       street: canonicalBillingCustomerV2.street,
       plz: canonicalBillingCustomerV2.plz,
@@ -13237,129 +13186,43 @@ export async function processIncomingMessage(
       phone: canonicalBillingCustomerV2.phone,
       email: canonicalBillingCustomerV2.email,
     });
-    if (sanitized.dropped.length > 0) {
-      console.log(
-        `[${source}] 🛡️ intake-sanitize dropped unverified fields on new-customer create: ${sanitized.dropped.join(", ")}`,
+    if (sanitizerDiagnosticV17_90L210.dropped.length > 0) {
+      console.info(
+        `[${source}] 🔒 legacy customer-sanitize findings suppressed from writes: ${sanitizerDiagnosticV17_90L210.dropped.join(", ")}`,
       );
     }
 
-    // V16.20: Final create-path guard.
-    // If the parser did not find a reliable billing/customer block, never let
-    // sanitizeNewCustomerFields re-persist execution-site data from rawText as
-    // customer master data. This specifically protects messages like:
-    // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
-    // where the customer should remain empty + needsReview.
-    const hasPersistableCustomerName = Boolean(
-      canonicalBillingCustomerV2.name,
-    );
-
-    const namelessBillingEvidence =
-      !hasPersistableCustomerName &&
-      billingEvidence.hasReliableCustomerBlock &&
-      !billingEvidence.name
-        ? billingEvidence
-        : null;
-
-    const hasNamelessBillingAddress = Boolean(
-      namelessBillingEvidence &&
-      (namelessBillingEvidence.street ||
-        namelessBillingEvidence.plz ||
-        namelessBillingEvidence.city ||
-        namelessBillingEvidence.phone ||
-        namelessBillingEvidence.email),
-    );
-
-    const hasReliableBillingForCreate =
-      billingEvidence.hasReliableCustomerBlock ||
-      Boolean(namelessBillingEvidence);
-
-    const keepNewCustomerMasterEmpty =
-      !hasReliableBillingForCreate ||
-      (!hasPersistableCustomerName && !hasNamelessBillingAddress);
-
-    const safeNewCustomerFields = keepNewCustomerMasterEmpty
-      ? {
-          ...sanitized,
-          street: null,
-          plz: null,
-          city: null,
-          phone: null,
-          email: null,
-        }
-      : {
-          ...sanitized,
-          // AI-first: persist only structured billing fields that survived the
-          // customer guard. The raw WhatsApp wording no longer decides the role.
-          street: canonicalBillingCustomerV2.street,
-          plz: canonicalBillingCustomerV2.plz,
-          city: canonicalBillingCustomerV2.city,
-          phone: canonicalBillingCustomerV2.phone,
-          email: canonicalBillingCustomerV2.email,
-        };
-
-    const safeNewCustomerName = hasPersistableCustomerName
-      ? canonicalBillingCustomerV2.name || ""
-      : "";
-    const safeNewCustomerCity =
-      normalizeUnitText(safeNewCustomerFields.city) === "form"
-        ? null
-        : safeNewCustomerFields.city;
+    const safeNewCustomerFields = {
+      street: canonicalBillingCustomerV2.street,
+      plz: canonicalBillingCustomerV2.plz,
+      city: canonicalBillingCustomerV2.city,
+      phone: canonicalBillingCustomerV2.phone,
+      email: canonicalBillingCustomerV2.email,
+    };
+    const safeNewCustomerName = canonicalBillingCustomerV2.name || "";
+    const safeNewCustomerCity = safeNewCustomerFields.city;
     const hasCompleteNewCustomerMasterForNumber = Boolean(
       safeNewCustomerName.trim() &&
-      String(safeNewCustomerFields.street || "").trim() &&
-      String(safeNewCustomerFields.plz || "").trim() &&
-      String(safeNewCustomerCity || "").trim(),
+        String(safeNewCustomerFields.street || "").trim() &&
+        String(safeNewCustomerFields.plz || "").trim() &&
+        String(safeNewCustomerCity || "").trim(),
     );
 
-    if (keepNewCustomerMasterEmpty) {
-      console.log(
-        `[${source}] 🛡️ missing safe billing customer name/block → new customer master name/address/phone/email kept empty`,
-      );
-      parsed.system = parsed.system || {};
-      parsed.system.needs_review = true;
-      if (
-        !customerGuardReviewReasons.includes(
-          "customer_data_uncertain_no_billing_block",
-        )
-      ) {
-        customerGuardReviewReasons.push(
-          "customer_data_uncertain_no_billing_block",
-        );
-      }
-    } else if (hasNamelessBillingAddress) {
-      console.log(
-        `[${source}] 🛡️ labeled billing address without name → persisted partial customer data with needsReview=true`,
-      );
-      parsed.system = parsed.system || {};
-      parsed.system.needs_review = true;
-      if (
-        !customerGuardReviewReasons.includes(
-          "customer_name_missing_billing_address_present",
-        )
-      ) {
-        customerGuardReviewReasons.push(
-          "customer_name_missing_billing_address_present",
-        );
-      }
-    }
-
-    let customerNumber: string | null = null;
-    if (hasCompleteNewCustomerMasterForNumber) {
-      const { generateCustomerNumber } = await import("@/lib/customer-number");
-      customerNumber = await generateCustomerNumber(userId, dataScope);
-    } else {
-      // V17.87: Unvollständige Intake-Kunden bleiben Kundenentwurf ohne
-      // sichtbare K-Nummer. Der Auftrag braucht technisch weiterhin eine
-      // customerId, aber der Nummernkreis darf erst bei bestätigten
-      // Hauptdaten verbraucht werden: Name/Firma + Strasse/Hausnummer + PLZ + Ort.
+    if (!hasCompleteNewCustomerMasterForNumber) {
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
       if (!customerGuardReviewReasons.includes("customer_draft_unconfirmed")) {
         customerGuardReviewReasons.push("customer_draft_unconfirmed");
       }
       console.log(
-        `[${source}] 🧾 customer draft created without customerNumber until master data is complete`,
+        `[${source}] 🧾 customer draft keeps all structured AI fields but receives no customerNumber until the master data is complete`,
       );
+    }
+
+    let customerNumber: string | null = null;
+    if (hasCompleteNewCustomerMasterForNumber) {
+      const { generateCustomerNumber } = await import("@/lib/customer-number");
+      customerNumber = await generateCustomerNumber(userId, dataScope);
     }
 
     const customer = await prisma.customer.create({
@@ -13439,10 +13302,11 @@ export async function processIncomingMessage(
     line.replace(safetyMarkerRe, "").replace(hintMarkerRe, "").trim();
 
   const rawGefahren =
-    parsed.auftrag?.gefahren ??
-    parsed.auftrag?.warnhinweise ??
-    parsed.auftrag?.sicherheitswarnungen;
-  const rawBesonderheiten = parsed.auftrag?.besonderheiten;
+    firstAiStructuredV17_90L210.auftrag?.gefahren ??
+    firstAiStructuredV17_90L210.auftrag?.warnhinweise ??
+    firstAiStructuredV17_90L210.auftrag?.sicherheitswarnungen;
+  const rawBesonderheiten =
+    firstAiStructuredV17_90L210.auftrag?.besonderheiten;
 
   const rawGefahrenItems = toNoteArray(rawGefahren).filter(
     (line) => !isTechnicalIntakeMetaLineV17_90L17(line),
@@ -13484,16 +13348,16 @@ export async function processIncomingMessage(
   };
 
   const structuredRoleHintsV17_90L86 = collectStructuredRoleHintsV17_90L86(
-    parsed.auftrag,
+    firstAiStructuredV17_90L210.auftrag,
   );
   const structuredAppointmentHintsV17_90L86 =
     buildStructuredAppointmentHintsV17_90L86(
-      parsed.auftrag?.termine,
+      firstAiStructuredV17_90L210.auftrag?.termine,
       [
         messageText,
         translationText,
-        parsed.auftrag?.kontakt_vor_ort
-          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
+        firstAiStructuredV17_90L210.auftrag?.kontakt_vor_ort
+          ? JSON.stringify(firstAiStructuredV17_90L210.auftrag.kontakt_vor_ort)
           : "",
       ]
         .filter(Boolean)
@@ -13518,15 +13382,7 @@ export async function processIncomingMessage(
     onsiteContactHint,
   );
 
-  const hasStructuredSafetyRoles =
-    rawGefahrenItems.length > 0 || gefahrItemsFromBesonderheiten.length > 0;
-  const hasStructuredOrdinaryRoles =
-    rawBesonderheitenItems.length > 0 ||
-    structuredRoleHintsV17_90L86.length > 0 ||
-    structuredAppointmentHintsV17_90L86.length > 0 ||
-    Boolean(onsiteContactHint.hint);
-  const hasProtectedStructuredRolesV17_90L103 =
-    hasStructuredSafetyRoles || hasStructuredOrdinaryRoles;
+  const hasProtectedStructuredRolesV17_90L103 = true;
 
   // V17.90L104: Dedicated role arrays outrank the older general
   // `besonderheiten` array. If both contain the same business fact, keep the
@@ -13648,38 +13504,9 @@ export async function processIncomingMessage(
     translationText,
   );
 
-  // V17.90L202: The independent semantic checker may correct only the role of
-  // an already existing, byte-preserved note before the canonical seal. It may
-  // not rewrite text or invent a fact. Findings are already restricted to
-  // high confidence; dogs remain protected by the checker itself.
-  for (const finding of readOnlySpecialNoteRoleFindingsV17_90L106) {
-    const findingKey = normalizeSemanticText(finding.text);
-    if (!findingKey) continue;
-
-    if (finding.expectedRole === "gefahr") {
-      const index = hinweisItems.findIndex(
-        (line) => normalizeSemanticText(line) === findingKey,
-      );
-      if (index >= 0) {
-        const [line] = hinweisItems.splice(index, 1);
-        gefahrItems = dedupeTranslatedRoleVariantsV17_90L201(
-          [...gefahrItems, line],
-          translationText,
-        );
-      }
-    } else if (finding.expectedRole === "hinweis") {
-      const index = gefahrItems.findIndex(
-        (line) => normalizeSemanticText(line) === findingKey,
-      );
-      if (index >= 0) {
-        const [line] = gefahrItems.splice(index, 1);
-        hinweisItems = dedupeTranslatedRoleVariantsV17_90L201(
-          [...hinweisItems, line],
-          translationText,
-        );
-      }
-    }
-  }
+  // V17.90L210: The independent checker is diagnostic only. It may log a
+  // disagreement, but it has no permission to move, rewrite or duplicate any
+  // first-AI role before the canonical seal.
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
@@ -13747,14 +13574,17 @@ export async function processIncomingMessage(
       .trim();
 
   const fullWorkText =
-    parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim()
-      ? String(parsed.auftrag.beschreibung)
+    firstAiStructuredV17_90L210.auftrag?.beschreibung &&
+    String(firstAiStructuredV17_90L210.auftrag.beschreibung).trim()
+      ? String(firstAiStructuredV17_90L210.auftrag.beschreibung)
       : messageText;
 
   const aiWorkItemsRaw: AiWorkItem[] = Array.isArray(
-    parsed.auftrag?.arbeitspositionen,
+    firstAiStructuredV17_90L210.auftrag?.arbeitspositionen,
   )
-    ? parsed.auftrag.arbeitspositionen
+    ? cloneFirstAiValueV17_90L210(
+        firstAiStructuredV17_90L210.auftrag.arbeitspositionen,
+      )
     : [];
 
   const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
@@ -13779,7 +13609,10 @@ export async function processIncomingMessage(
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
-      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+      [
+        firstAiStructuredV17_90L210.auftrag?.beschreibung,
+        firstAiStructuredV17_90L210.auftrag?.titel,
+      ]
         .filter(Boolean)
         .join("\n"),
     );
@@ -15264,184 +15097,65 @@ export async function processIncomingMessage(
     ) as unknown as typeof finalOrderItems;
   }
 
-  const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
-  const executionAddressCustomerContext = {
-    customerAddress: addr.street || resolvedCustomerMaster?.address || null,
-    customerPlz: addr.plz || resolvedCustomerMaster?.plz || null,
-    customerCity: addr.city || resolvedCustomerMaster?.city || null,
-  };
-
-  const legacyAddressFallbackEnabled =
-    process.env.INTAKE_LEGACY_ADDRESS_FALLBACK === "1";
-  const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
-    aiExecutionAddress,
-    executionAddressCustomerContext,
-    validationSourceText,
+  // V17.90L210: Execution-address persistence is built directly from the
+  // structured AI object. No raw-text fallback, translation merge, cleaner,
+  // enrichment or post-AI address parser has write access.
+  const firstAiExecutionAddressV17_90L210 =
+    firstAiStructuredV17_90L210.auftrag?.ausfuehrungsadresse || null;
+  const structuredExecutionStreetV17_90L210 = compactText(
+    [
+      firstAiExecutionAddressV17_90L210?.strasse,
+      firstAiExecutionAddressV17_90L210?.hausnummer,
+    ]
+      .filter(Boolean)
+      .join(" "),
   );
-  const explicitPartialExecutionAddressFallback =
-    extractExecutionAddressFromText(
-      validationSourceText,
-      executionAddressCustomerContext,
+  const structuredExecutionNameV17_90L210 = compactText(
+    firstAiExecutionAddressV17_90L210?.name,
+  );
+  const structuredExecutionNameKeyV17_90L210 = normalizeUnitText(
+    structuredExecutionNameV17_90L210,
+  )
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const genericSameAddressNameV17_90L210 =
+    /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb)$/.test(
+      structuredExecutionNameKeyV17_90L210,
     );
-  // V17.90L194: The first-AI execution-address object is the protected
-  // source of truth. Whole-message address recreation is disabled by default;
-  // it is available only behind the explicit legacy environment switch.
-  let protectedExecutionAddressCandidateV17_90L103 =
-    aiStructuredExecutionAddress ||
-    (legacyAddressFallbackEnabled
-      ? explicitPartialExecutionAddressFallback
-      : null);
-
-  if (aiStructuredExecutionAddress && explicitPartialExecutionAddressFallback) {
-    protectedExecutionAddressCandidateV17_90L103 = {
-      siteName: preferOriginalExecutionSiteNameV17_90L199({
-        aiAddress: aiStructuredExecutionAddress,
-        originalAddress: explicitPartialExecutionAddressFallback,
-      }),
-      siteAddress:
-        aiStructuredExecutionAddress.siteAddress ||
-        explicitPartialExecutionAddressFallback.siteAddress ||
-        null,
-      sitePlz:
-        aiStructuredExecutionAddress.sitePlz ||
-        explicitPartialExecutionAddressFallback.sitePlz ||
-        null,
-      siteCity:
-        aiStructuredExecutionAddress.siteCity ||
-        explicitPartialExecutionAddressFallback.siteCity ||
-        null,
-      siteNote:
-        aiStructuredExecutionAddress.siteNote ||
-        explicitPartialExecutionAddressFallback.siteNote ||
-        null,
-    };
-  }
-
-  let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
-    protectedExecutionAddressCandidateV17_90L103,
-    validationSourceText,
-    { preservePopulatedAiFields: Boolean(aiStructuredExecutionAddress) },
+  const aiMarksDifferentAddressV17_90L210 =
+    firstAiExecutionAddressV17_90L210?.ist_abweichend === true;
+  const hasNamedSameAddressWorkAreaV17_90L210 = Boolean(
+    !aiMarksDifferentAddressV17_90L210 &&
+      structuredExecutionNameV17_90L210 &&
+      !genericSameAddressNameV17_90L210,
   );
 
-  // V17.90L85: Complete only missing address fields from the verified reused
-  // customer when street and city identify the same place. This keeps a real
-  // work-area label such as "Treppenhaus Haus B" while preventing "in Baden"
-  // and a missing PLZ from creating an artificial address review.
-  if (extractedExecutionAddress && resolvedCustomerMaster) {
-    const normalizedSiteCity = cleanIntakeCityCandidate(
-      extractedExecutionAddress.siteCity,
-    );
-    const sameStreet = Boolean(
-      extractedExecutionAddress.siteAddress &&
-        resolvedCustomerMaster.address &&
-        normalizeUnitText(extractedExecutionAddress.siteAddress) ===
-          normalizeUnitText(resolvedCustomerMaster.address),
-    );
-    const cityCompatible = Boolean(
-      !normalizedSiteCity ||
-        !resolvedCustomerMaster.city ||
-        normalizeUnitText(normalizedSiteCity) ===
-          normalizeUnitText(resolvedCustomerMaster.city),
-    );
-
-    if (sameStreet && cityCompatible) {
-      extractedExecutionAddress = {
-        ...extractedExecutionAddress,
-        sitePlz:
-          extractedExecutionAddress.sitePlz ||
-          resolvedCustomerMaster.plz ||
-          null,
-        siteCity:
-          normalizedSiteCity || resolvedCustomerMaster.city || null,
-      };
-    }
-  }
-
-  // V17.90L60: Preserve the explicit object/site descriptor that appears
-  // directly before the structured execution address. Generic placeholders
-  // such as "Ausführungsadresse" must not replace a real property name.
-  const explicitExecutionSiteDescriptor =
-    originalExecutionSiteDescriptorFromTextV17_50(validationSourceText);
-  if (
-    extractedExecutionAddress &&
-    explicitExecutionSiteDescriptor &&
-    (!extractedExecutionAddress.siteName ||
-      isBrokenExecutionSiteRoleFragmentV17_90L176(
-        extractedExecutionAddress.siteName,
-      ))
-  ) {
-    // V17.90L103: Original-text parsing may fill a missing object name, but it
-    // may not replace the populated first-AI site name.
-    extractedExecutionAddress = {
-      ...extractedExecutionAddress,
-      siteName: explicitExecutionSiteDescriptor,
-    };
-  }
-
-  // V17.90L66: "gleiche Adresse" is authoritative. Keep an optional
-  // work-area label, but always use the verified billing street/PLZ/city and
-  // discard AI fragments such as greetings or e-mail words from the address.
-  if (
-    hasSameAddressInstructionV17_90L28(validationSourceText) &&
-    executionAddressCustomerContext.customerAddress &&
-    executionAddressCustomerContext.customerPlz &&
-    executionAddressCustomerContext.customerCity
-  ) {
-    const sameAddressWorkArea = sameAddressWorkAreaDescriptorV17_66(validationSourceText);
-    const sameAddressWorkAreaKeyV17_90L209 = normalizeUnitText(
-      sameAddressWorkArea || "",
-    )
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    const isGenericSameAddressLabelV17_90L209 =
-      !sameAddressWorkAreaKeyV17_90L209 ||
-      /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb)$/.test(
-        sameAddressWorkAreaKeyV17_90L209,
-      );
-
-    // "Gleiche Adresse wie Firma" is an address-role instruction, not a new
-    // work-site name. Keep a genuinely named work area, but never materialize
-    // generic labels such as "Firma" or "wie Firma" as a separate site.
-    extractedExecutionAddress =
-      sameAddressWorkArea && !isGenericSameAddressLabelV17_90L209
-        ? {
-            siteName: sameAddressWorkArea,
-            siteAddress: executionAddressCustomerContext.customerAddress,
-            sitePlz: executionAddressCustomerContext.customerPlz,
-            siteCity: executionAddressCustomerContext.customerCity,
-            siteNote: null,
-          }
-        : null;
-  }
-
-  if (extractedExecutionAddress) {
-    const enrichedSiteNameV17_90L203 = enrichExecutionSiteNameFromEvidenceV17_90L203({
-      currentName: extractedExecutionAddress.siteName,
-      siteAddress: extractedExecutionAddress.siteAddress,
-      originalText: messageText,
-      translatedText: translationText,
-    });
-    extractedExecutionAddress = {
-      ...extractedExecutionAddress,
-      siteName: trimDanglingExecutionSiteConnectorV17_90L208({
-        siteName: enrichedSiteNameV17_90L203,
-        siteAddress: extractedExecutionAddress.siteAddress,
-      }),
-    };
-  }
+  let extractedExecutionAddress =
+    firstAiExecutionAddressV17_90L210 &&
+    (aiMarksDifferentAddressV17_90L210 ||
+      hasNamedSameAddressWorkAreaV17_90L210)
+      ? {
+          siteName: structuredExecutionNameV17_90L210 || null,
+          siteAddress: aiMarksDifferentAddressV17_90L210
+            ? structuredExecutionStreetV17_90L210 || null
+            : canonicalBillingCustomerV2.street,
+          sitePlz: aiMarksDifferentAddressV17_90L210
+            ? compactText(firstAiExecutionAddressV17_90L210?.plz) || null
+            : canonicalBillingCustomerV2.plz,
+          siteCity: aiMarksDifferentAddressV17_90L210
+            ? compactText(firstAiExecutionAddressV17_90L210?.ort) || null
+            : canonicalBillingCustomerV2.city,
+          siteNote: null,
+        }
+      : null;
 
   if (
     extractedExecutionAddress &&
     !extractedExecutionAddress.siteName &&
-    sameStructuredAddress({
-      aStreet: extractedExecutionAddress.siteAddress,
-      aPlz: extractedExecutionAddress.sitePlz,
-      aCity: extractedExecutionAddress.siteCity,
-      bStreet: executionAddressCustomerContext.customerAddress,
-      bPlz: executionAddressCustomerContext.customerPlz,
-      bCity: executionAddressCustomerContext.customerCity,
-    })
+    !extractedExecutionAddress.siteAddress &&
+    !extractedExecutionAddress.sitePlz &&
+    !extractedExecutionAddress.siteCity
   ) {
     extractedExecutionAddress = null;
   }
@@ -15765,125 +15479,83 @@ export async function processIncomingMessage(
     },
   );
 
-  // V17.90L203: Build every operational fact once, across all role sources.
-  // Earlier helpers only propose candidates. This assembler owns role
-  // precedence, cross-role dedupe and the final text variant before sealing.
-  const translatedAccessCandidatesV17_90L202 =
-    extractTranslatedRoleCandidatesV17_90L202(translationText, "access");
-  const translatedParkingCandidatesV17_90L202 =
-    extractTranslatedRoleCandidatesV17_90L202(translationText, "parking");
-  const translatedOtherCandidatesV17_90L202 =
-    extractTranslatedRoleCandidatesV17_90L202(translationText, "other");
+  // V17.90L210: Build the final role ledger only from the first structured AI
+  // arrays. Translation text, raw-message parsers and semantic assemblers are
+  // diagnostic-only and cannot move, rewrite, merge or invent a business fact.
+  const directRoleLinesV17_90L210 = {
+    safety: dedupeProtectedStructuredRoleLinesV17_90L103(gefahrItems),
+    access: dedupeProtectedStructuredRoleLinesV17_90L103(
+      extractProtectedStructuredRoleValuesV17_90L103(
+        firstAiStructuredV17_90L210.auftrag?.zugangshinweise,
+      ),
+    ),
+    parking: dedupeProtectedStructuredRoleLinesV17_90L103(
+      extractProtectedStructuredRoleValuesV17_90L103(
+        firstAiStructuredV17_90L210.auftrag?.parkhinweise,
+      ),
+    ),
+    other: dedupeProtectedStructuredRoleLinesV17_90L103(
+      extractProtectedStructuredRoleValuesV17_90L103(
+        firstAiStructuredV17_90L210.auftrag?.sonstige_hinweise,
+      ),
+    ),
+    ordinary: dedupeProtectedStructuredRoleLinesV17_90L103(
+      rawBesonderheitenItems
+        .filter((line) => !safetyMarkerRe.test(line))
+        .map(stripSpecialMarker),
+    ),
+  };
 
-  const accessFactCandidatesV17_90L203 =
-    preferCompleteTranslatedRoleVariantsV17_90L202(
-      [
-        ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.zugangshinweise, ...translatedAccessCandidatesV17_90L202],
-          "access",
-        ),
-        ...extractProtectedStructuredRoleValuesV17_90L103(
-          parsed.auftrag?.zugangshinweise,
-        ),
-        ...translatedAccessCandidatesV17_90L202,
-      ],
-      translationText,
-    );
-  const parkingFactCandidatesV17_90L203 =
-    preferCompleteTranslatedRoleVariantsV17_90L202(
-      [
-        ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.parkhinweise, ...translatedParkingCandidatesV17_90L202],
-          "parking",
-        ),
-        ...extractProtectedStructuredRoleValuesV17_90L103(
-          parsed.auftrag?.parkhinweise,
-        ),
-        ...translatedParkingCandidatesV17_90L202,
-      ],
-      translationText,
-    );
-  const otherFactCandidatesV17_90L203 =
-    preferCompleteTranslatedRoleVariantsV17_90L202(
-      [
-        ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.sonstige_hinweise, ...translatedOtherCandidatesV17_90L202],
-          "other",
-        ),
-        ...extractProtectedStructuredRoleValuesV17_90L103(
-          parsed.auftrag?.sonstige_hinweise,
-        ),
-        ...translatedOtherCandidatesV17_90L202,
-      ],
-      translationText,
-    );
+  const directFactKindV17_90L210 = (
+    role: "safety" | "access" | "parking" | "other" | "ordinary",
+  ) =>
+    role === "safety"
+      ? ("hazard" as const)
+      : role === "access"
+        ? ("access_instruction" as const)
+        : role === "parking"
+          ? ("parking_instruction" as const)
+          : role === "other"
+            ? ("work_instruction" as const)
+            : ("generic" as const);
 
-  const ordinaryFactCandidatesV17_90L203 =
-    dedupeTranslatedRoleVariantsV17_90L201(hinweisItems, translationText);
-
-  const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
-    candidates: [
-      ...gefahrItems.map((text) => ({
-        role: "safety" as const,
-        text,
-        evidenceSource: "ai_structured" as const,
-      })),
-      ...accessFactCandidatesV17_90L203.map((text) => ({
-        role: "access" as const,
-        text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
-      })),
-      ...parkingFactCandidatesV17_90L203.map((text) => ({
-        role: "parking" as const,
-        text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
-      })),
-      ...otherFactCandidatesV17_90L203.map((text) => ({
-        role: "other" as const,
-        text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
-      })),
-      ...ordinaryFactCandidatesV17_90L203.map((text) => ({
-        role: "ordinary" as const,
-        text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
-      })),
-    ],
-    context: {
-      originalText: messageText,
-      translationText,
-      onsiteContact: onsiteContactHint.hint
-        ? {
-            name: onsiteContactHint.contactName || null,
-            phone: onsiteContactHint.phone || null,
-            channel: onsiteContactHint.preferredChannel || null,
-            noPhoneCall: onsiteContactHint.noPhoneCall,
-          }
-        : null,
-      appointments: structuredAppointmentHintsV17_90L86,
-    },
-  });
+  const canonicalFactAssemblyV17_90L204 = {
+    roles: directRoleLinesV17_90L210,
+    facts: (
+      Object.entries(directRoleLinesV17_90L210) as Array<[
+        "safety" | "access" | "parking" | "other" | "ordinary",
+        string[],
+      ]>
+    ).flatMap(([role, lines]) =>
+      lines.map((text, index) => {
+        const semanticKey =
+          createCanonicalSourceFingerprintV17_90L194(`${role}|${text}`) ||
+          `${role}_${index}`;
+        return {
+          factId: `fact_${semanticKey.replace(/^v194_/, "")}`,
+          semanticKey,
+          role,
+          kind: directFactKindV17_90L210(role),
+          text,
+          code: null,
+          number: null,
+          negated: false,
+          evidence: [text],
+          evidenceSource: "ai_structured" as const,
+        };
+      }),
+    ),
+  };
 
   const canonicalSpecialNoteHintsV17_90L203 =
-    dedupeTranslatedRoleVariantsV17_90L201(
-      [
-        onsiteContactHint.hint || "",
-        ...structuredAppointmentHintsV17_90L86,
-        ...canonicalFactAssemblyV17_90L204.roles.access,
-        ...canonicalFactAssemblyV17_90L204.roles.parking,
-        ...canonicalFactAssemblyV17_90L204.roles.other,
-        ...canonicalFactAssemblyV17_90L204.roles.ordinary,
-      ],
-      translationText,
-    );
+    dedupeProtectedStructuredRoleLinesV17_90L103([
+      onsiteContactHint.hint || "",
+      ...structuredAppointmentHintsV17_90L86,
+      ...canonicalFactAssemblyV17_90L204.roles.access,
+      ...canonicalFactAssemblyV17_90L204.roles.parking,
+      ...canonicalFactAssemblyV17_90L204.roles.other,
+      ...canonicalFactAssemblyV17_90L204.roles.ordinary,
+    ]);
   finalSpecialNotes =
     buildSpecialNotes({
       safetyWarnings: canonicalFactAssemblyV17_90L204.roles.safety,
@@ -15896,6 +15568,7 @@ export async function processIncomingMessage(
     intakeDiagnosticTraceId,
     "06a_canonical_fact_assembler",
     {
+      mode: "first_ai_direct",
       factCount: canonicalFactAssemblyV17_90L204.facts.length,
       facts: canonicalFactAssemblyV17_90L204.facts.map((fact) => ({
         factId: fact.factId,
@@ -15910,15 +15583,15 @@ export async function processIncomingMessage(
   // reconstruct customer/contact/address/chip roles from the raw message.
   const canonicalIntakeSnapshotV2 = sealCanonicalIntakeV2({
     customer: {
-      name: resolvedCustomerMaster?.name || canonicalBillingCustomerV2.name,
-      street:
-        resolvedCustomerMaster?.address || canonicalBillingCustomerV2.street,
-      plz: resolvedCustomerMaster?.plz || canonicalBillingCustomerV2.plz,
-      city: resolvedCustomerMaster?.city || canonicalBillingCustomerV2.city,
-      phone:
-        resolvedCustomerMaster?.phone || canonicalBillingCustomerV2.phone,
-      email:
-        resolvedCustomerMaster?.email || canonicalBillingCustomerV2.email,
+      // V17.90L210: Even a verified customer relation is identity metadata, not
+      // a replacement source for the first-AI order snapshot. Current master
+      // data may be linked separately, but it cannot rewrite canonical intake.
+      name: canonicalBillingCustomerV2.name,
+      street: canonicalBillingCustomerV2.street,
+      plz: canonicalBillingCustomerV2.plz,
+      city: canonicalBillingCustomerV2.city,
+      phone: canonicalBillingCustomerV2.phone,
+      email: canonicalBillingCustomerV2.email,
       evidenceSource: canonicalBillingCustomerV2.evidenceSource,
     },
     executionAddress: extractedExecutionAddress

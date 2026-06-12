@@ -137,6 +137,12 @@ export function canonicalAppointmentBadgeV2(
 ): { label: string; tooltip: string } | null {
   const lines = canonicalAppointmentLinesV2(snapshot);
   if (!lines.length) return null;
+  if (lines.length > 1) {
+    return {
+      label: "Termin",
+      tooltip: lines.join("\n"),
+    };
+  }
   const source = lines[0].replace(/^Termin\s*:\s*/i, "");
   const date = source.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
   const sourceWithoutDate = date

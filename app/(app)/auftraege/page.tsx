@@ -13299,9 +13299,15 @@ export default function AuftraegePage() {
     form.siteCity,
   ]);
 
+  const currentExecutionAddressCustomerV17_90L210 = customers.find(
+    (entry: Customer) => entry.id === form.customerId,
+  );
   const showFirstTimeExecutionAddressSavedNoticeV17_73 = Boolean(
     currentExecutionAddressSavedInCustomerV17_73 &&
-    Number(currentExecutionAddressSavedInCustomerV17_73.usageCount || 0) <= 1,
+      String(
+        currentExecutionAddressCustomerV17_90L210?.customerNumber || "",
+      ).trim() &&
+      Number(currentExecutionAddressSavedInCustomerV17_73.usageCount || 0) <= 1,
   );
 
   const previousExecutionAddressSuggestionsV17_68 = useMemo(() => {
