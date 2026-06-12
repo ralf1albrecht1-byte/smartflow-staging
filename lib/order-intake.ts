@@ -3045,6 +3045,137 @@ function extractPhoneMatchFromTextV17_90L85(
   return null;
 }
 
+// V17.90L195: Customer and on-site phones are separate canonical roles.
+// The billing phone is read only from the customer/billing prefix before the
+// first execution-site, on-site-contact or appointment boundary. The whole
+// message is never scanned for a fallback customer phone.
+function extractCanonicalBillingPhoneV17_90L195(args: {
+  rawText: string | null | undefined;
+  aiBillingPhone?: string | null;
+  onsitePhone?: string | null;
+  onsiteContactName?: string | null;
+}): string | null {
+  const source = String(args.rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!source) return null;
+
+  const boundaryPatterns = [
+    /\b(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|baustelle|job\s*site|work\s*site|service\s*address|lieu\s+d[’']?intervention|luogo\s+d[’']?intervento|lugar\s+de\s+intervenci[oó]n)\b/i,
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+(?:ist|kontakt|ansprech)|contact\s+sur\s+place|on[-\s]?site\s+contact|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i,
+    /\b(?:putze\s+mues\s+mer|gereinigt\s+werden\s+muss|arbeit(?:en)?\s+(?:findet|finden)\s+.*?\bstatt)\b/i,
+    /(?:^|\n)\s*(?:termin|zeitfenster|appointment|rendez[-\s]?vous|fecha|data)\s*[:\-–—]?/im,
+  ];
+
+  let boundary = source.length;
+  for (const pattern of boundaryPatterns) {
+    const match = pattern.exec(source);
+    if (match && match.index >= 0) boundary = Math.min(boundary, match.index);
+  }
+  const billingPrefix = source.slice(0, boundary).trim();
+  if (!billingPrefix) return null;
+
+  const onsiteDigits = args.onsiteContactName
+    ? normalizePhoneDigits(args.onsitePhone)
+    : "";
+  const candidates: Array<{ phone: string; index: number }> = [];
+  const phonePattern = /\+?\d[\d\s()./-]{6,}\d/g;
+  let match: RegExpExecArray | null;
+  while ((match = phonePattern.exec(billingPrefix))) {
+    const candidate = String(match[0] || "").replace(/\s+/g, " ").trim();
+    const digits = normalizePhoneDigits(candidate);
+    if (digits.length < 9 || digits.length > 15) continue;
+    if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?:\s|$)/.test(candidate)) continue;
+    if (/\d{1,2}[.:]\d{2}/.test(candidate)) continue;
+    if (onsiteDigits && digits === onsiteDigits) continue;
+    candidates.push({ phone: candidate, index: match.index || 0 });
+  }
+  if (candidates.length === 0) return null;
+
+  const aiDigits = normalizePhoneDigits(args.aiBillingPhone);
+  if (aiDigits) {
+    const supported = candidates.find(
+      (candidate) => normalizePhoneDigits(candidate.phone) === aiDigits,
+    );
+    if (supported) return supported.phone;
+  }
+
+  // Billing blocks conventionally place the office phone after address data.
+  // Pick the first valid phone in that bounded block; never the last number in
+  // the full message.
+  return candidates.sort((a, b) => a.index - b.index)[0]?.phone || null;
+}
+
+function canonicalizeStructuredRoleLinesV17_90L195(
+  value: unknown,
+  role: "access" | "parking" | "other",
+): string[] {
+  const sourceLines = extractProtectedStructuredRoleValuesV17_90L103(value)
+    .flatMap((line) =>
+      String(line || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+|[;]\s+|\s+[·|]\s+|(?=\b(?:Termin|Kontakt|Zugang|Zutritt|Schlüssel|Schluessel|Code|Parkieren|Parkplatz|Besucherplatz|Leiter)\b)/gi),
+    )
+    .map((line) =>
+      line
+        .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+        .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  const rolePattern =
+    role === "access"
+      ? /\b(?:schlüssel|schluessel|code|zutritt|zugang|eingang|empfang|schlüsselbox|schluesselbox|badge|tor)\b/i
+      : role === "parking"
+        ? /\b(?:parkieren|parken|parkplatz|besucherplatz|stellplatz|rampe)\b/i
+        : /\b(?:leiter|stapler|maschine|material|mitbringen|vor\s+ort|flüssigkeiten|fluessigkeiten|ruhig|schlafen)\b/i;
+
+  const rejectCrossRole = (line: string) => {
+    if (role === "access") {
+      return /^(?:termin|kontakt)\s*:/i.test(line) ||
+        (/\b(?:anrufen|whatsapp|sms)\b/i.test(line) && !rolePattern.test(line));
+    }
+    if (role === "parking") return /^(?:termin|kontakt|zugang)\s*:/i.test(line);
+    return /^(?:termin|kontakt|zugang|park(?:en|ierung))\s*:/i.test(line);
+  };
+
+  const selected = sourceLines
+    .filter((line) => rolePattern.test(line) && !rejectCrossRole(line))
+    .map((line) => line.replace(/^[,.:\-–—\s]+|[,.:\-–—\s]+$/g, "").trim())
+    .filter(Boolean);
+
+  if (role === "access") {
+    const keyLineIndex = selected.findIndex((line) => /\b(?:schlüssel|schluessel)\b/i.test(line));
+    const standaloneCodeIndex = selected.findIndex(
+      (line) => /^code\s*[:#-]?\s*[A-Za-z0-9-]+$/i.test(line),
+    );
+    if (
+      keyLineIndex >= 0 &&
+      standaloneCodeIndex >= 0 &&
+      keyLineIndex !== standaloneCodeIndex &&
+      !/\bcode\b/i.test(selected[keyLineIndex])
+    ) {
+      selected[keyLineIndex] = `${selected[keyLineIndex]} · ${selected[standaloneCodeIndex]}`;
+      selected.splice(standaloneCodeIndex, 1);
+    }
+  }
+
+  const seen = new Set<string>();
+  return selected.filter((line) => {
+    const key = normalizeSemanticText(line);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+
 function extractPhoneFromText(value: string | null | undefined): string | null {
   return extractPhoneMatchFromTextV17_90L85(value)?.phone || null;
 }
@@ -11255,7 +11386,7 @@ export async function processIncomingMessage(
   // Hauswart Meier
   // Tel. 079 123 45 67
   // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
-  const onsiteContactHint = extractOnsiteContactHint(
+  let onsiteContactHint = extractOnsiteContactHint(
     messageText,
     kundeData.telefon || null,
     parsed.auftrag?.kontakt_vor_ort || null,
@@ -11455,25 +11586,32 @@ export async function processIncomingMessage(
     parsed.system.needs_review = true;
   }
 
-  // V17.90L194: The validated AI billing object is authoritative. Do not
-  // re-scan the whole message and replace its phone with the last numeric
-  // fragment before a marker. Only prevent an unresolved on-site number from
-  // leaking into customer master data.
-  const onsitePhoneDigitsV17_90L194 = normalizePhoneDigits(
-    onsiteContactHint.phone,
-  );
-  const guardedCustomerPhoneDigitsV17_90L194 = normalizePhoneDigits(
-    kundeData.telefon,
-  );
-  const billingEvidencePhoneDigitsV17_90L194 = normalizePhoneDigits(
-    billingEvidence.phone,
-  );
+  // V17.90L195: Resolve the customer phone only inside the bounded billing
+  // block. A verified named on-site phone is explicitly excluded. No fallback
+  // from specialNotes, appointment text or the complete message is permitted.
+  const canonicalBillingPhoneV17_90L195 = extractCanonicalBillingPhoneV17_90L195({
+    rawText: messageText,
+    aiBillingPhone: billingEvidence.phone || kundeData.telefon || null,
+    onsitePhone: onsiteContactHint.phone,
+    onsiteContactName: onsiteContactHint.contactName,
+  });
+  kundeData.telefon = canonicalBillingPhoneV17_90L195;
+  billingEvidence.phone = canonicalBillingPhoneV17_90L195;
+
+  // A phone-only AI "on-site contact" that is identical to the bounded billing
+  // phone is not an on-site person. Keller-style "bitte vorher anrufen" remains
+  // an appointment/communication instruction, while the office number stays on
+  // the billing customer.
   if (
-    onsitePhoneDigitsV17_90L194 &&
-    guardedCustomerPhoneDigitsV17_90L194 === onsitePhoneDigitsV17_90L194 &&
-    billingEvidencePhoneDigitsV17_90L194 !== guardedCustomerPhoneDigitsV17_90L194
+    !onsiteContactHint.contactName &&
+    normalizePhoneDigits(onsiteContactHint.phone) &&
+    normalizePhoneDigits(onsiteContactHint.phone) ===
+      normalizePhoneDigits(canonicalBillingPhoneV17_90L195)
   ) {
-    kundeData.telefon = null;
+    onsiteContactHint = buildOnsiteContactHintV17_90L86({
+      source: messageText,
+      candidateCustomerPhone: canonicalBillingPhoneV17_90L195,
+    });
   }
 
   function looksLikeWeakCityOnlyFromWorkText(
@@ -14362,11 +14500,49 @@ export async function processIncomingMessage(
     },
   );
 
-  // V17.90L194: Full canonical boundary for every business role, not only
-  // service rows. Later UI/API code can audit this snapshot but must not
+  // V17.90L195: Role-local display arrays are cleaned once at the intake
+  // boundary. Contact, appointment, access, code and parking are never rebuilt
+  // from specialNotes by the UI.
+  const canonicalAccessRolesV17_90L195 =
+    canonicalizeStructuredRoleLinesV17_90L195(
+      parsed.auftrag?.zugangshinweise,
+      "access",
+    );
+  const canonicalParkingRolesV17_90L195 =
+    canonicalizeStructuredRoleLinesV17_90L195(
+      parsed.auftrag?.parkhinweise,
+      "parking",
+    );
+  const canonicalOtherRolesV17_90L195 =
+    canonicalizeStructuredRoleLinesV17_90L195(
+      parsed.auftrag?.sonstige_hinweise,
+      "other",
+    );
+  const canonicalProtectedRoleKeysV17_90L195 = [
+    onsiteContactHint.hint || "",
+    ...structuredAppointmentHintsV17_90L86,
+    ...canonicalAccessRolesV17_90L195,
+    ...canonicalParkingRolesV17_90L195,
+    ...canonicalOtherRolesV17_90L195,
+  ]
+    .map((line) => normalizeSemanticText(line))
+    .filter(Boolean);
+  const canonicalOrdinaryRolesV17_90L195 = hinweisItems.filter((line) => {
+    const key = normalizeSemanticText(line);
+    if (!key) return false;
+    return !canonicalProtectedRoleKeysV17_90L195.some(
+      (protectedKey) =>
+        protectedKey === key ||
+        protectedKey.includes(key) ||
+        key.includes(protectedKey),
+    );
+  });
+
+  // V17.90L195: Full canonical boundary for every business role, not only
+  // service rows. Later UI/API code must use this snapshot and must not
   // reconstruct customer/contact/address/chip roles from the raw message.
-  const canonicalIntakeSnapshotV17_90L194 = {
-    version: "V17.90L194",
+  const canonicalIntakeSnapshotV17_90L195 = {
+    version: "V17.90L195",
     customer: {
       name: resolvedCustomerMaster?.name || kundeData.name || null,
       street: resolvedCustomerMaster?.address || addr.street || null,
@@ -14397,16 +14573,10 @@ export async function processIncomingMessage(
     appointments: structuredAppointmentHintsV17_90L86,
     roles: {
       safety: gefahrItems,
-      access: extractProtectedStructuredRoleValuesV17_90L103(
-        parsed.auftrag?.zugangshinweise,
-      ),
-      parking: extractProtectedStructuredRoleValuesV17_90L103(
-        parsed.auftrag?.parkhinweise,
-      ),
-      other: extractProtectedStructuredRoleValuesV17_90L103(
-        parsed.auftrag?.sonstige_hinweise,
-      ),
-      ordinary: hinweisItems,
+      access: canonicalAccessRolesV17_90L195,
+      parking: canonicalParkingRolesV17_90L195,
+      other: canonicalOtherRolesV17_90L195,
+      ordinary: canonicalOrdinaryRolesV17_90L195,
     },
     items: finalOrderItems.map((item) => {
       const sourceText = String(
@@ -14445,8 +14615,8 @@ export async function processIncomingMessage(
   // Strip every undefined value before handing the snapshot to Prisma JSON.
   // This keeps the persisted contract deterministic and avoids generated-client
   // type/runtime differences for optional nested AI fields.
-  const canonicalIntakeSnapshotJsonV17_90L194 = JSON.parse(
-    JSON.stringify(canonicalIntakeSnapshotV17_90L194),
+  const canonicalIntakeSnapshotJsonV17_90L195 = JSON.parse(
+    JSON.stringify(canonicalIntakeSnapshotV17_90L195),
   );
 
   logIntakeDiagnosticTrace(
@@ -14454,19 +14624,19 @@ export async function processIncomingMessage(
     intakeDiagnosticTraceId,
     "06b_full_canonical_lock",
     {
-      version: canonicalIntakeSnapshotV17_90L194.version,
-      customer: canonicalIntakeSnapshotV17_90L194.customer,
-      executionAddress: canonicalIntakeSnapshotV17_90L194.executionAddress,
-      onsiteContact: canonicalIntakeSnapshotV17_90L194.onsiteContact,
-      appointments: canonicalIntakeSnapshotV17_90L194.appointments,
+      version: canonicalIntakeSnapshotV17_90L195.version,
+      customer: canonicalIntakeSnapshotV17_90L195.customer,
+      executionAddress: canonicalIntakeSnapshotV17_90L195.executionAddress,
+      onsiteContact: canonicalIntakeSnapshotV17_90L195.onsiteContact,
+      appointments: canonicalIntakeSnapshotV17_90L195.appointments,
       roleCounts: {
-        safety: canonicalIntakeSnapshotV17_90L194.roles.safety.length,
-        access: canonicalIntakeSnapshotV17_90L194.roles.access.length,
-        parking: canonicalIntakeSnapshotV17_90L194.roles.parking.length,
-        other: canonicalIntakeSnapshotV17_90L194.roles.other.length,
-        ordinary: canonicalIntakeSnapshotV17_90L194.roles.ordinary.length,
+        safety: canonicalIntakeSnapshotV17_90L195.roles.safety.length,
+        access: canonicalIntakeSnapshotV17_90L195.roles.access.length,
+        parking: canonicalIntakeSnapshotV17_90L195.roles.parking.length,
+        other: canonicalIntakeSnapshotV17_90L195.roles.other.length,
+        ordinary: canonicalIntakeSnapshotV17_90L195.roles.ordinary.length,
       },
-      itemCount: canonicalIntakeSnapshotV17_90L194.items.length,
+      itemCount: canonicalIntakeSnapshotV17_90L195.items.length,
     },
   );
 
@@ -14488,8 +14658,8 @@ export async function processIncomingMessage(
       date: new Date(),
       notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
-      intakeSchemaVersion: "V17.90L194",
-      intakeSnapshot: canonicalIntakeSnapshotJsonV17_90L194,
+      intakeSchemaVersion: "V17.90L195",
+      intakeSnapshot: canonicalIntakeSnapshotJsonV17_90L195,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,
       siteAddress: extractedExecutionAddress?.siteAddress || null,
@@ -14587,7 +14757,7 @@ export async function processIncomingMessage(
   const canonicalScalarV17_90L194 = (value: unknown) =>
     String(value ?? "").replace(/\s+/g, " ").trim();
   const expectedItemFingerprintsV17_90L194 =
-    canonicalIntakeSnapshotV17_90L194.items
+    canonicalIntakeSnapshotV17_90L195.items
       .map((item) => canonicalScalarV17_90L194(item.sourceFingerprint))
       .sort();
   const persistedItemFingerprintsV17_90L194 = order.items
@@ -14602,27 +14772,27 @@ export async function processIncomingMessage(
     );
   const persistedCanonicalViolationV17_90L194 =
     canonicalScalarV17_90L194(order.customer?.name) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.name) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.name) ||
     canonicalScalarV17_90L194(order.customer?.address) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.street) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.street) ||
     canonicalScalarV17_90L194(order.customer?.plz) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.plz) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.plz) ||
     canonicalScalarV17_90L194(order.customer?.city) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.city) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.city) ||
     canonicalScalarV17_90L194(order.customer?.phone) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.phone) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.phone) ||
     canonicalScalarV17_90L194(order.customer?.email) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.email) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.email) ||
     canonicalScalarV17_90L194(order.siteName) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteName) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteName) ||
     canonicalScalarV17_90L194(order.siteAddress) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteAddress) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteAddress) ||
     canonicalScalarV17_90L194(order.sitePlz) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.sitePlz) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.sitePlz) ||
     canonicalScalarV17_90L194(order.siteCity) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteCity) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteCity) ||
     canonicalScalarV17_90L194(order.specialNotes) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.specialNotes) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.specialNotes) ||
     !persistedItemsStableV17_90L194;
 
   if (persistedCanonicalViolationV17_90L194) {
