@@ -16037,11 +16037,18 @@ export default function AuftraegePage() {
             );
             const compactExecutionAddressBadge =
               mobileAddressBadges.find((badge) => badge.key === "site_address") ||
-              mobileAddressBadges[0] ||
               null;
+            // V17.90L206: Blocking customer/execution-address reviews must be
+            // visible on the closed card next to the execution-site chip. They
+            // are navigation controls, not passive tooltip-only badges.
+            const compactHeaderReviewBadges = leftSystemBadges.filter((badge) =>
+              ["customer_review", "address_review"].includes(badge.key),
+            );
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) =>
-                !["site_address", "address_review"].includes(badge.key) &&
+                !["site_address", "address_review", "customer_review"].includes(
+                  badge.key,
+                ) &&
                 (mobileHeaderBadgeKeys.has(badge.key) ||
                   (badge.key !== "site_address" && !badge.focusTarget)),
             );
@@ -16394,6 +16401,32 @@ export default function AuftraegePage() {
               );
             };
 
+            const renderDirectHeaderReviewBadge = (badge: ReviewBadge) => {
+              const title = compactText(badge.tooltip) || badge.label;
+              const opensCustomer = badge.focusTarget === "customer";
+              return (
+                <button
+                  key={`header_review_${badge.key}`}
+                  type="button"
+                  aria-label={title}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onClick={(event) =>
+                    opensCustomer
+                      ? openOrderAtCustomer(event)
+                      : openOrderAtExecutionAddress(event)
+                  }
+                  className={`group relative inline-flex min-h-7 max-w-full shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(
+                    badge.className,
+                  )}`}
+                >
+                  {badge.icon && <AlertTriangle className="h-3 w-3 shrink-0" />}
+                  <span className="truncate">{badge.label}</span>
+                  {renderBadgeTooltip(badge, "left")}
+                </button>
+              );
+            };
+
             const renderResponsiveAppointmentBadge = (
               badge: ReviewBadge,
               slot: string,
@@ -16582,7 +16615,7 @@ export default function AuftraegePage() {
                         >
                           <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                             <div className="min-w-0">
-                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:pr-[40%]">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                   {o.createdAt
                                     ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
@@ -16614,6 +16647,14 @@ export default function AuftraegePage() {
                                     )}
                                   </span>
                                 )}
+                                {compactHeaderReviewBadges.map((badge) => (
+                                  <span
+                                    key={`compact_header_review_${badge.key}`}
+                                    className="min-w-0 max-w-full shrink-0"
+                                  >
+                                    {renderDirectHeaderReviewBadge(badge)}
+                                  </span>
+                                ))}
                               </div>
                               <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
                                 Leistungen · {mobileOrderServiceNames.length}
@@ -16750,7 +16791,7 @@ export default function AuftraegePage() {
                       )}
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
                         <div
-                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 md:flex-nowrap"
+                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
                           onClick={(event) => {
                             event.stopPropagation();
                             setActiveMobileTooltipKey(null);
@@ -16789,6 +16830,14 @@ export default function AuftraegePage() {
                               )}
                             </span>
                           )}
+                          {compactHeaderReviewBadges.map((badge) => (
+                            <span
+                              key={`mobile_header_review_${badge.key}`}
+                              className="min-w-0 max-w-full shrink-0"
+                            >
+                              {renderDirectHeaderReviewBadge(badge)}
+                            </span>
+                          ))}
                         </div>
 
                         {mobileSystemBadges.length > 0 && (

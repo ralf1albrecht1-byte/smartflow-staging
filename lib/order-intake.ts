@@ -2356,7 +2356,18 @@ function cleanExecutionSiteNameCandidate(
       /^\s*(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|arbeitsort|auftragsort|uftragsort|objektadresse|einsatzort|ausführung|ausfuehrung|objekt)\s*:?\s*/i,
       "",
     )
-    .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    .replace(/^\s*(?:bei|beim|am|an|im|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    // V17.90L206: A work-area phrase may arrive without its leading
+    // preposition ("der Werkstatt und im Treppenhaus"). Remove only the
+    // orphaned grammatical wrapper; the actual place nouns stay unchanged.
+    .replace(
+      /^\s*(?:der|die|das|dem|den)\s+(?=[\p{L}-]+(?:\s+[\p{L}-]+){0,5}\s+(?:und|sowie)\s+(?:im|in\s+der|in\s+den|am|auf\s+dem)\s+)/iu,
+      "",
+    )
+    .replace(
+      /\b(und|sowie)\s+(?:im|in\s+der|in\s+den|am|auf\s+dem)\s+/giu,
+      "$1 ",
+    )
     .replace(
       /^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:beim|bei|am|an|in)?\s*/i,
       "",
@@ -7744,6 +7755,10 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
     `\\s+${quantityPattern}\\s+(?:${explicitUnitPattern})\\s*$`,
     "iu",
   );
+  const parenthesizedQuantityUnit = new RegExp(
+    `\\(\\s*${quantityPattern}\\s*(?:${explicitUnitPattern})\\s*\\)`,
+    "giu",
+  );
   // A free count noun is accepted only at the end and only when it starts
   // uppercase. This keeps identifiers such as "Halle 2" intact.
   const structuralCountSuffix = new RegExp(
@@ -7756,6 +7771,7 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
     "iu",
   );
   const cleaned = original
+    .replace(parenthesizedQuantityUnit, " ")
     .replace(explicitQuantityUnitAnywhere, " ")
     .replace(explicitUnitSuffix, "")
     .replace(structuralCountSuffix, "")
@@ -8301,16 +8317,19 @@ function buildCanonicalAiOrderItemsV17_90L88(
         compactText(raw?.currency || detectCurrencyFromText(sourceText) || "")
           .toUpperCase() || null;
 
-      // V17.90L104/L199/L200: Keep the first-AI semantic action authoritative.
-      // A unique line-local German evidence label may restore missing grammar
-      // such as prepositions; otherwise only duplicated amount data is removed.
-      const cleanedServiceName = preferLineLocalGermanServiceNameV17_90L200({
-        rawServiceName,
-        sourceText,
-        translatedText,
+      // V17.90L206: The structured first-AI service name is authoritative.
+      // After the model has produced a valid semantic name, no translated line,
+      // dominant action or spelling repair may shorten, extend or rephrase it.
+      // Only data already stored in structured fields (quantity/unit) and a
+      // leading list conjunction are removed from the visible label.
+      const cleanedServiceName = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+        serviceName: rawServiceName
+          .replace(
+            /^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i,
+            "",
+          )
+          .trim(),
         quantity,
-        unitPrice,
-        unit,
       });
       const ordinalSafeServiceName = ordinalLocationEvidenceV17_90L204
         ? normalizeOrdinalLocationServiceNameV17_90L204({
@@ -8375,10 +8394,9 @@ function buildCanonicalAiOrderItemsV17_90L88(
     })
     .filter(Boolean) as CanonicalAiOrderItemV17_90L88[];
 
-  return repairCanonicalServiceSpellingFromContextV17_90L202(
-    completeCanonicalServiceNamesV17_90L202(builtItems),
-    contextText,
-  );
+  // V17.90L206: Do not run any semantic name reconstruction after the
+  // canonical AI rows were built. Validators remain advisory only.
+  return builtItems;
 }
 
 function canonicalItemMatchScoreV17_90L88(
@@ -15707,6 +15725,7 @@ export async function processIncomingMessage(
       })),
     ],
     context: {
+      originalText: messageText,
       translationText,
       onsiteContact: onsiteContactHint.hint
         ? {

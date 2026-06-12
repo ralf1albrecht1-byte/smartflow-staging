@@ -11,6 +11,7 @@ export type CanonicalFactCandidateV2 = {
 };
 
 export type CanonicalFactAssemblerContextV2 = {
+  originalText?: string | null;
   translationText?: string | null;
   onsiteContact?: {
     name?: string | null;
@@ -41,6 +42,8 @@ const normalize = (value: unknown): string =>
     .replace(/\bbim\b/g, "beim")
     .replace(/\buf\b/g, "auf")
     .replace(/\bhuuswart\b/g, "hauswart")
+    .replace(/\bbriefchaste?n?\b/g, "briefkasten")
+    .replace(/\bbriefchaschte?n?\b/g, "briefkasten")
     .replace(/\bhet\b/g, "hat")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
@@ -78,6 +81,7 @@ const conceptPatterns: Array<[string, RegExp]> = [
   ["office", /\b(?:buero|buro|bureau|office)\b/i],
   ["reception", /\b(?:rezeption|empfang|reception)\b/i],
   ["keybox", /\b(?:schluesselbox|schlusselbox|keybox|schluesselkasten|schlusselkasten)\b/i],
+  ["mailbox", /\b(?:briefkasten|mailbox|boite\s+aux\s+lettres|cassetta\s+delle\s+lettere)\b/i],
   ["entrance", /\b(?:eingang|seiteneingang|entrance|entree|ingresso)\b/i],
   ["parking", /\b(?:parkieren|parken|parkplatz|besucherplatz|parking)\b/i],
   ["visitor", /\b(?:besucher|visitor|visiteur|ospiti)\b/i],
@@ -108,7 +112,7 @@ const negativeLocationConcepts = (value: unknown): string[] => {
     return [];
   }
   const result: string[] = [];
-  for (const concept of ["reception", "keybox", "caretaker", "office", "entrance"]) {
+  for (const concept of ["reception", "keybox", "mailbox", "caretaker", "office", "entrance"]) {
     const pattern = conceptPatterns.find(([name]) => name === concept)?.[1];
     if (pattern?.test(negativeClause)) result.push(concept);
   }
@@ -293,10 +297,10 @@ function factsEquivalent(left: ParsedFact, right: ParsedFact): boolean {
   }
 
   const leftAnchors = left.concepts.filter((value) =>
-    ["keybox", "reception", "caretaker", "office", "entrance", "ladder", "dog", "slippery", "broken"].includes(value),
+    ["keybox", "mailbox", "reception", "caretaker", "office", "entrance", "ladder", "dog", "slippery", "broken"].includes(value),
   );
   const rightAnchors = right.concepts.filter((value) =>
-    ["keybox", "reception", "caretaker", "office", "entrance", "ladder", "dog", "slippery", "broken"].includes(value),
+    ["keybox", "mailbox", "reception", "caretaker", "office", "entrance", "ladder", "dog", "slippery", "broken"].includes(value),
   );
 
   if (left.codes.length && right.codes.length && !sameSet(left.codes, right.codes)) {
@@ -320,7 +324,7 @@ function factsEquivalent(left: ParsedFact, right: ParsedFact): boolean {
       const negated = left.negated ? left : right;
       const positive = left.negated ? right : left;
       return positive.concepts
-        .filter((value) => ["keybox", "caretaker", "office", "entrance"].includes(value))
+        .filter((value) => ["keybox", "mailbox", "caretaker", "office", "entrance"].includes(value))
         .some((value) => negated.concepts.includes(value) && !negated.negativeConcepts.includes(value));
     }
     return true;
@@ -362,6 +366,99 @@ function choosePreferred(
   return merged;
 }
 
+const PARKING_CONCEPT_PATTERN =
+  /\b(?:parkplatz|parkplaetze|parkplätze|parken|parkieren|parking|aparcamiento|parcheggio|stationnement)\b/i;
+const PARKING_NEGATION_PATTERN =
+  /\b(?:kein(?:e|en|em|er)?|ohne|nicht|no|not|sans|sin|senza|pas\s+de)\b/i;
+
+function extractExplicitNegativeParkingCandidates(
+  context: CanonicalFactAssemblerContextV2,
+): CanonicalFactCandidateV2[] {
+  const sources = [
+    { text: context.translationText, evidenceSource: "normalized_translation" as const },
+    { text: context.originalText, evidenceSource: "canonical_assembler" as const },
+  ];
+  const output: CanonicalFactCandidateV2[] = [];
+  const seen = new Set<string>();
+
+  for (const source of sources) {
+    const text = String(source.text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    if (!text) continue;
+    const clauses = text
+      .split(/\n+|(?<=[.!?;])\s+|\s+[–—]\s+/g)
+      .map((line) => compact(line))
+      .filter(Boolean);
+    for (const clause of clauses) {
+      const parkingMatch = clause.match(PARKING_CONCEPT_PATTERN);
+      if (!parkingMatch || parkingMatch.index == null) continue;
+
+      // Chaotic one-line messages can contain the whole order in one clause.
+      // Keep only the local parking statement so no unrelated customer/service
+      // text can leak into a canonical parking fact.
+      const matchIndex = parkingMatch.index;
+      const before = clause.slice(0, matchIndex);
+      const after = clause.slice(matchIndex);
+      const localStartBoundary = Math.max(
+        before.lastIndexOf(","),
+        before.lastIndexOf(";"),
+        before.lastIndexOf("."),
+      );
+      const roleBoundaryMatch = after.slice(parkingMatch[0].length).match(
+        /\b(?:schlüssel|schluessel|schlussel|code|hund|dog|termin|appointment|kontakt|contact|leiter|ladder|zugang|access|achtung|warnung|gefahr)\b/i,
+      );
+      const roleBoundaryIndex = roleBoundaryMatch?.index != null
+        ? parkingMatch[0].length + roleBoundaryMatch.index
+        : -1;
+      const localEndCandidates = [
+        after.indexOf(".") >= 0 ? after.indexOf(".") + 1 : -1,
+        after.indexOf(";") >= 0 ? after.indexOf(";") + 1 : -1,
+        after.indexOf("!") >= 0 ? after.indexOf("!") + 1 : -1,
+        roleBoundaryIndex,
+      ].filter((index) => index >= 0);
+      const localEndBoundary = localEndCandidates.length
+        ? matchIndex + Math.min(...localEndCandidates)
+        : Math.min(clause.length, matchIndex + 160);
+      const focusedClause = compact(
+        clause.slice(
+          Math.max(0, localStartBoundary >= 0 ? localStartBoundary + 1 : matchIndex - 80),
+          localEndBoundary,
+        ),
+      );
+      const normalizedClause = normalize(focusedClause);
+      if (
+        !PARKING_CONCEPT_PATTERN.test(normalizedClause) ||
+        !PARKING_NEGATION_PATTERN.test(normalizedClause)
+      ) {
+        continue;
+      }
+      const key = normalize(focusedClause);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      output.push({
+        role: "parking",
+        text: focusedClause,
+        evidenceSource: source.evidenceSource,
+      });
+    }
+  }
+  return output;
+}
+
+function isPositiveParkingContradictedBySource(
+  fact: ParsedFact,
+  hasExplicitNegativeParking: boolean,
+): boolean {
+  return Boolean(
+    hasExplicitNegativeParking &&
+      fact.role === "parking" &&
+      fact.concepts.includes("parking") &&
+      !fact.negated &&
+      fact.numericValues.length === 0,
+  );
+}
+
 function isCoveredByStructuredContext(
   fact: ParsedFact,
   context: CanonicalFactAssemblerContextV2,
@@ -393,10 +490,19 @@ export function assembleCanonicalFactsV2(args: {
   roles: Record<CanonicalFactRoleV2, string[]>;
 } {
   const context = args.context || {};
-  const parsed = args.candidates
+  const negativeParkingCandidates = extractExplicitNegativeParkingCandidates(context);
+  const hasExplicitNegativeParking = negativeParkingCandidates.length > 0;
+  const parsed = [...args.candidates, ...negativeParkingCandidates]
     .map(parseCandidate)
     .filter((fact): fact is ParsedFact => Boolean(fact))
-    .filter((fact) => !isCoveredByStructuredContext(fact, context));
+    .filter((fact) => !isCoveredByStructuredContext(fact, context))
+    .filter(
+      (fact) =>
+        !isPositiveParkingContradictedBySource(
+          fact,
+          hasExplicitNegativeParking,
+        ),
+    );
 
   const assembled: ParsedFact[] = [];
   for (const candidate of parsed) {
