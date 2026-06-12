@@ -3109,6 +3109,53 @@ function extractCanonicalBillingPhoneV17_90L195(args: {
   return candidates.sort((a, b) => a.index - b.index)[0]?.phone || null;
 }
 
+// V17.90L196: Billing e-mail follows the same strict role boundary as the
+// billing phone. Operational/on-site text after the first role boundary is
+// never used as a customer-master fallback.
+function extractCanonicalBillingEmailV17_90L196(args: {
+  rawText: string | null | undefined;
+  aiBillingEmail?: string | null;
+}): string | null {
+  const source = String(args.rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!source) return null;
+
+  const boundaryPatterns = [
+    /\b(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|baustelle|job\s*site|work\s*site|service\s*address|lieu\s+d[’']?intervention|luogo\s+d[’']?intervento|lugar\s+de\s+intervenci[oó]n)\b/i,
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+(?:ist|kontakt|ansprech)|contact\s+sur\s+place|on[-\s]?site\s+contact|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i,
+    /(?:^|\n)\s*(?:termin|zeitfenster|appointment|rendez[-\s]?vous|fecha|data)\s*[:\-–—]?/im,
+  ];
+
+  let boundary = source.length;
+  for (const pattern of boundaryPatterns) {
+    const match = pattern.exec(source);
+    if (match && match.index >= 0) boundary = Math.min(boundary, match.index);
+  }
+  const billingPrefix = source.slice(0, boundary).trim();
+  if (!billingPrefix) return null;
+
+  const candidates = Array.from(
+    billingPrefix.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi),
+  )
+    .map((match) => String(match[0] || "").trim())
+    .filter(Boolean);
+  if (candidates.length === 0) return null;
+
+  const aiEmail = String(args.aiBillingEmail || "").trim().toLowerCase();
+  if (aiEmail) {
+    const supported = candidates.find(
+      (candidate) => candidate.toLowerCase() === aiEmail,
+    );
+    if (supported) return supported;
+  }
+
+  return candidates[0] || null;
+}
+
 function canonicalizeStructuredRoleLinesV17_90L195(
   value: unknown,
   role: "access" | "parking" | "other",
@@ -3166,11 +3213,89 @@ function canonicalizeStructuredRoleLinesV17_90L195(
     }
   }
 
-  const seen = new Set<string>();
+  // V17.90L196: Deduplicate role-local paraphrases, not only byte-identical
+  // lines. Generic role words are removed from the comparison key while
+  // location/number evidence remains, so e.g. "Besucherparkplatz B" and
+  // "Parkplatz B reserviert" collapse, but parking places 5 and 6 stay
+  // separate.
+  const semanticRoleKeyV17_90L196 = (line: string) => {
+    const normalized = normalizeSemanticText(line);
+    if (!normalized) return "";
+
+    const ignored =
+      role === "parking"
+        ? new Set([
+            "parkieren",
+            "parken",
+            "parkplatz",
+            "parkierung",
+            "besucherplatz",
+            "besucherparkplatz",
+            "stellplatz",
+            "lieferwagen",
+            "fahrzeug",
+            "reserviert",
+            "reservation",
+            "bitte",
+            "ist",
+            "der",
+            "die",
+            "das",
+            "ein",
+            "eine",
+            "fuer",
+            "für",
+            "fur",
+            "auf",
+            "am",
+            "an",
+            "bei",
+            "beim",
+            "in",
+            "zum",
+            "zur",
+          ])
+        : role === "access"
+          ? new Set([
+              "zugang",
+              "zutritt",
+              "schluessel",
+              "schlüssel",
+              "code",
+              "bitte",
+              "ist",
+              "der",
+              "die",
+              "das",
+            ])
+          : new Set(["hinweis", "bitte", "ist", "der", "die", "das"]);
+
+    const tokens = normalized
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .filter((token) => !ignored.has(token));
+    return tokens.join(" ") || normalized;
+  };
+
+  const seenExact = new Set<string>();
+  const seenSemantic: string[] = [];
   return selected.filter((line) => {
-    const key = normalizeSemanticText(line);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
+    const exactKey = normalizeSemanticText(line);
+    const semanticKey = semanticRoleKeyV17_90L196(line);
+    if (!exactKey || seenExact.has(exactKey)) return false;
+
+    const duplicateSemantic = seenSemantic.some(
+      (seenKey) =>
+        seenKey === semanticKey ||
+        (semanticKey.length >= 3 &&
+          seenKey.length >= 3 &&
+          (seenKey.includes(semanticKey) || semanticKey.includes(seenKey))),
+    );
+    if (duplicateSemantic) return false;
+
+    seenExact.add(exactKey);
+    seenSemantic.push(semanticKey);
     return true;
   });
 }
@@ -11598,6 +11723,13 @@ export async function processIncomingMessage(
   kundeData.telefon = canonicalBillingPhoneV17_90L195;
   billingEvidence.phone = canonicalBillingPhoneV17_90L195;
 
+  const canonicalBillingEmailV17_90L196 = extractCanonicalBillingEmailV17_90L196({
+    rawText: messageText,
+    aiBillingEmail: billingEvidence.email || kundeData.email || null,
+  });
+  kundeData.email = canonicalBillingEmailV17_90L196;
+  billingEvidence.email = canonicalBillingEmailV17_90L196;
+
   // A phone-only AI "on-site contact" that is identical to the bounded billing
   // phone is not an on-site person. Keller-style "bitte vorher anrufen" remains
   // an appointment/communication instruction, while the office number stays on
@@ -14542,14 +14674,17 @@ export async function processIncomingMessage(
   // service rows. Later UI/API code must use this snapshot and must not
   // reconstruct customer/contact/address/chip roles from the raw message.
   const canonicalIntakeSnapshotV17_90L195 = {
-    version: "V17.90L195",
+    version: "V17.90L196",
     customer: {
       name: resolvedCustomerMaster?.name || kundeData.name || null,
       street: resolvedCustomerMaster?.address || addr.street || null,
       plz: resolvedCustomerMaster?.plz || addr.plz || null,
       city: resolvedCustomerMaster?.city || addr.city || null,
       phone: resolvedCustomerMaster?.phone || kundeData.telefon || null,
-      email: resolvedCustomerMaster?.email || kundeData.email || null,
+      email:
+        resolvedCustomerMaster?.email ||
+        canonicalBillingEmailV17_90L196 ||
+        null,
       evidenceSource: billingEvidence.source || null,
     },
     executionAddress: extractedExecutionAddress
@@ -14658,7 +14793,7 @@ export async function processIncomingMessage(
       date: new Date(),
       notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
-      intakeSchemaVersion: "V17.90L195",
+      intakeSchemaVersion: "V17.90L196",
       intakeSnapshot: canonicalIntakeSnapshotJsonV17_90L195,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,
