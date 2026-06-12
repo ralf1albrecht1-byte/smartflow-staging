@@ -8420,6 +8420,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -8519,20 +8520,11 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
-  const openTooltipByClick = () => {
-    if (open) {
-      clearOpenTimer();
-      clearHideTimer();
-      clearAutoCloseTimer();
-      setOpen(false);
-      return;
-    }
+  const closeTooltipImmediatelyV17_90L212 = () => {
     clearOpenTimer();
     clearHideTimer();
-    const nextPosition = calculatePosition();
-    if (nextPosition) setPosition(nextPosition);
-    setOpen(true);
-    scheduleAutoClose();
+    clearAutoCloseTimer();
+    setOpen(false);
   };
   const scheduleShowTooltip = () => {
     clearHideTimer();
@@ -8555,6 +8547,16 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     const trigger = anchorRef.current?.parentElement as HTMLElement | null;
     if (!trigger) return;
 
+    const handleFocusInV17_90L212 = (event: FocusEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        typeof target.matches === "function" &&
+        target.matches(":focus-visible")
+      ) {
+        openTooltipImmediately();
+      }
+    };
     const handleFocusOut = (event: FocusEvent) => {
       if (!trigger.contains(event.relatedTarget as Node | null)) {
         scheduleHideTooltip();
@@ -8563,16 +8565,18 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
 
     trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", openTooltipImmediately);
+    trigger.addEventListener("focusin", handleFocusInV17_90L212);
     trigger.addEventListener("focusout", handleFocusOut);
-    trigger.addEventListener("click", openTooltipByClick);
+    // Desktop clicks navigate to the relevant order section. They must never
+    // pin a portal tooltip above the card or dialog.
+    trigger.addEventListener("click", closeTooltipImmediatelyV17_90L212);
 
     return () => {
       trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", openTooltipImmediately);
+      trigger.removeEventListener("focusin", handleFocusInV17_90L212);
       trigger.removeEventListener("focusout", handleFocusOut);
-      trigger.removeEventListener("click", openTooltipByClick);
+      trigger.removeEventListener("click", closeTooltipImmediatelyV17_90L212);
       clearOpenTimer();
       clearHideTimer();
       clearAutoCloseTimer();
@@ -8593,6 +8597,53 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     };
   }, [open, align, badge.key, tooltip]);
 
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+
+    const handleOutsidePointerDownV17_90L212 = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (!target) return;
+      if (trigger?.contains(target) || tooltipRef.current?.contains(target)) return;
+      closeTooltipImmediatelyV17_90L212();
+    };
+    const handleEscapeV17_90L212 = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeTooltipImmediatelyV17_90L212();
+    };
+    const handleWindowBlurV17_90L212 = () => closeTooltipImmediatelyV17_90L212();
+    const handleVisibilityV17_90L212 = () => {
+      if (document.visibilityState !== "visible") {
+        closeTooltipImmediatelyV17_90L212();
+      }
+    };
+
+    document.addEventListener(
+      "pointerdown",
+      handleOutsidePointerDownV17_90L212,
+      true,
+    );
+    document.addEventListener("keydown", handleEscapeV17_90L212, true);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityV17_90L212,
+    );
+    window.addEventListener("blur", handleWindowBlurV17_90L212);
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handleOutsidePointerDownV17_90L212,
+        true,
+      );
+      document.removeEventListener("keydown", handleEscapeV17_90L212, true);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityV17_90L212,
+      );
+      window.removeEventListener("blur", handleWindowBlurV17_90L212);
+    };
+  }, [open]);
+
   if (!tooltip) return null;
 
   return (
@@ -8603,6 +8654,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         typeof document !== "undefined" &&
         createPortal(
         <span
+          ref={tooltipRef}
           role="tooltip"
           onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
           onPointerDown={clearAutoCloseTimer}

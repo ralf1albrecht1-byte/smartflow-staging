@@ -4092,6 +4092,67 @@ function inferAppointmentNoticeV17_90L203(
   return { minutes, channel };
 }
 
+type SourceLocalAppointmentCandidateV17_90L212 = {
+  date: string;
+  time: string | null;
+  qualifier: string | null;
+};
+
+function extractSourceLocalAppointmentCandidatesV17_90L212(
+  value?: string | null,
+): SourceLocalAppointmentCandidateV17_90L212[] {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  if (!source) return [];
+
+  const candidates: SourceLocalAppointmentCandidateV17_90L212[] = [];
+  const datePattern = /\b([0-3]?\d)[.\/-]([01]?\d)(?:[.\/-](\d{2,4}))?\b/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = datePattern.exec(source))) {
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    if (day < 1 || day > 31 || month < 1 || month > 12) continue;
+
+    const explicitYear = match[3]
+      ? match[3].length === 2
+        ? `20${match[3]}`
+        : match[3]
+      : "";
+    const date = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${explicitYear}`;
+    const localTail = source.slice(match.index + match[0].length, match.index + match[0].length + 48);
+    const timeMatch = localTail.match(
+      /\b(?:um\s*)?([01]?\d|2[0-3])(?::|\.)(\d{2})\b/i,
+    );
+    const qualifierMatch = localTail.match(
+      /\b(morgens|vormittags|nachmittags|abends|früh|frueh|morning|afternoon|evening|matin|mattina|pomeriggio|sera)\b/i,
+    );
+    const time = timeMatch
+      ? `${String(timeMatch[1]).padStart(2, "0")}:${timeMatch[2]}`
+      : null;
+    const qualifier = qualifierMatch?.[1]?.trim() || null;
+
+    if (
+      !candidates.some(
+        (candidate) =>
+          candidate.date === date &&
+          candidate.time === time &&
+          normalizeContactEvidenceV17_90L86(candidate.qualifier) ===
+            normalizeContactEvidenceV17_90L86(qualifier),
+      )
+    ) {
+      candidates.push({ date, time, qualifier });
+    }
+  }
+
+  return candidates;
+}
+
+function isUncertainAppointmentSourceV17_90L212(value?: string | null): boolean {
+  return /\b(?:wahrscheinlich|vielleicht|eventuell|möglicherweise|moeglicherweise|noch\s+nicht\s+(?:genau|sicher)|unklar|oder|maybe|perhaps|possibly|probably|probablement|peut[- ]être|forse|eventualmente|quiz[aá]s?)\b/i.test(
+    String(value || ""),
+  );
+}
+
 function buildStructuredAppointmentHintsV17_90L86(
   appointments: AiAppointmentV17_90L86[] | null | undefined,
   rawText: string,
@@ -4099,13 +4160,37 @@ function buildStructuredAppointmentHintsV17_90L86(
   if (!Array.isArray(appointments)) return [];
   const result: string[] = [];
 
-  for (const appointment of appointments) {
+  const sharedEvidence = appointments
+    .map((appointment) => normalizeStructuredTextBlock(appointment?.evidence))
+    .filter(Boolean)
+    .join("\n");
+  const sharedCandidates = extractSourceLocalAppointmentCandidatesV17_90L212(
+    sharedEvidence || rawText,
+  );
+  const sharedUncertain = isUncertainAppointmentSourceV17_90L212(
+    sharedEvidence || rawText,
+  );
+
+  for (let appointmentIndex = 0; appointmentIndex < appointments.length; appointmentIndex += 1) {
+    const appointment = appointments[appointmentIndex];
     const kind = normalizeContactEvidenceV17_90L86(
       appointment?.art || appointment?.type,
     );
     if (kind && !/\b(?:ausfuehrung|ausführung|execution|work|auftrag|termin)\b/.test(kind)) {
       continue;
     }
+
+    const appointmentEvidence = normalizeStructuredTextBlock(
+      appointment?.evidence,
+    );
+    const localCandidates = extractSourceLocalAppointmentCandidatesV17_90L212(
+      appointmentEvidence,
+    );
+    const fallbackCandidates = localCandidates.length > 0 ? localCandidates : sharedCandidates;
+    const fallbackCandidate =
+      fallbackCandidates.length > 1
+        ? fallbackCandidates[Math.min(appointmentIndex, fallbackCandidates.length - 1)]
+        : fallbackCandidates[0] || null;
 
     const rawDate = appointment?.datum || appointment?.date || null;
     const rawStart = appointment?.von || appointment?.start || null;
@@ -4116,17 +4201,21 @@ function buildStructuredAppointmentHintsV17_90L86(
       const sourceHasYear = dayMonth
         ? new RegExp(
             `(?:^|\\D)0?${Number(dayMonth[1])}[.\\/-]0?${Number(dayMonth[2])}[.\\/-]\\d{2,4}(?:$|\\D)`,
-          ).test(rawText)
+          ).test(appointmentEvidence || rawText)
         : false;
       if (!sourceHasYear) date = date.replace(/\.\d{4}$/, ".");
     }
-    const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
+    if (!date && fallbackCandidate?.date) date = fallbackCandidate.date;
+
+    let start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
+    if (!start && fallbackCandidate?.time) start = fallbackCandidate.time;
 
     if (!date && !start) continue;
-    // V17.90L103: The first-AI appointment is preserved. Evidence checks may
-    // create a review warning, but must not silently remove the appointment
-    // from the order or its Important information section.
+    // V17.90L212: Alternative or uncertain appointment candidates are hydrated
+    // only from the source-local AI appointment evidence. They are never
+    // discarded. The canonical snapshot keeps every alternative and marks it
+    // visibly for manual clarification instead of inventing one fixed date.
 
     const inferredNoticeV17_90L203 = inferAppointmentNoticeV17_90L203(
       appointment,
@@ -4148,9 +4237,6 @@ function buildStructuredAppointmentHintsV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
 
-    // V17.90L203: Contact and appointment structures are checked together.
-    // If the structured appointment omitted an explicit notice that is present
-    // in its evidence/raw message, preserve it instead of silently dropping it.
     if (!announcementChannel && minutes) {
       announcementChannel =
         inferredNoticeV17_90L203.channel ||
@@ -4168,10 +4254,34 @@ function buildStructuredAppointmentHintsV17_90L86(
                 : " melden"
         }`
       : "";
-    const timeRange = start && end ? `${start}–${end}` : start || "";
-    const line = `Termin: ${[date, timeRange, notice].filter(Boolean).join(" · ")}`;
+    const timeRange = start && end ? `${start}–${end}` : start || fallbackCandidate?.qualifier || "";
+    const uncertain =
+      sharedUncertain ||
+      isUncertainAppointmentSourceV17_90L212(appointmentEvidence);
+    const clarification = uncertain ? "Termin prüfen" : "";
+    const line = `Termin: ${[date, timeRange, notice, clarification]
+      .filter(Boolean)
+      .join(" · ")}`;
     if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
       result.push(line);
+    }
+  }
+
+  // Some model runs return one appointment object whose evidence contains two
+  // alternatives. Preserve both candidates deterministically instead of losing
+  // the second one merely because the structured array was incomplete.
+  if (sharedUncertain && sharedCandidates.length > result.length) {
+    for (const candidate of sharedCandidates) {
+      const line = `Termin: ${[
+        candidate.date,
+        candidate.time || candidate.qualifier || "",
+        "Termin prüfen",
+      ]
+        .filter(Boolean)
+        .join(" · ")}`;
+      if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
+        result.push(line);
+      }
     }
   }
 
