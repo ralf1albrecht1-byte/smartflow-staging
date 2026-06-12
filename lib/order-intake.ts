@@ -61,6 +61,26 @@ function redactIntakeDiagnosticText(value: unknown, maxLength = 1800): string {
     .slice(0, maxLength);
 }
 
+// V17.90L194: Stable, non-secret fingerprint for line-local intake evidence.
+// This is used for dedupe/audit only; it is not a cryptographic identifier.
+function createCanonicalSourceFingerprintV17_90L194(value: unknown): string | null {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+
+  let hash = 2166136261;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `v194_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function summarizeIntakeDiagnosticItems(
   values: unknown,
 ): IntakeDiagnosticTraceItem[] {
@@ -1500,12 +1520,12 @@ function extractAiStructuredBillingEvidence(
     .filter(Boolean)
     .join(" ");
 
-  const street = rawStreet
+  const candidateStreet = rawStreet
     ? parseBillingStreetLine(rawStreet) ||
       cleanExecutionStreetCandidate(rawStreet)
     : null;
-  const plz = normalizeStructuredPlz(kundeData?.plz);
-  const city = cleanIntakeCityCandidate(
+  const candidatePlz = normalizeStructuredPlz(kundeData?.plz);
+  const candidateCity = cleanIntakeCityCandidate(
     normalizeStructuredTextField(kundeData?.ort),
   );
   const evidence = normalizeStructuredTextBlock(
@@ -1514,26 +1534,40 @@ function extractAiStructuredBillingEvidence(
       kundeData?.source_text ??
       kundeData?.quelle,
   );
-  const phone =
-    extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon)) ||
-    extractPhoneFromText(evidence);
-  let email =
-    extractEmailFromText(normalizeStructuredTextField(kundeData?.email)) ||
-    extractEmailFromText(evidence);
-  const name = cleanAiStructuredBillingName(kundeData?.name);
+  const candidateName = cleanAiStructuredBillingName(kundeData?.name);
+  const evidenceKey = normalizedEvidenceKey(evidence || "");
+  const evidenceSupports = (value?: string | null): boolean => {
+    const key = normalizedEvidenceKey(value || "");
+    if (!key || !evidenceKey) return false;
+    return ` ${evidenceKey} `.includes(` ${key} `);
+  };
 
-  const allOriginalEmails = Array.from(
-    String(originalText || "").matchAll(
-      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
-    ),
-  )
-    .map((match) => match[0]?.trim())
-    .filter(Boolean);
+  // V17.90L194: Every customer-master field must be backed by the same local
+  // billing evidence block. No field may be rescued from another message area.
+  const name = evidenceSupports(candidateName) ? candidateName : null;
+  const street = evidenceSupports(candidateStreet) ? candidateStreet : null;
+  const plz = evidenceSupports(candidatePlz) ? candidatePlz : null;
+  const city = evidenceSupports(candidateCity) ? candidateCity : null;
+
+  const structuredPhone = extractPhoneFromText(
+    normalizeStructuredTextField(kundeData?.telefon),
+  );
+  const phone =
+    structuredPhone && evidence && sourceContainsPhoneV17_90L86(evidence, structuredPhone)
+      ? structuredPhone
+      : null;
+
+  const structuredEmail = extractEmailFromText(
+    normalizeStructuredTextField(kundeData?.email),
+  );
+  const email =
+    structuredEmail &&
+    evidence &&
+    evidence.toLowerCase().includes(structuredEmail.toLowerCase())
+      ? structuredEmail
+      : null;
 
   const hasFullAddress = Boolean(street && plz && city);
-  if (!email && hasFullAddress && allOriginalEmails.length === 1) {
-    email = allOriginalEmails[0];
-  }
   const hasPartialAddressWithContact = Boolean(
     (street || (plz && city)) && (phone || email),
   );
@@ -1674,7 +1708,10 @@ function extractAiStructuredExecutionAddress(
     normalizeStructuredTextField(aiExecutionAddress.ort),
   );
 
-  const hasUsableAddress = Boolean(siteAddress && sitePlz && siteCity);
+  // V17.90L194: Keep an evidence-backed partial AI address as a review
+  // candidate. Missing ZIP/city must remain visibly unresolved instead of
+  // forcing a second whole-message parser to recreate the address.
+  const hasUsableAddress = Boolean(siteName || siteAddress || sitePlz || siteCity);
   if (!hasUsableAddress) return null;
 
   const evidence = normalizeStructuredTextBlock(
@@ -1685,7 +1722,7 @@ function extractAiStructuredExecutionAddress(
   );
   const originalKey = normalizedEvidenceKey(originalText || "");
   if (originalKey) {
-    const addressParts = [siteAddress, sitePlz, siteCity].filter(
+    const addressParts = [siteName, siteAddress, sitePlz, siteCity].filter(
       Boolean,
     ) as string[];
     const everyAddressPartInOriginal = addressParts.every((part) => {
@@ -1776,7 +1813,7 @@ function hasSameAddressInstructionV17_90L28(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
+  return /\b(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
 }
 
 function sameAddressWorkAreaDescriptorV17_66(
@@ -1791,11 +1828,31 @@ function sameAddressWorkAreaDescriptorV17_66(
     .join("\n");
   const candidates = [translated, original].filter(Boolean);
   const sameAddressTail =
-    String.raw`(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+(?:street\s+)?address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
+    String.raw`(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+(?:street\s+)?address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
   const workMarker =
     String.raw`(?:arbeitsbereich|work\s+area|zone\s+de\s+travail|area\s+di\s+lavoro|die\s+arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
   const stopMarker =
     /^(?:kontakt|contact|vor[-\s]?ort|onsite|leistungen?|services?|termin|appointment|zugang|access|schl[uü]ssel|key|park|gefahr|achtung|invoice|rechnung|rechnungsadresse)\b/i;
+  const stripSameAddressRoleTextV17_90L194 = (value: string): string =>
+    String(value || "")
+      .replace(
+        new RegExp(
+          String.raw`(?:^|[,;])\s*${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*`,
+          "i",
+        ),
+        " ",
+      )
+      .replace(
+        new RegExp(
+          String.raw`^.*?${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*`,
+          "i",
+        ),
+        "",
+      )
+      .replace(/[\s,;:\-–—]+$/g, "")
+      .replace(/^\s*(?:im|in|am|an|bei|beim)\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
   for (const candidateSource of candidates) {
     const lines = String(candidateSource)
@@ -1810,10 +1867,13 @@ function sameAddressWorkAreaDescriptorV17_66(
     // Labelled multi-line block, e.g. "Work area:" followed by rooms.
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      const markerMatch = line.match(new RegExp(`^${workMarker}\s*(?:ist|:|-)?\s*(.*)$`, "i"));
+      const markerMatch = line.match(new RegExp(`^${workMarker}\\s*(?:ist|:|-)?\\s*(.*)$`, "i"));
       if (!markerMatch) continue;
       const descriptors: string[] = [];
-      if (markerMatch[1]) descriptors.push(markerMatch[1]);
+      if (markerMatch[1]) {
+        const descriptor = stripSameAddressRoleTextV17_90L194(markerMatch[1]);
+        if (descriptor) descriptors.push(descriptor);
+      }
       for (let offset = 1; offset <= 6; offset += 1) {
         const next = lines[index + offset];
         if (!next || stopMarker.test(next)) break;
@@ -1836,10 +1896,11 @@ function sameAddressWorkAreaDescriptorV17_66(
       .map((line) => compactText(line))
       .filter(Boolean);
     for (const line of sentenceLines) {
-      const inlineWork = line.match(new RegExp(`${workMarker}\s*(?:ist|sind|:|-)?\s*(.+)$`, "i"));
+      const inlineWork = line.match(new RegExp(`${workMarker}\\s*(?:ist|sind|:|-)?\\s*(.+)$`, "i"));
       if (inlineWork?.[1]) {
+        const inlineSource = String(inlineWork[1] || "");
         const descriptor = cleanExecutionSiteNameCandidate(
-          inlineWork[1].replace(/[.;:,\s]+$/g, "").trim(),
+          stripSameAddressRoleTextV17_90L194(inlineSource),
         );
         if (descriptor) return descriptor;
       }
@@ -2158,7 +2219,7 @@ function cleanExecutionSiteNameCandidate(
   let candidate = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(
-      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
+      /^\s*(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|arbeitsort|auftragsort|uftragsort|objektadresse|einsatzort|ausführung|ausfuehrung|objekt)\s*:?\s*/i,
       "",
     )
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
@@ -2288,7 +2349,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|(?:die\s+)?arbeit(?:en)?\s+(?:findet|finden|ist|sind)\s+(?:statt\s+)?(?:bei|beim|am|an|in|im)|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|(?:die\s+)?arbeit(?:en)?\s+(?:findet|finden|ist|sind)\s+(?:statt\s+)?(?:bei|beim|am|an|in|im)|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|arbeitsort|auftragsort|uftragsort|objektadresse|einsatzort|adresse\s+vor\s+ort|ausführung|ausfuehrung|objekt|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\b\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\b|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -2751,9 +2812,14 @@ function sanitizeExtractedExecutionAddress<
     siteCity?: string | null;
     siteNote?: string | null;
   },
->(address: T | null | undefined, rawText: string | null | undefined): T | null {
+>(
+  address: T | null | undefined,
+  rawText: string | null | undefined,
+  options?: { preservePopulatedAiFields?: boolean },
+): T | null {
   if (!address) return null;
 
+  const preservePopulatedAiFields = Boolean(options?.preservePopulatedAiFields);
   let siteName = cleanExecutionSiteNameCandidate(
     stripExecutionOperationalTailV17_90L39(address.siteName || null),
   );
@@ -2764,43 +2830,45 @@ function sanitizeExtractedExecutionAddress<
     stripExecutionOperationalTailV17_90L39(address.siteAddress || null),
   );
 
-  siteAddress = repairExecutionStreetFromText({
-    rawText,
-    currentStreet: siteAddress,
-    siteName,
-    sitePlz: address.sitePlz || null,
-    siteCity,
-  });
-
-  siteName = repairExecutionSiteNameFromText({
-    rawText,
-    currentSiteName: siteName,
-    siteAddress,
-    sitePlz: address.sitePlz || null,
-    siteCity,
-  });
-
-  const translatedSiteName =
-    translatedExecutionSiteNameCandidateFromTextV17_45(rawText);
-  if (
-    shouldReplaceExecutionSiteNameWithTranslatedV17_45({
-      currentSiteName: siteName,
-      translatedSiteName,
+  if (!preservePopulatedAiFields) {
+    siteAddress = repairExecutionStreetFromText({
       rawText,
-    })
-  ) {
-    siteName = translatedSiteName;
+      currentStreet: siteAddress,
+      siteName,
+      sitePlz: address.sitePlz || null,
+      siteCity,
+    });
+
+    siteName = repairExecutionSiteNameFromText({
+      rawText,
+      currentSiteName: siteName,
+      siteAddress,
+      sitePlz: address.sitePlz || null,
+      siteCity,
+    });
+
+    const translatedSiteName =
+      translatedExecutionSiteNameCandidateFromTextV17_45(rawText);
+    if (
+      shouldReplaceExecutionSiteNameWithTranslatedV17_45({
+        currentSiteName: siteName,
+        translatedSiteName,
+        rawText,
+      })
+    ) {
+      siteName = translatedSiteName;
+    }
+
+    siteName = preserveOriginalProperSitePhraseV17_50({
+      translatedSiteName: siteName,
+      rawText,
+    });
+
+    siteName = trimExecutionSiteNameToExplicitDescriptorV17_90L16({
+      siteName,
+      rawText,
+    });
   }
-
-  siteName = preserveOriginalProperSitePhraseV17_50({
-    translatedSiteName: siteName,
-    rawText,
-  });
-
-  siteName = trimExecutionSiteNameToExplicitDescriptorV17_90L16({
-    siteName,
-    rawText,
-  });
 
   // V17.90L6: after all repair/preserve passes, remove access/contact/safety
   // fragments again. They belong to Besonderheiten/chips, never to the
@@ -2962,7 +3030,10 @@ function extractPhoneMatchFromTextV17_90L85(
     if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(candidate)) continue;
 
     const digits = normalizePhoneDigits(candidate);
-    if (digits.length < 7 || digits.length > 15) continue;
+    // V17.90L194: Dates and address fragments must never become contact data.
+    // A real auto-persisted phone requires at least nine digits.
+    if (digits.length < 9 || digits.length > 15) continue;
+    if (/^\d{1,2}[.:]\d{2}(?:\s*[-–]\s*\d{1,2}[.:]\d{2})?$/.test(candidate)) continue;
 
     return {
       phone: candidate,
@@ -3244,6 +3315,18 @@ function cleanLikelyContactNameV17_90L86(value?: string | null): string | null {
     .trim();
 
   if (!cleaned || cleaned.length > 100) return null;
+
+  // V17.90L194: Access labels are roles, not people.
+  const roleOnly = normalizeContactEvidenceV17_90L86(cleaned);
+  if (
+    /^(?:code|zugangscode|torcode|schluessel|schlussel|schlüssel|key|termin|datum|telefon|tel|handy|natel|sms|whatsapp)$/.test(
+      roleOnly,
+    )
+  ) {
+    return null;
+  }
+  if (/^(?:code|zugangscode|torcode)\s+\d+/i.test(roleOnly)) return null;
+
   return cleaned;
 }
 
@@ -3269,18 +3352,21 @@ function buildOnsiteContactHintV17_90L86(args: {
         : preferredChannel === "call"
           ? "anrufen"
           : null;
-  const parts = [
-    contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
-    phone ? `Tel. ${phone}` : null,
-    channelLabel,
-    noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
-  ].filter(Boolean);
+  const hasContactIdentity = Boolean(phone || contactName);
+  const parts = hasContactIdentity
+    ? [
+        contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
+        phone ? `Tel. ${phone}` : null,
+        channelLabel,
+        noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
+      ].filter(Boolean)
+    : [];
 
   return {
     // V17.90L104: Stable structured separators. Later UI code reads this
     // canonical line directly and must not reconstruct a contact from nearby
     // appointment or customer text.
-    hint: phone || contactName || preferredChannel ? parts.join(" · ") : null,
+    hint: hasContactIdentity ? parts.join(" · ") : null,
     phone,
     phoneBelongsToSiteContact: Boolean(
       candidateDigits &&
@@ -3302,14 +3388,22 @@ function extractAiOnsiteContactHintV17_90L86(
 ): OnsiteContactHint | null {
   if (!aiContact || aiContact.vorhanden === false) return null;
 
+  const evidence = normalizeStructuredTextBlock(aiContact.evidence);
+  const evidenceIsSourceBacked = Boolean(
+    evidence && structuredEvidenceMatchesOriginalText(evidence, rawText),
+  );
+  const evidenceScope = evidenceIsSourceBacked ? evidence || "" : "";
+
   const rawPhone = aiContact.telefon || aiContact.phone || null;
-  const phone = sourceContainsPhoneV17_90L86(rawText, rawPhone)
-    ? String(rawPhone || "").replace(/\s+/g, " ").trim()
-    : null;
+  const phone =
+    evidenceScope && sourceContainsPhoneV17_90L86(evidenceScope, rawPhone)
+      ? String(rawPhone || "").replace(/\s+/g, " ").trim()
+      : null;
   const rawName = cleanLikelyContactNameV17_90L86(aiContact.name);
-  const contactName = sourceSupportsContactNameV17_90L86(rawText, rawName)
-    ? rawName
-    : null;
+  const contactName =
+    evidenceScope && sourceSupportsContactNameV17_90L86(evidenceScope, rawName)
+      ? rawName
+      : null;
   const preferredChannel = normalizeAiContactChannelV17_90L86(
     aiContact.kanal || aiContact.channel,
   );
@@ -3317,7 +3411,9 @@ function extractAiOnsiteContactHintV17_90L86(
     aiContact.nicht_anrufen ?? aiContact.no_phone_call ?? false,
   );
 
-  if (!phone && !contactName && !preferredChannel) return null;
+  // A channel instruction without a local person/phone belongs to the
+  // appointment/communication hints, not to an invented on-site contact.
+  if (!phone && !contactName) return null;
   return buildOnsiteContactHintV17_90L86({
     source: rawText,
     candidateCustomerPhone,
@@ -3326,26 +3422,6 @@ function extractAiOnsiteContactHintV17_90L86(
     preferredChannel,
     noPhoneCall,
   });
-}
-
-function extractBillingPhoneBeforeExecutionMarkerV17_90L88B(
-  sourceValue: string | null | undefined,
-): string | null {
-  const source = String(sourceValue || "").replace(/\s+/g, " ").trim();
-  if (!source) return null;
-  const executionMarker = source.search(
-    /\b(?:arbeitsort|arbeitsadresse|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|einsatzort|job\s*site|work\s*location|work\s*site|chantier|lieu\s+d['’]?intervention|adresse\s+de\s+travail|vor\s+ort|on[-\s]?site|contact\s+sur\s+place)\b/i,
-  );
-  const billingScope = executionMarker > 0 ? source.slice(0, executionMarker) : source;
-  const matches = Array.from(
-    billingScope.matchAll(/\+?\d[\d\s()./-]{6,}\d/g),
-  )
-    .map((match) => String(match[0] || "").replace(/\s+/g, " ").trim())
-    .filter((candidate) => {
-      const digits = normalizePhoneDigits(candidate);
-      return digits.length >= 7 && digits.length <= 15;
-    });
-  return matches.length > 0 ? matches[matches.length - 1] : null;
 }
 
 function extractOnsiteContactHint(
@@ -3391,21 +3467,9 @@ function extractOnsiteContactHint(
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
-  const mergeWithAi = (fallback: OnsiteContactHint): OnsiteContactHint => {
-    if (!aiResult) return fallback;
-    return buildOnsiteContactHintV17_90L86({
-      source,
-      candidateCustomerPhone,
-      phone: aiResult.phone || fallback.phone,
-      contactName: aiResult.contactName || fallback.contactName,
-      preferredChannel:
-        aiResult.preferredChannel || fallback.preferredChannel,
-      noPhoneCall:
-        aiResult.preferredChannel || aiResult.phone || aiResult.contactName
-          ? aiResult.noPhoneCall
-          : fallback.noPhoneCall,
-    });
-  };
+  // V17.90L194: A contact is an atomic canonical object. Never combine a
+  // name from one text region with a phone/channel from another region.
+  if (aiResult) return aiResult;
 
   for (let index = 0; index < lines.length; index += 1) {
     const markerMatch = lines[index].match(anyMarkerRe);
@@ -3430,11 +3494,16 @@ function extractOnsiteContactHint(
     // when a local phone is actually attached. This prevents worksite text from
     // being reclassified as a person.
     const isGenericMarker = genericLocalMarkerRe.test(markerMatch[0]);
-    if (isGenericMarker && !phoneMatch && !aiResult?.phone) continue;
+    const isExplicitContactMarker = explicitMarkerRe.test(markerMatch[0]);
+    const isRoleMarker = roleMarkerRe.test(markerMatch[0]);
+    if (isGenericMarker && !phoneMatch) continue;
+    // Role words such as Hauswart/Concierge are not a person identity by
+    // themselves. Without a local phone, only an explicit contact marker may
+    // create a deterministic fallback contact.
+    if (isRoleMarker && !isExplicitContactMarker && !phoneMatch) continue;
     // A bare location phrase must not capture a later, unrelated telephone
-    // from another section. The AI result may still supply the verified local
-    // contact because its phone/name/evidence are validated against the source.
-    if (isGenericMarker && phoneMatch && phoneMatch.index > 240 && !aiResult?.phone) {
+    // from another section.
+    if (isGenericMarker && phoneMatch && phoneMatch.index > 240) {
       continue;
     }
 
@@ -3451,8 +3520,7 @@ function extractOnsiteContactHint(
     // person-name structure. Otherwise a later invoice or office phone could
     // be attached to the worksite. Verified AI contact data remains primary.
     if (
-      isGenericMarker &&
-      !aiResult &&
+      (!phoneMatch || isGenericMarker) &&
       (properNameTokenCount < 2 || /\d/.test(String(contactName || "")))
     ) {
       continue;
@@ -3486,16 +3554,14 @@ function extractOnsiteContactHint(
           ? "call"
           : null;
 
-    return mergeWithAi(
-      buildOnsiteContactHintV17_90L86({
-        source,
-        candidateCustomerPhone,
-        phone,
-        contactName,
-        preferredChannel,
-        noPhoneCall,
-      }),
-    );
+    return buildOnsiteContactHintV17_90L86({
+      source,
+      candidateCustomerPhone,
+      phone,
+      contactName,
+      preferredChannel,
+      noPhoneCall,
+    });
   }
 
   return aiResult || emptyResult;
@@ -11389,27 +11455,23 @@ export async function processIncomingMessage(
     parsed.system.needs_review = true;
   }
 
-  // V17.90L88B: The operational contact must never become customer master
-  // data. Prefer a phone found inside the billing section before the first
-  // execution/contact marker; otherwise clear a phone that equals the onsite
-  // contact. Existing customer master data remains untouched later in the flow.
-  const billingSectionPhoneV17_90L88B =
-    extractBillingPhoneBeforeExecutionMarkerV17_90L88B(messageText);
-  const onsitePhoneDigitsV17_90L88B = normalizePhoneDigits(
+  // V17.90L194: The validated AI billing object is authoritative. Do not
+  // re-scan the whole message and replace its phone with the last numeric
+  // fragment before a marker. Only prevent an unresolved on-site number from
+  // leaking into customer master data.
+  const onsitePhoneDigitsV17_90L194 = normalizePhoneDigits(
     onsiteContactHint.phone,
   );
-  const guardedCustomerPhoneDigitsV17_90L88B = normalizePhoneDigits(
+  const guardedCustomerPhoneDigitsV17_90L194 = normalizePhoneDigits(
     kundeData.telefon,
   );
+  const billingEvidencePhoneDigitsV17_90L194 = normalizePhoneDigits(
+    billingEvidence.phone,
+  );
   if (
-    billingSectionPhoneV17_90L88B &&
-    normalizePhoneDigits(billingSectionPhoneV17_90L88B) !==
-      onsitePhoneDigitsV17_90L88B
-  ) {
-    kundeData.telefon = billingSectionPhoneV17_90L88B;
-  } else if (
-    onsitePhoneDigitsV17_90L88B &&
-    guardedCustomerPhoneDigitsV17_90L88B === onsitePhoneDigitsV17_90L88B
+    onsitePhoneDigitsV17_90L194 &&
+    guardedCustomerPhoneDigitsV17_90L194 === onsitePhoneDigitsV17_90L194 &&
+    billingEvidencePhoneDigitsV17_90L194 !== guardedCustomerPhoneDigitsV17_90L194
   ) {
     kundeData.telefon = null;
   }
@@ -13921,17 +13983,12 @@ export async function processIncomingMessage(
       validationSourceText,
       executionAddressCustomerContext,
     );
-  const hasSafeExplicitPartialExecutionAddress = Boolean(
-    explicitPartialExecutionAddressFallback?.siteAddress,
-  );
-
-  // V17.90L103: The first-AI execution-address object is the protected
-  // source of truth. A deterministic parser may fill fields that the AI left
-  // empty, but may never overwrite a populated AI site name, street, ZIP or
-  // city with sentence fragments from the full message.
+  // V17.90L194: The first-AI execution-address object is the protected
+  // source of truth. Whole-message address recreation is disabled by default;
+  // it is available only behind the explicit legacy environment switch.
   let protectedExecutionAddressCandidateV17_90L103 =
     aiStructuredExecutionAddress ||
-    (legacyAddressFallbackEnabled || hasSafeExplicitPartialExecutionAddress
+    (legacyAddressFallbackEnabled
       ? explicitPartialExecutionAddressFallback
       : null);
 
@@ -13963,6 +14020,7 @@ export async function processIncomingMessage(
   let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     protectedExecutionAddressCandidateV17_90L103,
     validationSourceText,
+    { preservePopulatedAiFields: Boolean(aiStructuredExecutionAddress) },
   );
 
   // V17.90L85: Complete only missing address fields from the verified reused
@@ -14304,8 +14362,116 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L194: Full canonical boundary for every business role, not only
+  // service rows. Later UI/API code can audit this snapshot but must not
+  // reconstruct customer/contact/address/chip roles from the raw message.
+  const canonicalIntakeSnapshotV17_90L194 = {
+    version: "V17.90L194",
+    customer: {
+      name: resolvedCustomerMaster?.name || kundeData.name || null,
+      street: resolvedCustomerMaster?.address || addr.street || null,
+      plz: resolvedCustomerMaster?.plz || addr.plz || null,
+      city: resolvedCustomerMaster?.city || addr.city || null,
+      phone: resolvedCustomerMaster?.phone || kundeData.telefon || null,
+      email: resolvedCustomerMaster?.email || kundeData.email || null,
+      evidenceSource: billingEvidence.source || null,
+    },
+    executionAddress: extractedExecutionAddress
+      ? {
+          siteName: extractedExecutionAddress.siteName || null,
+          siteAddress: extractedExecutionAddress.siteAddress || null,
+          sitePlz: extractedExecutionAddress.sitePlz || null,
+          siteCity: extractedExecutionAddress.siteCity || null,
+          siteNote: extractedExecutionAddress.siteNote || null,
+        }
+      : null,
+    onsiteContact: onsiteContactHint.hint
+      ? {
+          name: onsiteContactHint.contactName || null,
+          phone: onsiteContactHint.phone || null,
+          channel: onsiteContactHint.preferredChannel || null,
+          noPhoneCall: onsiteContactHint.noPhoneCall,
+          hint: onsiteContactHint.hint,
+        }
+      : null,
+    appointments: structuredAppointmentHintsV17_90L86,
+    roles: {
+      safety: gefahrItems,
+      access: extractProtectedStructuredRoleValuesV17_90L103(
+        parsed.auftrag?.zugangshinweise,
+      ),
+      parking: extractProtectedStructuredRoleValuesV17_90L103(
+        parsed.auftrag?.parkhinweise,
+      ),
+      other: extractProtectedStructuredRoleValuesV17_90L103(
+        parsed.auftrag?.sonstige_hinweise,
+      ),
+      ordinary: hinweisItems,
+    },
+    items: finalOrderItems.map((item) => {
+      const sourceText = String(
+        (item as any).sourceText ||
+          (item as any).evidence ||
+          item.description ||
+          "",
+      ).trim();
+      return {
+        serviceName: item.serviceName,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        currency:
+          (item as any).detectedCurrency || intakeValidation.finalCurrency,
+        needsReview: Boolean(item.needsReview),
+        reviewReason: item.reviewReason || null,
+        sourceText: sourceText || null,
+        sourceFingerprint: createCanonicalSourceFingerprintV17_90L194(
+          [
+            sourceText,
+            item.serviceName,
+            item.quantity,
+            item.unit,
+            item.unitPrice,
+            (item as any).detectedCurrency || intakeValidation.finalCurrency,
+          ].join("|"),
+        ),
+      };
+    }),
+    specialNotes: finalSpecialNotes || null,
+    reviewReasons: allReviewReasons,
+  };
+
+  // Strip every undefined value before handing the snapshot to Prisma JSON.
+  // This keeps the persisted contract deterministic and avoids generated-client
+  // type/runtime differences for optional nested AI fields.
+  const canonicalIntakeSnapshotJsonV17_90L194 = JSON.parse(
+    JSON.stringify(canonicalIntakeSnapshotV17_90L194),
+  );
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "06b_full_canonical_lock",
+    {
+      version: canonicalIntakeSnapshotV17_90L194.version,
+      customer: canonicalIntakeSnapshotV17_90L194.customer,
+      executionAddress: canonicalIntakeSnapshotV17_90L194.executionAddress,
+      onsiteContact: canonicalIntakeSnapshotV17_90L194.onsiteContact,
+      appointments: canonicalIntakeSnapshotV17_90L194.appointments,
+      roleCounts: {
+        safety: canonicalIntakeSnapshotV17_90L194.roles.safety.length,
+        access: canonicalIntakeSnapshotV17_90L194.roles.access.length,
+        parking: canonicalIntakeSnapshotV17_90L194.roles.parking.length,
+        other: canonicalIntakeSnapshotV17_90L194.roles.other.length,
+        ordinary: canonicalIntakeSnapshotV17_90L194.roles.ordinary.length,
+      },
+      itemCount: canonicalIntakeSnapshotV17_90L194.items.length,
+    },
+  );
+
   // --- Create order ---
-  const order = await prisma.order.create({
+  let order = await prisma.order.create({
     data: {
       customerId,
       ...(userId ? { userId } : {}),
@@ -14322,6 +14488,8 @@ export async function processIncomingMessage(
       date: new Date(),
       notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
+      intakeSchemaVersion: "V17.90L194",
+      intakeSnapshot: canonicalIntakeSnapshotJsonV17_90L194,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,
       siteAddress: extractedExecutionAddress?.siteAddress || null,
@@ -14372,14 +14540,39 @@ export async function processIncomingMessage(
       ...(finalOrderItems.length > 0
         ? {
             items: {
-              create: finalOrderItems.map((item) => ({
-                serviceName: item.serviceName,
-                description: item.description,
-                quantity: item.quantity,
-                unit: item.unit,
-                unitPrice: item.unitPrice,
-                totalPrice: item.totalPrice,
-              })),
+              create: finalOrderItems.map((item) => {
+                const sourceText = String(
+                  (item as any).sourceText ||
+                    (item as any).evidence ||
+                    item.description ||
+                    "",
+                ).trim();
+                const detectedCurrency = String(
+                  (item as any).detectedCurrency || intakeValidation.finalCurrency,
+                ).trim();
+                return {
+                  serviceName: item.serviceName,
+                  description: item.description,
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  sourceText: sourceText || null,
+                  detectedCurrency: detectedCurrency || null,
+                  needsReview: Boolean(item.needsReview),
+                  reviewReason: item.reviewReason || null,
+                  sourceFingerprint: createCanonicalSourceFingerprintV17_90L194(
+                    [
+                      sourceText,
+                      item.serviceName,
+                      item.quantity,
+                      item.unit,
+                      item.unitPrice,
+                      detectedCurrency,
+                    ].join("|"),
+                  ),
+                };
+              }),
             },
           }
         : {}),
@@ -14390,6 +14583,68 @@ export async function processIncomingMessage(
   // V16.39: Final order path deliberately does not re-parse raw text for
   // billing data. If the AI-structured billing evidence failed validation, the
   // customer remains review-required instead of being rescued by marker words.
+
+  const canonicalScalarV17_90L194 = (value: unknown) =>
+    String(value ?? "").replace(/\s+/g, " ").trim();
+  const expectedItemFingerprintsV17_90L194 =
+    canonicalIntakeSnapshotV17_90L194.items
+      .map((item) => canonicalScalarV17_90L194(item.sourceFingerprint))
+      .sort();
+  const persistedItemFingerprintsV17_90L194 = order.items
+    .map((item: any) => canonicalScalarV17_90L194(item?.sourceFingerprint))
+    .sort();
+  const persistedItemsStableV17_90L194 =
+    expectedItemFingerprintsV17_90L194.length ===
+      persistedItemFingerprintsV17_90L194.length &&
+    expectedItemFingerprintsV17_90L194.every(
+      (fingerprint, index) =>
+        fingerprint === persistedItemFingerprintsV17_90L194[index],
+    );
+  const persistedCanonicalViolationV17_90L194 =
+    canonicalScalarV17_90L194(order.customer?.name) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.name) ||
+    canonicalScalarV17_90L194(order.customer?.address) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.street) ||
+    canonicalScalarV17_90L194(order.customer?.plz) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.plz) ||
+    canonicalScalarV17_90L194(order.customer?.city) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.city) ||
+    canonicalScalarV17_90L194(order.customer?.phone) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.phone) ||
+    canonicalScalarV17_90L194(order.customer?.email) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.customer.email) ||
+    canonicalScalarV17_90L194(order.siteName) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteName) ||
+    canonicalScalarV17_90L194(order.siteAddress) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteAddress) ||
+    canonicalScalarV17_90L194(order.sitePlz) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.sitePlz) ||
+    canonicalScalarV17_90L194(order.siteCity) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.executionAddress?.siteCity) ||
+    canonicalScalarV17_90L194(order.specialNotes) !==
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L194.specialNotes) ||
+    !persistedItemsStableV17_90L194;
+
+  if (persistedCanonicalViolationV17_90L194) {
+    const blockedReasons = Array.from(
+      new Set([
+        ...(Array.isArray(order.reviewReasons) ? order.reviewReasons : []),
+        "canonical_full_persistence_violation",
+      ]),
+    );
+    order = await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        needsReview: true,
+        reviewReasons: { set: blockedReasons },
+        hinweisLevel: "warning",
+      },
+      include: { customer: true, items: true },
+    });
+    console.error(
+      `[${source}] full canonical persistence invariant failed; order ${order.id} blocked for manual review`,
+    );
+  }
 
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,

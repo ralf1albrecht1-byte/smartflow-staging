@@ -2,10 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/order-intake";
 import { logAuditAsync } from "@/lib/audit";
 import { maskPhoneForLog } from "@/lib/phone";
-import {
-  rememberExecutionAddressesFromOrder,
-  rememberExplicitExecutionAddressFromTextForOrder,
-} from "@/lib/customer-execution-addresses";
+import { rememberExecutionAddressesFromOrder } from "@/lib/customer-execution-addresses";
 
 const DEFAULT_WHATSAPP_TEXT_DELAY_MS = 4_000;
 const MIN_WHATSAPP_TEXT_DELAY_MS = 2_500;
@@ -318,22 +315,17 @@ export async function processWhatsAppTextQueueForSender(
         });
 
         if (orderForExecutionAddress) {
+          // V17.90L194: Persist only the already-canonical address stored on
+          // the order. Never parse the raw WhatsApp text a second time after
+          // the AI result has been validated and saved.
           const savedFromOrder = await rememberExecutionAddressesFromOrder(
             prisma,
             { userId: message.userId || null, order: orderForExecutionAddress },
           );
-          const savedFromText = await rememberExplicitExecutionAddressFromTextForOrder(
-            prisma,
-            {
-              userId: message.userId || null,
-              order: orderForExecutionAddress,
-              text,
-            },
-          );
 
-          if (savedFromOrder > 0 || savedFromText > 0) {
+          if (savedFromOrder > 0) {
             console.info(
-              `[CustomerExecutionAddressV17_71] WhatsApp persisted execution addresses orderId=${orderCreated.orderId} fromOrder=${savedFromOrder} fromText=${savedFromText}`,
+              `[CustomerExecutionAddressV17_90L194] WhatsApp persisted canonical execution addresses orderId=${orderCreated.orderId} fromOrder=${savedFromOrder}`,
             );
           }
         }

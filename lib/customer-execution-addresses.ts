@@ -292,7 +292,7 @@ export function extractExplicitExecutionAddressFromText(
     .filter(Boolean);
 
   const markerRegex =
-    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
+    /^\s*(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|serviceadresse|baustelle|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail|ausführung|ausfuehrung|objekt)\b\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|kontakt|kontaktperson|ansprechperson|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
   const priceOrCalculationLineRegex =
@@ -368,17 +368,29 @@ export async function rememberExplicitExecutionAddressFromTextForOrder(
   if (!customerId) return 0;
   if (hasUnresolvedAddressRoleReview(order)) return 0;
 
+  // V17.90L194: Legacy callers may still invoke this helper, but raw text may
+  // never create or alter an execution address after the canonical order has
+  // been persisted. The text parser is diagnostic only. A write is permitted
+  // only when it resolves to exactly the same address identity already stored
+  // on the order; the canonical order fields remain authoritative.
+  const canonical: CustomerExecutionAddressInput = {
+    customerId,
+    userId: params.userId || order?.userId || null,
+    siteName: order?.siteName || null,
+    siteAddress: order?.siteAddress || null,
+    sitePlz: order?.sitePlz || null,
+    siteCity: order?.siteCity || null,
+    siteNote: order?.siteNote || null,
+  };
+  if (!hasCompleteExecutionAddress(canonical)) return 0;
+  if (isSameAsBillingAddress(order, canonical)) return 0;
+
   const explicit = extractExplicitExecutionAddressFromText(params.text);
   if (!explicit) return 0;
+  if (executionAddressIdentityKey(explicit) !== executionAddressIdentityKey(canonical)) {
+    return 0;
+  }
 
-  const candidate = { ...explicit, customerId };
-  if (!hasCompleteExecutionAddress(candidate)) return 0;
-  if (isSameAsBillingAddress(order, candidate)) return 0;
-
-  const row = await rememberCustomerExecutionAddress(prisma, {
-    ...candidate,
-    userId: params.userId || order?.userId || null,
-  });
-
+  const row = await rememberCustomerExecutionAddress(prisma, canonical);
   return row ? 1 : 0;
 }

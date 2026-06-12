@@ -173,6 +173,8 @@ siteNote    String?
 date        DateTime @default(now())
   notes          String?
   specialNotes   String?
+  intakeSchemaVersion String?
+  intakeSnapshot Json?
   needsReview    Boolean  @default(false)
   reviewReasons  String[] @default([])
   hinweisLevel   String   @default("none")
@@ -233,6 +235,11 @@ model OrderItem {
   unit        String @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  sourceText       String?
+  detectedCurrency String?
+  needsReview      Boolean @default(false)
+  reviewReason     String?
+  sourceFingerprint String?
 
   @@index([orderId])
   @@index([workSiteId])
