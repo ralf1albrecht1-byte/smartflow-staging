@@ -95,6 +95,14 @@ import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
+import {
+  canonicalAppointmentBadgeV2,
+  canonicalCommunicationDataV2,
+  canonicalOrderInfoV2,
+  getCanonicalIntakeV2,
+  isIntakeV2Order,
+} from "@/lib/intake-v2/view";
+import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 
 const NORMAL_DOG_ICON_DATA_URI =
   "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
@@ -272,6 +280,8 @@ interface Order {
   siteCity?: string | null;
   siteNote?: string | null;
   id: string;
+  intakeSchemaVersion?: string | null;
+  intakeSnapshot?: unknown;
   customerId: string;
   description: string;
   serviceName: string | null;
@@ -3613,9 +3623,21 @@ const buildOrderInfoSummaryV17_65 = (
     specialNotes?: string | null;
     notes?: string | null;
     audioTranscript?: string | null;
+    intakeSchemaVersion?: string | null;
+    intakeSnapshot?: unknown;
   },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): OrderInfoSummaryV17_65 => {
+  const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
+  if (canonicalSnapshotV2) return canonicalOrderInfoV2(canonicalSnapshotV2);
+  if (isIntakeV2Order(order)) {
+    return {
+      safety: ["Kanonischer Intake beschädigt – Auftrag prüfen"],
+      primary: [],
+      additional: [],
+    };
+  }
+
   const isDogLine = (line: string) =>
     /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
   // V17.90L83: The Info chip/dialog must be built from the normalized
@@ -4053,6 +4075,8 @@ const buildSpecialNotesSummaryTooltipV17_91 = (
     specialNotes?: string | null;
     notes?: string | null;
     audioTranscript?: string | null;
+    intakeSchemaVersion?: string | null;
+    intakeSnapshot?: unknown;
   },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ) => {
@@ -4166,6 +4190,73 @@ const getOperationalBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
+  const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
+  if (canonicalSnapshotV2) {
+    const info = canonicalOrderInfoV2(canonicalSnapshotV2);
+    const summaryTooltip = [
+      info.safety.length ? ["Gefahr / Achtung", ...info.safety].join("\n") : "",
+      info.primary.length ? ["Wichtige Informationen", ...info.primary].join("\n") : "",
+      info.additional.length ? ["Weitere Besonderheiten", ...info.additional].join("\n") : "",
+    ].filter(Boolean).join("\n---\n");
+    if (summaryTooltip) {
+      pushUniqueBadge(badges, {
+        key: "special_notes_summary",
+        label: "Info",
+        className: "bg-blue-100 text-blue-700 border border-blue-300",
+        tooltip: summaryTooltip,
+        focusTarget: "specialNotes",
+      });
+    }
+    canonicalLinesV2(canonicalSnapshotV2.roles.parking).forEach((line) => {
+      pushUniqueBadge(badges, {
+        key: "hint_parking",
+        label: "Parken",
+        className: "bg-blue-100 text-blue-700 border border-blue-300",
+        tooltip: line,
+        focusTarget: "specialNotes",
+      });
+    });
+    canonicalLinesV2(canonicalSnapshotV2.roles.safety).forEach((line) => {
+      const dog = /\b(?:hund|dog|chien|cane|perro)\b/i.test(line);
+      pushUniqueBadge(badges, {
+        key: dog ? "danger_dog" : "danger_warning",
+        label: dog ? "Hund" : "Achtung",
+        className: "bg-red-100 text-red-700 border border-red-300",
+        icon: true,
+        tooltip: line,
+        focusTarget: "specialNotes",
+      });
+    });
+    canonicalLinesV2([
+      ...canonicalSnapshotV2.roles.access,
+      ...canonicalSnapshotV2.roles.other,
+      ...canonicalSnapshotV2.roles.ordinary,
+    ]).forEach((line) => {
+      const kind = getSemanticBadgeKind(line);
+      const label = kind ? badgeLabelByKind[kind] : "";
+      if (!kind || !label || kind === "warning" || kind === "appointment" || kind === "parking") return;
+      pushUniqueBadge(badges, {
+        key: `canonical_${kind}`,
+        label,
+        className: isPositiveSemanticHint(line)
+          ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+          : "bg-amber-100 text-amber-700 border border-amber-300",
+        tooltip: line,
+        focusTarget: "specialNotes",
+      });
+    });
+    return sortReviewBadges(badges);
+  }
+  if (isIntakeV2Order(order)) {
+    return [{
+      key: "canonical_intake_v2_invalid",
+      label: "Intake prüfen",
+      className: "bg-red-100 text-red-700 border border-red-400",
+      icon: true,
+      tooltip: "Der versiegelte Intake-Snapshot ist ungültig. Rohtext-Fallbacks wurden blockiert.",
+      focusTarget: "specialNotes",
+    }];
+  }
   const orderBadgeContext = [
     order.specialNotes,
     order.notes,
@@ -7497,6 +7588,38 @@ const getBottomBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
+  const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
+  if (canonicalSnapshotV2) {
+    const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
+    if (communication.channel === "call") {
+      pushUniqueBadge(badges, {
+        key: "callback_request",
+        label: "Anrufen",
+        className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
+        tooltip: communication.targetPhone
+          ? `Anrufen: ${communication.targetPhone}`
+          : "Telefonisch melden",
+      });
+    }
+    const appointment = canonicalAppointmentBadgeV2(canonicalSnapshotV2);
+    if (appointment) {
+      pushUniqueBadge(badges, {
+        key: "appointment",
+        label: appointment.label,
+        className: "bg-violet-100 text-violet-700 border border-violet-300",
+        tooltip: appointment.tooltip,
+      });
+    }
+    return badges;
+  }
+  if (isIntakeV2Order(order)) {
+    return [{
+      key: "canonical_intake_v2_invalid",
+      label: "Intake prüfen",
+      className: "bg-red-100 text-red-700 border border-red-400",
+      tooltip: "Versiegelter Intake-Snapshot ungültig; keine Legacy-Auswertung ausgeführt.",
+    }];
+  }
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
 
   const callbackSource = [
@@ -7873,6 +7996,43 @@ const buildCompactCommunicationContextV17_90L123 = (
 };
 
 const buildCommunicationChipDataV17_52 = (order: Order): any => {
+  const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
+  if (canonicalSnapshotV2) {
+    const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
+    return {
+      ...order,
+      phone: communication.targetPhone,
+      customerPhone: canonicalSnapshotV2.customer.phone || "",
+      contactPhone: communication.targetPhone,
+      email: communication.targetEmail,
+      customer: order.customer
+        ? {
+            ...order.customer,
+            phone: canonicalSnapshotV2.customer.phone,
+            email: canonicalSnapshotV2.customer.email,
+          }
+        : order.customer,
+      specialNotes: "",
+      communicationContext:
+        communication.channel === "call" ? "" : communication.communicationContext,
+      notes:
+        communication.channel === "call" ? "" : communication.communicationContext,
+      audioTranscript: "",
+    };
+  }
+  if (isIntakeV2Order(order)) {
+    return {
+      ...order,
+      phone: "",
+      customerPhone: "",
+      contactPhone: "",
+      email: "",
+      specialNotes: "",
+      communicationContext: "",
+      notes: "",
+      audioTranscript: "",
+    };
+  }
   const compactCommunicationContext =
     buildCompactCommunicationContextV17_90L123(order);
   const rawCommunicationSource = [
@@ -9529,6 +9689,14 @@ const normalizeStoredPhoneForTelHrefV17_90K6 = (value?: string | null) => {
 };
 
 const getOrderPhoneForHref = (order: Order) => {
+  const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
+  if (canonicalSnapshotV2) {
+    const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
+    return normalizeStoredPhoneForTelHrefV17_90K6(
+      communication.targetPhone || canonicalSnapshotV2.customer.phone,
+    );
+  }
+  if (isIntakeV2Order(order)) return "";
   // A contact explicitly named in the current order message is the action
   // target for SMS/WhatsApp/call chips. The stored customer phone remains a
   // fallback and is never overwritten by intake.
@@ -10214,11 +10382,13 @@ export default function AuftraegePage() {
       const canUseOrderNotesForCustomer = !hasMissingOrFallbackCustomerName(
         freshCust.name,
       );
-      const noteSource = canUseOrderNotesForCustomer
-        ? noteOverride !== undefined
-          ? noteOverride
-          : currentOrder?.notes
-        : null;
+      const noteSource = isIntakeV2Order(currentOrder)
+        ? null
+        : canUseOrderNotesForCustomer
+          ? noteOverride !== undefined
+            ? noteOverride
+            : currentOrder?.notes
+          : null;
       // ─── CRITICAL: Use a blank form as the base for merging, NOT the
       // potentially stale `newCust` state. This prevents data from a
       // previously viewed order/customer from leaking into the editor.
@@ -11219,9 +11389,11 @@ export default function AuftraegePage() {
           const currentOrder = editId
             ? orders.find((o: Order) => o.id === editId)
             : null;
-          const noteSource = hasMissingOrFallbackCustomerName(freshCust.name)
+          const noteSource = isIntakeV2Order(currentOrder)
             ? null
-            : (currentOrder?.notes ?? null);
+            : hasMissingOrFallbackCustomerName(freshCust.name)
+              ? null
+              : (currentOrder?.notes ?? null);
           const merged = mergeCustomerIntoForm(
             {
               name: "",
@@ -13455,6 +13627,8 @@ export default function AuftraegePage() {
       specialNotes: form.specialNotes,
       notes: currentEditOrder?.notes || form.notes,
       audioTranscript: currentEditOrder?.audioTranscript || null,
+      intakeSchemaVersion: currentEditOrder?.intakeSchemaVersion || null,
+      intakeSnapshot: currentEditOrder?.intakeSnapshot || null,
     },
     parsedFormSpecialNotes,
   );
@@ -17112,8 +17286,14 @@ export default function AuftraegePage() {
                         const visibleCustomerAddress = cust.address;
                         const visibleCustomerPlz = cust.plz;
                         const visibleCustomerCity = cust.city;
-                        const visibleCustomerPhone = cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
-                        const visibleCustomerEmail = cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
+                        const canonicalCustomerV2 = getCanonicalIntakeV2(currentEditOrder)?.customer;
+                        const strictV2Customer = isIntakeV2Order(currentEditOrder);
+                        const visibleCustomerPhone = strictV2Customer
+                          ? compactText(canonicalCustomerV2?.phone)
+                          : cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
+                        const visibleCustomerEmail = strictV2Customer
+                          ? compactText(canonicalCustomerV2?.email)
+                          : cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                         // Block D: the whole customer card is a shortcut to
                         // "Kunde bearbeiten" (only in edit mode where the card is
                         // static). Keyboard-accessible via Enter/Space. The existing
@@ -17295,8 +17475,14 @@ export default function AuftraegePage() {
                             const visibleCustomerAddress = cust.address;
                             const visibleCustomerPlz = cust.plz;
                             const visibleCustomerCity = cust.city;
-                            const visibleCustomerPhone = cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
-                            const visibleCustomerEmail = cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
+                            const canonicalCustomerV2 = getCanonicalIntakeV2(currentEditOrder)?.customer;
+                            const strictV2Customer = isIntakeV2Order(currentEditOrder);
+                            const visibleCustomerPhone = strictV2Customer
+                              ? compactText(canonicalCustomerV2?.phone)
+                              : cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
+                            const visibleCustomerEmail = strictV2Customer
+                              ? compactText(canonicalCustomerV2?.email)
+                              : cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                             return (
                               <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-700 dark:bg-slate-900/30 space-y-1.5 min-w-0">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">

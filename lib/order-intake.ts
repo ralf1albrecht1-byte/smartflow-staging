@@ -29,6 +29,8 @@ import {
   runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
+import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
+import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
 
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
@@ -11877,6 +11879,19 @@ export async function processIncomingMessage(
     parsed.system.needs_review = true;
   }
 
+  // V17.90L197 / Intake V2: this bounded customer object is immutable and is
+  // the only source permitted for matching and new-customer persistence. No
+  // on-site contact, appointment, access note or raw-text fallback may enter it.
+  const canonicalBillingCustomerV2 = Object.freeze({
+    name: cleanAiStructuredBillingName(kundeData.name || null) || null,
+    street: addr.street || null,
+    plz: addr.plz || null,
+    city: addr.city || null,
+    phone: canonicalBillingPhoneV17_90L195 || null,
+    email: canonicalBillingEmailV17_90L196 || null,
+    evidenceSource: billingEvidence.source || null,
+  });
+
   let customerId: string | null = null;
   let duplicateWarning = "";
   let customerWasNewlyCreated = false;
@@ -12131,11 +12146,11 @@ export async function processIncomingMessage(
   if (!customerId) {
     const exact = await findExactDeterministicMatch(prisma, userId ?? null, {
       name: kundeData.name || null,
-      street: addr.street,
-      plz: addr.plz,
-      city: addr.city,
-      phone: kundeData.telefon || null,
-      email: kundeData.email || null,
+      street: canonicalBillingCustomerV2.street,
+      plz: canonicalBillingCustomerV2.plz,
+      city: canonicalBillingCustomerV2.city,
+      phone: canonicalBillingCustomerV2.phone,
+      email: canonicalBillingCustomerV2.email,
     }, dataScope);
     if (exact.match) {
       customerId = exact.match.id;
@@ -12273,11 +12288,11 @@ export async function processIncomingMessage(
     // to keep the audit trail accurate about what the LLM tried to set.
     const sanitized = sanitizeNewCustomerFields({
       rawText: messageText,
-      street: addr.street,
-      plz: addr.plz,
-      city: addr.city,
-      phone: kundeData.telefon || null,
-      email: kundeData.email || null,
+      street: canonicalBillingCustomerV2.street,
+      plz: canonicalBillingCustomerV2.plz,
+      city: canonicalBillingCustomerV2.city,
+      phone: canonicalBillingCustomerV2.phone,
+      email: canonicalBillingCustomerV2.email,
     });
     if (sanitized.dropped.length > 0) {
       console.log(
@@ -12292,7 +12307,7 @@ export async function processIncomingMessage(
     // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
     // where the customer should remain empty + needsReview.
     const hasPersistableCustomerName = Boolean(
-      cleanAiStructuredBillingName(kundeData.name || null),
+      canonicalBillingCustomerV2.name,
     );
 
     const namelessBillingEvidence =
@@ -12332,17 +12347,15 @@ export async function processIncomingMessage(
           ...sanitized,
           // AI-first: persist only structured billing fields that survived the
           // customer guard. The raw WhatsApp wording no longer decides the role.
-          street: billingEvidence.street ?? sanitized.street,
-          plz: billingEvidence.plz ?? sanitized.plz,
-          city: billingEvidence.city ?? sanitized.city,
-          // V17.90L107: The final guarded billing phone is authoritative.
-          // Never reintroduce an on-site number from stale pre-guard evidence.
-          phone: kundeData.telefon || null,
-          email: billingEvidence.email ?? sanitized.email,
+          street: canonicalBillingCustomerV2.street,
+          plz: canonicalBillingCustomerV2.plz,
+          city: canonicalBillingCustomerV2.city,
+          phone: canonicalBillingCustomerV2.phone,
+          email: canonicalBillingCustomerV2.email,
         };
 
     const safeNewCustomerName = hasPersistableCustomerName
-      ? cleanAiStructuredBillingName(kundeData.name || null) || ""
+      ? canonicalBillingCustomerV2.name || ""
       : "";
     const safeNewCustomerCity =
       normalizeUnitText(safeNewCustomerFields.city) === "form"
@@ -14673,19 +14686,18 @@ export async function processIncomingMessage(
   // V17.90L195: Full canonical boundary for every business role, not only
   // service rows. Later UI/API code must use this snapshot and must not
   // reconstruct customer/contact/address/chip roles from the raw message.
-  const canonicalIntakeSnapshotV17_90L195 = {
-    version: "V17.90L196",
+  const canonicalIntakeSnapshotV2 = sealCanonicalIntakeV2({
     customer: {
-      name: resolvedCustomerMaster?.name || kundeData.name || null,
-      street: resolvedCustomerMaster?.address || addr.street || null,
-      plz: resolvedCustomerMaster?.plz || addr.plz || null,
-      city: resolvedCustomerMaster?.city || addr.city || null,
-      phone: resolvedCustomerMaster?.phone || kundeData.telefon || null,
+      name: resolvedCustomerMaster?.name || canonicalBillingCustomerV2.name,
+      street:
+        resolvedCustomerMaster?.address || canonicalBillingCustomerV2.street,
+      plz: resolvedCustomerMaster?.plz || canonicalBillingCustomerV2.plz,
+      city: resolvedCustomerMaster?.city || canonicalBillingCustomerV2.city,
+      phone:
+        resolvedCustomerMaster?.phone || canonicalBillingCustomerV2.phone,
       email:
-        resolvedCustomerMaster?.email ||
-        canonicalBillingEmailV17_90L196 ||
-        null,
-      evidenceSource: billingEvidence.source || null,
+        resolvedCustomerMaster?.email || canonicalBillingCustomerV2.email,
+      evidenceSource: canonicalBillingCustomerV2.evidenceSource,
     },
     executionAddress: extractedExecutionAddress
       ? {
@@ -14702,7 +14714,7 @@ export async function processIncomingMessage(
           phone: onsiteContactHint.phone || null,
           channel: onsiteContactHint.preferredChannel || null,
           noPhoneCall: onsiteContactHint.noPhoneCall,
-          hint: onsiteContactHint.hint,
+          hint: onsiteContactHint.hint || null,
         }
       : null,
     appointments: structuredAppointmentHintsV17_90L86,
@@ -14745,13 +14757,13 @@ export async function processIncomingMessage(
     }),
     specialNotes: finalSpecialNotes || null,
     reviewReasons: allReviewReasons,
-  };
+  });
 
   // Strip every undefined value before handing the snapshot to Prisma JSON.
   // This keeps the persisted contract deterministic and avoids generated-client
   // type/runtime differences for optional nested AI fields.
-  const canonicalIntakeSnapshotJsonV17_90L195 = JSON.parse(
-    JSON.stringify(canonicalIntakeSnapshotV17_90L195),
+  const canonicalIntakeSnapshotJsonV2 = JSON.parse(
+    JSON.stringify(canonicalIntakeSnapshotV2),
   );
 
   logIntakeDiagnosticTrace(
@@ -14759,19 +14771,19 @@ export async function processIncomingMessage(
     intakeDiagnosticTraceId,
     "06b_full_canonical_lock",
     {
-      version: canonicalIntakeSnapshotV17_90L195.version,
-      customer: canonicalIntakeSnapshotV17_90L195.customer,
-      executionAddress: canonicalIntakeSnapshotV17_90L195.executionAddress,
-      onsiteContact: canonicalIntakeSnapshotV17_90L195.onsiteContact,
-      appointments: canonicalIntakeSnapshotV17_90L195.appointments,
+      version: canonicalIntakeSnapshotV2.pipelineVersion,
+      customer: canonicalIntakeSnapshotV2.customer,
+      executionAddress: canonicalIntakeSnapshotV2.executionAddress,
+      onsiteContact: canonicalIntakeSnapshotV2.onsiteContact,
+      appointments: canonicalIntakeSnapshotV2.appointments,
       roleCounts: {
-        safety: canonicalIntakeSnapshotV17_90L195.roles.safety.length,
-        access: canonicalIntakeSnapshotV17_90L195.roles.access.length,
-        parking: canonicalIntakeSnapshotV17_90L195.roles.parking.length,
-        other: canonicalIntakeSnapshotV17_90L195.roles.other.length,
-        ordinary: canonicalIntakeSnapshotV17_90L195.roles.ordinary.length,
+        safety: canonicalIntakeSnapshotV2.roles.safety.length,
+        access: canonicalIntakeSnapshotV2.roles.access.length,
+        parking: canonicalIntakeSnapshotV2.roles.parking.length,
+        other: canonicalIntakeSnapshotV2.roles.other.length,
+        ordinary: canonicalIntakeSnapshotV2.roles.ordinary.length,
       },
-      itemCount: canonicalIntakeSnapshotV17_90L195.items.length,
+      itemCount: canonicalIntakeSnapshotV2.items.length,
     },
   );
 
@@ -14793,8 +14805,8 @@ export async function processIncomingMessage(
       date: new Date(),
       notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
-      intakeSchemaVersion: "V17.90L196",
-      intakeSnapshot: canonicalIntakeSnapshotJsonV17_90L195,
+      intakeSchemaVersion: INTAKE_V2_SCHEMA_VERSION,
+      intakeSnapshot: canonicalIntakeSnapshotJsonV2,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,
       siteAddress: extractedExecutionAddress?.siteAddress || null,
@@ -14892,7 +14904,7 @@ export async function processIncomingMessage(
   const canonicalScalarV17_90L194 = (value: unknown) =>
     String(value ?? "").replace(/\s+/g, " ").trim();
   const expectedItemFingerprintsV17_90L194 =
-    canonicalIntakeSnapshotV17_90L195.items
+    canonicalIntakeSnapshotV2.items
       .map((item) => canonicalScalarV17_90L194(item.sourceFingerprint))
       .sort();
   const persistedItemFingerprintsV17_90L194 = order.items
@@ -14907,27 +14919,27 @@ export async function processIncomingMessage(
     );
   const persistedCanonicalViolationV17_90L194 =
     canonicalScalarV17_90L194(order.customer?.name) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.name) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.name) ||
     canonicalScalarV17_90L194(order.customer?.address) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.street) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.street) ||
     canonicalScalarV17_90L194(order.customer?.plz) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.plz) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.plz) ||
     canonicalScalarV17_90L194(order.customer?.city) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.city) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.city) ||
     canonicalScalarV17_90L194(order.customer?.phone) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.phone) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.phone) ||
     canonicalScalarV17_90L194(order.customer?.email) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.customer.email) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.email) ||
     canonicalScalarV17_90L194(order.siteName) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteName) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteName) ||
     canonicalScalarV17_90L194(order.siteAddress) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteAddress) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteAddress) ||
     canonicalScalarV17_90L194(order.sitePlz) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.sitePlz) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.sitePlz) ||
     canonicalScalarV17_90L194(order.siteCity) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.executionAddress?.siteCity) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteCity) ||
     canonicalScalarV17_90L194(order.specialNotes) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV17_90L195.specialNotes) ||
+      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.specialNotes) ||
     !persistedItemsStableV17_90L194;
 
   if (persistedCanonicalViolationV17_90L194) {
@@ -14948,6 +14960,26 @@ export async function processIncomingMessage(
     });
     console.error(
       `[${source}] full canonical persistence invariant failed; order ${order.id} blocked for manual review`,
+    );
+  }
+
+  const canonicalPersistenceCheckV2 = verifyCanonicalIntakeV2(
+    (order as any).intakeSnapshot,
+  );
+  if (!canonicalPersistenceCheckV2.valid) {
+    const violation =
+      canonicalPersistenceCheckV2.reason || "canonical_intake_v2_invalid";
+    const nextReasons = Array.from(
+      new Set([...(order.reviewReasons || []), violation]),
+    );
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { needsReview: true, reviewReasons: nextReasons },
+    });
+    order.needsReview = true;
+    order.reviewReasons = nextReasons;
+    console.error(
+      `[${source}] CANONICAL_INTAKE_V2_VIOLATION orderId=${order.id} reason=${violation}`,
     );
   }
 
