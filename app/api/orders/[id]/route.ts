@@ -22,6 +22,7 @@ import {
   repairZeroQuantityHourItemsFromText,
 } from "@/lib/order-hour-line-repair";
 import { rememberExecutionAddressesFromOrder } from "@/lib/customer-execution-addresses";
+import { hasCanonicalIntakeProtectionV2 } from "@/lib/intake-v2/server";
 
 type SemanticNoteMatch = {
   label: string;
@@ -1512,6 +1513,14 @@ function hasUnitMissingReviewForItem(data: any, item: any): boolean {
 }
 
 function getDisplaySafeItemForOrder(item: any, orderLike: any) {
+  if (hasCanonicalIntakeProtectionV2(orderLike)) {
+    return {
+      ...item,
+      unitPrice: Number(item?.unitPrice ?? 0),
+      quantity: Number(item?.quantity ?? 0),
+      totalPrice: Number(item?.totalPrice ?? 0),
+    };
+  }
   const itemComplete = isCompleteClientItemForPersist(item);
   const unitMissing = !itemComplete && hasUnitMissingReviewForItem(orderLike || {}, item);
   return {
@@ -1524,6 +1533,10 @@ function getDisplaySafeItemForOrder(item: any, orderLike: any) {
 }
 
 function getItemNetTotalForOrder(item: any, orderLike?: any): number {
+  if (hasCanonicalIntakeProtectionV2(orderLike)) {
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    return Number.isFinite(storedTotal) && storedTotal > 0 ? storedTotal : 0;
+  }
   if (isExplicitZeroTotalReviewItem(item, orderLike)) return 0;
 
   const quantity = Number(item?.quantity ?? 0);

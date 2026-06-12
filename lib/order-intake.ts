@@ -1984,6 +1984,17 @@ function shouldQuarantineBillingAddressRoleV17_61(args: {
     return { quarantine: false, reviewReasons: [] };
   }
 
+  // V17.90L198: A complete, line-local and confidence-backed AI billing block
+  // is already the canonical customer result. A later execution-address marker
+  // may not erase it. Genuine uncertainty still remains fail-closed below.
+  if (
+    args.billingEvidence.hasReliableCustomerBlock &&
+    hasFullAddressCandidate &&
+    hasUsableBillingName
+  ) {
+    return { quarantine: false, reviewReasons: [] };
+  }
+
   const reviewReasons: string[] = [];
 
   if (
@@ -4035,6 +4046,8 @@ function normalizeUnitText(value: any): string {
     .replace(/[ö]/g, "oe")
     .replace(/[ü]/g, "ue")
     .replace(/[ß]/g, "ss")
+    .replace(/²/g, "2")
+    .replace(/³/g, "3")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -5879,21 +5892,45 @@ function detectAllQuantityUnitsFromText(
     },
   ];
 
-  const matches: Array<{ value: number; unit: string; raw: string }> = [];
+  const matches: Array<{
+    value: number;
+    unit: string;
+    raw: string;
+    start: number;
+    end: number;
+  }> = [];
 
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern.re)) {
-      if (match?.[1]) {
-        matches.push({
-          value: Number(match[1].replace(",", ".")),
-          unit: pattern.unit,
-          raw: match[0],
-        });
+      if (!match?.[1]) continue;
+
+      const start = match.index ?? -1;
+      const end = start >= 0 ? start + match[0].length : -1;
+      // Patterns are ordered from specific to generic. Prevent "70 m²" from
+      // being detected a second time as "70 m", which previously created the
+      // false review Meter → Quadratmeter after an otherwise correct AI result.
+      if (
+        start >= 0 &&
+        matches.some((existing) =>
+          Math.max(start, existing.start) < Math.min(end, existing.end),
+        )
+      ) {
+        continue;
       }
+
+      matches.push({
+        value: Number(match[1].replace(",", ".")),
+        unit: pattern.unit,
+        raw: match[0],
+        start,
+        end,
+      });
     }
   }
 
-  return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
+  return matches
+    .filter((m) => Number.isFinite(m.value) && m.value > 0)
+    .map(({ start: _start, end: _end, ...match }) => match);
 }
 
 type ExplicitQuantityRangeV17_90L121 = {
@@ -14765,6 +14802,14 @@ export async function processIncomingMessage(
   const canonicalIntakeSnapshotJsonV2 = JSON.parse(
     JSON.stringify(canonicalIntakeSnapshotV2),
   );
+  const canonicalPrePersistCheckV2 = verifyCanonicalIntakeV2(
+    canonicalIntakeSnapshotJsonV2,
+  );
+  if (!canonicalPrePersistCheckV2.valid) {
+    throw new Error(
+      `CANONICAL_INTAKE_V2_PRE_PERSIST_BLOCK:${canonicalPrePersistCheckV2.reason || "invalid"}`,
+    );
+  }
 
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,

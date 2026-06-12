@@ -31,6 +31,20 @@ export function canonicalPayloadHashV2(value: CanonicalIntakePayloadV2): string 
     .digest("hex");
 }
 
+function deepFreezeCanonicalValueV2<T>(value: T, seen = new WeakSet<object>()): T {
+  if (!value || typeof value !== "object") return value;
+
+  const objectValue = value as unknown as object;
+  if (seen.has(objectValue)) return value;
+  seen.add(objectValue);
+
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    deepFreezeCanonicalValueV2(child, seen);
+  }
+
+  return Object.freeze(value);
+}
+
 export function sealCanonicalIntakeV2(
   input: Omit<CanonicalIntakePayloadV2, "schemaVersion" | "pipelineVersion">,
 ): CanonicalIntakeSnapshotV2 {
@@ -39,7 +53,7 @@ export function sealCanonicalIntakeV2(
     pipelineVersion: INTAKE_V2_PIPELINE_VERSION,
     ...input,
   };
-  return {
+  const snapshot: CanonicalIntakeSnapshotV2 = {
     ...payload,
     seal: {
       algorithm: "sha256",
@@ -47,6 +61,11 @@ export function sealCanonicalIntakeV2(
       displayHash: canonicalDisplayHashV2(payload),
     },
   };
+
+  // V17.90L198: After sealing, no downstream validator/repair may mutate even
+  // a nested customer, role or item value in memory. Explicit user saves use
+  // the normal API path; automatic post-processing remains read-only.
+  return deepFreezeCanonicalValueV2(snapshot);
 }
 
 export function verifyCanonicalIntakeV2(value: unknown): {
@@ -62,4 +81,19 @@ export function verifyCanonicalIntakeV2(value: unknown): {
     return { valid: false, reason: "canonical_intake_v2_hash_mismatch" };
   }
   return { valid: true, reason: null };
+}
+export function hasCanonicalIntakeProtectionV2(order: {
+  intakeSchemaVersion?: unknown;
+} | null | undefined): boolean {
+  return order?.intakeSchemaVersion === INTAKE_V2_SCHEMA_VERSION;
+}
+
+export function verifyCanonicalIntakeOrderV2(order: {
+  intakeSchemaVersion?: unknown;
+  intakeSnapshot?: unknown;
+} | null | undefined): { valid: boolean; reason: string | null } {
+  if (!hasCanonicalIntakeProtectionV2(order)) {
+    return { valid: false, reason: "canonical_intake_v2_not_enabled" };
+  }
+  return verifyCanonicalIntakeV2(order?.intakeSnapshot);
 }

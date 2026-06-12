@@ -1,3 +1,8 @@
+import {
+  hasCanonicalIntakeProtectionV2,
+  verifyCanonicalIntakeOrderV2,
+} from "@/lib/intake-v2/server";
+
 export type HourLineRepairCandidate = {
   raw: string;
   quantity: number;
@@ -1572,6 +1577,24 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
         console.info(`${params.logPrefix} skipped orderId=${orderId} reason=no_order_or_items`);
       }
       return { order: order || params.order, repairedCount: 0, remainingZeroHourRows: 0 };
+    }
+
+    // V17.90L198: Persisted repair is legacy-only. Once Intake V2 has sealed
+    // an order, no automatic repair may rewrite names, quantities, units,
+    // prices, totals or rows. Even an invalid seal is fail-closed and must be
+    // reviewed instead of being silently "repaired" from raw text.
+    if (hasCanonicalIntakeProtectionV2(order)) {
+      const verification = verifyCanonicalIntakeOrderV2(order);
+      if (params.logPrefix) {
+        console.info(
+          `${params.logPrefix} skipped orderId=${orderId} reason=canonical_intake_locked valid=${verification.valid} detail=${verification.reason || "ok"}`,
+        );
+      }
+      return {
+        order,
+        repairedCount: 0,
+        remainingZeroHourRows: 0,
+      };
     }
 
     const combinedSourceText = [

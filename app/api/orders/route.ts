@@ -24,6 +24,7 @@ import {
   rememberCustomerExecutionAddress,
   rememberExecutionAddressesFromOrder,
 } from "@/lib/customer-execution-addresses";
+import { hasCanonicalIntakeProtectionV2 } from "@/lib/intake-v2/server";
 
 type SemanticNoteMatch = {
   label: string;
@@ -1122,6 +1123,14 @@ function hasUnitMissingReviewForItem(data: any, item: any): boolean {
 }
 
 function getDisplaySafeItemForOrder(item: any, orderLike: any) {
+  if (hasCanonicalIntakeProtectionV2(orderLike)) {
+    return {
+      ...item,
+      unitPrice: Number(item?.unitPrice ?? 0),
+      quantity: Number(item?.quantity ?? 0),
+      totalPrice: Number(item?.totalPrice ?? 0),
+    };
+  }
   const unitMissing = hasUnitMissingReviewForItem(orderLike || {}, item);
   return {
     ...item,
@@ -2005,6 +2014,10 @@ function calculateVatTotals(netValue: number, vatRateValue: number) {
 }
 
 function getItemNetTotalForOrder(item: any, orderLike?: any): number {
+  if (hasCanonicalIntakeProtectionV2(orderLike)) {
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    return Number.isFinite(storedTotal) && storedTotal > 0 ? storedTotal : 0;
+  }
   // V17.80: Harte Prüfpositionen (Einheit/Preis/Menge/Währung offen) dürfen
   // niemals über ein altes stored total oder quantity × price in Netto/MwSt./Total
   // zurücklaufen. Das gilt auch dann, wenn item.totalPrice fälschlich > 0 ist.
