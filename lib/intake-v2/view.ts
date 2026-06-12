@@ -15,6 +15,20 @@ export type CanonicalOrderInfoV2 = {
   additional: string[];
 };
 
+function canonicalRoleLinesFromFactsV2(
+  snapshot: CanonicalIntakeSnapshotV2,
+  role: "safety" | "access" | "parking" | "other" | "ordinary",
+): string[] {
+  if (Array.isArray(snapshot.facts)) {
+    return canonicalLinesV2(
+      snapshot.facts
+        .filter((fact) => fact?.role === role && compact(fact?.text))
+        .map((fact) => fact.text),
+    );
+  }
+  return canonicalLinesV2(snapshot.roles[role]);
+}
+
 export function canonicalContactLineV2(
   snapshot: CanonicalIntakeSnapshotV2,
 ): string {
@@ -46,8 +60,10 @@ export function canonicalAppointmentLinesV2(
 export function canonicalOrderInfoV2(
   snapshot: CanonicalIntakeSnapshotV2,
 ): CanonicalOrderInfoV2 {
-  const safety = canonicalLinesV2(snapshot.roles.safety);
-  const access = canonicalLinesV2(snapshot.roles.access);
+  // New snapshots expose one atomic fact ledger. Read that ledger directly so
+  // the UI never reclassifies or reconstructs information after the seal.
+  const safety = canonicalRoleLinesFromFactsV2(snapshot, "safety");
+  const access = canonicalRoleLinesFromFactsV2(snapshot, "access");
   const contact = canonicalContactLineV2(snapshot);
   const appointments = canonicalAppointmentLinesV2(snapshot);
   const primary = canonicalLinesV2([
@@ -56,11 +72,11 @@ export function canonicalOrderInfoV2(
     access.length ? `Zugang: ${access.join(" · ")}` : "",
   ]);
   const additional = canonicalLinesV2([
-    ...canonicalLinesV2(snapshot.roles.parking).map((line) =>
+    ...canonicalRoleLinesFromFactsV2(snapshot, "parking").map((line) =>
       /^park/i.test(line) ? line : `Parken: ${line}`,
     ),
-    ...canonicalLinesV2(snapshot.roles.other),
-    ...canonicalLinesV2(snapshot.roles.ordinary),
+    ...canonicalRoleLinesFromFactsV2(snapshot, "other"),
+    ...canonicalRoleLinesFromFactsV2(snapshot, "ordinary"),
   ]);
   return { safety, primary, additional };
 }

@@ -30,7 +30,11 @@ import {
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
 import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
-import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
+import {
+  INTAKE_V2_SCHEMA_VERSION,
+  type CanonicalFactRoleV2,
+  type CanonicalFactV2,
+} from "@/lib/intake-v2/schema";
 
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
@@ -1720,6 +1724,56 @@ function preferOriginalExecutionSiteNameV17_90L199(args: {
     sharedTail += 1;
   }
   return sharedTail >= 2 ? originalName : aiName;
+}
+
+
+// V17.90L203: Preserve a fuller object/scope label when the same address line
+// contains a longer non-contradictory name. This is structural: the current
+// site name anchors the start and the verified street anchors the end.
+function enrichExecutionSiteNameFromEvidenceV17_90L203(args: {
+  currentName?: string | null;
+  siteAddress?: string | null;
+  originalText?: string | null;
+  translatedText?: string | null;
+}): string | null {
+  const currentName = cleanExecutionSiteNameCandidate(args.currentName);
+  const siteAddress = String(args.siteAddress || "").replace(/\s+/g, " ").trim();
+  if (!currentName || !siteAddress) return currentName;
+
+  const currentKey = normalizeUnitText(currentName);
+  let best = currentName;
+  for (const rawSource of [args.originalText, args.translatedText]) {
+    const source = String(rawSource || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!source) continue;
+
+    const pattern = new RegExp(
+      `${escapeRegExpLocal(currentName)}\\s*[,;:\\-–—]?\\s*([\\s\\S]{0,100}?)\\s*[,;]?\\s*${escapeRegExpLocal(siteAddress)}`,
+      "i",
+    );
+    const match = source.match(pattern);
+    if (!match) continue;
+
+    const suffix = String(match[1] || "")
+      .replace(/^[,;:\-–—\s]+|[,;:\-–—\s]+$/g, "")
+      .trim();
+    const candidate = cleanExecutionSiteNameCandidate(
+      [currentName, suffix].filter(Boolean).join(", "),
+    );
+    if (!candidate || candidate.length > 140) continue;
+    if (/\b(?:chf|eur|usd|gbp)\b|@|\+?\d[\d\s().\/-]{6,}\d/i.test(candidate)) continue;
+    if (/\b(?:kontakt|termin|schlüssel|schluessel|code|whatsapp|sms|anrufen|telefon|parken|parkieren)\b/i.test(suffix)) continue;
+
+    const candidateKey = normalizeUnitText(candidate);
+    if (!candidateKey.includes(currentKey) || candidateKey.length <= normalizeUnitText(best).length) {
+      continue;
+    }
+    best = candidate;
+  }
+  return best;
 }
 
 function extractAiStructuredExecutionAddress(
@@ -3973,6 +4027,42 @@ function sourceSupportsAppointmentPartV17_90L86(
   return false;
 }
 
+
+function inferAppointmentNoticeV17_90L203(
+  appointment: AiAppointmentV17_90L86,
+  rawText: string,
+): { minutes: number; channel: OnsiteContactChannel } {
+  const source = [appointment?.evidence, rawText]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!source) return { minutes: 0, channel: null };
+
+  const noticePatterns = [
+    /\b(\d{1,3})\s*(?:min(?:ute)?n?)?\s*(?:vorher|vor\s+ankunft)\b[^.!?\n]{0,100}/i,
+    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:before|prior\s+to)\b[^.!?\n]{0,100}/i,
+    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:avant|prima|antes)\b[^.!?\n]{0,100}/i,
+  ];
+  let matched = "";
+  let minutes = 0;
+  for (const pattern of noticePatterns) {
+    const match = source.match(pattern);
+    const numeric = Number(match?.[1] || 0);
+    if (match && Number.isFinite(numeric) && numeric > 0 && numeric <= 240) {
+      matched = match[0];
+      minutes = Math.round(numeric);
+      break;
+    }
+  }
+  if (!minutes) return { minutes: 0, channel: null };
+
+  const channel =
+    normalizeAiContactChannelV17_90L86(matched) ||
+    normalizeAiContactChannelV17_90L86(source);
+  return { minutes, channel };
+}
+
 function buildStructuredAppointmentHintsV17_90L86(
   appointments: AiAppointmentV17_90L86[] | null | undefined,
   rawText: string,
@@ -4009,11 +4099,19 @@ function buildStructuredAppointmentHintsV17_90L86(
     // create a review warning, but must not silently remove the appointment
     // from the order or its Important information section.
 
-    const minutesRaw = Number(
+    const inferredNoticeV17_90L203 = inferAppointmentNoticeV17_90L203(
+      appointment,
+      rawText,
+    );
+    const explicitMinutesRaw = Number(
       appointment?.ankuendigung_minuten ??
         appointment?.announcement_minutes ??
         0,
     );
+    const minutesRaw =
+      Number.isFinite(explicitMinutesRaw) && explicitMinutesRaw > 0
+        ? explicitMinutesRaw
+        : inferredNoticeV17_90L203.minutes;
     const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
       ? Math.round(minutesRaw)
       : 0;
@@ -4021,25 +4119,13 @@ function buildStructuredAppointmentHintsV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
 
-    // V17.90L199: If the structured channel is missing, preserve an explicit
-    // line-local instruction such as "15 Minuten vorher anrufen". This creates
-    // the correct communication chip without inventing an on-site contact.
+    // V17.90L203: Contact and appointment structures are checked together.
+    // If the structured appointment omitted an explicit notice that is present
+    // in its evidence/raw message, preserve it instead of silently dropping it.
     if (!announcementChannel && minutes) {
-      const evidenceChannel = normalizeAiContactChannelV17_90L86(
-        appointment?.evidence,
-      );
-      if (evidenceChannel) {
-        announcementChannel = evidenceChannel;
-      } else {
-        const minutePattern = new RegExp(
-          `\\b${minutes}\\s*(?:min(?:ute)?n?)?\\s*vorher[\\s\\S]{0,80}`,
-          "i",
-        );
-        const nearbyInstruction = String(rawText || "").match(minutePattern)?.[0] || "";
-        announcementChannel = normalizeAiContactChannelV17_90L86(
-          nearbyInstruction,
-        );
-      }
+      announcementChannel =
+        inferredNoticeV17_90L203.channel ||
+        normalizeAiContactChannelV17_90L86(appointment?.evidence);
     }
 
     const notice = minutes
@@ -4775,6 +4861,198 @@ function preferCompleteTranslatedRoleVariantsV17_90L202(
       return lineIsSubset && candidateTokens.size > lineTokens.size;
     });
   });
+}
+
+
+// V17.90L203: One canonical assembler owns all operational facts before the
+// seal. Role-local helper paths may propose facts, but they can no longer
+// serialize the same business statement twice or assign it to two roles.
+type CanonicalFactCandidateV17_90L203 = {
+  role: CanonicalFactRoleV2;
+  text: string;
+};
+
+const canonicalFactRoleRankV17_90L203: Record<CanonicalFactRoleV2, number> = {
+  safety: 5,
+  access: 4,
+  parking: 3,
+  other: 2,
+  ordinary: 1,
+};
+
+function canonicalFactTokensV17_90L203(value: unknown): Set<string> {
+  const ignored = new Set([
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer",
+    "einem", "einen", "ist", "sind", "wird", "werden", "im", "in", "am",
+    "an", "auf", "bei", "beim", "zur", "zum", "von", "vor", "und", "oder",
+    "bitte", "hinweis", "achtung", "zugang", "parken", "parkierung",
+  ]);
+  return new Set(
+    canonicalRoleVariantKeyV17_90L201(value)
+      .split(/\s+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2 && !ignored.has(token)),
+  );
+}
+
+function canonicalFactInvariantSetV17_90L203(value: unknown): Set<string> {
+  return new Set(canonicalRoleInvariantTokensV17_90L201(value));
+}
+
+function setIsSubsetV17_90L203(left: Set<string>, right: Set<string>): boolean {
+  return [...left].every((value) => right.has(value));
+}
+
+function isCanonicalFactReferenceFragmentV17_90L203(
+  value: unknown,
+): boolean {
+  const tokens = canonicalFactTokensV17_90L203(value);
+  const invariants = canonicalFactInvariantSetV17_90L203(value);
+  return invariants.size > 0 && tokens.size <= 2;
+}
+
+function canonicalFactsEquivalentV17_90L203(
+  leftValue: unknown,
+  rightValue: unknown,
+): boolean {
+  const left = canonicalRoleVariantKeyV17_90L201(leftValue);
+  const right = canonicalRoleVariantKeyV17_90L201(rightValue);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (
+    hasCanonicalRoleNegationV17_90L201(leftValue) !==
+      hasCanonicalRoleNegationV17_90L201(rightValue) &&
+    !isCanonicalFactReferenceFragmentV17_90L203(leftValue) &&
+    !isCanonicalFactReferenceFragmentV17_90L203(rightValue)
+  ) {
+    return false;
+  }
+
+  const leftInvariants = canonicalFactInvariantSetV17_90L203(leftValue);
+  const rightInvariants = canonicalFactInvariantSetV17_90L203(rightValue);
+  if (
+    leftInvariants.size > 0 &&
+    rightInvariants.size > 0 &&
+    !setIsSubsetV17_90L203(leftInvariants, rightInvariants) &&
+    !setIsSubsetV17_90L203(rightInvariants, leftInvariants)
+  ) {
+    return false;
+  }
+
+  if (left.includes(right) || right.includes(left)) return true;
+
+  const leftTokens = canonicalFactTokensV17_90L203(leftValue);
+  const rightTokens = canonicalFactTokensV17_90L203(rightValue);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return false;
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const containment = intersection / Math.min(leftTokens.size, rightTokens.size);
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  const jaccard = union > 0 ? intersection / union : 0;
+
+  // A short fragment can be absorbed by a fuller statement, including a code
+  // or location suffix. Different numbered facts remain separate because the
+  // invariant-set check above rejects conflicting numbers.
+  if (intersection >= 2 && containment >= 0.75) return true;
+  if (intersection >= 3 && jaccard >= 0.62) return true;
+
+  return (
+    leftInvariants.size === rightInvariants.size &&
+    setIsSubsetV17_90L203(leftInvariants, rightInvariants) &&
+    canonicalRoleEditSimilarityV17_90L201(left, right) >= 0.84
+  );
+}
+
+function canonicalFactTextScoreV17_90L203(
+  value: string,
+  translationText?: string | null,
+): number {
+  const tokens = canonicalFactTokensV17_90L203(value);
+  const invariants = canonicalFactInvariantSetV17_90L203(value);
+  return (
+    translatedRoleEvidenceScoreV17_90L201(value, translationText) * 100 +
+    (hasCanonicalRoleNegationV17_90L201(value) ? 25 : 0) +
+    invariants.size * 12 +
+    tokens.size * 3 +
+    Math.min(value.length, 320) / 40
+  );
+}
+
+function assembleCanonicalBusinessFactsV17_90L203(args: {
+  safety: string[];
+  access: string[];
+  parking: string[];
+  other: string[];
+  ordinary: string[];
+  translationText?: string | null;
+}): {
+  facts: CanonicalFactV2[];
+  roles: Record<CanonicalFactRoleV2, string[]>;
+} {
+  const candidates: CanonicalFactCandidateV17_90L203[] = (
+    Object.entries({
+      safety: args.safety,
+      access: args.access,
+      parking: args.parking,
+      other: args.other,
+      ordinary: args.ordinary,
+    }) as Array<[CanonicalFactRoleV2, string[]]>
+  ).flatMap(([role, lines]) =>
+    lines.map((rawText) => ({
+      role,
+      text: String(rawText || "")
+        .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+        .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    })),
+  ).filter((candidate) => Boolean(candidate.text));
+
+  const assembled: CanonicalFactCandidateV17_90L203[] = [];
+  for (const candidate of candidates) {
+    const duplicateIndex = assembled.findIndex((existing) =>
+      canonicalFactsEquivalentV17_90L203(existing.text, candidate.text),
+    );
+    if (duplicateIndex < 0) {
+      assembled.push(candidate);
+      continue;
+    }
+
+    const existing = assembled[duplicateIndex];
+    const preferredRole =
+      canonicalFactRoleRankV17_90L203[candidate.role] >
+      canonicalFactRoleRankV17_90L203[existing.role]
+        ? candidate.role
+        : existing.role;
+    const preferredText =
+      canonicalFactTextScoreV17_90L203(candidate.text, args.translationText) >
+      canonicalFactTextScoreV17_90L203(existing.text, args.translationText)
+        ? candidate.text
+        : existing.text;
+    assembled[duplicateIndex] = { role: preferredRole, text: preferredText };
+  }
+
+  const facts: CanonicalFactV2[] = assembled.map((entry) => ({
+    factId:
+      `fact_${createCanonicalSourceFingerprintV17_90L194(
+        canonicalRoleVariantKeyV17_90L201(entry.text),
+      ) || "unknown"}`,
+    role: entry.role,
+    text: entry.text,
+    evidenceSource:
+      translatedRoleEvidenceScoreV17_90L201(entry.text, args.translationText) > 0
+        ? "normalized_translation"
+        : "canonical_assembler",
+  }));
+
+  const roles: Record<CanonicalFactRoleV2, string[]> = {
+    safety: [],
+    access: [],
+    parking: [],
+    other: [],
+    ordinary: [],
+  };
+  for (const fact of facts) roles[fact.role].push(fact.text);
+  return { facts, roles };
 }
 
 function dedupeProtectedStructuredRoleLinesV17_90L103(
@@ -13242,7 +13520,15 @@ export async function processIncomingMessage(
   const structuredAppointmentHintsV17_90L86 =
     buildStructuredAppointmentHintsV17_90L86(
       parsed.auftrag?.termine,
-      messageText,
+      [
+        messageText,
+        translationText,
+        parsed.auftrag?.kontakt_vor_ort
+          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
@@ -15125,6 +15411,18 @@ export async function processIncomingMessage(
       : null;
   }
 
+  if (extractedExecutionAddress) {
+    extractedExecutionAddress = {
+      ...extractedExecutionAddress,
+      siteName: enrichExecutionSiteNameFromEvidenceV17_90L203({
+        currentName: extractedExecutionAddress.siteName,
+        siteAddress: extractedExecutionAddress.siteAddress,
+        originalText: messageText,
+        translatedText: translationText,
+      }),
+    };
+  }
+
   if (
     extractedExecutionAddress &&
     !extractedExecutionAddress.siteName &&
@@ -15388,9 +15686,9 @@ export async function processIncomingMessage(
     },
   );
 
-  // V17.90L195: Role-local display arrays are cleaned once at the intake
-  // boundary. Contact, appointment, access, code and parking are never rebuilt
-  // from specialNotes by the UI.
+  // V17.90L203: Build every operational fact once, across all role sources.
+  // Earlier helpers only propose candidates. This assembler owns role
+  // precedence, cross-role dedupe and the final text variant before sealing.
   const translatedAccessCandidatesV17_90L202 =
     extractTranslatedRoleCandidatesV17_90L202(translationText, "access");
   const translatedParkingCandidatesV17_90L202 =
@@ -15398,60 +15696,109 @@ export async function processIncomingMessage(
   const translatedOtherCandidatesV17_90L202 =
     extractTranslatedRoleCandidatesV17_90L202(translationText, "other");
 
-  const canonicalAccessRolesV17_90L195 =
+  const accessFactCandidatesV17_90L203 =
     preferCompleteTranslatedRoleVariantsV17_90L202(
-      preferTranslatedCanonicalRoleVariantsV17_90L201(
-        canonicalizeStructuredRoleLinesV17_90L195(
+      [
+        ...canonicalizeStructuredRoleLinesV17_90L195(
           [parsed.auftrag?.zugangshinweise, ...translatedAccessCandidatesV17_90L202],
           "access",
         ),
-        [...hinweisItems, ...translatedAccessCandidatesV17_90L202],
-        translationText,
-      ),
+        ...extractProtectedStructuredRoleValuesV17_90L103(
+          parsed.auftrag?.zugangshinweise,
+        ),
+        ...translatedAccessCandidatesV17_90L202,
+      ],
       translationText,
     );
-  const canonicalParkingRolesV17_90L195 =
+  const parkingFactCandidatesV17_90L203 =
     preferCompleteTranslatedRoleVariantsV17_90L202(
-      preferTranslatedCanonicalRoleVariantsV17_90L201(
-        canonicalizeStructuredRoleLinesV17_90L195(
+      [
+        ...canonicalizeStructuredRoleLinesV17_90L195(
           [parsed.auftrag?.parkhinweise, ...translatedParkingCandidatesV17_90L202],
           "parking",
         ),
-        [...hinweisItems, ...translatedParkingCandidatesV17_90L202],
-        translationText,
-      ),
+        ...extractProtectedStructuredRoleValuesV17_90L103(
+          parsed.auftrag?.parkhinweise,
+        ),
+        ...translatedParkingCandidatesV17_90L202,
+      ],
       translationText,
     );
-  const canonicalOtherRolesV17_90L195 =
+  const otherFactCandidatesV17_90L203 =
     preferCompleteTranslatedRoleVariantsV17_90L202(
-      preferTranslatedCanonicalRoleVariantsV17_90L201(
-        canonicalizeStructuredRoleLinesV17_90L195(
+      [
+        ...canonicalizeStructuredRoleLinesV17_90L195(
           [parsed.auftrag?.sonstige_hinweise, ...translatedOtherCandidatesV17_90L202],
           "other",
         ),
-        [...hinweisItems, ...translatedOtherCandidatesV17_90L202],
-        translationText,
+        ...extractProtectedStructuredRoleValuesV17_90L103(
+          parsed.auftrag?.sonstige_hinweise,
+        ),
+        ...translatedOtherCandidatesV17_90L202,
+      ],
+      translationText,
+    );
+
+  const protectedFactLinesV17_90L203 = [
+    ...gefahrItems,
+    onsiteContactHint.hint || "",
+    ...structuredAppointmentHintsV17_90L86,
+    ...accessFactCandidatesV17_90L203,
+    ...parkingFactCandidatesV17_90L203,
+    ...otherFactCandidatesV17_90L203,
+  ].filter(Boolean);
+  const ordinaryFactCandidatesV17_90L203 =
+    dedupeTranslatedRoleVariantsV17_90L201(
+      hinweisItems.filter((line) =>
+        !protectedFactLinesV17_90L203.some((protectedLine) =>
+          canonicalFactsEquivalentV17_90L203(protectedLine, line),
+        ),
       ),
       translationText,
     );
-  const canonicalProtectedRoleLinesV17_90L195 = [
-    onsiteContactHint.hint || "",
-    ...structuredAppointmentHintsV17_90L86,
-    ...canonicalAccessRolesV17_90L195,
-    ...canonicalParkingRolesV17_90L195,
-    ...canonicalOtherRolesV17_90L195,
-  ].filter(Boolean);
-  const canonicalOrdinaryRolesV17_90L195 =
+
+  const canonicalFactAssemblyV17_90L203 =
+    assembleCanonicalBusinessFactsV17_90L203({
+      safety: gefahrItems,
+      access: accessFactCandidatesV17_90L203,
+      parking: parkingFactCandidatesV17_90L203,
+      other: otherFactCandidatesV17_90L203,
+      ordinary: ordinaryFactCandidatesV17_90L203,
+      translationText,
+    });
+
+  const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
-      hinweisItems.filter((line) => {
-        const key = normalizeSemanticText(line);
-        if (!key) return false;
-        return !canonicalProtectedRoleLinesV17_90L195.some((protectedLine) =>
-          canonicalRoleLinesEquivalentV17_90L201(protectedLine, line),
-        );
-      }),
+      [
+        onsiteContactHint.hint || "",
+        ...structuredAppointmentHintsV17_90L86,
+        ...canonicalFactAssemblyV17_90L203.roles.access,
+        ...canonicalFactAssemblyV17_90L203.roles.parking,
+        ...canonicalFactAssemblyV17_90L203.roles.other,
+        ...canonicalFactAssemblyV17_90L203.roles.ordinary,
+      ],
       translationText,
     );
+  finalSpecialNotes =
+    buildSpecialNotes({
+      safetyWarnings: canonicalFactAssemblyV17_90L203.roles.safety,
+      jobHints: canonicalSpecialNoteHintsV17_90L203,
+      preserveStructuredRoles: true,
+    }) || null;
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "06a_canonical_fact_assembler",
+    {
+      factCount: canonicalFactAssemblyV17_90L203.facts.length,
+      facts: canonicalFactAssemblyV17_90L203.facts.map((fact) => ({
+        factId: fact.factId,
+        role: fact.role,
+        text: redactIntakeDiagnosticText(fact.text, 320),
+      })),
+    },
+  );
 
   // V17.90L195: Full canonical boundary for every business role, not only
   // service rows. Later UI/API code must use this snapshot and must not
@@ -15488,13 +15835,8 @@ export async function processIncomingMessage(
         }
       : null,
     appointments: structuredAppointmentHintsV17_90L86,
-    roles: {
-      safety: gefahrItems,
-      access: canonicalAccessRolesV17_90L195,
-      parking: canonicalParkingRolesV17_90L195,
-      other: canonicalOtherRolesV17_90L195,
-      ordinary: canonicalOrdinaryRolesV17_90L195,
-    },
+    roles: canonicalFactAssemblyV17_90L203.roles,
+    facts: canonicalFactAssemblyV17_90L203.facts,
     items: finalOrderItems.map((item) => {
       const sourceText = String(
         (item as any).sourceText ||

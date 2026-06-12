@@ -34,6 +34,20 @@ export type CanonicalOnsiteContactV2 = {
   hint: string | null;
 } | null;
 
+export type CanonicalFactRoleV2 =
+  | "safety"
+  | "access"
+  | "parking"
+  | "other"
+  | "ordinary";
+
+export type CanonicalFactV2 = {
+  factId: string;
+  role: CanonicalFactRoleV2;
+  text: string;
+  evidenceSource: "ai_structured" | "normalized_translation" | "canonical_assembler";
+};
+
 export type CanonicalOrderItemV2 = {
   serviceName: string;
   quantity: number;
@@ -61,6 +75,12 @@ export type CanonicalIntakePayloadV2 = {
     other: string[];
     ordinary: string[];
   };
+  /**
+   * Optional atomic fact ledger. New intake snapshots populate this list and
+   * derive every role array from it. Older V2 snapshots remain valid because
+   * the field is optional and the role arrays stay the compatibility contract.
+   */
+  facts?: CanonicalFactV2[];
   items: CanonicalOrderItemV2[];
   specialNotes: string | null;
   reviewReasons: string[];
