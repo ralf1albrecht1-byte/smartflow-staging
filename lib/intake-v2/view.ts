@@ -99,14 +99,13 @@ export function canonicalCommunicationDataV2(
       .join(" · ")
       .replace("Kontakt vor Ort: · ", "Kontakt vor Ort: ");
   } else if (channel) {
-    communicationContext = [
-      channel === "mail" ? "E-Mail:" : "Kontakt:",
-      channel === "mail" ? targetEmail : targetPhone,
-      instruction,
-    ]
+    // A channel inferred only from an appointment instruction is a contact
+    // preference, not an onsite-contact identity. Keep the stored customer
+    // phone/email as the action target, but never render it as "Kontakt vor Ort".
+    communicationContext = ["Kontaktwunsch:", instruction]
       .filter(Boolean)
       .join(" · ")
-      .replace(/^(E-Mail|Kontakt): · /, "$1: ");
+      .replace(/^Kontaktwunsch: · /, "Kontaktwunsch: ");
   }
 
   return {

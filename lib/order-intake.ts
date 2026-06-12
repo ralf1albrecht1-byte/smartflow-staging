@@ -7448,6 +7448,119 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
   return cleaned.length >= 4 && /\p{L}/u.test(cleaned) ? cleaned : original;
 }
 
+
+// V17.90L200: Prefer a clean, line-local German service label from the
+// item's own evidence or the generated German working translation before the
+// canonical lock. This is evidence-driven, not a service-word mapping:
+// quantity, unit and price must identify exactly one compatible source line.
+function preferLineLocalGermanServiceNameV17_90L200(args: {
+  rawServiceName: string;
+  sourceText: string;
+  translatedText?: string | null;
+  quantity: number;
+  unitPrice: number;
+  unit: string;
+}): string {
+  const fallback = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+    serviceName: args.rawServiceName,
+    quantity: args.quantity,
+  });
+  if (!fallback) return fallback;
+
+  const labelsAreStructurallyCompatible = (left: string, right: string) => {
+    const normalize = (value: string) =>
+      normalizeUnitText(value)
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const a = normalize(left);
+    const b = normalize(right);
+    if (!a || !b) return false;
+    if (a === b || a.includes(b) || b.includes(a)) return true;
+
+    const tokens = (value: string) =>
+      value.split(/\s+/g).filter((token) => token.length >= 4);
+    const aTokens = tokens(a);
+    const bTokens = tokens(b);
+    if (aTokens.length === 0 || bTokens.length === 0) return false;
+    const shared = aTokens.filter((token) => bTokens.includes(token)).length;
+    return shared / Math.min(aTokens.length, bTokens.length) >= 0.6;
+  };
+
+  const candidates: string[] = [];
+  const addCandidate = (value: string) => {
+    const explicitUnit = detectExplicitUnitFromEvidenceLineV17_90L3(value);
+    if (
+      explicitUnit &&
+      getServiceUnitType(explicitUnit) !== getServiceUnitType(args.unit)
+    ) {
+      return;
+    }
+
+    const extracted = cleanTranslatedServiceLabelFromLineV17_90L(value);
+    const withoutAmount = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+      serviceName: extracted,
+      quantity: args.quantity,
+    });
+    const candidate = normalizeVisibleServiceNameCasingV17_66(withoutAmount);
+    if (
+      !candidate ||
+      candidate.length < 4 ||
+      candidate.length > 120 ||
+      isInternalReviewServiceNameV17_90L(candidate) ||
+      /\b(?:CHF|EUR|USD|GBP)\b/i.test(candidate)
+    ) {
+      return;
+    }
+    if (!labelsAreStructurallyCompatible(fallback, candidate)) return;
+    candidates.push(candidate);
+  };
+
+  if (
+    args.sourceText &&
+    translatedLineMatchesItemNumbersV17_90L(args.sourceText, {
+      quantity: args.quantity,
+      unitPrice: args.unitPrice,
+    })
+  ) {
+    addCandidate(args.sourceText);
+  }
+
+  const translated = String(args.translatedText || '').trim();
+  if (translated) {
+    translated
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) =>
+        translatedLineMatchesItemNumbersV17_90L(line, {
+          quantity: args.quantity,
+          unitPrice: args.unitPrice,
+        }),
+      )
+      .forEach(addCandidate);
+
+    extractTranslatedPricedServiceSegmentsV17_66(translated)
+      .filter(
+        (segment) =>
+          Math.abs(segment.quantity - args.quantity) < 0.0001 &&
+          Math.abs(segment.unitPrice - args.unitPrice) < 0.0001 &&
+          getServiceUnitType(segment.unit) === getServiceUnitType(args.unit),
+      )
+      .forEach((segment) => addCandidate(segment.serviceName));
+  }
+
+  const uniqueCandidates = Array.from(
+    new Map(
+      candidates.map((candidate) => [normalizeUnitText(candidate), candidate]),
+    ).values(),
+  );
+
+  return uniqueCandidates.length === 1 ? uniqueCandidates[0] : fallback;
+}
+
 function extractLeadingCountFromEvidenceV17_90L89(
   value: unknown,
 ): number {
@@ -7498,6 +7611,7 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
 
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
+  translatedText?: string | null,
 ): CanonicalAiOrderItemV17_90L88[] {
   if (!Array.isArray(rawItems)) return [];
 
@@ -7597,11 +7711,16 @@ function buildCanonicalAiOrderItemsV17_90L88(
         compactText(raw?.currency || detectCurrencyFromText(sourceText) || "")
           .toUpperCase() || null;
 
-      // V17.90L104/L199: Keep the first-AI semantic action authoritative, but
-      // remove duplicated structured amount data before the canonical lock.
-      const cleanedServiceName = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
-        serviceName: rawServiceName,
+      // V17.90L104/L199/L200: Keep the first-AI semantic action authoritative.
+      // A unique line-local German evidence label may restore missing grammar
+      // such as prepositions; otherwise only duplicated amount data is removed.
+      const cleanedServiceName = preferLineLocalGermanServiceNameV17_90L200({
+        rawServiceName,
+        sourceText,
+        translatedText,
         quantity,
+        unitPrice,
+        unit,
       });
       const serviceName = cleanedServiceName
         ? `${cleanedServiceName.charAt(0).toUpperCase()}${cleanedServiceName.slice(1)}`
@@ -12957,7 +13076,7 @@ export async function processIncomingMessage(
 
 
   const canonicalAiOrderItemsV17_90L88 =
-    buildCanonicalAiOrderItemsV17_90L88(aiWorkItemsRaw);
+    buildCanonicalAiOrderItemsV17_90L88(aiWorkItemsRaw, translationText);
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(

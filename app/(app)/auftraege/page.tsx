@@ -3856,6 +3856,10 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
 
   const phonePatternV17_90L81 = /\+?\d[\d\s().\/-]{6,}\d/g;
   const isUsablePhoneV17_90L81 = (value: string) => {
+    const compact = value.replace(/\s+/g, "").trim();
+    // Dates such as 22.06.2026 previously matched the loose phone regex and
+    // produced a false contact summary. Date-shaped values are never phones.
+    if (/^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}$/.test(compact)) return false;
     const digits = value.replace(/\D/g, "");
     return digits.length >= 7 && digits.length <= 15;
   };
@@ -3882,9 +3886,12 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
       })[0] ||
     source.find(
       (line) =>
-        /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf)\b/i.test(
+        /\b(?:kontakt(?:\s+vor\s+ort)?|ansprechperson|vor\s+ort|tel\.?|telefon|phone|mobile|handy|natel|unter\s+(?:der\s+)?(?:nummer\s+)?)\b/i.test(
           line,
-        ) && Boolean(line.match(phonePatternV17_90L81)),
+        ) &&
+        (line.match(phonePatternV17_90L81) || []).some(
+          isUsablePhoneV17_90L81,
+        ),
     );
   const contactPhone =
     (contactLine?.match(phonePatternV17_90L81) || [])
