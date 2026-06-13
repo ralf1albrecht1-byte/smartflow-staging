@@ -12376,6 +12376,20 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L213: Capture the first structured AI service rows immediately.
+  // Every later validator/repair path works on separate data; it can no longer
+  // mutate the source that is used to build the canonical persistence rows.
+  // JSON cloning is deliberate here because the LLM result is plain data and
+  // undefined helper fields must not become part of the persisted contract.
+  const firstAiWorkItemsSnapshotV17_90L213 = Object.freeze(
+    (Array.isArray(parsed.auftrag?.arbeitspositionen)
+      ? parsed.auftrag.arbeitspositionen
+      : []
+    ).map((item: unknown) =>
+      Object.freeze(JSON.parse(JSON.stringify(item ?? {}))),
+    ),
+  );
+
   const firstAiDangerRoleLinesV17_90L106 = extractRoleReviewLinesV17_90L106(
     parsed.auftrag?.gefahren ??
       parsed.auftrag?.warnhinweise ??
@@ -13748,11 +13762,8 @@ export async function processIncomingMessage(
       ? String(parsed.auftrag.beschreibung)
       : messageText;
 
-  const aiWorkItemsRaw: AiWorkItem[] = Array.isArray(
-    parsed.auftrag?.arbeitspositionen,
-  )
-    ? parsed.auftrag.arbeitspositionen
-    : [];
+  const aiWorkItemsRaw: AiWorkItem[] =
+    firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[];
 
   const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
     const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
@@ -13772,14 +13783,15 @@ export async function processIncomingMessage(
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
 
-  const canonicalAiOrderItemsV17_90L88 =
+  const canonicalAiOrderItemsV17_90L88 = Object.freeze(
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
       [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
         .filter(Boolean)
         .join("\n"),
-    );
+    ).map((item) => Object.freeze({ ...item })),
+  ) as unknown as CanonicalAiOrderItemV17_90L88[];
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
@@ -15988,6 +16000,47 @@ export async function processIncomingMessage(
     );
   }
 
+  // V17.90L213: The serialized canonical snapshot is the sole business-data
+  // source for Prisma persistence. Do not persist from parallel mutable
+  // variables after the lock. This closes the last path where correct AI data
+  // could be represented one way in intakeSnapshot but differently in the
+  // order columns or order-item rows.
+  const canonicalPersistenceSourceV17_90L213 =
+    canonicalIntakeSnapshotJsonV2 as typeof canonicalIntakeSnapshotV2;
+  const canonicalPersistItemsV17_90L213 = Object.freeze(
+    (canonicalPersistenceSourceV17_90L213.items || []).map((item) =>
+      Object.freeze({ ...item }),
+    ),
+  );
+  const canonicalPrimaryItemV17_90L213 =
+    canonicalPersistItemsV17_90L213[0] || null;
+  const canonicalTotalPriceV17_90L213 = canonicalPersistItemsV17_90L213.reduce(
+    (sum, item) => sum + Number(item.totalPrice || 0),
+    0,
+  );
+  const canonicalReviewReasonsV17_90L213 = Array.from(
+    new Set(canonicalPersistenceSourceV17_90L213.reviewReasons || []),
+  );
+  const canonicalNeedsReviewV17_90L213 = Boolean(
+    forceReview || canonicalReviewReasonsV17_90L213.length > 0,
+  );
+  const canonicalHinweisLevelV17_90L213 = canonicalReviewReasonsV17_90L213.some(
+    (reason) =>
+      ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
+      reason.startsWith("unit_mismatch:") ||
+      reason.startsWith("currency_") ||
+      reason.startsWith("intake_risk:") ||
+      reason === "canonical_persistence_violation",
+  )
+    ? "warning"
+    : canonicalNeedsReviewV17_90L213
+      ? "info"
+      : parsed.system?.prioritaet === "hoch"
+        ? "important"
+        : canonicalPersistenceSourceV17_90L213.specialNotes
+          ? "info"
+          : "none";
+
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
@@ -16017,28 +16070,36 @@ export async function processIncomingMessage(
       ...(userId ? { userId } : {}),
       dataScope,
       description,
-      serviceName,
+      serviceName: canonicalPrimaryItemV17_90L213?.serviceName || serviceName,
       status: "Offen",
-      priceType: unit,
-      unitPrice,
-      quantity,
-      totalPrice,
+      priceType: canonicalPrimaryItemV17_90L213?.unit || unit,
+      unitPrice: Number(canonicalPrimaryItemV17_90L213?.unitPrice || 0),
+      quantity: Number(canonicalPrimaryItemV17_90L213?.quantity || 0),
+      totalPrice: canonicalTotalPriceV17_90L213,
       currency: intakeValidation.finalCurrency,
       vatRate: intakeVatRate,
       date: new Date(),
       notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
-      specialNotes: finalSpecialNotes,
+      specialNotes: canonicalPersistenceSourceV17_90L213.specialNotes || null,
       intakeSchemaVersion: INTAKE_V2_SCHEMA_VERSION,
       intakeSnapshot: canonicalIntakeSnapshotJsonV2,
-      siteAddressDifferent: Boolean(extractedExecutionAddress),
-      siteName: extractedExecutionAddress?.siteName || null,
-      siteAddress: extractedExecutionAddress?.siteAddress || null,
-      sitePlz: extractedExecutionAddress?.sitePlz || null,
-      siteCity: extractedExecutionAddress?.siteCity || null,
-      siteNote: extractedExecutionAddress?.siteNote || null,
-      needsReview,
-      reviewReasons: allReviewReasons,
-      hinweisLevel,
+      siteAddressDifferent: Boolean(
+        canonicalPersistenceSourceV17_90L213.executionAddress,
+      ),
+      siteName:
+        canonicalPersistenceSourceV17_90L213.executionAddress?.siteName || null,
+      siteAddress:
+        canonicalPersistenceSourceV17_90L213.executionAddress?.siteAddress ||
+        null,
+      sitePlz:
+        canonicalPersistenceSourceV17_90L213.executionAddress?.sitePlz || null,
+      siteCity:
+        canonicalPersistenceSourceV17_90L213.executionAddress?.siteCity || null,
+      siteNote:
+        canonicalPersistenceSourceV17_90L213.executionAddress?.siteNote || null,
+      needsReview: canonicalNeedsReviewV17_90L213,
+      reviewReasons: canonicalReviewReasonsV17_90L213,
+      hinweisLevel: canonicalHinweisLevelV17_90L213,
       mediaUrl: savedMediaPath || allSavedMediaPaths?.[0] || null,
       mediaType:
         savedMediaType ||
@@ -16077,22 +16138,17 @@ export async function processIncomingMessage(
         savedMediaType === "audio"
           ? inputAudioTranscriptionStatus || null
           : null,
-      ...(finalOrderItems.length > 0
+      ...(canonicalPersistItemsV17_90L213.length > 0
         ? {
             items: {
-              create: finalOrderItems.map((item) => {
-                const sourceText = String(
-                  (item as any).sourceText ||
-                    (item as any).evidence ||
-                    item.description ||
-                    "",
-                ).trim();
+              create: canonicalPersistItemsV17_90L213.map((item) => {
+                const sourceText = String(item.sourceText || "").trim();
                 const detectedCurrency = String(
-                  (item as any).detectedCurrency || intakeValidation.finalCurrency,
+                  item.currency || intakeValidation.finalCurrency,
                 ).trim();
                 return {
                   serviceName: item.serviceName,
-                  description: item.description,
+                  description: sourceText || item.serviceName,
                   quantity: item.quantity,
                   unit: item.unit,
                   unitPrice: item.unitPrice,
@@ -16101,16 +16157,18 @@ export async function processIncomingMessage(
                   detectedCurrency: detectedCurrency || null,
                   needsReview: Boolean(item.needsReview),
                   reviewReason: item.reviewReason || null,
-                  sourceFingerprint: createCanonicalSourceFingerprintV17_90L194(
-                    [
-                      sourceText,
-                      item.serviceName,
-                      item.quantity,
-                      item.unit,
-                      item.unitPrice,
-                      detectedCurrency,
-                    ].join("|"),
-                  ),
+                  sourceFingerprint:
+                    item.sourceFingerprint ||
+                    createCanonicalSourceFingerprintV17_90L194(
+                      [
+                        sourceText,
+                        item.serviceName,
+                        item.quantity,
+                        item.unit,
+                        item.unitPrice,
+                        detectedCurrency,
+                      ].join("|"),
+                    ),
                 };
               }),
             },
@@ -16126,20 +16184,54 @@ export async function processIncomingMessage(
 
   const canonicalScalarV17_90L194 = (value: unknown) =>
     String(value ?? "").replace(/\s+/g, " ").trim();
-  const expectedItemFingerprintsV17_90L194 =
-    canonicalIntakeSnapshotV2.items
-      .map((item) => canonicalScalarV17_90L194(item.sourceFingerprint))
-      .sort();
-  const persistedItemFingerprintsV17_90L194 = order.items
-    .map((item: any) => canonicalScalarV17_90L194(item?.sourceFingerprint))
+  const canonicalNumberV17_90L213 = (value: unknown) => {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? Number(number.toFixed(6)) : 0;
+  };
+  const canonicalItemPersistenceKeyV17_90L213 = (item: {
+    serviceName?: unknown;
+    quantity?: unknown;
+    unit?: unknown;
+    unitPrice?: unknown;
+    totalPrice?: unknown;
+    sourceText?: unknown;
+    currency?: unknown;
+    detectedCurrency?: unknown;
+    needsReview?: unknown;
+    reviewReason?: unknown;
+    sourceFingerprint?: unknown;
+  }) =>
+    JSON.stringify({
+      serviceName: canonicalScalarV17_90L194(item.serviceName),
+      quantity: canonicalNumberV17_90L213(item.quantity),
+      unit: canonicalScalarV17_90L194(item.unit),
+      unitPrice: canonicalNumberV17_90L213(item.unitPrice),
+      totalPrice: canonicalNumberV17_90L213(item.totalPrice),
+      sourceText: canonicalScalarV17_90L194(item.sourceText),
+      currency: canonicalScalarV17_90L194(
+        item.currency || item.detectedCurrency,
+      ).toUpperCase(),
+      needsReview: Boolean(item.needsReview),
+      reviewReason: canonicalScalarV17_90L194(item.reviewReason),
+      sourceFingerprint: canonicalScalarV17_90L194(item.sourceFingerprint),
+    });
+  const expectedItemStateV17_90L213 = canonicalPersistItemsV17_90L213
+    .map((item) => canonicalItemPersistenceKeyV17_90L213(item))
+    .sort();
+  const persistedItemStateV17_90L213 = order.items
+    .map((item: any) => canonicalItemPersistenceKeyV17_90L213(item))
     .sort();
   const persistedItemsStableV17_90L194 =
-    expectedItemFingerprintsV17_90L194.length ===
-      persistedItemFingerprintsV17_90L194.length &&
-    expectedItemFingerprintsV17_90L194.every(
-      (fingerprint, index) =>
-        fingerprint === persistedItemFingerprintsV17_90L194[index],
+    expectedItemStateV17_90L213.length === persistedItemStateV17_90L213.length &&
+    expectedItemStateV17_90L213.every(
+      (itemState, index) => itemState === persistedItemStateV17_90L213[index],
     );
+  const expectedReviewReasonsV17_90L213 = JSON.stringify(
+    [...canonicalReviewReasonsV17_90L213].sort(),
+  );
+  const persistedReviewReasonsV17_90L213 = JSON.stringify(
+    [...(Array.isArray(order.reviewReasons) ? order.reviewReasons : [])].sort(),
+  );
   const persistedCanonicalViolationV17_90L194 =
     canonicalScalarV17_90L194(order.customer?.name) !==
       canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.name) ||
@@ -16163,6 +16255,22 @@ export async function processIncomingMessage(
       canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteCity) ||
     canonicalScalarV17_90L194(order.specialNotes) !==
       canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.specialNotes) ||
+    canonicalScalarV17_90L194((order as any).serviceName) !==
+      canonicalScalarV17_90L194(
+        canonicalPrimaryItemV17_90L213?.serviceName || serviceName,
+      ) ||
+    canonicalScalarV17_90L194((order as any).priceType) !==
+      canonicalScalarV17_90L194(canonicalPrimaryItemV17_90L213?.unit || unit) ||
+    canonicalNumberV17_90L213((order as any).unitPrice) !==
+      canonicalNumberV17_90L213(canonicalPrimaryItemV17_90L213?.unitPrice) ||
+    canonicalNumberV17_90L213((order as any).quantity) !==
+      canonicalNumberV17_90L213(canonicalPrimaryItemV17_90L213?.quantity) ||
+    canonicalNumberV17_90L213((order as any).totalPrice) !==
+      canonicalNumberV17_90L213(canonicalTotalPriceV17_90L213) ||
+    Boolean(order.needsReview) !== canonicalNeedsReviewV17_90L213 ||
+    persistedReviewReasonsV17_90L213 !== expectedReviewReasonsV17_90L213 ||
+    canonicalScalarV17_90L194((order as any).hinweisLevel) !==
+      canonicalScalarV17_90L194(canonicalHinweisLevelV17_90L213) ||
     !persistedItemsStableV17_90L194;
 
   if (persistedCanonicalViolationV17_90L194) {
