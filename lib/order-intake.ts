@@ -2106,6 +2106,106 @@ function trimDanglingExecutionSiteConnectorV17_90L208(args: {
   return cleanExecutionSiteNameCandidate(trimmed) || siteName;
 }
 
+
+// V17.90L224: First-AI execution-address lock. Populated structured fields
+// are copied once and never cleaned, enriched, replaced or removed later.
+// Evidence/confidence problems become review metadata only.
+function buildHardLockedAiExecutionAddressV17_90L224(args: {
+  aiExecutionAddress: any;
+  customer?: {
+    customerAddress?: string | null;
+    customerPlz?: string | null;
+    customerCity?: string | null;
+  };
+  originalText?: string | null;
+}): {
+  address: {
+    siteName: string | null;
+    siteAddress: string | null;
+    sitePlz: string | null;
+    siteCity: string | null;
+    siteNote: string | null;
+  } | null;
+  needsReview: boolean;
+} {
+  const raw = args.aiExecutionAddress;
+  if (!raw || raw.ist_abweichend !== true) {
+    return { address: null, needsReview: false };
+  }
+
+  const siteName = compactText(raw.name || "") || null;
+  const street = compactText(raw.strasse || "") || null;
+  const houseNumber = compactText(raw.hausnummer || "") || null;
+  const siteAddress = street
+    ? [
+        street,
+        houseNumber &&
+        !new RegExp(`\\b${escapeRegExpLocal(houseNumber)}\\b`, "i").test(
+          street,
+        )
+          ? houseNumber
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : null;
+  const sitePlz = compactText(raw.plz || "") || null;
+  const siteCity = compactText(raw.ort || "") || null;
+  const evidence = normalizeStructuredTextBlock(
+    raw.evidence || raw.sourceText || raw.source_text || raw.quelle,
+  );
+  const confidence = normalizeStructuredConfidenceLevel(
+    raw.confidence ||
+      raw.confidence_level ||
+      raw.address_confidence ||
+      raw.executionConfidence,
+  );
+  const hasAnyValue = Boolean(siteName || siteAddress || sitePlz || siteCity);
+  const evidenceBacked = Boolean(
+    evidence &&
+      structuredEvidenceMatchesOriginalText(evidence, args.originalText || ""),
+  );
+  const originalKey = normalizedEvidenceKey(args.originalText || "");
+  const allFieldsBacked = [siteName, siteAddress, sitePlz, siteCity]
+    .filter(Boolean)
+    .every((value) => {
+      const key = normalizedEvidenceKey(value);
+      return Boolean(key && originalKey.includes(key));
+    });
+  const sameAsCustomerWithoutOwnName = Boolean(
+    !siteName &&
+      sameStructuredAddress({
+        aStreet: siteAddress,
+        aPlz: sitePlz,
+        aCity: siteCity,
+        bStreet: args.customer?.customerAddress,
+        bPlz: args.customer?.customerPlz,
+        bCity: args.customer?.customerCity,
+      }),
+  );
+  const missingCoreField = Boolean(!siteAddress || !sitePlz || !siteCity);
+
+  return {
+    address: hasAnyValue
+      ? {
+          siteName,
+          siteAddress,
+          sitePlz,
+          siteCity,
+          siteNote: null,
+        }
+      : null,
+    needsReview: Boolean(
+      !hasAnyValue ||
+        confidence === "niedrig" ||
+        !evidenceBacked ||
+        !allFieldsBacked ||
+        sameAsCustomerWithoutOwnName ||
+        missingCoreField,
+    ),
+  };
+}
+
 function extractAiStructuredExecutionAddress(
   aiExecutionAddress: any,
   customer?: {
@@ -4110,6 +4210,88 @@ function buildOnsiteContactHintV17_90L86(args: {
     contactName,
     preferredChannel,
     noPhoneCall,
+  };
+}
+
+
+// V17.90L224: First-AI on-site contact lock. The structured name, phone,
+// channel and no-call flag are preserved exactly as business values. Evidence
+// checks may request review, but they may not delete or replace the contact.
+function buildHardLockedAiOnsiteContactV17_90L224(args: {
+  rawText: string;
+  candidateCustomerPhone?: string | null;
+  aiContact?: AiOnsiteContactV17_90L86 | null;
+}): { contact: OnsiteContactHint; needsReview: boolean } {
+  const aiContact = args.aiContact;
+  if (!aiContact || aiContact.vorhanden === false) {
+    return {
+      contact: {
+        hint: null,
+        phone: null,
+        phoneBelongsToSiteContact: false,
+        contactName: null,
+        preferredChannel: null,
+        noPhoneCall: false,
+      },
+      needsReview: false,
+    };
+  }
+
+  const contactName = compactText(aiContact.name || "") || null;
+  const phone = compactText(aiContact.telefon || aiContact.phone || "") || null;
+  const preferredChannel = normalizeAiContactChannelV17_90L86(
+    aiContact.kanal || aiContact.channel,
+  );
+  const noPhoneCall = Boolean(
+    aiContact.nicht_anrufen ?? aiContact.no_phone_call ?? false,
+  );
+  const candidateDigits = normalizePhoneDigits(args.candidateCustomerPhone);
+  const phoneDigits = normalizePhoneDigits(phone);
+  const channelLabel =
+    preferredChannel === "sms"
+      ? "nur SMS"
+      : preferredChannel === "whatsapp"
+        ? "nur WhatsApp"
+        : preferredChannel === "call"
+          ? "anrufen"
+          : null;
+  const hintParts = [
+    contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
+    phone ? `Tel. ${phone}` : null,
+    channelLabel,
+    noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
+  ].filter(Boolean);
+  const hasIdentity = Boolean(contactName || phone);
+
+  const evidence = normalizeStructuredTextBlock(aiContact.evidence);
+  const evidenceBacked = Boolean(
+    evidence && structuredEvidenceMatchesOriginalText(evidence, args.rawText),
+  );
+  const nameBacked = !contactName || Boolean(
+    evidence && sourceSupportsContactNameV17_90L86(evidence, contactName),
+  );
+  const phoneBacked = !phone || Boolean(
+    evidence && sourceContainsPhoneV17_90L86(evidence, phone),
+  );
+
+  return {
+    contact: {
+      hint: hasIdentity ? hintParts.join(" · ") : null,
+      phone,
+      phoneBelongsToSiteContact: Boolean(
+        candidateDigits &&
+          phoneDigits &&
+          (phoneDigits === candidateDigits ||
+            phoneDigits.endsWith(candidateDigits) ||
+            candidateDigits.endsWith(phoneDigits)),
+      ),
+      contactName,
+      preferredChannel,
+      noPhoneCall,
+    },
+    needsReview: Boolean(
+      hasIdentity && (!evidenceBacked || !nameBacked || !phoneBacked),
+    ),
   };
 }
 
@@ -8311,6 +8493,348 @@ function detectContextualFlatPriceConflictV17_90L223(args: {
     }
     const lineKey = canonicalServiceKeyV17_90L88(line);
     return serviceTokens.some((token) => lineKey.includes(token));
+  });
+}
+
+
+// V17.90L224: Hard first-AI item lock.
+// This mapper copies the structured AI business fields exactly once. It may
+// only add review metadata and derive a total from the unchanged quantity and
+// unit price. It never renames, removes, reorders, re-units or re-quantifies a
+// structured AI row. Any later parser/validator remains diagnostic-only.
+function buildHardLockedAiOrderItemsV17_90L224(args: {
+  rawItems: readonly any[];
+  fallbackCurrency: string;
+  contextText?: string | null;
+}): CanonicalAiOrderItemV17_90L88[] {
+  const contextLines = splitSourceEvidenceLinesV17_90L3(
+    String(args.contextText || ""),
+  )
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const hasBoundedFlatPerUnitConflict = (item: {
+    serviceName: string;
+    sourceText: string;
+    quantity: number;
+    unitPrice: number;
+  }): boolean => {
+    const direct = detectFlatPriceStructureV17_90L221(item.sourceText);
+    if (direct.hasConflict) return true;
+
+    const genericActionTokens = new Set([
+      "reinigen",
+      "reinigung",
+      "komplett",
+      "machen",
+      "arbeiten",
+      "arbeit",
+      "service",
+    ]);
+    const serviceTokens = canonicalServiceKeyV17_90L88(item.serviceName)
+      .split(/\s+/g)
+      .filter(
+        (token) => token.length >= 4 && !genericActionTokens.has(token),
+      );
+    const sourceKey = canonicalEvidenceKeyV17_90L88(item.sourceText);
+
+    const anchorIndexes = contextLines
+      .map((line, index) => {
+        const lineKey = canonicalEvidenceKeyV17_90L88(line);
+        // Anchor only an exact evidence line or a line carrying the service
+        // identity. A generic amount-only continuation such as
+        // "Gesamtpreis pauschal CHF 640" must not become an anchor, otherwise
+        // the following unrelated priced service could create a false conflict.
+        const sameEvidence = Boolean(
+          sourceKey && lineKey && sourceKey === lineKey,
+        );
+        const lineServiceKey = canonicalServiceKeyV17_90L88(line);
+        const tokenMatch =
+          serviceTokens.length > 0 &&
+          serviceTokens.some((token) => lineServiceKey.includes(token));
+        return sameEvidence || tokenMatch ? index : -1;
+      })
+      .filter((index) => index >= 0);
+
+    if (anchorIndexes.length === 0) {
+      const contextual = detectContextualFlatPriceConflictV17_90L223({
+        serviceName: item.serviceName,
+        sourceText: item.sourceText,
+        contextText: args.contextText,
+        unitPrice: item.unitPrice,
+      });
+      return contextual;
+    }
+
+    return anchorIndexes.some((anchorIndex) => {
+      const window = contextLines.slice(
+        Math.max(0, anchorIndex - 1),
+        Math.min(contextLines.length, anchorIndex + 2),
+      );
+      const structures = window.map((line) =>
+        detectFlatPriceStructureV17_90L221(line),
+      );
+      const hasFlatOrTotal = structures.some(
+        (structure) =>
+          structure.hasFlatPriceMarker || structure.hasTotalPriceMarker,
+      );
+      const hasPerUnit = structures.some(
+        (structure) => structure.hasExplicitPerUnitRelation,
+      );
+      return hasFlatOrTotal && hasPerUnit;
+    });
+  };
+
+  return (Array.isArray(args.rawItems) ? args.rawItems : []).map(
+    (raw, canonicalOrder) => {
+      const rawServiceName = compactText(
+        raw?.serviceName ||
+          raw?.name ||
+          raw?.action_name ||
+          raw?.service_name ||
+          raw?.matched_service_name ||
+          "",
+      );
+      const sourceText = compactText(
+        raw?.sourceText ||
+          raw?.source_text ||
+          raw?.evidence ||
+          raw?.raw ||
+          raw?.description ||
+          "",
+      );
+      const serviceName = rawServiceName || sourceText || "Leistung prüfen";
+      const quantity = parsePositiveCanonicalNumberV17_90L89(
+        raw?.quantity ?? raw?.menge,
+      );
+      const unit = compactText(raw?.unit ?? raw?.einheit ?? "");
+      const unitPrice = parsePositiveCanonicalNumberV17_90L89(
+        raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
+      );
+      const detectedCurrency =
+        compactText(
+          raw?.currency ||
+            raw?.detectedCurrency ||
+            detectCurrencyFromText(sourceText) ||
+            args.fallbackCurrency ||
+            "",
+        ).toUpperCase() || null;
+      const confidence = compactText(raw?.confidence || "");
+      const firstAiNeedsReview = Boolean(
+        raw?.needsReview === true || raw?.needs_review === true,
+      );
+      const firstAiReviewReason = compactText(
+        raw?.reviewReason || raw?.review_reason || "",
+      );
+
+      const flatStructure = detectFlatPriceStructureV17_90L221(sourceText);
+      const flatPerUnitConflict = hasBoundedFlatPerUnitConflict({
+        serviceName,
+        sourceText,
+        quantity,
+        unitPrice,
+      });
+      const aiUnitType = getServiceUnitType(unit);
+      const perUnitWithFlatAiUnit = Boolean(
+        quantity > 1 &&
+          aiUnitType === "flat" &&
+          flatStructure.hasExplicitPerUnitRelation,
+      );
+      const multiQuantityFlatTotalNeedsReview = Boolean(
+        quantity > 1 &&
+          aiUnitType === "flat" &&
+          (flatStructure.hasFlatPriceMarker ||
+            flatStructure.hasTotalPriceMarker),
+      );
+      const missingName = !rawServiceName;
+      const missingEvidence = !sourceText;
+      const missingQuantity = quantity <= 0;
+      const missingUnit = !unit;
+      const missingPrice = unitPrice <= 0;
+      const unsupportedCurrency = Boolean(
+        detectedCurrency && !["CHF", "EUR"].includes(detectedCurrency),
+      );
+      const foreignCurrency = Boolean(
+        detectedCurrency &&
+          args.fallbackCurrency &&
+          detectedCurrency !== String(args.fallbackCurrency).toUpperCase(),
+      );
+
+      const needsReview = Boolean(
+        firstAiNeedsReview ||
+          flatPerUnitConflict ||
+          perUnitWithFlatAiUnit ||
+          multiQuantityFlatTotalNeedsReview ||
+          missingName ||
+          missingEvidence ||
+          missingQuantity ||
+          missingUnit ||
+          missingPrice ||
+          unsupportedCurrency ||
+          foreignCurrency,
+      );
+      const reviewReason = firstAiNeedsReview
+        ? firstAiReviewReason || `ai_review_required:${serviceName}`
+        : flatPerUnitConflict
+          ? `flat_price_structure_conflict:${serviceName}`
+          : perUnitWithFlatAiUnit
+            ? `unit_price_relation_conflict:${serviceName}`
+            : multiQuantityFlatTotalNeedsReview
+              ? `flat_quantity_review:${serviceName}`
+              : missingName
+              ? "ai_service_name_missing"
+              : missingEvidence
+                ? `item_evidence_missing:${serviceName}`
+                : missingPrice
+                  ? `price_unclear:${serviceName}`
+                  : missingQuantity
+                    ? `quantity_review:${serviceName}`
+                    : missingUnit
+                      ? `unit_missing_in_text:${serviceName}`
+                      : unsupportedCurrency
+                        ? `currency_unsupported:${serviceName}:${detectedCurrency}`
+                        : foreignCurrency
+                          ? `item_currency_mismatch:${serviceName}:${detectedCurrency}:${args.fallbackCurrency}`
+                          : null;
+
+      const explicitTotal = parsePositiveCanonicalNumberV17_90L89(
+        raw?.totalPrice ?? raw?.total_price,
+      );
+      const calculatedTotal =
+        quantity > 0 && unitPrice > 0
+          ? roundIntakeMoney(quantity * unitPrice)
+          : 0;
+
+      return {
+        serviceName,
+        description: sourceText,
+        quantity,
+        unit: unit || "Einheit prüfen",
+        unitPrice,
+        totalPrice: needsReview ? 0 : explicitTotal || calculatedTotal,
+        needsReview,
+        reviewReason,
+        sourceText: sourceText || null,
+        evidence: sourceText || null,
+        detectedCurrency,
+        canonicalOrder,
+        confidence,
+        unitSource: unit ? "ai" : "missing",
+      } as CanonicalAiOrderItemV17_90L88;
+    },
+  );
+}
+
+function hardLockedCanonicalItemsEqualV17_90L224(
+  left: readonly CanonicalAiOrderItemV17_90L88[],
+  right: readonly StructuredOrderItemSnapshotV17_90L76[],
+  fallbackCurrency: string,
+): boolean {
+  if (left.length !== right.length) return false;
+
+  const scalar = (value: unknown) =>
+    String(value ?? "").replace(/\s+/g, " ").trim();
+  const number = (value: unknown) => {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(6)) : 0;
+  };
+
+  return left.every((expected, index) => {
+    const actual = right[index];
+    if (!actual) return false;
+    return (
+      scalar(actual.serviceName) === scalar(expected.serviceName) &&
+      number(actual.quantity) === number(expected.quantity) &&
+      scalar(actual.unit) === scalar(expected.unit) &&
+      number(actual.unitPrice) === number(expected.unitPrice) &&
+      number(actual.totalPrice) === number(expected.totalPrice) &&
+      scalar(actual.sourceText || actual.evidence || actual.description) ===
+        scalar(expected.sourceText || expected.evidence || expected.description) &&
+      scalar(
+        (actual as any).detectedCurrency ||
+          (actual as any).currency ||
+          fallbackCurrency,
+      ).toUpperCase() ===
+        scalar(expected.detectedCurrency || fallbackCurrency).toUpperCase() &&
+      Boolean(actual.needsReview) === Boolean(expected.needsReview) &&
+      scalar(actual.reviewReason) === scalar(expected.reviewReason)
+    );
+  });
+}
+
+function hardLockedScalarV17_90L224(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function hardLockedExecutionAddressEqualV17_90L224(
+  expected:
+    | {
+        siteName: string | null;
+        siteAddress: string | null;
+        sitePlz: string | null;
+        siteCity: string | null;
+        siteNote: string | null;
+      }
+    | null,
+  actual: any,
+): boolean {
+  if (!expected && !actual) return true;
+  if (!expected || !actual) return false;
+  return (
+    hardLockedScalarV17_90L224(actual.siteName) ===
+      hardLockedScalarV17_90L224(expected.siteName) &&
+    hardLockedScalarV17_90L224(actual.siteAddress) ===
+      hardLockedScalarV17_90L224(expected.siteAddress) &&
+    hardLockedScalarV17_90L224(actual.sitePlz) ===
+      hardLockedScalarV17_90L224(expected.sitePlz) &&
+    hardLockedScalarV17_90L224(actual.siteCity) ===
+      hardLockedScalarV17_90L224(expected.siteCity) &&
+    hardLockedScalarV17_90L224(actual.siteNote) ===
+      hardLockedScalarV17_90L224(expected.siteNote)
+  );
+}
+
+function hardLockedOnsiteContactEqualV17_90L224(
+  expected: OnsiteContactHint,
+  actual: any,
+): boolean {
+  const expectedPresent = Boolean(expected.hint);
+  const actualPresent = Boolean(actual);
+  if (!expectedPresent && !actualPresent) return true;
+  if (!expectedPresent || !actualPresent) return false;
+  return (
+    hardLockedScalarV17_90L224(actual.name) ===
+      hardLockedScalarV17_90L224(expected.contactName) &&
+    hardLockedScalarV17_90L224(actual.phone) ===
+      hardLockedScalarV17_90L224(expected.phone) &&
+    hardLockedScalarV17_90L224(actual.channel) ===
+      hardLockedScalarV17_90L224(expected.preferredChannel) &&
+    Boolean(actual.noPhoneCall) === Boolean(expected.noPhoneCall) &&
+    hardLockedScalarV17_90L224(actual.hint) ===
+      hardLockedScalarV17_90L224(expected.hint)
+  );
+}
+
+function roleDiagnosticOverlapsLockedServiceV17_90L224(
+  value: unknown,
+  items: readonly CanonicalAiOrderItemV17_90L88[],
+): boolean {
+  const candidate = canonicalEvidenceKeyV17_90L88(value);
+  if (!candidate) return false;
+  return items.some((item) => {
+    const evidence = canonicalEvidenceKeyV17_90L88(
+      item.sourceText || item.evidence || item.description,
+    );
+    const name = canonicalEvidenceKeyV17_90L88(item.serviceName);
+    return Boolean(
+      (evidence &&
+        (evidence === candidate ||
+          evidence.includes(candidate) ||
+          candidate.includes(evidence))) ||
+        (name &&
+          candidate.length >= 8 &&
+          (candidate === name || candidate.includes(name)))
+    );
   });
 }
 
@@ -13151,18 +13675,13 @@ export async function processIncomingMessage(
   // first-AI boundary. Later validators may only add review diagnostics; they
   // never become a second source for name, quantity, unit, price or evidence.
   const firstAiCanonicalItemsSnapshotV17_90L222 = Object.freeze(
-    buildCanonicalAiOrderItemsV17_90L88(
-      firstAiWorkItemsSnapshotV17_90L213 as unknown as any[],
-      translationText,
-      [
-        messageText,
-        translationText,
-        parsed.auftrag?.beschreibung,
-        parsed.auftrag?.titel,
-      ]
+    buildHardLockedAiOrderItemsV17_90L224({
+      rawItems: firstAiWorkItemsSnapshotV17_90L213 as unknown as any[],
+      fallbackCurrency: intakeCurrency,
+      contextText: [messageText, translationText]
         .filter(Boolean)
         .join("\n"),
-    ).map((item) => Object.freeze({ ...item })),
+    }).map((item) => Object.freeze({ ...item })),
   ) as unknown as readonly CanonicalAiOrderItemV17_90L88[];
 
   // V17.90L214: Seal every structured AI role immediately. The later role
@@ -13254,177 +13773,9 @@ export async function processIncomingMessage(
   const readOnlySpecialNoteRoleFindingsV17_90L106 =
     finalAiRoleReviewV17_90L216.findings;
 
-  // V17.90L216: The final AI consistency pass may only re-role existing
-  // statements, suppress a proven semantic duplicate, or add an exact quote
-  // from original/translation evidence. The resulting snapshot is sealed
-  // immediately; every downstream parser remains read-only.
-  const finalAiRoleBucketsV17_90L215: Record<
-    FinalAiStructuredRoleV17_90L215,
-    string[]
-  > = {
-    safety: [...firstAiRoleSnapshotV17_90L214.safety],
-    access: [...firstAiRoleSnapshotV17_90L214.access],
-    parking: [...firstAiRoleSnapshotV17_90L214.parking],
-    other: [...firstAiRoleSnapshotV17_90L214.other],
-    ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
-  };
-  for (const finding of readOnlySpecialNoteRoleFindingsV17_90L106) {
-    const sourceBucket = finalAiRoleBucketsV17_90L215[finding.currentRole];
-    const sourceIndex = sourceBucket.findIndex(
-      (line) =>
-        normalizeRoleReviewTextV17_90L106(line) ===
-        normalizeRoleReviewTextV17_90L106(finding.text),
-    );
-    if (sourceIndex < 0) continue;
-    const [exactText] = sourceBucket.splice(sourceIndex, 1);
-    const targetBucket = finalAiRoleBucketsV17_90L215[finding.expectedRole];
-    if (
-      !targetBucket.some(
-        (line) =>
-          normalizeRoleReviewTextV17_90L106(line) ===
-          normalizeRoleReviewTextV17_90L106(exactText),
-      )
-    ) {
-      targetBucket.push(exactText);
-    }
-  }
-  for (const suppression of finalAiRoleReviewV17_90L216.suppressions) {
-    const bucket = finalAiRoleBucketsV17_90L215[suppression.currentRole];
-    const index = bucket.findIndex(
-      (line) =>
-        normalizeRoleReviewTextV17_90L106(line) ===
-        normalizeRoleReviewTextV17_90L106(suppression.text),
-    );
-    if (index >= 0) bucket.splice(index, 1);
-  }
-
-  for (const addition of finalAiRoleReviewV17_90L216.additions) {
-    const alreadyPresent = (
-      Object.values(finalAiRoleBucketsV17_90L215) as string[][]
-    ).some((bucket) =>
-      bucket.some((line) =>
-        canonicalRoleLinesEquivalentV17_90L201(line, addition.text),
-      ),
-    );
-    if (!alreadyPresent) {
-      finalAiRoleBucketsV17_90L215[addition.expectedRole].push(addition.text);
-    }
-  }
-
-  // V17.90L218: Before the immutable lock, correct only role placement for
-  // access evidence that the final AI already preserved in another bucket.
-  // No text is rewritten: the exact statement is moved as-is. This closes the
-  // generic case where an entrance/route is present but classified as other or
-  // ordinary while key/code facts are already correctly recognised.
-  for (const sourceRole of ["ordinary", "other"] as const) {
-    const sourceBucket = finalAiRoleBucketsV17_90L215[sourceRole];
-    for (let index = sourceBucket.length - 1; index >= 0; index -= 1) {
-      const exactText = sourceBucket[index];
-      if (accessEvidenceKindsV17_90L217(exactText).size === 0) continue;
-
-      sourceBucket.splice(index, 1);
-      if (
-        !finalAiRoleBucketsV17_90L215.access.some((line) =>
-          canonicalRoleLinesEquivalentV17_90L201(line, exactText),
-        )
-      ) {
-        finalAiRoleBucketsV17_90L215.access.push(exactText);
-      }
-    }
-  }
-
-  // V17.90L218: Complete only missing access fact classes from bounded, exact
-  // source evidence before the final lock. canonicalizeStructuredRoleLines
-  // isolates atomic access spans even when WhatsApp flattened all line breaks;
-  // the older sentence extractor remains as a secondary source. Candidates
-  // containing price/contact data are rejected and may only fill a still
-  // missing class (route, key, code or badge).
-  const representedAccessKindsV17_90L217 = new Set(
-    finalAiRoleBucketsV17_90L215.access.flatMap((line) =>
-      [...accessEvidenceKindsV17_90L217(line)],
-    ),
-  );
-  const exactAccessCandidatesV17_90L217 = dedupeTranslatedRoleVariantsV17_90L201(
-    [
-      ...canonicalizeStructuredRoleLinesV17_90L195(
-        [messageText, translationText],
-        "access",
-      ),
-      ...extractTranslatedRoleCandidatesV17_90L202(messageText, "access"),
-      ...extractTranslatedRoleCandidatesV17_90L202(translationText, "access"),
-    ],
-    translationText,
-  );
-  for (const candidate of exactAccessCandidatesV17_90L217) {
-    const compactCandidate = String(candidate || "").replace(/\s+/g, " ").trim();
-    if (
-      !compactCandidate ||
-      compactCandidate.length > 220 ||
-      /\b(?:CHF|EUR|USD|GBP)\b/i.test(compactCandidate) ||
-      /(?:@|https?:\/\/)/i.test(compactCandidate) ||
-      /\b(?:\+?\d[\d\s()./-]{7,}\d)\b/.test(compactCandidate)
-    ) {
-      continue;
-    }
-
-    const candidateKinds = accessEvidenceKindsV17_90L217(compactCandidate);
-    const missingKinds = [...candidateKinds].filter(
-      (kind) => !representedAccessKindsV17_90L217.has(kind),
-    );
-    if (missingKinds.length === 0) continue;
-
-    const alreadyPresent = finalAiRoleBucketsV17_90L215.access.some((line) =>
-      canonicalRoleLinesEquivalentV17_90L201(line, compactCandidate),
-    );
-    if (alreadyPresent) continue;
-
-    finalAiRoleBucketsV17_90L215.access.push(compactCandidate);
-    missingKinds.forEach((kind) => representedAccessKindsV17_90L217.add(kind));
-  }
-
-  // V17.90L217: A structured appointment owns its pre-announcement. The same
-  // minutes/channel instruction must not survive as an additional ordinary
-  // hint, while independent contact prohibitions remain untouched.
-  finalAiRoleBucketsV17_90L215.ordinary =
-    finalAiRoleBucketsV17_90L215.ordinary.filter(
-      (line) =>
-        !firstAiAppointmentHintsV17_90L216.some((appointment) =>
-          ordinaryHintCoveredByAppointmentV17_90L217(line, appointment),
-        ),
-    );
-
-  const finalAiRoleSnapshotV17_90L215 = Object.freeze({
-    safety: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.safety,
-        translationText,
-      ),
-    ),
-    access: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.access,
-        translationText,
-      ),
-    ),
-    parking: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.parking,
-        translationText,
-      ),
-    ),
-    other: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.other,
-        translationText,
-      ),
-    ),
-    ordinary: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.ordinary,
-        translationText,
-      ),
-    ),
-  });
+  // V17.90L224: The second role checker is diagnostic-only. Its findings are
+  // never applied to the first-AI buckets, so it cannot move, suppress, add or
+  // rewrite any persisted business fact.
 
   // V17.90L222: One global first-AI business contract. Service rows,
   // appointments and role texts are now sealed together at one boundary.
@@ -13433,7 +13784,10 @@ export async function processIncomingMessage(
   const firstAiGlobalCanonicalContractV17_90L222 = Object.freeze({
     items: firstAiCanonicalItemsSnapshotV17_90L222,
     appointments: firstAiAppointmentHintsV17_90L216,
-    roles: finalAiRoleSnapshotV17_90L215,
+    // V17.90L224: The first structured AI roles are the immutable source.
+    // The later role checker is diagnostic-only and may never move, suppress or
+    // add a persisted fact.
+    roles: firstAiRoleSnapshotV17_90L214,
     systemNeedsReview: firstAiSystemNeedsReviewV17_90L223,
   });
 
@@ -13461,20 +13815,20 @@ export async function processIncomingMessage(
         source: addition.source,
         reason: redactIntakeDiagnosticText(addition.reason, 220),
       })),
-      finalRoles: {
-        safety: finalAiRoleSnapshotV17_90L215.safety.map((line) =>
+      persistedRoles: {
+        safety: firstAiRoleSnapshotV17_90L214.safety.map((line) =>
           redactIntakeDiagnosticText(line, 320),
         ),
-        access: finalAiRoleSnapshotV17_90L215.access.map((line) =>
+        access: firstAiRoleSnapshotV17_90L214.access.map((line) =>
           redactIntakeDiagnosticText(line, 320),
         ),
-        parking: finalAiRoleSnapshotV17_90L215.parking.map((line) =>
+        parking: firstAiRoleSnapshotV17_90L214.parking.map((line) =>
           redactIntakeDiagnosticText(line, 320),
         ),
-        other: finalAiRoleSnapshotV17_90L215.other.map((line) =>
+        other: firstAiRoleSnapshotV17_90L214.other.map((line) =>
           redactIntakeDiagnosticText(line, 320),
         ),
-        ordinary: finalAiRoleSnapshotV17_90L215.ordinary.map((line) =>
+        ordinary: firstAiRoleSnapshotV17_90L214.ordinary.map((line) =>
           redactIntakeDiagnosticText(line, 320),
         ),
       },
@@ -13498,11 +13852,13 @@ export async function processIncomingMessage(
   // Hauswart Meier
   // Tel. 079 123 45 67
   // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
-  let onsiteContactHint = extractOnsiteContactHint(
-    messageText,
-    kundeData.telefon || null,
-    parsed.auftrag?.kontakt_vor_ort || null,
-  );
+  const firstAiOnsiteContactLockV17_90L224 =
+    buildHardLockedAiOnsiteContactV17_90L224({
+      rawText: messageText,
+      candidateCustomerPhone: kundeData.telefon || null,
+      aiContact: parsed.auftrag?.kontakt_vor_ort || null,
+    });
+  let onsiteContactHint = firstAiOnsiteContactLockV17_90L224.contact;
   if (onsiteContactHint.phoneBelongsToSiteContact) {
     console.log(
       `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
@@ -13709,21 +14065,14 @@ export async function processIncomingMessage(
   kundeData.email = canonicalBillingEmailV17_90L196;
   billingEvidence.email = canonicalBillingEmailV17_90L196;
 
-  // A phone-only AI "on-site contact" that is identical to the bounded billing
-  // phone is not an on-site person. Keller-style "bitte vorher anrufen" remains
-  // an appointment/communication instruction, while the office number stays on
-  // the billing customer.
-  if (
+  // V17.90L224: A possible billing/on-site phone collision is a review finding
+  // only. The structured AI contact is not silently deleted or rewritten.
+  const onsiteContactBillingCollisionV17_90L224 = Boolean(
     !onsiteContactHint.contactName &&
-    normalizePhoneDigits(onsiteContactHint.phone) &&
-    normalizePhoneDigits(onsiteContactHint.phone) ===
-      normalizePhoneDigits(canonicalBillingPhoneV17_90L195)
-  ) {
-    onsiteContactHint = buildOnsiteContactHintV17_90L86({
-      source: messageText,
-      candidateCustomerPhone: canonicalBillingPhoneV17_90L195,
-    });
-  }
+      normalizePhoneDigits(onsiteContactHint.phone) &&
+      normalizePhoneDigits(onsiteContactHint.phone) ===
+        normalizePhoneDigits(canonicalBillingPhoneV17_90L195),
+  );
 
   function looksLikeWeakCityOnlyFromWorkText(
     kundeData: any,
@@ -16227,109 +16576,80 @@ export async function processIncomingMessage(
   );
 
 
-  // V17.90L88: Absolute persistence boundary. Restore the validated semantic
-  // LLM rows after every legacy repair/validator pass. The later pipeline may
-  // keep review flags, but it may no longer silently delete Anfahrt, shorten
-  // service actions or attach a neighbouring source line.
-  finalOrderItems = reconcileWithCanonicalAiItemsV17_90L88(
-    canonicalAiOrderItemsV17_90L88,
-    finalOrderItems,
-    intakeValidation.finalCurrency,
-    messageText,
+  // V17.90L224: Hard persistence boundary directly from the first structured
+  // AI contract. Every previous validator/repair path above is shadow-only.
+  // From this point the exact AI rows are copied without semantic rewriting;
+  // only review metadata already attached at the boundary is allowed. If the
+  // first AI returned no row at all, an evidence-bound rescue remains possible,
+  // but it is forced into review and can never become an automatic billing row.
+  const hardLockedCanonicalItemsV17_90L224 = Object.freeze(
+    (firstAiGlobalCanonicalContractV17_90L222.items.length > 0
+      ? [...firstAiGlobalCanonicalContractV17_90L222.items]
+      : canonicalAiOrderItemsV17_90L88.map((item) => ({
+          ...item,
+          totalPrice: 0,
+          needsReview: true,
+          reviewReason:
+            item.reviewReason || `ai_items_missing_evidence_rescue:${item.serviceName}`,
+        }))
+    ).map((item) => Object.freeze({ ...item })),
+  ) as unknown as readonly CanonicalAiOrderItemV17_90L88[];
+
+  finalOrderItems = Object.freeze(
+    [...hardLockedCanonicalItemsV17_90L224]
+      .sort((left, right) => left.canonicalOrder - right.canonicalOrder)
+      .map((item) => Object.freeze({
+        serviceName: item.serviceName,
+        description: item.sourceText || item.description,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        needsReview: item.needsReview,
+        reviewReason: item.reviewReason,
+        sourceText: item.sourceText,
+        evidence: item.evidence || item.sourceText,
+        detectedCurrency: item.detectedCurrency,
+      })),
+  ) as unknown as typeof finalOrderItems;
+
+  const canonicalPersistenceViolationV17_90L98 =
+    !hardLockedCanonicalItemsEqualV17_90L224(
+      hardLockedCanonicalItemsV17_90L224,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+    );
+  const canonicalPostLockActiveV17_90L209 = Boolean(
+    hardLockedCanonicalItemsV17_90L224.length > 0 &&
+      !canonicalPersistenceViolationV17_90L98,
   );
+
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
     "05b_canonical_lock",
     {
-      canonicalCount: canonicalAiOrderItemsV17_90L88.length,
-      stable: canonicalItemsStableAfterValidationV17_90L89(
-        canonicalAiOrderItemsV17_90L88,
-        finalOrderItems,
-        intakeValidation.finalCurrency,
-      ),
+      canonicalCount: hardLockedCanonicalItemsV17_90L224.length,
+      stable: canonicalPostLockActiveV17_90L209,
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
-  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
-    detectedCurrencies: intakeValidation.detectedCurrencies,
-    finalCurrency: intakeValidation.finalCurrency,
-  });
-  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
-    finalOrderItems,
-    messageText,
-    intakeValidation.finalCurrency,
-  );
-
-  // V17.90L98: Final source-of-truth invariant. No step after the canonical
-  // lock may silently alter a first-AI row. If a later amount/currency guard
-  // changed one, restore the canonical set once more. Only a still-unresolved
-  // invariant becomes a visible blocker; no wrong values are persisted quietly.
-  let canonicalPersistenceViolationV17_90L98 = false;
-  if (
-    canonicalAiOrderItemsV17_90L88.length > 0 &&
-    !canonicalItemsStableAfterValidationV17_90L89(
-      canonicalAiOrderItemsV17_90L88,
-      finalOrderItems,
-      intakeValidation.finalCurrency,
-    )
-  ) {
-    finalOrderItems = reconcileWithCanonicalAiItemsV17_90L88(
-      canonicalAiOrderItemsV17_90L88,
-      finalOrderItems,
-      intakeValidation.finalCurrency,
-      messageText,
-    );
-    finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
-      detectedCurrencies: intakeValidation.detectedCurrencies,
-      finalCurrency: intakeValidation.finalCurrency,
-    });
-    finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
-      finalOrderItems,
-      messageText,
-      intakeValidation.finalCurrency,
-    );
-    canonicalPersistenceViolationV17_90L98 =
-      !canonicalItemsStableAfterValidationV17_90L89(
-        canonicalAiOrderItemsV17_90L88,
-        finalOrderItems,
-        intakeValidation.finalCurrency,
-      );
-  }
-  const canonicalPostLockActiveV17_90L209 = Boolean(
-    canonicalAiOrderItemsV17_90L88.length > 0 &&
-      !canonicalPersistenceViolationV17_90L98 &&
-      canonicalItemsStableAfterValidationV17_90L89(
-        canonicalAiOrderItemsV17_90L88,
-        finalOrderItems,
-        intakeValidation.finalCurrency,
-      ),
-  );
-
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
     "05c_final_source_of_truth",
     {
-      canonicalCount: canonicalAiOrderItemsV17_90L88.length,
+      canonicalCount: hardLockedCanonicalItemsV17_90L224.length,
       stable: canonicalPostLockActiveV17_90L209,
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
+
   if (canonicalPersistenceViolationV17_90L98) {
     console.error(
-      `[${source}] canonical persistence invariant unresolved; persistence blocked`,
+      `[${source}] hard first-AI canonical item mutation detected; persistence blocked`,
     );
     throw new Error("CANONICAL_AI_ITEM_MUTATION_BLOCK");
-  }
-
-  // V17.90L209: Freeze the stable item graph immediately after 05c. From this
-  // point onward only detached diagnostic copies may be inspected; the exact
-  // canonical values used for the snapshot and database cannot be mutated.
-  if (canonicalPostLockActiveV17_90L209) {
-    finalOrderItems = Object.freeze(
-      finalOrderItems.map((item) => Object.freeze({ ...item })),
-    ) as unknown as typeof finalOrderItems;
   }
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
@@ -16341,11 +16661,14 @@ export async function processIncomingMessage(
 
   const legacyAddressFallbackEnabled =
     process.env.INTAKE_LEGACY_ADDRESS_FALLBACK === "1";
-  const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
-    aiExecutionAddress,
-    executionAddressCustomerContext,
-    validationSourceText,
-  );
+  const firstAiExecutionAddressLockV17_90L224 =
+    buildHardLockedAiExecutionAddressV17_90L224({
+      aiExecutionAddress,
+      customer: executionAddressCustomerContext,
+      originalText: validationSourceText,
+    });
+  const aiStructuredExecutionAddress =
+    firstAiExecutionAddressLockV17_90L224.address;
   const explicitPartialExecutionAddressFallback =
     extractExecutionAddressFromText(
       validationSourceText,
@@ -16518,6 +16841,12 @@ export async function processIncomingMessage(
   ) {
     extractedExecutionAddress = null;
   }
+
+  // V17.90L224: All address helpers above are shadow diagnostics. Persist the
+  // exact first-AI address contract (or null) and never their rewritten result.
+  extractedExecutionAddress = firstAiExecutionAddressLockV17_90L224.address
+    ? { ...firstAiExecutionAddressLockV17_90L224.address }
+    : null;
 
   const totalPrice = finalOrderItems.reduce(
     (sum, item) => sum + Number(item.totalPrice || 0),
@@ -16760,9 +17089,38 @@ export async function processIncomingMessage(
           intakeValidation.finalCurrency,
         );
 
+  // V17.90L224: A role diagnostic that quotes or overlaps a locked service
+  // line is not a role issue. This prevents service text such as
+  // "24 Stühle desinfizieren" from becoming a false danger/review signal.
+  const actionableRoleReviewDiagnosticsV17_90L224 = [
+    ...finalAiRoleReviewV17_90L216.findings.map((entry) => entry.text),
+    ...finalAiRoleReviewV17_90L216.suppressions.map((entry) => entry.text),
+    ...finalAiRoleReviewV17_90L216.additions.map((entry) => entry.text),
+  ].filter(
+    (text) =>
+      !roleDiagnosticOverlapsLockedServiceV17_90L224(
+        text,
+        firstAiGlobalCanonicalContractV17_90L222.items,
+      ),
+  );
+  const roleReviewDiagnosticsPresentV17_90L224 =
+    actionableRoleReviewDiagnosticsV17_90L224.length > 0;
+
   let allReviewReasons: string[] = Array.from(new Set([
     ...(firstAiGlobalCanonicalContractV17_90L222.systemNeedsReview
       ? ["ai_review_required"]
+      : []),
+    ...(roleReviewDiagnosticsPresentV17_90L224
+      ? ["ai_role_review_required"]
+      : []),
+    ...(firstAiOnsiteContactLockV17_90L224.needsReview
+      ? ["ai_onsite_contact_evidence_review"]
+      : []),
+    ...(onsiteContactBillingCollisionV17_90L224
+      ? ["ai_onsite_contact_billing_collision_review"]
+      : []),
+    ...(firstAiExecutionAddressLockV17_90L224.needsReview
+      ? ["ai_execution_address_review"]
       : []),
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
@@ -16855,7 +17213,11 @@ export async function processIncomingMessage(
       reason.startsWith("currency_") ||
       reason.startsWith("flat_price_structure_conflict:") ||
       reason.startsWith("unit_price_relation_conflict:") ||
+      reason.startsWith("flat_quantity_review:") ||
       reason.startsWith("ai_review_required") ||
+      reason.startsWith("ai_role_review_required") ||
+      reason.startsWith("ai_onsite_contact_") ||
+      reason.startsWith("ai_execution_address_") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -17225,6 +17587,36 @@ export async function processIncomingMessage(
   // must still contain the exact sealed AI appointment and role arrays. A
   // mismatch aborts persistence instead of silently saving altered business
   // information.
+  // V17.90L224: Serialized item gate. Count, order and every business field
+  // must still match the first-AI hard lock exactly. A validator may report a
+  // problem, but it may not rewrite or remove the underlying row.
+  if (
+    !hardLockedCanonicalItemsEqualV17_90L224(
+      hardLockedCanonicalItemsV17_90L224,
+      canonicalIntakeSnapshotJsonV2.items || [],
+      intakeValidation.finalCurrency,
+    )
+  ) {
+    throw new Error("CANONICAL_SERIALIZED_ITEM_MUTATION_BLOCK");
+  }
+
+  if (
+    !hardLockedExecutionAddressEqualV17_90L224(
+      firstAiExecutionAddressLockV17_90L224.address,
+      canonicalIntakeSnapshotJsonV2.executionAddress,
+    )
+  ) {
+    throw new Error("CANONICAL_SERIALIZED_EXECUTION_ADDRESS_MUTATION_BLOCK");
+  }
+  if (
+    !hardLockedOnsiteContactEqualV17_90L224(
+      firstAiOnsiteContactLockV17_90L224.contact,
+      canonicalIntakeSnapshotJsonV2.onsiteContact,
+    )
+  ) {
+    throw new Error("CANONICAL_SERIALIZED_ONSITE_CONTACT_MUTATION_BLOCK");
+  }
+
   if (
     !canonicalStringArraysEqualV17_90L222(
       canonicalIntakeSnapshotJsonV2.appointments,
@@ -17290,7 +17682,11 @@ export async function processIncomingMessage(
       reason.startsWith("currency_") ||
       reason.startsWith("flat_price_structure_conflict:") ||
       reason.startsWith("unit_price_relation_conflict:") ||
+      reason.startsWith("flat_quantity_review:") ||
       reason.startsWith("ai_review_required") ||
+      reason.startsWith("ai_role_review_required") ||
+      reason.startsWith("ai_onsite_contact_") ||
+      reason.startsWith("ai_execution_address_") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
