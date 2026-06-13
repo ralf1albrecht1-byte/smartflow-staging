@@ -16870,7 +16870,7 @@ export async function processIncomingMessage(
             noPhoneCall: onsiteContactHint.noPhoneCall,
           }
         : null,
-      appointments: structuredAppointmentHintsV17_90L86,
+      appointments: [...structuredAppointmentHintsV17_90L86],
     },
   });
 
@@ -16911,7 +16911,7 @@ export async function processIncomingMessage(
             noPhoneCall: onsiteContactHint.noPhoneCall,
           }
         : null,
-      appointments: structuredAppointmentHintsV17_90L86,
+      appointments: [...structuredAppointmentHintsV17_90L86],
     },
     sourceLock: "ai_structured",
   });
