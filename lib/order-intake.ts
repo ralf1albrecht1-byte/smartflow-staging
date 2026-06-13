@@ -8236,6 +8236,82 @@ function detectFlatPriceStructureV17_90L221(
     hasExplicitPerUnitRelation,
     hasConflict: hasAnyFlatOrTotalMarker && hasExplicitPerUnitRelation,
   };
+
+}
+
+// V17.90L223: Safety-only evidence check for flat/total versus per-unit
+// contradictions that the first AI may mention only in its global review flag
+// or may shorten out of the item's sourceText. The check is generic: it uses
+// the canonical service tokens and exact price, never a service vocabulary.
+function canonicalPricePatternV17_90L223(value: number): string {
+  const rounded = Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  if (!Number.isFinite(rounded) || rounded <= 0) return "";
+  if (Number.isInteger(rounded)) {
+    return `${rounded}(?:[.,]0{1,2})?`;
+  }
+  const [whole, decimals = ""] = String(rounded).split(".");
+  return `${escapeRegExpLocal(whole)}[.,]${escapeRegExpLocal(decimals)}`;
+}
+
+function hasExplicitPerUnitRelationForPriceV17_90L223(
+  value: unknown,
+  unitPrice: number,
+): boolean {
+  const source = compactText(value);
+  const pricePattern = canonicalPricePatternV17_90L223(unitPrice);
+  if (!source || !pricePattern) return false;
+
+  const currencyPattern = String.raw`(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$|£)`;
+  const beforeAmount = new RegExp(
+    String.raw`(?:\b(?:je|pro|per|each|par|por|cada)\b|[à@])(?:\s+[\p{L}][\p{L}0-9²³._/-]*){0,5}\s*(?:${currencyPattern}\s*)?${pricePattern}`,
+    "iu",
+  );
+  const afterAmount = new RegExp(
+    String.raw`(?:${currencyPattern}\s*)?${pricePattern}(?:\s+[\p{L}][\p{L}0-9²³._/-]*){0,3}\s+\b(?:je|pro|per|each|par|por|cada)\b`,
+    "iu",
+  );
+  return beforeAmount.test(source) || afterAmount.test(source);
+}
+
+function detectContextualFlatPriceConflictV17_90L223(args: {
+  serviceName: string;
+  sourceText: string;
+  contextText?: string | null;
+  unitPrice: number;
+}): boolean {
+  const unitPrice = Number(args.unitPrice || 0);
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
+
+  const directStructure = detectFlatPriceStructureV17_90L221(args.sourceText);
+  if (
+    (directStructure.hasFlatPriceMarker || directStructure.hasTotalPriceMarker) &&
+    hasExplicitPerUnitRelationForPriceV17_90L223(args.sourceText, unitPrice)
+  ) {
+    return true;
+  }
+
+  const serviceTokens = canonicalServiceKeyV17_90L88(args.serviceName)
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4);
+  if (serviceTokens.length === 0) return false;
+
+  const candidates = splitSourceEvidenceLinesV17_90L3(
+    String(args.contextText || ""),
+  )
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  return candidates.some((line) => {
+    const structure = detectFlatPriceStructureV17_90L221(line);
+    if (!structure.hasFlatPriceMarker && !structure.hasTotalPriceMarker) {
+      return false;
+    }
+    if (!hasExplicitPerUnitRelationForPriceV17_90L223(line, unitPrice)) {
+      return false;
+    }
+    const lineKey = canonicalServiceKeyV17_90L88(line);
+    return serviceTokens.some((token) => lineKey.includes(token));
+  });
 }
 
 // V17.90L199/L202: Structured quantity/unit data belongs in its own
@@ -8787,12 +8863,34 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
       const flatPriceStructureV17_90L221 =
         detectFlatPriceStructureV17_90L221(sourceText);
+      const contextualFlatPriceConflictV17_90L223 =
+        detectContextualFlatPriceConflictV17_90L223({
+          serviceName: rawServiceName,
+          sourceText,
+          contextText,
+          unitPrice,
+        });
+      const perUnitRelationWithFlatAiUnitV17_90L223 = Boolean(
+        quantity > 1 &&
+          unitType === "flat" &&
+          flatPriceStructureV17_90L221.hasExplicitPerUnitRelation &&
+          !flatPriceStructureV17_90L221.hasFlatPriceMarker &&
+          !flatPriceStructureV17_90L221.hasTotalPriceMarker,
+      );
+      const hasFlatPriceConflictV17_90L223 = Boolean(
+        flatPriceStructureV17_90L221.hasConflict ||
+          contextualFlatPriceConflictV17_90L223,
+      );
+      const hasAnyPriceUnitConflictV17_90L223 = Boolean(
+        hasFlatPriceConflictV17_90L223 ||
+          perUnitRelationWithFlatAiUnitV17_90L223,
+      );
 
       const hasFlatOrTotalPriceMarkerV17_90L222 =
         flatPriceStructureV17_90L221.hasFlatPriceMarker ||
         flatPriceStructureV17_90L221.hasTotalPriceMarker;
 
-      if (flatPriceStructureV17_90L221.hasConflict) {
+      if (hasFlatPriceConflictV17_90L223) {
         // Fail closed: contradictory total/flat and per-unit evidence must
         // never be silently reduced to one interpretation. The exact first-AI
         // row stays canonical, but its amount remains blocked for review.
@@ -8847,7 +8945,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
       }
 
       if (
-        !flatPriceStructureV17_90L221.hasConflict &&
+        !hasAnyPriceUnitConflictV17_90L223 &&
         quantity <= 0 &&
         unitType === "flat" &&
         unitPrice > 0
@@ -8855,8 +8953,9 @@ function buildCanonicalAiOrderItemsV17_90L88(
         quantity = 1;
       }
 
-      const unit =
-        unitType !== "unknown"
+      const unit = hasAnyPriceUnitConflictV17_90L223
+        ? "Einheit prüfen"
+        : unitType !== "unknown"
           ? unitTypeToDisplayUnit(unitType)
           : compactText(rawUnit || "");
       const detectedCurrency =
@@ -8907,24 +9006,35 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const missingPrice = unitPrice <= 0;
       const missingQuantity = quantity <= 0;
       const missingUnit = !unit || isReviewUnitV17_90L(unit);
-      const hasPriceStructureConflictV17_90L222 =
-        flatPriceStructureV17_90L221.hasConflict;
-      const needsReview =
-        hasPriceStructureConflictV17_90L222 ||
-        missingPrice ||
-        missingQuantity ||
-        missingUnit;
-      const reviewReason = hasPriceStructureConflictV17_90L222
+      const firstAiItemNeedsReviewV17_90L223 = Boolean(
+        raw?.needsReview === true || raw?.needs_review === true,
+      );
+      const firstAiItemReviewReasonV17_90L223 = compactText(
+        raw?.reviewReason || raw?.review_reason || "",
+      );
+      const needsReview = Boolean(
+        firstAiItemNeedsReviewV17_90L223 ||
+          hasAnyPriceUnitConflictV17_90L223 ||
+          missingPrice ||
+          missingQuantity ||
+          missingUnit,
+      );
+      const reviewReason = hasFlatPriceConflictV17_90L223
         ? `flat_price_structure_conflict:${serviceName}`
-        : missingPrice
-          ? `price_unclear:${serviceName}`
-          : explicitQuantityRangeV17_90L121
-            ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
-            : missingQuantity
-              ? `quantity_review:${serviceName}`
-              : missingUnit
-                ? `unit_missing_in_text:${serviceName}`
-                : null;
+        : perUnitRelationWithFlatAiUnitV17_90L223
+          ? `unit_price_relation_conflict:${serviceName}`
+          : firstAiItemNeedsReviewV17_90L223
+            ? firstAiItemReviewReasonV17_90L223 ||
+              `ai_review_required:${serviceName}`
+            : missingPrice
+              ? `price_unclear:${serviceName}`
+              : explicitQuantityRangeV17_90L121
+                ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
+                : missingQuantity
+                  ? `quantity_review:${serviceName}`
+                  : missingUnit
+                    ? `unit_missing_in_text:${serviceName}`
+                    : null;
 
       return {
         serviceName,
@@ -8933,7 +9043,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
         unit: unit || "Einheit prüfen",
         unitPrice,
         totalPrice:
-          unitPrice > 0 && quantity > 0 && !missingUnit
+          !needsReview && unitPrice > 0 && quantity > 0 && !missingUnit
             ? roundIntakeMoney(unitPrice * quantity)
             : 0,
         needsReview,
@@ -9179,32 +9289,23 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     const missingPrice = unitPrice <= 0;
     const missingQuantity = quantity <= 0;
     const missingUnit = !unit || isReviewUnitV17_90L(unit);
-    const canonicalQuantityRangeReason =
-      String(canonical.reviewReason || "").startsWith("quantity_range_review:")
-        ? String(canonical.reviewReason)
-        : null;
-    const canonicalFlatConflictReasonV17_90L222 =
-      String(canonical.reviewReason || "").startsWith(
-        "flat_price_structure_conflict:",
-      )
-        ? String(canonical.reviewReason)
-        : null;
+    const canonicalReviewReasonV17_90L223 =
+      canonical.reviewReason ? String(canonical.reviewReason) : null;
     const reviewReason = isForeignCurrency
       ? `item_currency_mismatch:${canonical.serviceName}:${canonicalCurrency}:${finalCurrency}`
-      : canonicalFlatConflictReasonV17_90L222
-        ? canonicalFlatConflictReasonV17_90L222
+      : canonicalReviewReasonV17_90L223
+        ? canonicalReviewReasonV17_90L223
         : missingPrice
           ? `price_unclear:${canonical.serviceName}`
-          : canonicalQuantityRangeReason
-            ? canonicalQuantityRangeReason
-            : missingQuantity
-              ? `quantity_review:${canonical.serviceName}`
-              : missingUnit
-                ? `unit_missing_in_text:${canonical.serviceName}`
-                : null;
+          : missingQuantity
+            ? `quantity_review:${canonical.serviceName}`
+            : missingUnit
+              ? `unit_missing_in_text:${canonical.serviceName}`
+              : null;
     const needsReview = Boolean(
       isForeignCurrency ||
-        canonicalFlatConflictReasonV17_90L222 ||
+        canonical.needsReview ||
+        canonicalReviewReasonV17_90L223 ||
         missingPrice ||
         missingQuantity ||
         missingUnit,
@@ -9217,7 +9318,11 @@ function reconcileWithCanonicalAiItemsV17_90L88(
       unit,
       unitPrice: isForeignCurrency ? 0 : unitPrice,
       totalPrice:
-        !isForeignCurrency && !missingPrice && !missingQuantity && !missingUnit
+        !needsReview &&
+        !isForeignCurrency &&
+        !missingPrice &&
+        !missingQuantity &&
+        !missingUnit
           ? roundIntakeMoney(quantity * unitPrice)
           : 0,
       needsReview,
@@ -13022,6 +13127,12 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L223: Preserve the first AI's own review decision as part of the
+  // immutable business contract. Downstream code may add stricter blockers,
+  // but it may never clear this flag.
+  const firstAiSystemNeedsReviewV17_90L223 =
+    parsed.system?.needs_review === true;
+
   // V17.90L213: Capture the first structured AI service rows immediately.
   // Every later validator/repair path works on separate data; it can no longer
   // mutate the source that is used to build the canonical persistence rows.
@@ -13043,7 +13154,12 @@ export async function processIncomingMessage(
     buildCanonicalAiOrderItemsV17_90L88(
       firstAiWorkItemsSnapshotV17_90L213 as unknown as any[],
       translationText,
-      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+      [
+        messageText,
+        translationText,
+        parsed.auftrag?.beschreibung,
+        parsed.auftrag?.titel,
+      ]
         .filter(Boolean)
         .join("\n"),
     ).map((item) => Object.freeze({ ...item })),
@@ -13318,6 +13434,7 @@ export async function processIncomingMessage(
     items: firstAiCanonicalItemsSnapshotV17_90L222,
     appointments: firstAiAppointmentHintsV17_90L216,
     roles: finalAiRoleSnapshotV17_90L215,
+    systemNeedsReview: firstAiSystemNeedsReviewV17_90L223,
   });
 
   logIntakeDiagnosticTrace(
@@ -15750,32 +15867,25 @@ export async function processIncomingMessage(
     }
 
     const reviewReason = item.reviewReason || null;
-    const hasFlatStructureConflictV17_90L222 =
-      String(reviewReason || "").startsWith(
-        "flat_price_structure_conflict:",
-      );
-    if (hasFlatStructureConflictV17_90L222) {
+
+    // V17.90L223: A pre-lock review state is immutable. This final flat-price
+    // normalizer may fill quantity=1 only for a clean, confirmed flat row; it
+    // may never clear an AI/canonical blocker or calculate its total.
+    if (item.needsReview || reviewReason) {
       return {
         ...item,
-        quantity: 0,
         totalPrice: 0,
         needsReview: true,
         reviewReason,
       };
     }
 
-    const onlyQuantityReview =
-      reviewReason &&
-      /menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen/i.test(
-        reviewReason,
-      );
-
     return {
       ...item,
       quantity: 1,
       totalPrice: Math.round((unitPriceValue + Number.EPSILON) * 100) / 100,
-      needsReview: onlyQuantityReview ? false : item.needsReview,
-      reviewReason: onlyQuantityReview ? null : item.reviewReason,
+      needsReview: false,
+      reviewReason: null,
     };
   });
 
@@ -16651,6 +16761,9 @@ export async function processIncomingMessage(
         );
 
   let allReviewReasons: string[] = Array.from(new Set([
+    ...(firstAiGlobalCanonicalContractV17_90L222.systemNeedsReview
+      ? ["ai_review_required"]
+      : []),
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
     ...customerGuardReviewReasons,
@@ -16741,6 +16854,8 @@ export async function processIncomingMessage(
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
       reason.startsWith("flat_price_structure_conflict:") ||
+      reason.startsWith("unit_price_relation_conflict:") ||
+      reason.startsWith("ai_review_required") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -17173,6 +17288,9 @@ export async function processIncomingMessage(
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
+      reason.startsWith("flat_price_structure_conflict:") ||
+      reason.startsWith("unit_price_relation_conflict:") ||
+      reason.startsWith("ai_review_required") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
