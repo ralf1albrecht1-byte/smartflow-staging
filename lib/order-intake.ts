@@ -8055,6 +8055,46 @@ function parsePositiveCanonicalNumberV17_90L89(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+// V17.90L221: Flat-price structure is determined from the local evidence,
+// independent of the service vocabulary. A scope number such as "6 Etagen"
+// must never become 6 x the flat price merely because it appears before the
+// service. Only an explicit per-unit relation (à/je/pro/per/...) authorizes
+// multiplication. Contradictory flat + per-unit wording fails closed.
+type FlatPriceStructureV17_90L221 = {
+  hasFlatPriceMarker: boolean;
+  hasExplicitPerUnitRelation: boolean;
+  hasConflict: boolean;
+};
+
+function detectFlatPriceStructureV17_90L221(
+  value: unknown,
+): FlatPriceStructureV17_90L221 {
+  const source = compactText(value);
+  if (!source) {
+    return {
+      hasFlatPriceMarker: false,
+      hasExplicitPerUnitRelation: false,
+      hasConflict: false,
+    };
+  }
+
+  const hasFlatPriceMarker =
+    /\b(?:pauschal(?:e|en|er|es)?|fixpreis|festpreis|flat\s*fee|lump\s*sum|forfait(?:aire)?|prix\s+forfaitaire|prezzo\s+fisso|precio\s+fijo)\b/iu.test(
+      source,
+    );
+
+  const hasExplicitPerUnitRelation =
+    /(?:\b(?:je|pro|per|each|par|por|cada)\b|[à@])\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$|£)\s*)?\d+(?:[.,]\d+)?/iu.test(
+      source,
+    );
+
+  return {
+    hasFlatPriceMarker,
+    hasExplicitPerUnitRelation,
+    hasConflict: hasFlatPriceMarker && hasExplicitPerUnitRelation,
+  };
+}
+
 // V17.90L199/L202: Structured quantity/unit data belongs in its own
 // fields, not in the visible service name. Remove only amount phrases whose
 // number exactly equals the canonical quantity. Explicit units may occur in
@@ -8602,9 +8642,28 @@ function buildCanonicalAiOrderItemsV17_90L88(
             ? "evidence"
             : "missing";
 
-      if (
+      const flatPriceStructureV17_90L221 =
+        detectFlatPriceStructureV17_90L221(sourceText);
+
+      if (flatPriceStructureV17_90L221.hasConflict) {
+        // Fail closed: contradictory "flat" and "per unit" evidence must
+        // be reviewed instead of being multiplied or silently normalized.
+        quantity = 0;
+        unitType = "flat";
+        unitSource = "evidence";
+      } else if (
+        flatPriceStructureV17_90L221.hasFlatPriceMarker &&
+        unitPrice > 0
+      ) {
+        // A flat/fixed price is exactly one billable position. Numbers such as
+        // floors, rooms or objects remain scope information in the service
+        // name; they are not a multiplier without à/je/pro/per evidence.
+        quantity = 1;
+        unitType = "flat";
+        unitSource = "evidence";
+      } else if (
         unitType === "unknown" &&
-        /\b(?:pauschal|fixpreis|festpreis|flat\s*fee)\b/i.test(sourceText)
+        flatPriceStructureV17_90L221.hasFlatPriceMarker
       ) {
         unitType = "flat";
         unitSource = "evidence";
@@ -8639,7 +8698,14 @@ function buildCanonicalAiOrderItemsV17_90L88(
         unitSource = "structural_flat";
       }
 
-      if (quantity <= 0 && unitType === "flat" && unitPrice > 0) quantity = 1;
+      if (
+        !flatPriceStructureV17_90L221.hasConflict &&
+        quantity <= 0 &&
+        unitType === "flat" &&
+        unitPrice > 0
+      ) {
+        quantity = 1;
+      }
 
       const unit =
         unitType !== "unknown"
@@ -12120,6 +12186,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Eine Kundenzeile mit Objekt + Menge + Preis ergibt genau eine Position. Nicht zusätzlich den Preisanker oder einen Teil der Zeile als zweite Position ausgeben.
 
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
+- Bei einem ausdrücklich genannten Pauschal-, Fix- oder Festpreis gilt immer: menge = 1 und einheit = "Pauschal". Andere Zahlen derselben Zeile, z. B. Etagen, Räume, Bereiche oder Objekte, beschreiben nur den Leistungsumfang und sind kein Multiplikator. Beispielprinzip: "Treppenhaus 6 Etagen pauschal CHF 420" = 1 Pauschale zu CHF 420.
+- Eine Zahl darf nur dann mit dem Preis multipliziert werden, wenn dieselbe Evidence eine ausdrückliche Einzelpreisbeziehung wie à, je, pro, per oder each enthält. Beispielprinzip: "6 Etagen à CHF 420" = Menge 6.
+- Wenn dieselbe Evidence gleichzeitig Pauschal-/Fixpreis und eine Einzelpreisbeziehung enthält, ist die Preisstruktur widersprüchlich: menge = null, einheit = "Pauschal", confidence = "niedrig" und nicht automatisch berechnen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
 - Fremdsprachige, mundartliche oder unprofessionell formulierte Leistungen semantisch auf deutsche professionelle Leistungsnamen übersetzen: "Nettoyage des vitres"/"Nettoyage des vitrines" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen, "Déplacement" = Anfahrt.
