@@ -176,6 +176,31 @@ type ReadOnlySpecialNoteRoleFindingV17_90L106 = {
   reason: string;
 };
 
+type ReadOnlySpecialNoteSuppressionV17_90L216 = {
+  text: string;
+  currentRole: FinalAiStructuredRoleV17_90L215;
+  reason: string;
+};
+
+type ReadOnlySpecialNoteAdditionV17_90L216 = {
+  text: string;
+  expectedRole: FinalAiStructuredRoleV17_90L215;
+  source: "original" | "translation";
+  reason: string;
+};
+
+type FinalAiRoleReviewResultV17_90L216 = {
+  findings: ReadOnlySpecialNoteRoleFindingV17_90L106[];
+  suppressions: ReadOnlySpecialNoteSuppressionV17_90L216[];
+  additions: ReadOnlySpecialNoteAdditionV17_90L216[];
+};
+
+const emptyFinalAiRoleReviewResultV17_90L216 = (): FinalAiRoleReviewResultV17_90L216 => ({
+  findings: [],
+  suppressions: [],
+  additions: [],
+});
+
 const normalizeRoleReviewTextV17_90L106 = (value: unknown): string =>
   String(value || "")
     .toLowerCase()
@@ -230,7 +255,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
   translatedText?: string | null;
   appointments?: string[];
   roles: Record<FinalAiStructuredRoleV17_90L215, string[]>;
-}): Promise<ReadOnlySpecialNoteRoleFindingV17_90L106[]> {
+}): Promise<FinalAiRoleReviewResultV17_90L216> {
   const apiKey = process.env.OPENAI_API_KEY;
   const rolePrefixes: Record<FinalAiStructuredRoleV17_90L215, string> = {
     safety: "s",
@@ -248,7 +273,9 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       currentRole,
     })),
   );
-  if (!apiKey || roleEntries.length === 0) return [];
+  if (!apiKey) {
+    return emptyFinalAiRoleReviewResultV17_90L216();
+  }
 
   const sourceById = new Map(
     roleEntries.map((entry) => [entry.id, entry] as const),
@@ -278,15 +305,18 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
             role: "system",
             content: [
               "Du bist der letzte KI-Konsistenzprüfer vor dem unveränderbaren Canonical Lock.",
-              "Du darfst keine Aussage umformulieren, ergänzen, löschen oder neu erzeugen.",
-              "Du darfst ausschließlich die Rolle eines vorhandenen Eintrags korrigieren und musst seine id unverändert lassen.",
-              "Rollen: safety = konkrete Gefahr; access = Schlüssel, Badge, Tür-/Tor-/Schlüsselbox-/Zutrittscode, PIN oder anderer Zugangsnachweis; parking = Parken, Fahrzeugposition, Rampe oder Anlieferung; other = sonstiger betrieblicher Hinweis; ordinary = allgemeiner organisatorischer Hinweis.",
-              "Jeder Zugangscode oder PIN gehört immer zu access, auch Formulierungen wie Code Tor 1122, Torcode 1122, Türcode, Keybox-Code oder Badge-Code.",
-              "Ein Zugangscode darf niemals ordinary oder other bleiben.",
-              "Eine Leistung mit Menge oder Preis ist keine Rolleninformation und darf hier nicht neu erzeugt werden.",
-              "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt safety.",
-              "Melde nur eindeutige Abweichungen mit confidence high. Bei Unsicherheit currentRole beibehalten.",
-              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"a1\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}]}",
+              "Nach deinem Ergebnis werden Rollen, Hinweise und Zugangsinformationen vollständig versiegelt. Danach darf kein Parser mehr fachliche Inhalte ändern.",
+              "Du darfst ausschließlich drei streng begrenzte Aktionen ausführen: (1) die Rolle eines vorhandenen Eintrags korrigieren, (2) einen vorhandenen Eintrag unterdrücken, wenn derselbe Sachverhalt bereits vollständig in einem anderen Eintrag oder Termin enthalten ist, (3) einen im Original oder in der Übersetzung ausdrücklich vorhandenen, aber in entries fehlenden atomaren Rollenhinweis als wörtliches Zitat ergänzen.",
+              "Du darfst niemals frei formulieren, zusammenfassen, Werte ändern oder neue Tatsachen erfinden.",
+              "Rollen: safety = konkrete Gefahr; access = Zugang, Eingang, Schlüssel, Badge, Tür-/Tor-/Schlüsselbox-/Zutrittscode, PIN oder anderer Zugangsnachweis; parking = Parken, Fahrzeugposition, Rampe oder Anlieferung; other = sonstiger betrieblicher Hinweis; ordinary = allgemeiner organisatorischer Hinweis.",
+              "Jeder Zugangscode oder PIN gehört immer zu access. Mehrere unterschiedliche Zugangsfakten wie Eingang, Schlüssel und Code bleiben getrennt erhalten und dürfen nicht gegeneinander unterdrückt werden.",
+              "Eine Vorankündigung, die bereits vollständig in appointments enthalten ist, darf als ordinary-Dublette unterdrückt werden.",
+              "Original und Übersetzung desselben Sachverhalts sind eine Dublette. Behalte bevorzugt die klare deutsche Fassung aus translatedText, sofern vorhanden.",
+              "Eine Leistung mit Menge oder Preis ist keine Rolleninformation und darf weder ergänzt noch als Hinweis erhalten werden.",
+              "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt safety und darf nicht unterdrückt werden.",
+              "Ergänzungen müssen ein kurzes, exaktes, zusammenhängendes Zitat aus originalText oder translatedText sein. Nutze additions nur, wenn ein klarer Rollenhinweis vollständig in entries fehlt.",
+              "Melde nur eindeutige Aktionen mit confidence high. Bei Unsicherheit nichts ändern.",
+              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"a1\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}],\"suppressions\":[{\"id\":\"h1\",\"duplicateOfId\":\"a1|null\",\"duplicateOfAppointmentIndex\":0,\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}],\"additions\":[{\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}]}",
             ].join("\n"),
           },
           {
@@ -306,7 +336,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       console.warn(
         `[RoleCheckerV17_90L215] API error ${response.status}; original AI roles kept`,
       );
-      return [];
+      return emptyFinalAiRoleReviewResultV17_90L216();
     }
 
     const payload = await response.json();
@@ -345,13 +375,103 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       if (findings.length >= 10) break;
     }
 
-    return findings;
+    const suppressions: ReadOnlySpecialNoteSuppressionV17_90L216[] = [];
+    const seenSuppressions = new Set<string>();
+    const appointmentCount = Array.isArray(args.appointments)
+      ? args.appointments.length
+      : 0;
+    const rawSuppressions = Array.isArray(parsed?.suppressions)
+      ? parsed.suppressions
+      : [];
+    for (const raw of rawSuppressions.slice(0, roleEntries.length + 8)) {
+      const source = sourceById.get(String(raw?.id || ""));
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      if (!source || confidence !== "high") continue;
+      if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text)) continue;
+
+      const duplicateTarget = sourceById.get(
+        String(raw?.duplicateOfId || ""),
+      );
+      const rawAppointmentIndex = raw?.duplicateOfAppointmentIndex;
+      const appointmentIndex = Number(rawAppointmentIndex);
+      const hasAppointmentTarget =
+        rawAppointmentIndex !== null &&
+        rawAppointmentIndex !== undefined &&
+        Number.isInteger(appointmentIndex) &&
+        appointmentIndex >= 0 &&
+        appointmentIndex < appointmentCount;
+      if (!duplicateTarget && !hasAppointmentTarget) continue;
+      if (hasAppointmentTarget && source.currentRole !== "ordinary") continue;
+      if (duplicateTarget?.id === source.id) continue;
+
+      const key = `${source.currentRole}|${normalizeRoleReviewTextV17_90L106(source.text)}`;
+      if (!key || seenSuppressions.has(key)) continue;
+      seenSuppressions.add(key);
+      suppressions.push({
+        text: source.text,
+        currentRole: source.currentRole,
+        reason: String(raw?.reason || "Semantische Dublette")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 220),
+      });
+    }
+
+    const additions: ReadOnlySpecialNoteAdditionV17_90L216[] = [];
+    const seenAdditions = new Set<string>();
+    const rawAdditions = Array.isArray(parsed?.additions)
+      ? parsed.additions
+      : [];
+    for (const raw of rawAdditions.slice(0, 12)) {
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const expectedRole = String(raw?.expectedRole || "").toLowerCase() as
+        | FinalAiStructuredRoleV17_90L215
+        | "";
+      const sourceKind = String(raw?.source || "").toLowerCase() as
+        | "original"
+        | "translation"
+        | "";
+      const quote = String(raw?.quote || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (
+        confidence !== "high" ||
+        !allowedRoles.has(expectedRole as FinalAiStructuredRoleV17_90L215) ||
+        !["original", "translation"].includes(sourceKind) ||
+        quote.length < 4 ||
+        quote.length > 220
+      ) {
+        continue;
+      }
+      const sourceText =
+        sourceKind === "translation"
+          ? String(args.translatedText || "")
+          : String(args.originalText || "");
+      const sourceCompact = sourceText.replace(/\s+/g, " ").toLowerCase();
+      if (!sourceCompact.includes(quote.toLowerCase())) continue;
+      if (/\b(?:chf|eur|usd|gbp)\b/i.test(quote)) continue;
+
+      const key = `${expectedRole}|${normalizeRoleReviewTextV17_90L106(quote)}`;
+      if (!key || seenAdditions.has(key)) continue;
+      seenAdditions.add(key);
+      additions.push({
+        text: quote,
+        expectedRole: expectedRole as FinalAiStructuredRoleV17_90L215,
+        source: sourceKind as "original" | "translation",
+        reason: String(raw?.reason || "Fehlender Rollenhinweis aus Quelle")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 220),
+      });
+    }
+
+    return { findings, suppressions, additions };
   } catch (error: any) {
     console.warn(
-      "[RoleCheckerV17_90L215] failed; original AI roles kept",
+      "[RoleCheckerV17_90L216] failed; original AI roles kept",
       error?.message || error,
     );
-    return [];
+    return emptyFinalAiRoleReviewResultV17_90L216();
   }
 }
 
@@ -12473,10 +12593,24 @@ export async function processIncomingMessage(
     },
   );
 
-  const readOnlySpecialNoteRoleFindingsV17_90L106 =
+  const firstAiAppointmentHintsV17_90L216 =
+    buildStructuredAppointmentHintsV17_90L86(
+      parsed.auftrag?.termine,
+      [
+        messageText,
+        translationText,
+        parsed.auftrag?.kontakt_vor_ort
+          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  const finalAiRoleReviewV17_90L216 =
     await runReadOnlySpecialNoteRoleCheckerV17_90L106({
       originalText: messageText,
       translatedText: translationText || null,
+      appointments: firstAiAppointmentHintsV17_90L216,
       roles: {
         safety: [...firstAiRoleSnapshotV17_90L214.safety],
         access: [...firstAiRoleSnapshotV17_90L214.access],
@@ -12485,10 +12619,13 @@ export async function processIncomingMessage(
         ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
       },
     });
+  const readOnlySpecialNoteRoleFindingsV17_90L106 =
+    finalAiRoleReviewV17_90L216.findings;
 
-  // V17.90L215: A second AI pass may only re-role byte-preserved statements.
-  // It cannot rewrite, add or delete facts. This is still part of the AI
-  // decision stage; the resulting snapshot is sealed immediately afterwards.
+  // V17.90L216: The final AI consistency pass may only re-role existing
+  // statements, suppress a proven semantic duplicate, or add an exact quote
+  // from original/translation evidence. The resulting snapshot is sealed
+  // immediately; every downstream parser remains read-only.
   const finalAiRoleBucketsV17_90L215: Record<
     FinalAiStructuredRoleV17_90L215,
     string[]
@@ -12519,12 +12656,60 @@ export async function processIncomingMessage(
       targetBucket.push(exactText);
     }
   }
+  for (const suppression of finalAiRoleReviewV17_90L216.suppressions) {
+    const bucket = finalAiRoleBucketsV17_90L215[suppression.currentRole];
+    const index = bucket.findIndex(
+      (line) =>
+        normalizeRoleReviewTextV17_90L106(line) ===
+        normalizeRoleReviewTextV17_90L106(suppression.text),
+    );
+    if (index >= 0) bucket.splice(index, 1);
+  }
+
+  for (const addition of finalAiRoleReviewV17_90L216.additions) {
+    const alreadyPresent = (
+      Object.values(finalAiRoleBucketsV17_90L215) as string[][]
+    ).some((bucket) =>
+      bucket.some((line) =>
+        canonicalRoleLinesEquivalentV17_90L201(line, addition.text),
+      ),
+    );
+    if (!alreadyPresent) {
+      finalAiRoleBucketsV17_90L215[addition.expectedRole].push(addition.text);
+    }
+  }
+
   const finalAiRoleSnapshotV17_90L215 = Object.freeze({
-    safety: Object.freeze([...finalAiRoleBucketsV17_90L215.safety]),
-    access: Object.freeze([...finalAiRoleBucketsV17_90L215.access]),
-    parking: Object.freeze([...finalAiRoleBucketsV17_90L215.parking]),
-    other: Object.freeze([...finalAiRoleBucketsV17_90L215.other]),
-    ordinary: Object.freeze([...finalAiRoleBucketsV17_90L215.ordinary]),
+    safety: Object.freeze(
+      dedupeTranslatedRoleVariantsV17_90L201(
+        finalAiRoleBucketsV17_90L215.safety,
+        translationText,
+      ),
+    ),
+    access: Object.freeze(
+      dedupeTranslatedRoleVariantsV17_90L201(
+        finalAiRoleBucketsV17_90L215.access,
+        translationText,
+      ),
+    ),
+    parking: Object.freeze(
+      dedupeTranslatedRoleVariantsV17_90L201(
+        finalAiRoleBucketsV17_90L215.parking,
+        translationText,
+      ),
+    ),
+    other: Object.freeze(
+      dedupeTranslatedRoleVariantsV17_90L201(
+        finalAiRoleBucketsV17_90L215.other,
+        translationText,
+      ),
+    ),
+    ordinary: Object.freeze(
+      dedupeTranslatedRoleVariantsV17_90L201(
+        finalAiRoleBucketsV17_90L215.ordinary,
+        translationText,
+      ),
+    ),
   });
 
   logIntakeDiagnosticTrace(
@@ -12537,6 +12722,19 @@ export async function processIncomingMessage(
         currentRole: finding.currentRole,
         expectedRole: finding.expectedRole,
         reason: redactIntakeDiagnosticText(finding.reason, 220),
+      })),
+      suppressions: finalAiRoleReviewV17_90L216.suppressions.map(
+        (suppression) => ({
+          text: redactIntakeDiagnosticText(suppression.text, 320),
+          currentRole: suppression.currentRole,
+          reason: redactIntakeDiagnosticText(suppression.reason, 220),
+        }),
+      ),
+      additions: finalAiRoleReviewV17_90L216.additions.map((addition) => ({
+        text: redactIntakeDiagnosticText(addition.text, 320),
+        expectedRole: addition.expectedRole,
+        source: addition.source,
+        reason: redactIntakeDiagnosticText(addition.reason, 220),
       })),
       finalRoles: {
         safety: finalAiRoleSnapshotV17_90L215.safety.map((line) =>
@@ -15823,6 +16021,41 @@ export async function processIncomingMessage(
   if (autoReuseTags.length > 0) {
     for (const tag of autoReuseTags) {
       if (!allReviewReasons.includes(tag)) allReviewReasons.push(tag);
+    }
+  }
+
+  // V17.90L216: Once an existing customer has been safely resolved and the
+  // message explicitly says that execution uses the same address, earlier
+  // fail-closed address-role findings are obsolete. Remove only those stale
+  // findings; genuine customer, execution-site and service reviews remain.
+  const confirmedExistingCustomerSameAddressV17_90L216 = Boolean(
+    customerId &&
+      !customerWasNewlyCreated &&
+      resolvedCustomerMaster?.address &&
+      resolvedCustomerMaster?.plz &&
+      resolvedCustomerMaster?.city &&
+      hasSameAddressInstructionV17_90L28(
+        [messageText, translationText].filter(Boolean).join("\n"),
+      ),
+  );
+  if (confirmedExistingCustomerSameAddressV17_90L216) {
+    const obsoleteSameAddressReasonsV17_90L216 = new Set([
+      "customer_data_uncertain_no_billing_block",
+      "address_role_uncertain",
+      "customer_address_quarantined_ambiguous_role_v17_61",
+      "customer_address_role_conflict_execution_site_v17_211",
+      "billing_customer_missing_or_uncertain",
+    ]);
+    const removedReasonsV17_90L216 = allReviewReasons.filter((reason) =>
+      obsoleteSameAddressReasonsV17_90L216.has(reason),
+    );
+    if (removedReasonsV17_90L216.length > 0) {
+      allReviewReasons = allReviewReasons.filter(
+        (reason) => !obsoleteSameAddressReasonsV17_90L216.has(reason),
+      );
+      console.info(
+        `[${source}] 🔒 Removed stale same-address review reasons after verified customer reuse: ${removedReasonsV17_90L216.join(", ")}`,
+      );
     }
   }
 
