@@ -217,18 +217,33 @@ function buildSemanticKey(fact: Omit<ParsedFact, "semanticKey">): string {
     .join(":");
 }
 
-function parseCandidate(candidate: CanonicalFactCandidateV2): ParsedFact | null {
-  const text = compact(candidate.text)
-    .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
-    .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
-    .replace(/^\s*[-•*]\s*/, "")
-    .trim();
-  if (!text || incompleteFact(text) || /\[object Object\]/i.test(text)) return null;
+function parseCandidate(
+  candidate: CanonicalFactCandidateV2,
+  sourceLocked = false,
+): ParsedFact | null {
+  const rawText = compact(candidate.text);
+  const text = sourceLocked
+    ? rawText
+    : rawText
+        .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+        .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
+        .replace(/^\s*[-•*]\s*/, "")
+        .trim();
+  if (
+    !text ||
+    /\[object Object\]/i.test(text) ||
+    (!sourceLocked && incompleteFact(text))
+  ) {
+    return null;
+  }
 
   const normalized = normalize(text);
   const foundConcepts = concepts(text);
-  const normalizedRole: CanonicalFactRoleV2 =
-    candidate.role === "parking" || foundConcepts.includes("parking")
+  // Source-locked AI facts keep the role and wording selected by the AI.
+  // Content-based reclassification is only allowed in the legacy/shadow path.
+  const normalizedRole: CanonicalFactRoleV2 = sourceLocked
+    ? candidate.role
+    : candidate.role === "parking" || foundConcepts.includes("parking")
       ? "parking"
       : candidate.role;
   const numericValues = numbers(text);
@@ -347,6 +362,21 @@ function factsEquivalent(left: ParsedFact, right: ParsedFact): boolean {
   const intersection = leftTokens.filter((token) => rightTokens.includes(token)).length;
   const containment = intersection / Math.max(1, Math.min(leftTokens.length, rightTokens.length));
   return intersection >= 2 && containment >= 0.72;
+}
+
+function chooseSourceLockedFact(
+  left: ParsedFact,
+  right: ParsedFact,
+): ParsedFact {
+  // Both alternatives originate in the same structured AI response. Keep an
+  // original AI wording and only resolve duplicate role placement. Never use
+  // raw text or a translated variant to replace the selected fact.
+  const winner =
+    roleRank[right.role] > roleRank[left.role] ? right : left;
+  return {
+    ...winner,
+    evidence: Array.from(new Set([...left.evidence, ...right.evidence])),
+  };
 }
 
 function choosePreferred(
@@ -529,25 +559,39 @@ function isCoveredByStructuredContext(
 export function assembleCanonicalFactsV2(args: {
   candidates: CanonicalFactCandidateV2[];
   context?: CanonicalFactAssemblerContextV2;
+  /**
+   * Hard source boundary for canonical persistence. In this mode only the
+   * supplied structured AI candidates may become facts. Raw message text and
+   * translations remain diagnostic-only and cannot add, rename or re-role a
+   * persisted fact.
+   */
+  sourceLock?: "ai_structured";
 }): {
   facts: CanonicalFactV2[];
   roles: Record<CanonicalFactRoleV2, string[]>;
 } {
   const context = args.context || {};
-  const negativeParkingCandidates = extractExplicitNegativeParkingCandidates(context);
+  const sourceLocked = args.sourceLock === "ai_structured";
+
+  // Raw/translated rescue candidates are useful for diagnostics, but they are
+  // forbidden once the structured AI result is selected as source of truth.
+  const negativeParkingCandidates = sourceLocked
+    ? []
+    : extractExplicitNegativeParkingCandidates(context);
   const explicitNegativeParkingFacts = negativeParkingCandidates
-    .map(parseCandidate)
+    .map((candidate) => parseCandidate(candidate, false))
     .filter((fact): fact is ParsedFact => Boolean(fact));
   const parsed = [...args.candidates, ...negativeParkingCandidates]
-    .map(parseCandidate)
+    .map((candidate) => parseCandidate(candidate, sourceLocked))
     .filter((fact): fact is ParsedFact => Boolean(fact))
+    // Contact/appointment duplicates may be suppressed only against the
+    // already-structured context. This does not import anything from raw text.
     .filter((fact) => !isCoveredByStructuredContext(fact, context))
-    // V17.90L207: A source-level negation is authoritative. Positive
-    // fragments generated from the same clause (for example "Parkplatz
-    // vorhanden" or only "Lieferwagen kurz abstellen") may not reverse
-    // or duplicate the explicit statement "Kein Parkplatz vorhanden ...".
+    // V17.90L207 applies only to the legacy/shadow path because it derives
+    // additional facts from source text. Source-locked persistence never does.
     .filter(
       (fact) =>
+        sourceLocked ||
         !isPositiveParkingContradictedBySource(
           fact,
           explicitNegativeParkingFacts,
@@ -561,29 +605,34 @@ export function assembleCanonicalFactsV2(args: {
     );
     if (duplicateIndex < 0) assembled.push(candidate);
     else {
-      assembled[duplicateIndex] = choosePreferred(
-        assembled[duplicateIndex],
-        candidate,
-        context.translationText,
-      );
+      assembled[duplicateIndex] = sourceLocked
+        ? chooseSourceLockedFact(assembled[duplicateIndex], candidate)
+        : choosePreferred(
+            assembled[duplicateIndex],
+            candidate,
+            context.translationText,
+          );
     }
   }
 
-  // A complete key-location statement that already contains a code owns that
-  // code. Suppress a separate code-only fragment for the same number.
+  // Legacy/shadow mode may compact a separate code fragment into a complete
+  // key-location statement. Source-locked mode keeps the AI-selected facts and
+  // performs no post-AI deletion beyond equivalent-fact deduplication above.
   const completeKeyCodes = new Set(
     assembled
       .filter((fact) => fact.kind === "key_location")
       .flatMap((fact) => fact.codes),
   );
-  const compacted = assembled.filter(
-    (fact) =>
-      !(
-        fact.kind === "access_code" &&
-        fact.codes.length > 0 &&
-        fact.codes.every((code) => completeKeyCodes.has(code))
-      ),
-  );
+  const compacted = sourceLocked
+    ? assembled
+    : assembled.filter(
+        (fact) =>
+          !(
+            fact.kind === "access_code" &&
+            fact.codes.length > 0 &&
+            fact.codes.every((code) => completeKeyCodes.has(code))
+          ),
+      );
 
   const facts: CanonicalFactV2[] = compacted.map((fact) => ({
     factId: `fact_${hash32(fact.semanticKey)}`,

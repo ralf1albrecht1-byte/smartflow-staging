@@ -12390,16 +12390,40 @@ export async function processIncomingMessage(
     ),
   );
 
-  const firstAiDangerRoleLinesV17_90L106 = extractRoleReviewLinesV17_90L106(
-    parsed.auftrag?.gefahren ??
-      parsed.auftrag?.warnhinweise ??
-      parsed.auftrag?.sicherheitswarnungen,
-  );
+  // V17.90L214: Seal every structured AI role immediately. The later role
+  // builders may still run for diagnostics, but canonical persistence can only
+  // consume these exact AI-selected lines. No raw-message/translation rescue is
+  // allowed to create a new persisted fact after this boundary.
+  const firstAiRoleSnapshotV17_90L214 = Object.freeze({
+    safety: Object.freeze(
+      extractRoleReviewLinesV17_90L106(
+        parsed.auftrag?.gefahren ??
+          parsed.auftrag?.warnhinweise ??
+          parsed.auftrag?.sicherheitswarnungen,
+      ),
+    ),
+    ordinary: Object.freeze(
+      extractRoleReviewLinesV17_90L106(parsed.auftrag?.besonderheiten),
+    ),
+    access: Object.freeze(
+      extractRoleReviewLinesV17_90L106(parsed.auftrag?.zugangshinweise),
+    ),
+    parking: Object.freeze(
+      extractRoleReviewLinesV17_90L106(parsed.auftrag?.parkhinweise),
+    ),
+    other: Object.freeze(
+      extractRoleReviewLinesV17_90L106(parsed.auftrag?.sonstige_hinweise),
+    ),
+  });
+
+  const firstAiDangerRoleLinesV17_90L106 = [
+    ...firstAiRoleSnapshotV17_90L214.safety,
+  ];
   const firstAiOrdinaryRoleLinesV17_90L106 = [
-    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.besonderheiten),
-    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.zugangshinweise),
-    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.parkhinweise),
-    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.sonstige_hinweise),
+    ...firstAiRoleSnapshotV17_90L214.ordinary,
+    ...firstAiRoleSnapshotV17_90L214.access,
+    ...firstAiRoleSnapshotV17_90L214.parking,
+    ...firstAiRoleSnapshotV17_90L214.other,
   ];
 
   logIntakeDiagnosticTrace(
@@ -12413,15 +12437,15 @@ export async function processIncomingMessage(
       ordinaryHints: firstAiOrdinaryRoleLinesV17_90L106.map((line) =>
         redactIntakeDiagnosticText(line, 320),
       ),
-      accessHints: extractRoleReviewLinesV17_90L106(
-        parsed.auftrag?.zugangshinweise,
-      ).map((line) => redactIntakeDiagnosticText(line, 320)),
-      parkingHints: extractRoleReviewLinesV17_90L106(
-        parsed.auftrag?.parkhinweise,
-      ).map((line) => redactIntakeDiagnosticText(line, 320)),
-      otherHints: extractRoleReviewLinesV17_90L106(
-        parsed.auftrag?.sonstige_hinweise,
-      ).map((line) => redactIntakeDiagnosticText(line, 320)),
+      accessHints: firstAiRoleSnapshotV17_90L214.access.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      parkingHints: firstAiRoleSnapshotV17_90L214.parking.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      otherHints: firstAiRoleSnapshotV17_90L214.other.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
     },
   );
 
@@ -15830,7 +15854,10 @@ export async function processIncomingMessage(
   const ordinaryFactCandidatesV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(hinweisItems, translationText);
 
-  const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
+  // V17.90L214: Keep the previous post-AI/raw-text fact builder as a pure
+  // shadow diagnostic. Its results are never allowed into specialNotes, roles,
+  // the canonical snapshot or Prisma persistence.
+  const postAiShadowFactAssemblyV17_90L214 = assembleCanonicalFactsV2({
     candidates: [
       ...gefahrItems.map((text) => ({
         role: "safety" as const,
@@ -15881,6 +15908,97 @@ export async function processIncomingMessage(
     },
   });
 
+  const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
+    candidates: [
+      ...firstAiRoleSnapshotV17_90L214.safety.map((text) => ({
+        role: "safety" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+      ...firstAiRoleSnapshotV17_90L214.access.map((text) => ({
+        role: "access" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+      ...firstAiRoleSnapshotV17_90L214.parking.map((text) => ({
+        role: "parking" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+      ...firstAiRoleSnapshotV17_90L214.other.map((text) => ({
+        role: "other" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+      ...firstAiRoleSnapshotV17_90L214.ordinary.map((text) => ({
+        role: "ordinary" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
+    ],
+    context: {
+      onsiteContact: onsiteContactHint.hint
+        ? {
+            name: onsiteContactHint.contactName || null,
+            phone: onsiteContactHint.phone || null,
+            channel: onsiteContactHint.preferredChannel || null,
+            noPhoneCall: onsiteContactHint.noPhoneCall,
+          }
+        : null,
+      appointments: structuredAppointmentHintsV17_90L86,
+    },
+    sourceLock: "ai_structured",
+  });
+
+  const sealedAiFactKeysV17_90L214 = new Set(
+    [
+      ...firstAiRoleSnapshotV17_90L214.safety.map((text) => ["safety", text] as const),
+      ...firstAiRoleSnapshotV17_90L214.access.map((text) => ["access", text] as const),
+      ...firstAiRoleSnapshotV17_90L214.parking.map((text) => ["parking", text] as const),
+      ...firstAiRoleSnapshotV17_90L214.other.map((text) => ["other", text] as const),
+      ...firstAiRoleSnapshotV17_90L214.ordinary.map((text) => ["ordinary", text] as const),
+    ].map(
+      ([role, text]) =>
+        `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
+    ),
+  );
+  const nonAiCanonicalFactsV17_90L214 =
+    canonicalFactAssemblyV17_90L204.facts.filter(
+      (fact) =>
+        fact.evidenceSource !== "ai_structured" ||
+        !sealedAiFactKeysV17_90L214.has(
+          `${fact.role}|${canonicalRoleVariantKeyV17_90L201(fact.text)}`,
+        ),
+    );
+  if (nonAiCanonicalFactsV17_90L214.length > 0) {
+    throw new Error(
+      `CANONICAL_AI_FACT_SOURCE_VIOLATION:${nonAiCanonicalFactsV17_90L214
+        .map((fact) => `${fact.role}:${fact.text}`)
+        .join(" | ")}`,
+    );
+  }
+
+  const canonicalFactKeySetV17_90L214 = new Set(
+    canonicalFactAssemblyV17_90L204.facts.map(
+      (fact) =>
+        `${fact.role}|${canonicalRoleVariantKeyV17_90L201(fact.text)}`,
+    ),
+  );
+  const shadowOnlyFactsV17_90L214 =
+    postAiShadowFactAssemblyV17_90L214.facts.filter(
+      (fact) =>
+        !canonicalFactKeySetV17_90L214.has(
+          `${fact.role}|${canonicalRoleVariantKeyV17_90L201(fact.text)}`,
+        ),
+    );
+  if (shadowOnlyFactsV17_90L214.length > 0) {
+    console.warn(
+      `[${source}] 🔒 Post-AI fact candidates suppressed from persistence: ${shadowOnlyFactsV17_90L214
+        .map((fact) => `${fact.role}:${redactIntakeDiagnosticText(fact.text, 180)}`)
+        .join(" | ")}`,
+    );
+  }
+
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
@@ -15906,6 +16024,7 @@ export async function processIncomingMessage(
     "06a_canonical_fact_assembler",
     {
       factCount: canonicalFactAssemblyV17_90L204.facts.length,
+      suppressedPostAiFactCount: shadowOnlyFactsV17_90L214.length,
       facts: canonicalFactAssemblyV17_90L204.facts.map((fact) => ({
         factId: fact.factId,
         role: fact.role,
