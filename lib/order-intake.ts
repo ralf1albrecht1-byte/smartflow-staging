@@ -210,6 +210,117 @@ const normalizeRoleReviewTextV17_90L106 = (value: unknown): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+const ROLE_COVERAGE_STOPWORDS_V17_90L217 = new Set([
+  "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer",
+  "einem", "einen", "ist", "sind", "war", "wird", "und", "oder", "bei",
+  "beim", "im", "in", "am", "an", "auf", "zur", "zum", "von", "vom",
+  "mit", "nur", "bitte", "per", "via", "the", "a", "an", "at", "to",
+  "and", "or", "with", "please", "le", "la", "les", "un", "une", "de",
+  "du", "des", "et", "ou", "avec", "dans", "au", "aux",
+]);
+
+function roleCoverageTokensV17_90L217(value: unknown): string[] {
+  return normalizeRoleReviewTextV17_90L106(value)
+    .split(/\s+/g)
+    .filter(
+      (token) =>
+        token.length >= 2 && !ROLE_COVERAGE_STOPWORDS_V17_90L217.has(token),
+    );
+}
+
+function roleStatementCoveredByPeersV17_90L217(args: {
+  sourceText: string;
+  targetRole: FinalAiStructuredRoleV17_90L215;
+  roleEntries: Array<{
+    id: string;
+    text: string;
+    currentRole: FinalAiStructuredRoleV17_90L215;
+  }>;
+  preferredTargetId?: string | null;
+}): boolean {
+  const sourceTokens = roleCoverageTokensV17_90L217(args.sourceText);
+  if (sourceTokens.length === 0) return false;
+
+  const peers = args.roleEntries.filter(
+    (entry) =>
+      entry.currentRole === args.targetRole &&
+      normalizeRoleReviewTextV17_90L106(entry.text) !==
+        normalizeRoleReviewTextV17_90L106(args.sourceText),
+  );
+  if (peers.length === 0) return false;
+
+  const peerUnion = new Set(peers.flatMap((entry) => roleCoverageTokensV17_90L217(entry.text)));
+  const unionCoversSource = sourceTokens.every((token) => peerUnion.has(token));
+  if (unionCoversSource) return true;
+
+  const preferredTarget = args.preferredTargetId
+    ? peers.find((entry) => entry.id === args.preferredTargetId)
+    : null;
+  if (!preferredTarget) return false;
+
+  const sourceInvariants = canonicalRoleInvariantTokensV17_90L201(
+    args.sourceText,
+  ).join("|");
+  const targetInvariants = canonicalRoleInvariantTokensV17_90L201(
+    preferredTarget.text,
+  ).join("|");
+  if (sourceInvariants !== targetInvariants) return false;
+
+  const sourceTokenCount = new Set(sourceTokens).size;
+  const targetTokenCount = new Set(
+    roleCoverageTokensV17_90L217(preferredTarget.text),
+  ).size;
+  return sourceTokenCount <= targetTokenCount + 1;
+}
+
+function ordinaryHintCoveredByAppointmentV17_90L217(
+  hint: unknown,
+  appointment: unknown,
+): boolean {
+  const hintText = String(hint || "").replace(/\s+/g, " ").trim();
+  const appointmentText = String(appointment || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!hintText || !appointmentText) return false;
+
+  const hintMinute = hintText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] || "";
+  const appointmentMinute = appointmentText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] || "";
+  if (!hintMinute || hintMinute !== appointmentMinute) return false;
+
+  const hintTokens = new Set(roleCoverageTokensV17_90L217(hintText));
+  const appointmentTokens = new Set(
+    roleCoverageTokensV17_90L217(appointmentText),
+  );
+  if (hintTokens.size < 2) return false;
+
+  const covered = [...hintTokens].every((token) => appointmentTokens.has(token));
+  if (!covered) return false;
+
+  const hintNegated = hasCanonicalRoleNegationV17_90L201(hintText);
+  const appointmentNegated = hasCanonicalRoleNegationV17_90L201(
+    appointmentText,
+  );
+  return hintNegated === appointmentNegated;
+}
+
+function accessEvidenceKindsV17_90L217(value: unknown): Set<string> {
+  const text = normalizeRoleReviewTextV17_90L106(value);
+  const kinds = new Set<string>();
+  if (/\b(?:eingang|seiteneingang|zugangsweg|zufahrt|entrance|entree|acceso|ingresso)\b/i.test(text)) {
+    kinds.add("route");
+  }
+  if (/\b(?:schlussel|schluessel|key|cle|chiave|llave)\b/i.test(text)) {
+    kinds.add("key");
+  }
+  if (/\b(?:code|pin|passcode|kennzahl)\b/i.test(text)) {
+    kinds.add("code");
+  }
+  if (/\b(?:badge|ausweis|zutrittskarte|access card)\b/i.test(text)) {
+    kinds.add("badge");
+  }
+  return kinds;
+}
+
 const extractRoleReviewLinesV17_90L106 = (
   value: unknown,
   depth = 0,
@@ -403,6 +514,47 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       if (!duplicateTarget && !hasAppointmentTarget) continue;
       if (hasAppointmentTarget && source.currentRole !== "ordinary") continue;
       if (duplicateTarget?.id === source.id) continue;
+
+      const appointmentCovered = hasAppointmentTarget
+        ? ordinaryHintCoveredByAppointmentV17_90L217(
+            source.text,
+            args.appointments?.[appointmentIndex],
+          )
+        : false;
+      const peerCovered = duplicateTarget
+        ? roleStatementCoveredByPeersV17_90L217({
+            sourceText: source.text,
+            targetRole: duplicateTarget.currentRole,
+            roleEntries,
+            preferredTargetId: duplicateTarget.id,
+          })
+        : false;
+
+      if (!appointmentCovered && !peerCovered) {
+        // V17.90L217: A shorter duplicate target must never erase additional
+        // business evidence. Preserve the full original statement by moving it
+        // to the target role when the reviewer clearly identified that role.
+        if (
+          duplicateTarget &&
+          duplicateTarget.currentRole !== source.currentRole &&
+          !findings.some(
+            (finding) =>
+              finding.currentRole === source.currentRole &&
+              finding.expectedRole === duplicateTarget.currentRole &&
+              normalizeRoleReviewTextV17_90L106(finding.text) ===
+                normalizeRoleReviewTextV17_90L106(source.text),
+          )
+        ) {
+          findings.push({
+            text: source.text,
+            currentRole: source.currentRole,
+            expectedRole: duplicateTarget.currentRole,
+            reason:
+              "Vollständige Quellangabe enthält zusätzliche fachliche Details und wird deshalb ungekürzt in die Zielrolle verschoben.",
+          });
+        }
+        continue;
+      }
 
       const key = `${source.currentRole}|${normalizeRoleReviewTextV17_90L106(source.text)}`;
       if (!key || seenSuppressions.has(key)) continue;
@@ -4926,15 +5078,32 @@ function dedupeTranslatedRoleVariantsV17_90L201(
       continue;
     }
 
+    const existingLine = result[duplicateIndex];
     const existingScore = translatedRoleEvidenceScoreV17_90L201(
-      result[duplicateIndex],
+      existingLine,
       translationText,
     );
     const candidateScore = translatedRoleEvidenceScoreV17_90L201(
       line,
       translationText,
     );
-    if (candidateScore > existingScore) result[duplicateIndex] = line;
+
+    // V17.90L217: When two equivalent role lines carry the same invariant
+    // values, keep the semantically more complete evidence. This prevents a
+    // short code fragment from erasing an accompanying key/location detail.
+    const existingTokens = new Set(roleCoverageTokensV17_90L217(existingLine));
+    const candidateTokens = new Set(roleCoverageTokensV17_90L217(line));
+    const sameInvariants =
+      canonicalRoleInvariantTokensV17_90L201(existingLine).join("|") ===
+      canonicalRoleInvariantTokensV17_90L201(line).join("|");
+    const candidateSuperset =
+      sameInvariants &&
+      candidateTokens.size > existingTokens.size &&
+      [...existingTokens].every((token) => candidateTokens.has(token));
+
+    if (candidateSuperset || candidateScore > existingScore) {
+      result[duplicateIndex] = line;
+    }
   }
 
   return result;
@@ -8560,6 +8729,102 @@ function buildCanonicalAiOrderItemsV17_90L88(
   // V17.90L206: Do not run any semantic name reconstruction after the
   // canonical AI rows were built. Validators remain advisory only.
   return builtItems;
+}
+
+function buildEvidenceBoundRescueCanonicalItemsV17_90L217(
+  items: Array<{
+    serviceName?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+    unitPrice?: number | null;
+    detectedCurrency?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    description?: string | null;
+    needsReview?: boolean | null;
+  }>,
+  originalText: string,
+  translatedText?: string | null,
+): CanonicalAiOrderItemV17_90L88[] {
+  const sourceCorpus = normalizeSemanticText(
+    [originalText, translatedText].filter(Boolean).join("\n"),
+  );
+  if (!sourceCorpus) return [];
+
+  const rescueRows = items
+    .filter((item) => item?.needsReview === false)
+    .filter((item) => {
+      const evidence = String(
+        item.sourceText || item.evidence || item.description || "",
+      )
+        .replace(/\s+/g, " ")
+        .trim();
+      const evidenceKey = normalizeSemanticText(evidence);
+      if (!evidence || !evidenceKey || !sourceCorpus.includes(evidenceKey)) {
+        return false;
+      }
+
+      const serviceName = String(item.serviceName || "").trim();
+      const serviceTokens = normalizeSemanticText(serviceName)
+        .split(/\s+/g)
+        .filter((token) => token.length >= 4);
+      if (
+        !serviceName ||
+        serviceTokens.length === 0 ||
+        !serviceTokens.some((token) => evidenceKey.includes(token))
+      ) {
+        return false;
+      }
+
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const unitType = getServiceUnitType(item.unit || null);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
+      if (/\b(?:preis\s+(?:offen|unklar|folgt)|ohne\s+preis)\b/i.test(evidence)) {
+        return false;
+      }
+      if (
+        quantity > 1 &&
+        /\b(?:gesamt|total)\b/i.test(evidence) &&
+        !/(?:\b(?:pro|per|je)\b|[à@])/i.test(evidence)
+      ) {
+        return false;
+      }
+      if (
+        unitType !== "flat" &&
+        (!Number.isFinite(quantity) || quantity <= 0)
+      ) {
+        return false;
+      }
+
+      const numericValues = Array.from(
+        evidence.matchAll(/\b\d+(?:[.,]\d+)?\b/g),
+        (match) => Number(String(match[0]).replace(",", ".")),
+      ).filter((value) => Number.isFinite(value));
+      const priceSupported = numericValues.some(
+        (value) => Math.abs(value - unitPrice) < 0.0001,
+      );
+      const quantitySupported =
+        unitType === "flat" ||
+        numericValues.some((value) => Math.abs(value - quantity) < 0.0001);
+      return priceSupported && quantitySupported;
+    })
+    .map((item) => ({
+      serviceName: item.serviceName,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+      currency: item.detectedCurrency || detectCurrencyFromText(item.sourceText || ""),
+      sourceText: item.sourceText || item.evidence || item.description,
+      confidence: "hoch",
+    }));
+
+  if (rescueRows.length === 0) return [];
+  return buildCanonicalAiOrderItemsV17_90L88(
+    rescueRows,
+    translatedText,
+    originalText,
+  );
 }
 
 function canonicalItemMatchScoreV17_90L88(
@@ -12679,6 +12944,61 @@ export async function processIncomingMessage(
     }
   }
 
+  // V17.90L217: Complete only missing access fact classes from exact source
+  // evidence before the final lock. This is not a free parser rewrite: the
+  // candidate must be a short verbatim line from the original/translation,
+  // must not contain pricing/contact data, and may only fill an access kind
+  // that is still absent (route, key, code or badge).
+  const representedAccessKindsV17_90L217 = new Set(
+    finalAiRoleBucketsV17_90L215.access.flatMap((line) =>
+      [...accessEvidenceKindsV17_90L217(line)],
+    ),
+  );
+  const exactAccessCandidatesV17_90L217 = dedupeTranslatedRoleVariantsV17_90L201(
+    [
+      ...extractTranslatedRoleCandidatesV17_90L202(messageText, "access"),
+      ...extractTranslatedRoleCandidatesV17_90L202(translationText, "access"),
+    ],
+    translationText,
+  );
+  for (const candidate of exactAccessCandidatesV17_90L217) {
+    const compactCandidate = String(candidate || "").replace(/\s+/g, " ").trim();
+    if (
+      !compactCandidate ||
+      compactCandidate.length > 220 ||
+      /\b(?:CHF|EUR|USD|GBP)\b/i.test(compactCandidate) ||
+      /(?:@|https?:\/\/)/i.test(compactCandidate) ||
+      /\b(?:\+?\d[\d\s()./-]{7,}\d)\b/.test(compactCandidate)
+    ) {
+      continue;
+    }
+
+    const candidateKinds = accessEvidenceKindsV17_90L217(compactCandidate);
+    const missingKinds = [...candidateKinds].filter(
+      (kind) => !representedAccessKindsV17_90L217.has(kind),
+    );
+    if (missingKinds.length === 0) continue;
+
+    const alreadyPresent = finalAiRoleBucketsV17_90L215.access.some((line) =>
+      canonicalRoleLinesEquivalentV17_90L201(line, compactCandidate),
+    );
+    if (alreadyPresent) continue;
+
+    finalAiRoleBucketsV17_90L215.access.push(compactCandidate);
+    missingKinds.forEach((kind) => representedAccessKindsV17_90L217.add(kind));
+  }
+
+  // V17.90L217: A structured appointment owns its pre-announcement. The same
+  // minutes/channel instruction must not survive as an additional ordinary
+  // hint, while independent contact prohibitions remain untouched.
+  finalAiRoleBucketsV17_90L215.ordinary =
+    finalAiRoleBucketsV17_90L215.ordinary.filter(
+      (line) =>
+        !firstAiAppointmentHintsV17_90L216.some((appointment) =>
+          ordinaryHintCoveredByAppointmentV17_90L217(line, appointment),
+        ),
+    );
+
   const finalAiRoleSnapshotV17_90L215 = Object.freeze({
     safety: Object.freeze(
       dedupeTranslatedRoleVariantsV17_90L201(
@@ -14088,7 +14408,7 @@ export async function processIncomingMessage(
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
 
-  const canonicalAiOrderItemsV17_90L88 = Object.freeze(
+  let canonicalAiOrderItemsV17_90L88 = Object.freeze(
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
@@ -14931,6 +15251,41 @@ export async function processIncomingMessage(
       ),
     },
   );
+
+  // V17.90L217: If the first structured AI response contains no work rows,
+  // allow one evidence-bound rescue before the canonical lock. Only complete,
+  // non-review rows whose service, quantity and price are all supported by one
+  // exact source line may enter this fallback. Non-empty AI work rows are never
+  // replaced or supplemented by this path.
+  if (canonicalAiOrderItemsV17_90L88.length === 0) {
+    const evidenceBoundRescueItemsV17_90L217 =
+      buildEvidenceBoundRescueCanonicalItemsV17_90L217(
+        shadowIntakeValidationV17_90L105.items,
+        messageText,
+        translationText,
+      );
+    if (evidenceBoundRescueItemsV17_90L217.length > 0) {
+      canonicalAiOrderItemsV17_90L88 = Object.freeze(
+        evidenceBoundRescueItemsV17_90L217.map((item) =>
+          Object.freeze({ ...item }),
+        ),
+      ) as unknown as CanonicalAiOrderItemV17_90L88[];
+      console.warn(
+        `[${source}] 🛡️ Evidence-bound empty-AI rescue activated: ${canonicalAiOrderItemsV17_90L88.length} canonical rows`,
+      );
+      logIntakeDiagnosticTrace(
+        intakeDiagnosticTraceEnabled,
+        intakeDiagnosticTraceId,
+        "05a_evidence_bound_empty_ai_rescue",
+        {
+          canonicalCount: canonicalAiOrderItemsV17_90L88.length,
+          items: summarizeIntakeDiagnosticItems(
+            canonicalAiOrderItemsV17_90L88,
+          ),
+        },
+      );
+    }
+  }
 
   const normalizeAuthoritativeCurrencyV17_90L105 = (
     value: unknown,
