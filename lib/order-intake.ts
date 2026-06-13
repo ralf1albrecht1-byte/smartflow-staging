@@ -84,6 +84,22 @@ function createCanonicalSourceFingerprintV17_90L194(value: unknown): string | nu
   return `v194_${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+// V17.90L222: Exact-array guard for first-AI canonical business values.
+// This deliberately compares wording and order, not only semantic similarity.
+// A downstream formatter is therefore unable to shorten or rephrase a value
+// without triggering a hard persistence block.
+function canonicalStringArraysEqualV17_90L222(
+  left: readonly string[] | null | undefined,
+  right: readonly string[] | null | undefined,
+): boolean {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : [];
+  return (
+    a.length === b.length &&
+    a.every((value, index) => String(value) === String(b[index]))
+  );
+}
+
 function summarizeIntakeDiagnosticItems(
   values: unknown,
 ): IntakeDiagnosticTraceItem[] {
@@ -4386,6 +4402,96 @@ function inferAppointmentNoticeV17_90L203(
   return { minutes, channel };
 }
 
+
+// V17.90L222: Preserve the first AI appointment meaning before any formatter
+// can shorten it. Structured date/time fields remain useful for display, but
+// every additional temporal qualifier from the AI evidence (for example an
+// imprecise period, alternative or uncertainty) stays attached verbatim.
+// This is service-independent and does not reinterpret the customer's text.
+function extractAppointmentEvidenceQualifierV17_90L222(args: {
+  appointment: AiAppointmentV17_90L86;
+  date: string | null;
+  start: string | null;
+  end: string | null;
+  noticeMinutes: number;
+}): string | null {
+  const evidence = compactText(args.appointment?.evidence || "");
+  if (!evidence) return null;
+
+  let residual = evidence
+    .replace(
+      /^\s*(?:termin|appointment|rendez[-\s]?vous|appuntamento|cita|datum|date)\s*[:\-–—]?\s*/iu,
+      "",
+    )
+    .trim();
+
+  const rawParts = [
+    args.appointment?.datum,
+    args.appointment?.date,
+    args.appointment?.von,
+    args.appointment?.start,
+    args.appointment?.bis,
+    args.appointment?.end,
+    args.date,
+    args.start,
+    args.end,
+    args.date?.replace(/\.\d{4}$/, "."),
+  ]
+    .map((value) => compactText(value || ""))
+    .filter(Boolean);
+
+  for (const part of Array.from(new Set(rawParts)).sort(
+    (left, right) => right.length - left.length,
+  )) {
+    const flexible = escapeRegExpLocal(part).replace(/\\\s+/g, "\\s+");
+    residual = residual.replace(new RegExp(flexible, "giu"), " ");
+  }
+
+  if (args.noticeMinutes > 0) {
+    const minutes = escapeRegExpLocal(String(args.noticeMinutes));
+    residual = residual.replace(
+      new RegExp(
+        `(?:\\b(?:nur\\s+)?(?:per\\s+)?(?:sms|whats?\\s*app|anrufen|call|telefonisch)\\b[^.!?;]{0,50})?\\b${minutes}\\s*(?:min(?:ute)?n?s?)?[^.!?;]{0,110}?(?:vorher|vor\\s+ankunft|before|avant|prima|antes)[^.!?;]{0,80}`,
+        "giu",
+      ),
+      " ",
+    );
+  }
+
+  residual = residual
+    .replace(/[()[\]{}]/g, " ")
+    .replace(/[;,|·]+/g, " ")
+    .replace(
+      /\b(?:nur\s+)?(?:per\s+)?(?:sms|whats?\s*app|anrufen|call|telefonisch)\b(?:\s+bitte)?/giu,
+      " ",
+    )
+    .replace(/\b(?:bitte\s+)?(?:melden|benachrichtigen|informieren)\b/giu, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\-–—\s]+|[\-–—\s]+$/g, "")
+    .trim();
+
+  if (!residual) return null;
+
+  // Pure relation words are already represented by the structured range and
+  // add no business meaning. Everything else is kept exactly as AI evidence.
+  const relationOnly = residual
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (
+    /^(?:(?:zwischen|von|bis|ab|um|gegen|und|oder|ca|circa|ungefahr|ungefähr|etwa|between|from|to|at|until|around|and|or|entre|de|a|à|vers|et|ou|dalle|alle|circa|e|o|desde|hasta|aprox|aproximadamente|y|u)\s*)+$/iu.test(
+      relationOnly,
+    )
+  ) {
+    return null;
+  }
+
+  return residual.slice(0, 240);
+}
+
 function buildStructuredAppointmentHintsV17_90L86(
   appointments: AiAppointmentV17_90L86[] | null | undefined,
   rawText: string,
@@ -4463,7 +4569,22 @@ function buildStructuredAppointmentHintsV17_90L86(
         }`
       : "";
     const timeRange = start && end ? `${start}–${end}` : start || "";
-    const line = `Termin: ${[date, timeRange, notice].filter(Boolean).join(" · ")}`;
+    const evidenceQualifierV17_90L222 =
+      extractAppointmentEvidenceQualifierV17_90L222({
+        appointment,
+        date,
+        start,
+        end,
+        noticeMinutes: minutes,
+      });
+    const line = `Termin: ${[
+      date,
+      timeRange,
+      evidenceQualifierV17_90L222,
+      notice,
+    ]
+      .filter(Boolean)
+      .join(" · ")}`;
     if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
       result.push(line);
     }
@@ -8062,6 +8183,7 @@ function parsePositiveCanonicalNumberV17_90L89(value: unknown): number {
 // multiplication. Contradictory flat + per-unit wording fails closed.
 type FlatPriceStructureV17_90L221 = {
   hasFlatPriceMarker: boolean;
+  hasTotalPriceMarker: boolean;
   hasExplicitPerUnitRelation: boolean;
   hasConflict: boolean;
 };
@@ -8073,6 +8195,7 @@ function detectFlatPriceStructureV17_90L221(
   if (!source) {
     return {
       hasFlatPriceMarker: false,
+      hasTotalPriceMarker: false,
       hasExplicitPerUnitRelation: false,
       hasConflict: false,
     };
@@ -8083,15 +8206,35 @@ function detectFlatPriceStructureV17_90L221(
       source,
     );
 
-  const hasExplicitPerUnitRelation =
-    /(?:\b(?:je|pro|per|each|par|por|cada)\b|[à@])\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$|£)\s*)?\d+(?:[.,]\d+)?/iu.test(
+  // A total-price statement is semantically the same billing structure as a
+  // flat price even when the word "pauschal" is absent. This remains generic
+  // across services and languages; it never depends on a service-word list.
+  const hasTotalPriceMarker =
+    /\b(?:gesamt(?:preis|betrag|kosten)?|insgesamt|total(?:preis|betrag|kosten|\s+price|\s+amount)?|grand\s+total|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|precio\s+total|importe\s+total)\b/iu.test(
       source,
     );
 
+  // A real per-unit relation may place the unit name between the relation word
+  // and the amount ("je Raum CHF 400") or after the amount
+  // ("CHF 70 pro Etage"). Both directions must be recognised.
+  const relationBeforeAmount =
+    /(?:\b(?:je|pro|per|each|par|por|cada)\b|[à@])(?:\s+[\p{L}][\p{L}0-9²³._/-]*){0,5}\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$|£)\s*)?\d+(?:[.,]\d+)?/iu.test(
+      source,
+    );
+  const amountBeforeRelation =
+    /(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$|£)\s*)?\d+(?:[.,]\d+)?(?:\s+[\p{L}][\p{L}0-9²³._/-]*){0,3}\s+\b(?:je|pro|per|each|par|por|cada)\b/iu.test(
+      source,
+    );
+  const hasExplicitPerUnitRelation =
+    relationBeforeAmount || amountBeforeRelation;
+  const hasAnyFlatOrTotalMarker =
+    hasFlatPriceMarker || hasTotalPriceMarker;
+
   return {
     hasFlatPriceMarker,
+    hasTotalPriceMarker,
     hasExplicitPerUnitRelation,
-    hasConflict: hasFlatPriceMarker && hasExplicitPerUnitRelation,
+    hasConflict: hasAnyFlatOrTotalMarker && hasExplicitPerUnitRelation,
   };
 }
 
@@ -8645,14 +8788,19 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const flatPriceStructureV17_90L221 =
         detectFlatPriceStructureV17_90L221(sourceText);
 
+      const hasFlatOrTotalPriceMarkerV17_90L222 =
+        flatPriceStructureV17_90L221.hasFlatPriceMarker ||
+        flatPriceStructureV17_90L221.hasTotalPriceMarker;
+
       if (flatPriceStructureV17_90L221.hasConflict) {
-        // Fail closed: contradictory "flat" and "per unit" evidence must
-        // be reviewed instead of being multiplied or silently normalized.
+        // Fail closed: contradictory total/flat and per-unit evidence must
+        // never be silently reduced to one interpretation. The exact first-AI
+        // row stays canonical, but its amount remains blocked for review.
         quantity = 0;
         unitType = "flat";
         unitSource = "evidence";
       } else if (
-        flatPriceStructureV17_90L221.hasFlatPriceMarker &&
+        hasFlatOrTotalPriceMarkerV17_90L222 &&
         unitPrice > 0
       ) {
         // A flat/fixed price is exactly one billable position. Numbers such as
@@ -8663,7 +8811,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
         unitSource = "evidence";
       } else if (
         unitType === "unknown" &&
-        flatPriceStructureV17_90L221.hasFlatPriceMarker
+        hasFlatOrTotalPriceMarkerV17_90L222
       ) {
         unitType = "flat";
         unitSource = "evidence";
@@ -8759,16 +8907,24 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const missingPrice = unitPrice <= 0;
       const missingQuantity = quantity <= 0;
       const missingUnit = !unit || isReviewUnitV17_90L(unit);
-      const needsReview = missingPrice || missingQuantity || missingUnit;
-      const reviewReason = missingPrice
-        ? `price_unclear:${serviceName}`
-        : explicitQuantityRangeV17_90L121
-          ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
-          : missingQuantity
-            ? `quantity_review:${serviceName}`
-            : missingUnit
-              ? `unit_missing_in_text:${serviceName}`
-              : null;
+      const hasPriceStructureConflictV17_90L222 =
+        flatPriceStructureV17_90L221.hasConflict;
+      const needsReview =
+        hasPriceStructureConflictV17_90L222 ||
+        missingPrice ||
+        missingQuantity ||
+        missingUnit;
+      const reviewReason = hasPriceStructureConflictV17_90L222
+        ? `flat_price_structure_conflict:${serviceName}`
+        : missingPrice
+          ? `price_unclear:${serviceName}`
+          : explicitQuantityRangeV17_90L121
+            ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
+            : missingQuantity
+              ? `quantity_review:${serviceName}`
+              : missingUnit
+                ? `unit_missing_in_text:${serviceName}`
+                : null;
 
       return {
         serviceName,
@@ -9027,19 +9183,31 @@ function reconcileWithCanonicalAiItemsV17_90L88(
       String(canonical.reviewReason || "").startsWith("quantity_range_review:")
         ? String(canonical.reviewReason)
         : null;
+    const canonicalFlatConflictReasonV17_90L222 =
+      String(canonical.reviewReason || "").startsWith(
+        "flat_price_structure_conflict:",
+      )
+        ? String(canonical.reviewReason)
+        : null;
     const reviewReason = isForeignCurrency
       ? `item_currency_mismatch:${canonical.serviceName}:${canonicalCurrency}:${finalCurrency}`
-      : missingPrice
-        ? `price_unclear:${canonical.serviceName}`
-        : canonicalQuantityRangeReason
-          ? canonicalQuantityRangeReason
-          : missingQuantity
-            ? `quantity_review:${canonical.serviceName}`
-            : missingUnit
-              ? `unit_missing_in_text:${canonical.serviceName}`
-              : null;
+      : canonicalFlatConflictReasonV17_90L222
+        ? canonicalFlatConflictReasonV17_90L222
+        : missingPrice
+          ? `price_unclear:${canonical.serviceName}`
+          : canonicalQuantityRangeReason
+            ? canonicalQuantityRangeReason
+            : missingQuantity
+              ? `quantity_review:${canonical.serviceName}`
+              : missingUnit
+                ? `unit_missing_in_text:${canonical.serviceName}`
+                : null;
     const needsReview = Boolean(
-      isForeignCurrency || missingPrice || missingQuantity || missingUnit,
+      isForeignCurrency ||
+        canonicalFlatConflictReasonV17_90L222 ||
+        missingPrice ||
+        missingQuantity ||
+        missingUnit,
     );
 
     result.push({
@@ -12868,6 +13036,19 @@ export async function processIncomingMessage(
     ),
   );
 
+  // V17.90L222: Canonical service rows are also built exactly once at the
+  // first-AI boundary. Later validators may only add review diagnostics; they
+  // never become a second source for name, quantity, unit, price or evidence.
+  const firstAiCanonicalItemsSnapshotV17_90L222 = Object.freeze(
+    buildCanonicalAiOrderItemsV17_90L88(
+      firstAiWorkItemsSnapshotV17_90L213 as unknown as any[],
+      translationText,
+      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+        .filter(Boolean)
+        .join("\n"),
+    ).map((item) => Object.freeze({ ...item })),
+  ) as unknown as readonly CanonicalAiOrderItemV17_90L88[];
+
   // V17.90L214: Seal every structured AI role immediately. The later role
   // builders may still run for diagnostics, but canonical persistence can only
   // consume these exact AI-selected lines. No raw-message/translation rescue is
@@ -12927,7 +13108,7 @@ export async function processIncomingMessage(
     },
   );
 
-  const firstAiAppointmentHintsV17_90L216 =
+  const firstAiAppointmentHintsV17_90L216 = Object.freeze(
     buildStructuredAppointmentHintsV17_90L86(
       parsed.auftrag?.termine,
       [
@@ -12939,12 +13120,13 @@ export async function processIncomingMessage(
       ]
         .filter(Boolean)
         .join("\n"),
-    );
+    ),
+  );
   const finalAiRoleReviewV17_90L216 =
     await runReadOnlySpecialNoteRoleCheckerV17_90L106({
       originalText: messageText,
       translatedText: translationText || null,
-      appointments: firstAiAppointmentHintsV17_90L216,
+      appointments: [...firstAiAppointmentHintsV17_90L216],
       roles: {
         safety: [...firstAiRoleSnapshotV17_90L214.safety],
         access: [...firstAiRoleSnapshotV17_90L214.access],
@@ -13126,6 +13308,16 @@ export async function processIncomingMessage(
         translationText,
       ),
     ),
+  });
+
+  // V17.90L222: One global first-AI business contract. Service rows,
+  // appointments and role texts are now sealed together at one boundary.
+  // Downstream code may attach review metadata, but it may not rebuild, shorten
+  // or paraphrase any of these business values.
+  const firstAiGlobalCanonicalContractV17_90L222 = Object.freeze({
+    items: firstAiCanonicalItemsSnapshotV17_90L222,
+    appointments: firstAiAppointmentHintsV17_90L216,
+    roles: finalAiRoleSnapshotV17_90L215,
   });
 
   logIntakeDiagnosticTrace(
@@ -14218,19 +14410,11 @@ export async function processIncomingMessage(
   const structuredRoleHintsV17_90L86 = collectStructuredRoleHintsV17_90L86(
     parsed.auftrag,
   );
+  // V17.90L222: Appointments are built exactly once from the first AI result.
+  // Every later formatter consumes this sealed array and may not reconstruct
+  // or shorten it from individual date/time fields.
   const structuredAppointmentHintsV17_90L86 =
-    buildStructuredAppointmentHintsV17_90L86(
-      parsed.auftrag?.termine,
-      [
-        messageText,
-        translationText,
-        parsed.auftrag?.kontakt_vor_ort
-          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
+    firstAiGlobalCanonicalContractV17_90L222.appointments;
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
     [
@@ -14424,7 +14608,7 @@ export async function processIncomingMessage(
     : preserveCanonicalStructuredRolesV17_90L88({
         specialNotes: finalSpecialNotesText || null,
         onsiteContact: onsiteContactHint,
-        appointmentHints: structuredAppointmentHintsV17_90L86,
+        appointmentHints: [...structuredAppointmentHintsV17_90L86],
         structuredRoleHints: structuredRoleHintsV17_90L86,
       });
 
@@ -14504,15 +14688,9 @@ export async function processIncomingMessage(
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
 
-  let canonicalAiOrderItemsV17_90L88 = Object.freeze(
-    buildCanonicalAiOrderItemsV17_90L88(
-      aiWorkItemsRaw,
-      translationText,
-      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
-        .filter(Boolean)
-        .join("\n"),
-    ).map((item) => Object.freeze({ ...item })),
-  ) as unknown as CanonicalAiOrderItemV17_90L88[];
+  let canonicalAiOrderItemsV17_90L88 =
+    firstAiGlobalCanonicalContractV17_90L222.items as unknown as
+      CanonicalAiOrderItemV17_90L88[];
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
@@ -15572,6 +15750,20 @@ export async function processIncomingMessage(
     }
 
     const reviewReason = item.reviewReason || null;
+    const hasFlatStructureConflictV17_90L222 =
+      String(reviewReason || "").startsWith(
+        "flat_price_structure_conflict:",
+      );
+    if (hasFlatStructureConflictV17_90L222) {
+      return {
+        ...item,
+        quantity: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason,
+      };
+    }
+
     const onlyQuantityReview =
       reviewReason &&
       /menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen/i.test(
@@ -16016,8 +16208,9 @@ export async function processIncomingMessage(
   );
   if (canonicalPersistenceViolationV17_90L98) {
     console.error(
-      `[${source}] canonical persistence invariant unresolved; order remains blocked for manual review`,
+      `[${source}] canonical persistence invariant unresolved; persistence blocked`,
     );
+    throw new Error("CANONICAL_AI_ITEM_MUTATION_BLOCK");
   }
 
   // V17.90L209: Freeze the stable item graph immediately after 05c. From this
@@ -16547,6 +16740,7 @@ export async function processIncomingMessage(
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
+      reason.startsWith("flat_price_structure_conflict:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -16682,27 +16876,27 @@ export async function processIncomingMessage(
 
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [
-      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ({
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.safety.map((text) => ({
         role: "safety" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ({
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.access.map((text) => ({
         role: "access" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ({
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.parking.map((text) => ({
         role: "parking" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ({
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.other.map((text) => ({
         role: "other" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ({
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.ordinary.map((text) => ({
         role: "ordinary" as const,
         text,
         evidenceSource: "ai_structured" as const,
@@ -16724,11 +16918,11 @@ export async function processIncomingMessage(
 
   const sealedAiFactKeysV17_90L214 = new Set(
     [
-      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ["safety", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ["access", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ["parking", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ["other", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ["ordinary", text] as const),
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.safety.map((text) => ["safety", text] as const),
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.access.map((text) => ["access", text] as const),
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.parking.map((text) => ["parking", text] as const),
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.other.map((text) => ["other", text] as const),
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.ordinary.map((text) => ["ordinary", text] as const),
     ].map(
       ([role, text]) =>
         `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
@@ -16771,21 +16965,44 @@ export async function processIncomingMessage(
     );
   }
 
-  const canonicalSpecialNoteHintsV17_90L203 =
-    dedupeTranslatedRoleVariantsV17_90L201(
-      [
-        onsiteContactHint.hint || "",
-        ...structuredAppointmentHintsV17_90L86,
-        ...canonicalFactAssemblyV17_90L204.roles.access,
-        ...canonicalFactAssemblyV17_90L204.roles.parking,
-        ...canonicalFactAssemblyV17_90L204.roles.other,
-        ...canonicalFactAssemblyV17_90L204.roles.ordinary,
-      ],
-      translationText,
-    );
+  const canonicalLockedRolesV17_90L222 = Object.freeze({
+    safety: Object.freeze([
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.safety,
+    ]),
+    access: Object.freeze([
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.access,
+    ]),
+    parking: Object.freeze([
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.parking,
+    ]),
+    other: Object.freeze([
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.other,
+    ]),
+    ordinary: Object.freeze([
+      ...firstAiGlobalCanonicalContractV17_90L222.roles.ordinary,
+    ]),
+  });
+
+  if (
+    !canonicalStringArraysEqualV17_90L222(
+      structuredAppointmentHintsV17_90L86,
+      firstAiGlobalCanonicalContractV17_90L222.appointments,
+    )
+  ) {
+    throw new Error("CANONICAL_APPOINTMENT_MUTATION_BLOCK");
+  }
+
+  const canonicalSpecialNoteHintsV17_90L203 = [
+    onsiteContactHint.hint || "",
+    ...structuredAppointmentHintsV17_90L86,
+    ...canonicalLockedRolesV17_90L222.access,
+    ...canonicalLockedRolesV17_90L222.parking,
+    ...canonicalLockedRolesV17_90L222.other,
+    ...canonicalLockedRolesV17_90L222.ordinary,
+  ].filter(Boolean);
   finalSpecialNotes =
     buildSpecialNotes({
-      safetyWarnings: canonicalFactAssemblyV17_90L204.roles.safety,
+      safetyWarnings: [...canonicalLockedRolesV17_90L222.safety],
       jobHints: canonicalSpecialNoteHintsV17_90L203,
       preserveStructuredRoles: true,
     }) || null;
@@ -16839,8 +17056,14 @@ export async function processIncomingMessage(
           hint: onsiteContactHint.hint || null,
         }
       : null,
-    appointments: structuredAppointmentHintsV17_90L86,
-    roles: canonicalFactAssemblyV17_90L204.roles,
+    appointments: [...structuredAppointmentHintsV17_90L86],
+    roles: {
+      safety: [...canonicalLockedRolesV17_90L222.safety],
+      access: [...canonicalLockedRolesV17_90L222.access],
+      parking: [...canonicalLockedRolesV17_90L222.parking],
+      other: [...canonicalLockedRolesV17_90L222.other],
+      ordinary: [...canonicalLockedRolesV17_90L222.ordinary],
+    },
     facts: canonicalFactAssemblyV17_90L204.facts,
     items: finalOrderItems.map((item) => {
       const sourceText = String(
@@ -16882,6 +17105,36 @@ export async function processIncomingMessage(
   const canonicalIntakeSnapshotJsonV2 = JSON.parse(
     JSON.stringify(canonicalIntakeSnapshotV2),
   );
+
+  // V17.90L222: Global serialized-contract gate. The data handed to Prisma
+  // must still contain the exact sealed AI appointment and role arrays. A
+  // mismatch aborts persistence instead of silently saving altered business
+  // information.
+  if (
+    !canonicalStringArraysEqualV17_90L222(
+      canonicalIntakeSnapshotJsonV2.appointments,
+      firstAiGlobalCanonicalContractV17_90L222.appointments,
+    )
+  ) {
+    throw new Error("CANONICAL_SERIALIZED_APPOINTMENT_MUTATION_BLOCK");
+  }
+  for (const role of [
+    "safety",
+    "access",
+    "parking",
+    "other",
+    "ordinary",
+  ] as const) {
+    if (
+      !canonicalStringArraysEqualV17_90L222(
+        canonicalIntakeSnapshotJsonV2.roles?.[role],
+        firstAiGlobalCanonicalContractV17_90L222.roles[role],
+      )
+    ) {
+      throw new Error(`CANONICAL_SERIALIZED_ROLE_MUTATION_BLOCK:${role}`);
+    }
+  }
+
   const canonicalPrePersistCheckV2 = verifyCanonicalIntakeV2(
     canonicalIntakeSnapshotJsonV2,
   );
