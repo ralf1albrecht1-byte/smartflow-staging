@@ -3625,7 +3625,7 @@ function canonicalizeStructuredRoleLinesV17_90L195(
       String(line || "")
         .replace(/\r\n/g, "\n")
         .replace(/\r/g, "\n")
-        .split(/\n+|[;]\s+|\s+[·|]\s+|(?=\b(?:Termin|Kontakt|Zugang|Zutritt|Schlüssel|Schluessel|Code|Parkieren|Parkplatz|Besucherplatz|Leiter)\b)/gi),
+        .split(/\n+|[;]\s+|\s+[·|]\s+|(?=\b(?:Termin|Kontakt|Zugang|Zutritt|Eingang|Seiteneingang|Zufahrt|Schlüssel|Schluessel|Code|Parkieren|Parkplatz|Besucherplatz|Leiter)\b)/gi),
     )
     .map((line) =>
       line
@@ -12944,11 +12944,34 @@ export async function processIncomingMessage(
     }
   }
 
-  // V17.90L217: Complete only missing access fact classes from exact source
-  // evidence before the final lock. This is not a free parser rewrite: the
-  // candidate must be a short verbatim line from the original/translation,
-  // must not contain pricing/contact data, and may only fill an access kind
-  // that is still absent (route, key, code or badge).
+  // V17.90L218: Before the immutable lock, correct only role placement for
+  // access evidence that the final AI already preserved in another bucket.
+  // No text is rewritten: the exact statement is moved as-is. This closes the
+  // generic case where an entrance/route is present but classified as other or
+  // ordinary while key/code facts are already correctly recognised.
+  for (const sourceRole of ["ordinary", "other"] as const) {
+    const sourceBucket = finalAiRoleBucketsV17_90L215[sourceRole];
+    for (let index = sourceBucket.length - 1; index >= 0; index -= 1) {
+      const exactText = sourceBucket[index];
+      if (accessEvidenceKindsV17_90L217(exactText).size === 0) continue;
+
+      sourceBucket.splice(index, 1);
+      if (
+        !finalAiRoleBucketsV17_90L215.access.some((line) =>
+          canonicalRoleLinesEquivalentV17_90L201(line, exactText),
+        )
+      ) {
+        finalAiRoleBucketsV17_90L215.access.push(exactText);
+      }
+    }
+  }
+
+  // V17.90L218: Complete only missing access fact classes from bounded, exact
+  // source evidence before the final lock. canonicalizeStructuredRoleLines
+  // isolates atomic access spans even when WhatsApp flattened all line breaks;
+  // the older sentence extractor remains as a secondary source. Candidates
+  // containing price/contact data are rejected and may only fill a still
+  // missing class (route, key, code or badge).
   const representedAccessKindsV17_90L217 = new Set(
     finalAiRoleBucketsV17_90L215.access.flatMap((line) =>
       [...accessEvidenceKindsV17_90L217(line)],
@@ -12956,6 +12979,10 @@ export async function processIncomingMessage(
   );
   const exactAccessCandidatesV17_90L217 = dedupeTranslatedRoleVariantsV17_90L201(
     [
+      ...canonicalizeStructuredRoleLinesV17_90L195(
+        [messageText, translationText],
+        "access",
+      ),
       ...extractTranslatedRoleCandidatesV17_90L202(messageText, "access"),
       ...extractTranslatedRoleCandidatesV17_90L202(translationText, "access"),
     ],
