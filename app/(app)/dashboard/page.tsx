@@ -410,8 +410,11 @@ export default function DashboardPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.1 }}
               >
-                <Link href={stat.href}>
-                  <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <Link
+                  href={stat.href}
+                  className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Card className="h-full cursor-pointer transition-colors transition-shadow hover:bg-muted/70 hover:shadow-md dark:hover:bg-muted/40">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
@@ -441,7 +444,16 @@ export default function DashboardPage() {
               transition={{ delay: 0.3 }}
             >
               <Card
-                className={`hover:shadow-md transition-shadow cursor-pointer ${review.total > 0 ? "border-orange-200 dark:border-orange-800" : ""}`}
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push("/auftraege")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push("/auftraege");
+                  }
+                }}
+                className={`cursor-pointer transition-colors transition-shadow hover:bg-muted/70 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:hover:bg-muted/40 ${review.total > 0 ? "border-orange-200 dark:border-orange-800" : ""}`}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -467,6 +479,7 @@ export default function DashboardPage() {
                       {review.incompleteCustomers > 0 && (
                         <Link
                           href="/auftraege"
+                          onClick={(event) => event.stopPropagation()}
                           className="flex items-center gap-1.5 text-xs text-orange-700 dark:text-orange-300 hover:underline"
                         >
                           <Users className="w-3 h-3" />
@@ -476,6 +489,7 @@ export default function DashboardPage() {
                       {review.uncertainAssignments > 0 && (
                         <Link
                           href="/auftraege"
+                          onClick={(event) => event.stopPropagation()}
                           className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300 hover:underline"
                         >
                           <HelpCircle className="w-3 h-3" />

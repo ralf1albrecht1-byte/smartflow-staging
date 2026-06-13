@@ -188,7 +188,7 @@ export default function EinstellungenPage() {
   // Section navigation (desktop: side-nav; mobile: accordion)
   const [activeSection, setActiveSection] = useState<SectionKey>('daten');
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
-    daten: true, telefon: false, dokumente: false, nummern: false, sprache: false, support: false, konto: false,
+    daten: false, telefon: false, dokumente: false, nummern: false, sprache: false, support: false, konto: false,
     datenschutz: false, daten_kuendigung: false,
   });
 // Letterhead upload state
@@ -1048,8 +1048,10 @@ const storedValue = finalUrl;
                 <button
                   key={s.key}
                   onClick={() => gotoSection(s.key)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
-                    active ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-muted-foreground'
+                  className={`w-full flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    active
+                      ? 'bg-primary/10 text-primary font-medium hover:bg-primary/20'
+                      : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -2667,12 +2669,12 @@ function SectionShell({
   return (
     <section id={`sec-${id}`} className={outerClass}>
       <Card>
-        <CardHeader className="pb-3">
-          {/* Desktop: always visible heading. Mobile: clickable accordion trigger. */}
+        <CardHeader className="p-0">
+          {/* Desktop: heading only. Mobile/tablet: the complete tab header is clickable. */}
           <button
             type="button"
             onClick={toggle}
-            className="w-full flex items-center justify-between lg:cursor-default lg:pointer-events-none"
+            className="flex w-full cursor-pointer items-center justify-between rounded-t-lg px-6 py-4 text-left transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:pointer-events-none lg:cursor-default lg:hover:bg-transparent"
             aria-expanded={open}
           >
             <CardTitle className="flex items-center gap-2 text-base">
