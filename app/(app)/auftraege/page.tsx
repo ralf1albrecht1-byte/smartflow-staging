@@ -4229,8 +4229,30 @@ const getOperationalBadges = (
         focusTarget: "specialNotes",
       });
     });
+    // V17.90L215: Alle versiegelten Zugangsangaben bilden genau einen
+    // Zugang-/Schlüsselchip. Dadurch stehen Schlüssel, Tor-/Türcode, PIN und
+    // Badge gemeinsam im Hover/Popover statt als getrennte oder allgemeine
+    // Hinweise aufzutauchen.
+    const canonicalAccessLinesV17_90L215 = canonicalLinesV2(
+      canonicalSnapshotV2.roles.access,
+    );
+    if (canonicalAccessLinesV17_90L215.length > 0) {
+      const hasExplicitAccessCredentialV17_90L215 =
+        canonicalAccessLinesV17_90L215.some((line) =>
+          /\b(?:zugang|zutritt|code|pin|badge|tor|tür|tuer|schlüsselbox|schluesselbox|briefkasten)\b/i.test(
+            line,
+          ),
+        );
+      pushUniqueBadge(badges, {
+        key: "canonical_access",
+        label: hasExplicitAccessCredentialV17_90L215 ? "Zugang" : "Schlüssel",
+        className:
+          "bg-amber-100 text-amber-700 border border-amber-300",
+        tooltip: canonicalAccessLinesV17_90L215.join("\n"),
+        focusTarget: "specialNotes",
+      });
+    }
     canonicalLinesV2([
-      ...canonicalSnapshotV2.roles.access,
       ...canonicalSnapshotV2.roles.other,
       ...canonicalSnapshotV2.roles.ordinary,
     ]).forEach((line) => {
@@ -8420,6 +8442,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -8580,6 +8603,46 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
+    if (badge.key !== "site_address") return;
+
+    const closeExecutionAddressPopoverV17_90L215 = () => {
+      clearOpenTimer();
+      clearHideTimer();
+      clearAutoCloseTimer();
+      setOpen(false);
+    };
+    const handleOutsidePointerDownV17_90L215 = (event: PointerEvent) => {
+      if (!open) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closeExecutionAddressPopoverV17_90L215();
+    };
+
+    document.addEventListener(
+      "pointerdown",
+      handleOutsidePointerDownV17_90L215,
+      true,
+    );
+    window.addEventListener(
+      "smartflow:close-execution-address-popovers",
+      closeExecutionAddressPopoverV17_90L215,
+    );
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handleOutsidePointerDownV17_90L215,
+        true,
+      );
+      window.removeEventListener(
+        "smartflow:close-execution-address-popovers",
+        closeExecutionAddressPopoverV17_90L215,
+      );
+    };
+  }, [badge.key, open]);
+
+  useEffect(() => {
     if (!open) return;
     const update = () => {
       const nextPosition = calculatePosition();
@@ -8603,6 +8666,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         typeof document !== "undefined" &&
         createPortal(
         <span
+          ref={tooltipRef}
           role="tooltip"
           onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
           onPointerDown={clearAutoCloseTimer}
@@ -10974,6 +11038,23 @@ export default function AuftraegePage() {
       focusSection?: "specialNotes" | "items" | "executionAddress";
     },
   ) => {
+    // V17.90L215: Ein offenes Ausführungsort-Popover darf niemals über dem
+    // Bearbeitungsdialog stehen bleiben. Nur dieses Popover wird geschlossen;
+    // Termin- und andere Chiplogik bleibt unverändert.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new Event("smartflow:close-execution-address-popovers"),
+      );
+    }
+    setActiveMobileTooltipKey(null);
+    setActiveMobileTooltip(null);
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
+    ) {
+      document.activeElement.blur();
+    }
+
     const effectiveOrderReviewReasons =
       effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);

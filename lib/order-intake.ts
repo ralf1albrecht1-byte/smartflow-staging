@@ -162,10 +162,17 @@ function logIntakeDiagnosticTrace(
 }
 
 
+type FinalAiStructuredRoleV17_90L215 =
+  | "safety"
+  | "access"
+  | "parking"
+  | "other"
+  | "ordinary";
+
 type ReadOnlySpecialNoteRoleFindingV17_90L106 = {
   text: string;
-  currentRole: "gefahr" | "hinweis";
-  expectedRole: "gefahr" | "hinweis";
+  currentRole: FinalAiStructuredRoleV17_90L215;
+  expectedRole: FinalAiStructuredRoleV17_90L215;
   reason: string;
 };
 
@@ -221,29 +228,38 @@ const extractRoleReviewLinesV17_90L106 = (
 async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
   originalText: string;
   translatedText?: string | null;
-  roles: {
-    gefahren: string[];
-    hinweise: string[];
-  };
+  appointments?: string[];
+  roles: Record<FinalAiStructuredRoleV17_90L215, string[]>;
 }): Promise<ReadOnlySpecialNoteRoleFindingV17_90L106[]> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const roleEntries = [
-    ...args.roles.gefahren.map((text, index) => ({
-      id: `g${index + 1}`,
+  const rolePrefixes: Record<FinalAiStructuredRoleV17_90L215, string> = {
+    safety: "s",
+    access: "a",
+    parking: "p",
+    other: "o",
+    ordinary: "h",
+  };
+  const roleEntries = (
+    Object.entries(args.roles) as Array<[FinalAiStructuredRoleV17_90L215, string[]]>
+  ).flatMap(([currentRole, lines]) =>
+    lines.map((text, index) => ({
+      id: `${rolePrefixes[currentRole]}${index + 1}`,
       text,
-      currentRole: "gefahr" as const,
+      currentRole,
     })),
-    ...args.roles.hinweise.map((text, index) => ({
-      id: `h${index + 1}`,
-      text,
-      currentRole: "hinweis" as const,
-    })),
-  ];
+  );
   if (!apiKey || roleEntries.length === 0) return [];
 
   const sourceById = new Map(
     roleEntries.map((entry) => [entry.id, entry] as const),
   );
+  const allowedRoles = new Set<FinalAiStructuredRoleV17_90L215>([
+    "safety",
+    "access",
+    "parking",
+    "other",
+    "ordinary",
+  ]);
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -255,21 +271,22 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         temperature: 0,
-        max_tokens: 1400,
+        max_tokens: 1800,
         response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
             content: [
-              "Du bist ein strikt read-only Qualitätsprüfer für bereits strukturierte Auftragshinweise.",
-              "Du darfst nichts umformulieren, ergänzen, löschen, verschieben oder korrigieren.",
-              "Bewerte JEDEN übergebenen Eintrag genau einmal und behalte seine id unverändert.",
-              "Gefahr bedeutet: Der Text beschreibt ausdrücklich einen bereits vorhandenen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko.",
-              "Eine Arbeits-, Schutz-, Schon-, Kommunikations-, Zugangs-, Reihenfolge-, Frist- oder Fertigstellungsanweisung ist ohne ausdrücklich beschriebenen gefährlichen Zustand ein Hinweis, keine Gefahr.",
-              "Ein Verbot oder Imperativ beweist allein keine Gefahr. Leite keinen verborgenen Risikozustand aus der gewünschten Handlung ab.",
-              "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt unabhängig vom Inhalt in Gefahr, damit der rote Hund-Chip erscheint.",
-              "Melde die semantisch erwartete Rolle. confidence ist high, medium oder low. Nur high bedeutet eine eindeutige Abweichung.",
-              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"g1\",\"expectedRole\":\"gefahr|hinweis\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze sachliche Begründung\"}]}",
+              "Du bist der letzte KI-Konsistenzprüfer vor dem unveränderbaren Canonical Lock.",
+              "Du darfst keine Aussage umformulieren, ergänzen, löschen oder neu erzeugen.",
+              "Du darfst ausschließlich die Rolle eines vorhandenen Eintrags korrigieren und musst seine id unverändert lassen.",
+              "Rollen: safety = konkrete Gefahr; access = Schlüssel, Badge, Tür-/Tor-/Schlüsselbox-/Zutrittscode, PIN oder anderer Zugangsnachweis; parking = Parken, Fahrzeugposition, Rampe oder Anlieferung; other = sonstiger betrieblicher Hinweis; ordinary = allgemeiner organisatorischer Hinweis.",
+              "Jeder Zugangscode oder PIN gehört immer zu access, auch Formulierungen wie Code Tor 1122, Torcode 1122, Türcode, Keybox-Code oder Badge-Code.",
+              "Ein Zugangscode darf niemals ordinary oder other bleiben.",
+              "Eine Leistung mit Menge oder Preis ist keine Rolleninformation und darf hier nicht neu erzeugt werden.",
+              "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt safety.",
+              "Melde nur eindeutige Abweichungen mit confidence high. Bei Unsicherheit currentRole beibehalten.",
+              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"a1\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}]}",
             ].join("\n"),
           },
           {
@@ -277,6 +294,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
             content: JSON.stringify({
               originalText: String(args.originalText || "").slice(0, 5000),
               translatedText: String(args.translatedText || "").slice(0, 5000),
+              appointments: (args.appointments || []).slice(0, 12),
               entries: roleEntries,
             }),
           },
@@ -286,7 +304,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
 
     if (!response.ok) {
       console.warn(
-        `[RoleCheckerV17_90L106] API error ${response.status}; no role finding applied`,
+        `[RoleCheckerV17_90L215] API error ${response.status}; original AI roles kept`,
       );
       return [];
     }
@@ -298,15 +316,19 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
     const findings: ReadOnlySpecialNoteRoleFindingV17_90L106[] = [];
     const seen = new Set<string>();
 
-    for (const raw of rawVerdicts.slice(0, roleEntries.length + 4)) {
+    for (const raw of rawVerdicts.slice(0, roleEntries.length + 6)) {
       const source = sourceById.get(String(raw?.id || ""));
-      const expectedRole = String(raw?.expectedRole || "").toLowerCase();
+      const expectedRole = String(raw?.expectedRole || "").toLowerCase() as
+        | FinalAiStructuredRoleV17_90L215
+        | "";
       const confidence = String(raw?.confidence || "").toLowerCase();
-      if (!source || (expectedRole !== "gefahr" && expectedRole !== "hinweis")) {
+      if (!source || !allowedRoles.has(expectedRole as FinalAiStructuredRoleV17_90L215)) {
         continue;
       }
       if (confidence !== "high" || expectedRole === source.currentRole) continue;
-      if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text)) continue;
+      if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text) && expectedRole !== "safety") {
+        continue;
+      }
 
       const key = `${source.id}|${expectedRole}`;
       if (seen.has(key)) continue;
@@ -314,19 +336,19 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       findings.push({
         text: source.text,
         currentRole: source.currentRole,
-        expectedRole,
+        expectedRole: expectedRole as FinalAiStructuredRoleV17_90L215,
         reason: String(raw?.reason || "Rolle semantisch prüfen")
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 220),
       });
-      if (findings.length >= 6) break;
+      if (findings.length >= 10) break;
     }
 
     return findings;
   } catch (error: any) {
     console.warn(
-      "[RoleCheckerV17_90L106] failed; no role finding applied",
+      "[RoleCheckerV17_90L215] failed; original AI roles kept",
       error?.message || error,
     );
     return [];
@@ -11260,6 +11282,8 @@ ZIELE
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
 - zugangshinweise, parkhinweise und sonstige_hinweise müssen atomar sein: pro Array-Eintrag genau eine fachliche Aussage. Schlüssel und zugehöriger Code bleiben gemeinsam; Parkplatz, Lift/Ausrüstung und sonstige Hinweise sind getrennte Einträge.
 - Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
+- Jeder Zutrittsnachweis und jeder Zugangscode gehört ausschließlich in zugangshinweise: Türcode, Torcode, Code Tor, PIN, Schlüsselbox-Code, Badge-Code oder vergleichbare alphanumerische Zugangsdaten. Solche Angaben niemals zusätzlich in besonderheiten, sonstige_hinweise oder parkhinweise ausgeben.
+- Beispiel: "Code Tor 1122" => zugangshinweise: ["Code Tor 1122"], sonstige_hinweise: [].
 - Parkplatz/Rampe/Anlieferung jeweils als kurze einzelne Einträge in parkhinweise.
 - Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise in sonstige_hinweise.
 - Höflichkeits- und Ruhehinweise wie Bewohner nicht stören, leise arbeiten oder Schlafzeiten beachten sind keine Gefahren.
@@ -11660,7 +11684,7 @@ sonst → ""
 - Wichtig: Jede tatsächlich erwähnte Hundaussage kommt genau einmal in gefahren, ausschließlich wegen des roten Hund-Chips. Inhalt und Zustand des Hundes originalgetreu wiedergeben; niemals bewerten oder umdeuten.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
-- Keine Doppelung: Eine Information darf genau einmal und entweder in gefahren ODER in besonderheiten stehen, nicht in beiden. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
+- Keine Doppelung: Eine Information darf genau einmal und nur in ihrer fachlich richtigen strukturierten Rolle stehen. Zugangscodes/PINs ausschließlich in zugangshinweise, Parkinformationen ausschließlich in parkhinweise, sonstige Ablaufhinweise ausschließlich in sonstige_hinweise. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
 - Jede Rollen-Aussage muss ihren Inhalt erhalten. Nicht umformulieren, verschärfen, abschwächen oder mit einer anderen Aussage zusammenführen.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
 - Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
@@ -12454,15 +12478,59 @@ export async function processIncomingMessage(
       originalText: messageText,
       translatedText: translationText || null,
       roles: {
-        gefahren: firstAiDangerRoleLinesV17_90L106,
-        hinweise: firstAiOrdinaryRoleLinesV17_90L106,
+        safety: [...firstAiRoleSnapshotV17_90L214.safety],
+        access: [...firstAiRoleSnapshotV17_90L214.access],
+        parking: [...firstAiRoleSnapshotV17_90L214.parking],
+        other: [...firstAiRoleSnapshotV17_90L214.other],
+        ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
       },
     });
+
+  // V17.90L215: A second AI pass may only re-role byte-preserved statements.
+  // It cannot rewrite, add or delete facts. This is still part of the AI
+  // decision stage; the resulting snapshot is sealed immediately afterwards.
+  const finalAiRoleBucketsV17_90L215: Record<
+    FinalAiStructuredRoleV17_90L215,
+    string[]
+  > = {
+    safety: [...firstAiRoleSnapshotV17_90L214.safety],
+    access: [...firstAiRoleSnapshotV17_90L214.access],
+    parking: [...firstAiRoleSnapshotV17_90L214.parking],
+    other: [...firstAiRoleSnapshotV17_90L214.other],
+    ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
+  };
+  for (const finding of readOnlySpecialNoteRoleFindingsV17_90L106) {
+    const sourceBucket = finalAiRoleBucketsV17_90L215[finding.currentRole];
+    const sourceIndex = sourceBucket.findIndex(
+      (line) =>
+        normalizeRoleReviewTextV17_90L106(line) ===
+        normalizeRoleReviewTextV17_90L106(finding.text),
+    );
+    if (sourceIndex < 0) continue;
+    const [exactText] = sourceBucket.splice(sourceIndex, 1);
+    const targetBucket = finalAiRoleBucketsV17_90L215[finding.expectedRole];
+    if (
+      !targetBucket.some(
+        (line) =>
+          normalizeRoleReviewTextV17_90L106(line) ===
+          normalizeRoleReviewTextV17_90L106(exactText),
+      )
+    ) {
+      targetBucket.push(exactText);
+    }
+  }
+  const finalAiRoleSnapshotV17_90L215 = Object.freeze({
+    safety: Object.freeze([...finalAiRoleBucketsV17_90L215.safety]),
+    access: Object.freeze([...finalAiRoleBucketsV17_90L215.access]),
+    parking: Object.freeze([...finalAiRoleBucketsV17_90L215.parking]),
+    other: Object.freeze([...finalAiRoleBucketsV17_90L215.other]),
+    ordinary: Object.freeze([...finalAiRoleBucketsV17_90L215.ordinary]),
+  });
 
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
-    "03c_readonly_role_review",
+    "03c_final_ai_role_review",
     {
       findings: readOnlySpecialNoteRoleFindingsV17_90L106.map((finding) => ({
         text: redactIntakeDiagnosticText(finding.text, 320),
@@ -12470,12 +12538,27 @@ export async function processIncomingMessage(
         expectedRole: finding.expectedRole,
         reason: redactIntakeDiagnosticText(finding.reason, 220),
       })),
+      finalRoles: {
+        safety: finalAiRoleSnapshotV17_90L215.safety.map((line) =>
+          redactIntakeDiagnosticText(line, 320),
+        ),
+        access: finalAiRoleSnapshotV17_90L215.access.map((line) =>
+          redactIntakeDiagnosticText(line, 320),
+        ),
+        parking: finalAiRoleSnapshotV17_90L215.parking.map((line) =>
+          redactIntakeDiagnosticText(line, 320),
+        ),
+        other: finalAiRoleSnapshotV17_90L215.other.map((line) =>
+          redactIntakeDiagnosticText(line, 320),
+        ),
+        ordinary: finalAiRoleSnapshotV17_90L215.ordinary.map((line) =>
+          redactIntakeDiagnosticText(line, 320),
+        ),
+      },
     },
   );
 
-  // V17.90L109: The second checker is diagnostic only. It continues to run
-  // and write findings to the intake trace, but it may not modify the first
-  // AI result, create a visible chip or block the order workflow.
+  // After this final AI role review every downstream path is read-only.
 
   // --- Customer resolution based on kundenabgleich.status ---
   const abgleich = parsed.kundenabgleich || {};
@@ -13691,7 +13774,7 @@ export async function processIncomingMessage(
     const findingKey = normalizeSemanticText(finding.text);
     if (!findingKey) continue;
 
-    if (finding.expectedRole === "gefahr") {
+    if (finding.expectedRole === "safety") {
       const index = hinweisItems.findIndex(
         (line) => normalizeSemanticText(line) === findingKey,
       );
@@ -13702,7 +13785,7 @@ export async function processIncomingMessage(
           translationText,
         );
       }
-    } else if (finding.expectedRole === "hinweis") {
+    } else if (finding.currentRole === "safety") {
       const index = gefahrItems.findIndex(
         (line) => normalizeSemanticText(line) === findingKey,
       );
@@ -15910,27 +15993,27 @@ export async function processIncomingMessage(
 
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [
-      ...firstAiRoleSnapshotV17_90L214.safety.map((text) => ({
+      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ({
         role: "safety" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...firstAiRoleSnapshotV17_90L214.access.map((text) => ({
+      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ({
         role: "access" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...firstAiRoleSnapshotV17_90L214.parking.map((text) => ({
+      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ({
         role: "parking" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...firstAiRoleSnapshotV17_90L214.other.map((text) => ({
+      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ({
         role: "other" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...firstAiRoleSnapshotV17_90L214.ordinary.map((text) => ({
+      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ({
         role: "ordinary" as const,
         text,
         evidenceSource: "ai_structured" as const,
@@ -15952,11 +16035,11 @@ export async function processIncomingMessage(
 
   const sealedAiFactKeysV17_90L214 = new Set(
     [
-      ...firstAiRoleSnapshotV17_90L214.safety.map((text) => ["safety", text] as const),
-      ...firstAiRoleSnapshotV17_90L214.access.map((text) => ["access", text] as const),
-      ...firstAiRoleSnapshotV17_90L214.parking.map((text) => ["parking", text] as const),
-      ...firstAiRoleSnapshotV17_90L214.other.map((text) => ["other", text] as const),
-      ...firstAiRoleSnapshotV17_90L214.ordinary.map((text) => ["ordinary", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ["safety", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ["access", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ["parking", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ["other", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ["ordinary", text] as const),
     ].map(
       ([role, text]) =>
         `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
