@@ -16090,10 +16090,15 @@ export async function processIncomingMessage(
       .replace(/[^a-z0-9]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+    const sameAddressWorkAreaSemanticKeyV17_90L220 =
+      sameAddressWorkAreaKeyV17_90L209
+        .replace(/\b(?:die|der|das|den|dem|des|zur|zum|bei|an)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
     const isGenericSameAddressLabelV17_90L209 =
-      !sameAddressWorkAreaKeyV17_90L209 ||
-      /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb)$/.test(
-        sameAddressWorkAreaKeyV17_90L209,
+      !sameAddressWorkAreaSemanticKeyV17_90L220 ||
+      /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb|unternehmen)$/.test(
+        sameAddressWorkAreaSemanticKeyV17_90L220,
       );
 
     // "Gleiche Adresse wie Firma" is an address-role instruction, not a new

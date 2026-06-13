@@ -197,45 +197,42 @@ export async function enqueueWhatsAppTextIntakeMessage(params: {
   return { queued: true, duplicate: false };
 }
 
-export async function processWhatsAppTextQueueForSender(
-  queueKey: string,
-): Promise<void> {
-  await resetStaleProcessingMessages(queueKey);
+const DEFAULT_MAX_PARALLEL_WHATSAPP_TEXT_JOBS = 2;
+const MAX_ALLOWED_PARALLEL_WHATSAPP_TEXT_JOBS = 3;
 
-  // Hard account-level lock: if one message is still being processed for this
-  // Smartflow account, do not start another AI/order job in parallel.
-  const active = await prisma.intakeQueueMessage.findFirst({
-    where: {
-      channel: CHANNEL,
-      senderKey: queueKey,
-      status: "processing",
-    },
-    select: { id: true },
-  });
+function maxParallelWhatsAppTextJobs(): number {
+  const configured = Number.parseInt(
+    process.env.WHATSAPP_TEXT_MAX_PARALLEL ||
+      String(DEFAULT_MAX_PARALLEL_WHATSAPP_TEXT_JOBS),
+    10,
+  );
 
-  if (active) {
-    scheduleWorker(queueKey, 5_000);
-    return;
+  if (!Number.isFinite(configured)) {
+    return DEFAULT_MAX_PARALLEL_WHATSAPP_TEXT_JOBS;
   }
 
-  const now = new Date();
+  return Math.min(
+    Math.max(configured, 1),
+    MAX_ALLOWED_PARALLEL_WHATSAPP_TEXT_JOBS,
+  );
+}
+
+async function claimNextPendingWhatsAppTextMessage(
+  queueKey: string,
+): Promise<any | null> {
   const next = await prisma.intakeQueueMessage.findFirst({
     where: {
       channel: CHANNEL,
       senderKey: queueKey,
       status: "pending",
-      processAfter: { lte: now },
+      processAfter: { lte: new Date() },
     },
     orderBy: [{ processAfter: "asc" }, { createdAt: "asc" }],
   });
 
-  if (!next) {
-    await scheduleNextPendingForSender(queueKey);
-    return;
-  }
+  if (!next) return null;
 
-  const groupKey = `wa_text_single_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
+  const groupKey = `wa_text_parallel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const locked = await prisma.intakeQueueMessage.updateMany({
     where: {
       id: next.id,
@@ -247,20 +244,18 @@ export async function processWhatsAppTextQueueForSender(
     },
   });
 
-  if (locked.count === 0) {
-    await scheduleNextPendingForSender(queueKey);
-    return;
-  }
+  if (locked.count === 0) return undefined;
 
-  const message = await prisma.intakeQueueMessage.findFirst({
-    where: { id: next.id, status: "processing" },
-  });
+  return {
+    ...next,
+    status: "processing",
+    groupKey,
+  };
+}
 
-  if (!message) {
-    await scheduleNextPendingForSender(queueKey);
-    return;
-  }
-
+async function processClaimedWhatsAppTextMessage(
+  message: any,
+): Promise<void> {
   const text = String(message.messageText || "").trim();
 
   if (!text) {
@@ -272,7 +267,6 @@ export async function processWhatsAppTextQueueForSender(
         error: null,
       },
     });
-    await scheduleNextPendingForSender(queueKey);
     return;
   }
 
@@ -353,7 +347,7 @@ export async function processWhatsAppTextQueueForSender(
       details: {
         phone: maskPhoneForLog(message.phoneNumber || ""),
         messageCount: 1,
-        mode: "individual_serial_queue",
+        mode: "individual_parallel_queue",
         chars: text.length,
         orderCreated: Boolean(orderCreated),
         description: orderCreated?.description || null,
@@ -385,11 +379,55 @@ export async function processWhatsAppTextQueueForSender(
       details: {
         phone: maskPhoneForLog(message.phoneNumber || ""),
         messageCount: 1,
-        mode: "individual_serial_queue",
+        mode: "individual_parallel_queue",
         error: errorMessage,
       },
     });
   }
+}
+
+async function processWhatsAppTextQueueSlot(queueKey: string): Promise<void> {
+  while (true) {
+    const message = await claimNextPendingWhatsAppTextMessage(queueKey);
+
+    // undefined means another worker claimed the same FIFO row first. Retry
+    // immediately so this free slot can claim the next pending message.
+    if (message === undefined) continue;
+    if (message === null) return;
+
+    await processClaimedWhatsAppTextMessage(message);
+  }
+}
+
+export async function processWhatsAppTextQueueForSender(
+  queueKey: string,
+): Promise<void> {
+  await resetStaleProcessingMessages(queueKey);
+
+  const maxParallel = maxParallelWhatsAppTextJobs();
+  const activeCount = await prisma.intakeQueueMessage.count({
+    where: {
+      channel: CHANNEL,
+      senderKey: queueKey,
+      status: "processing",
+    },
+  });
+  const availableSlots = Math.max(0, maxParallel - activeCount);
+
+  if (availableSlots === 0) {
+    scheduleWorker(queueKey, 1_000);
+    return;
+  }
+
+  console.log(
+    `[WhatsAppQueue] Parallel worker start queueKey=${queueKey} active=${activeCount} slots=${availableSlots} max=${maxParallel}`,
+  );
+
+  await Promise.all(
+    Array.from({ length: availableSlots }, () =>
+      processWhatsAppTextQueueSlot(queueKey),
+    ),
+  );
 
   await scheduleNextPendingForSender(queueKey);
 }
