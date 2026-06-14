@@ -19529,7 +19529,7 @@ export default function AuftraegePage() {
                               [
                                 itemHasInternalReviewServiceName ||
                                 /leistung\s+(?:oder\s+einheit\s+)?(?:unklar|offen|pr[üu]fen)|service[_\s-]*(?:unclear|review)/i.test(
-                                  [item.aiWarning, item.description, item.sourceDescription]
+                                  [item.aiWarning, item.sourceDescription, item.serviceName]
                                     .filter(Boolean)
                                     .join(" "),
                                 )
@@ -19538,7 +19538,7 @@ export default function AuftraegePage() {
                                 itemHasInternalReviewUnit ||
                                 Boolean(unitMissingInTextReason) ||
                                 /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen)|unit\s+(?:missing|open|unknown|unclear|review)/i.test(
-                                  [item.aiWarning, item.description, item.sourceDescription]
+                                  [item.aiWarning, item.sourceDescription, item.serviceName]
                                     .filter(Boolean)
                                     .join(" "),
                                 )
