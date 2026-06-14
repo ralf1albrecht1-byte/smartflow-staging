@@ -415,6 +415,7 @@ interface FormItem {
   catalogReviewConfirmed?: boolean;
   manualCurrencyConfirmed?: boolean;
   manualUnitConfirmed?: boolean;
+  manualReviewConfirmed?: boolean;
   sourceDescription?: string;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
@@ -429,6 +430,7 @@ const createEmptyItem = (): FormItem => ({
   catalogReviewConfirmed: false,
   manualCurrencyConfirmed: false,
   manualUnitConfirmed: false,
+  manualReviewConfirmed: false,
   workSiteId: null,
 });
 
@@ -436,6 +438,7 @@ const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 const MANUAL_UNIT_CONFIRMED_PREFIX = "[MANUAL_UNIT_CONFIRMED]";
+const MANUAL_REVIEW_CONFIRMED_PREFIX = "[MANUAL_REVIEW_CONFIRMED]";
 
 const isCatalogReviewConfirmedDescription = (description?: string | null) =>
   compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
@@ -458,6 +461,13 @@ const getManualUnitConfirmedFromItemDescription = (
   description?: string | null,
 ) => isManualUnitConfirmedDescription(description);
 
+const isManualReviewConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(MANUAL_REVIEW_CONFIRMED_PREFIX);
+
+const getManualReviewConfirmedFromItemDescription = (
+  description?: string | null,
+) => isManualReviewConfirmedDescription(description);
+
 const getManualUnitConfirmedUnitFromItemDescription = (
   description?: string | null,
 ) => {
@@ -474,6 +484,7 @@ const stripInternalItemDescriptionMarkers = (description?: string | null) => {
   return value
     .replace(new RegExp(`^\\s*${PRICE_REVIEW_CONFIRMED_PREFIX}\\s*`, "i"), "")
     .replace(new RegExp(`^\\s*${AI_WARNING_PREFIX}\\s*`, "i"), "")
+    .replace(new RegExp(`^\\s*${MANUAL_REVIEW_CONFIRMED_PREFIX}\\s*`, "i"), "")
     .trim();
 };
 
@@ -541,6 +552,10 @@ const buildItemDescription = (item: FormItem) => {
 
   if (item.manualUnitConfirmed) {
     return `${MANUAL_UNIT_CONFIRMED_PREFIX} ${item.unit}: ${item.serviceName}`.trim();
+  }
+
+  if (item.manualReviewConfirmed) {
+    return `${MANUAL_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
   }
 
   if (item.catalogReviewConfirmed) {
@@ -5171,6 +5186,53 @@ const findUnitMissingInTextReviewForService = (
   );
 };
 
+
+const reviewServiceNamesMatchV17_90L241 = (
+  leftValue?: string | null,
+  rightValue?: string | null,
+) => {
+  const left = normalizeForMatch(
+    canonicalServiceNameForOrderItem(leftValue || ""),
+  );
+  const right = normalizeForMatch(
+    canonicalServiceNameForOrderItem(rightValue || ""),
+  );
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const leftTokens = left.split(/\s+/g).filter((token) => token.length >= 2);
+  const rightTokens = right.split(/\s+/g).filter((token) => token.length >= 2);
+  const shorter = leftTokens.length <= rightTokens.length ? leftTokens : rightTokens;
+  const longer = leftTokens.length <= rightTokens.length ? rightTokens : leftTokens;
+  if (shorter.length < 3) return false;
+
+  const longerSet = new Set(longer);
+  const coverage = shorter.filter((token) => longerSet.has(token)).length;
+  return coverage === shorter.length && shorter.length / longer.length >= 0.65;
+};
+
+const findCanonicalMutationReviewForServiceV17_90L241 = (
+  reviewReasons: string[] | null | undefined,
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(
+    canonicalServiceNameForOrderItem(serviceName || ""),
+  );
+  if (!key) return "";
+
+  return (
+    reviewReasons?.find((reason) => {
+      if (!String(reason || "").startsWith("canonical_mutation_blocked:")) {
+        return false;
+      }
+      const reasonService = String(reason || "")
+        .split(":")
+        .slice(1)
+        .join(":");
+      return reviewServiceNamesMatchV17_90L241(reasonService, key);
+    }) || ""
+  );
+};
 
 const findPriceContradictionReviewForServiceV17_90L234 = (
   reviewReasons: string[] | null | undefined,
@@ -11527,6 +11589,8 @@ export default function AuftraegePage() {
           getManualCurrencyConfirmedFromItemDescription(item.description);
         const isManualUnitConfirmed =
           getManualUnitConfirmedFromItemDescription(item.description);
+        const isManualReviewConfirmed =
+          getManualReviewConfirmedFromItemDescription(item.description);
         const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
           effectiveOrderReviewReasons,
           item.serviceName,
@@ -11558,6 +11622,7 @@ export default function AuftraegePage() {
           catalogReviewConfirmed: isCatalogConfirmed,
           manualCurrencyConfirmed: isManualCurrencyConfirmed,
           manualUnitConfirmed: isManualUnitConfirmed,
+          manualReviewConfirmed: isManualReviewConfirmed,
           sourceDescription: compactText(item.description),
           workSiteId: item.workSiteId || null,
         };
@@ -14443,6 +14508,10 @@ export default function AuftraegePage() {
     payloadOverrides?: Partial<typeof form>,
     itemsOverride?: FormItem[],
     resolvedCatalogServiceNamesOverride?: Set<string>,
+    reviewResolutionOptionsV17_90L241?: {
+      discardedServiceNames?: Set<string>;
+      acknowledgeResidualCurrency?: boolean;
+    },
   ): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
@@ -14595,6 +14664,7 @@ export default function AuftraegePage() {
       (item) =>
         Boolean(item.manualUnitConfirmed) ||
         Boolean(item.manualCurrencyConfirmed) ||
+        Boolean(item.manualReviewConfirmed) ||
         Boolean(item.catalogReviewConfirmed),
     );
 
@@ -14633,6 +14703,25 @@ export default function AuftraegePage() {
     // V17.90L234: A price contradiction may only disappear after an explicit
     // item-level confirmation/correction. Complete untouched rows are not
     // treated as confirmed merely because quantity, unit and price are filled.
+    const manuallyReviewConfirmedServiceNamesV17_90L241 = new Set(
+      validItems
+        .filter((item) => Boolean(item.manualReviewConfirmed))
+        .map((item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
+        )
+        .filter(Boolean),
+    );
+
+    const discardedServiceNamesV17_90L241 = new Set(
+      Array.from(
+        reviewResolutionOptionsV17_90L241?.discardedServiceNames || [],
+      )
+        .map((serviceName) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(serviceName)),
+        )
+        .filter(Boolean),
+    );
+
     const manuallyPriceConfirmedServiceNamesV17_90L234 = new Set(
       validItems
         .filter(
@@ -14671,16 +14760,84 @@ export default function AuftraegePage() {
         (allItemCurrencyReviewsManuallyResolved ||
           hasExplicitCurrencyItemConfirmation ||
           (!hasUnresolvedEditableCurrencyItem &&
-            manualResidualCurrencyAcknowledged)),
+            (manualResidualCurrencyAcknowledged ||
+              Boolean(
+                reviewResolutionOptionsV17_90L241
+                  ?.acknowledgeResidualCurrency,
+              )))),
     );
 
     const isReviewReasonResolvedByManualUnit = (reason: string) => {
       const key = String(reason || "");
-      if (!key.startsWith("unit_missing_in_text:")) return false;
+      if (
+        !key.startsWith("unit_missing_in_text:") &&
+        !key.startsWith("canonical_mutation_blocked:")
+      ) {
+        return false;
+      }
       const serviceName = normalizeForMatch(
         canonicalServiceNameForOrderItem(key.split(":").slice(1).join(":")),
       );
-      return Boolean(serviceName && manuallyUnitConfirmedServiceNames.has(serviceName));
+      return Boolean(
+        serviceName &&
+          Array.from(manuallyUnitConfirmedServiceNames).some((candidate) =>
+            reviewServiceNamesMatchV17_90L241(serviceName, candidate),
+          ),
+      );
+    };
+
+    const reviewReasonServiceKeyV17_90L241 = (reason: string) => {
+      const key = String(reason || "");
+      const supportedPrefixes = [
+        "canonical_mutation_blocked:",
+        "unit_missing_in_text:",
+        "unit_mismatch:",
+        "price_unclear:",
+        "price_override:",
+        "price_contradiction:",
+        "item_currency_mismatch:",
+        "currency_conflict_item:",
+      ];
+      const prefix = supportedPrefixes.find((candidate) =>
+        key.startsWith(candidate),
+      );
+      if (!prefix) return "";
+      const serviceName = key.slice(prefix.length);
+      return normalizeForMatch(
+        canonicalServiceNameForOrderItem(serviceName),
+      );
+    };
+
+    const isReviewReasonResolvedByManualReviewV17_90L241 = (
+      reason: string,
+    ) => {
+      const key = String(reason || "");
+      if (
+        !key.startsWith("canonical_mutation_blocked:") &&
+        !key.startsWith("unit_missing_in_text:")
+      ) {
+        return false;
+      }
+      const serviceKey = reviewReasonServiceKeyV17_90L241(key);
+      return Boolean(
+        serviceKey &&
+          Array.from(manuallyReviewConfirmedServiceNamesV17_90L241).some(
+            (candidate) =>
+              reviewServiceNamesMatchV17_90L241(serviceKey, candidate),
+          ),
+      );
+    };
+
+    const isReviewReasonDiscardedWithServiceV17_90L241 = (
+      reason: string,
+    ) => {
+      const serviceKey = reviewReasonServiceKeyV17_90L241(reason);
+      return Boolean(
+        serviceKey &&
+          Array.from(discardedServiceNamesV17_90L241).some((candidate) =>
+            reviewServiceNamesMatchV17_90L241(serviceKey, candidate),
+          ),
+      );
     };
 
     const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
@@ -14768,7 +14925,9 @@ export default function AuftraegePage() {
 
           if (
             isReviewReasonResolvedByConfirmedItem(reason) ||
-            isReviewReasonResolvedByManualUnit(reason)
+            isReviewReasonResolvedByManualUnit(reason) ||
+            isReviewReasonResolvedByManualReviewV17_90L241(reason) ||
+            isReviewReasonDiscardedWithServiceV17_90L241(reason)
           ) {
             return false;
           }
@@ -14912,6 +15071,93 @@ export default function AuftraegePage() {
     }
     toast.error("Fehler beim Speichern");
     return null;
+  };
+
+  const confirmCurrentItemReviewV17_90L241 = async (index: number) => {
+    const item = formItems[index];
+    if (!item || !isCompleteResolvedFormItem(item)) {
+      toast.error("Bitte Leistung, Einheit, Menge und Preis vollständig ausfüllen.");
+      return;
+    }
+
+    const nextItems = formItems.map((entry, entryIndex) =>
+      entryIndex === index
+        ? {
+            ...entry,
+            aiWarning: "",
+            manualReviewConfirmed: true,
+            manualUnitConfirmed: Boolean(
+              entry.manualUnitConfirmed ||
+                findUnitMissingInTextReviewForService(
+                  currentEditReviewReasons,
+                  entry.serviceName,
+                ),
+            ),
+          }
+        : entry,
+    );
+
+    setSaving(true);
+    setFormItems(nextItems);
+    try {
+      const saved = await saveOrder(undefined, nextItems);
+      if (!saved) return;
+      setOrders((previous) =>
+        previous.map((order) =>
+          order.id === saved.id ? { ...order, ...saved } : order,
+        ),
+      );
+      await load();
+      toast.success("Aktuelle Angaben übernommen. Prüfung ist aufgelöst.");
+    } catch {
+      toast.error("Prüfung konnte nicht aufgelöst werden.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const discardCurrentItemReviewV17_90L241 = async (index: number) => {
+    const item = formItems[index];
+    if (!item) return;
+    if (formItems.filter((entry) => entry.serviceName.trim()).length <= 1) {
+      toast.error("Mindestens eine Leistung muss im Auftrag bleiben.");
+      return;
+    }
+
+    const nextItems = formItems.filter((_, entryIndex) => entryIndex !== index);
+    const discardedServiceNames = new Set([item.serviceName]);
+    const acknowledgeResidualCurrency =
+      isFormItemBlockedByCurrencyReview(item) ||
+      isBlockingCurrencyReviewText(item.aiWarning);
+
+    setSaving(true);
+    setFormItems(nextItems);
+    setExpandedServiceItemKeys((current) =>
+      current.filter((key) => key !== item.key),
+    );
+    try {
+      const saved = await saveOrder(
+        undefined,
+        nextItems,
+        undefined,
+        {
+          discardedServiceNames,
+          acknowledgeResidualCurrency,
+        },
+      );
+      if (!saved) return;
+      setOrders((previous) =>
+        previous.map((order) =>
+          order.id === saved.id ? { ...order, ...saved } : order,
+        ),
+      );
+      await load();
+      toast.success("Prüfposition verworfen und Auftrag gespeichert.");
+    } catch {
+      toast.error("Prüfposition konnte nicht verworfen werden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleOrderExecutionAddressEditor = () => {
@@ -19022,6 +19268,19 @@ export default function AuftraegePage() {
                           const manualUnitConfirmed = Boolean(
                             item.manualUnitConfirmed,
                           );
+                          const manualReviewConfirmedV17_90L241 = Boolean(
+                            item.manualReviewConfirmed,
+                          );
+                          const canonicalMutationReviewReasonV17_90L241 =
+                            findCanonicalMutationReviewForServiceV17_90L241(
+                              curOrder?.reviewReasons,
+                              item.serviceName,
+                            );
+                          const hasExplicitBlockingReviewV17_90L241 = Boolean(
+                            (unitMissingInTextReason ||
+                              canonicalMutationReviewReasonV17_90L241) &&
+                              !manualReviewConfirmedV17_90L241,
+                          );
 
                           const priceOverrideReason = curOrder?.reviewReasons
                             ?.filter((r: string) =>
@@ -19120,7 +19379,9 @@ export default function AuftraegePage() {
                               item.aiWarning?.trim() ||
                               unitMismatchReason ||
                               unitMissingInTextReason ||
-                              manualUnitConfirmed,
+                              canonicalMutationReviewReasonV17_90L241 ||
+                              manualUnitConfirmed ||
+                              manualReviewConfirmedV17_90L241,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
@@ -19147,9 +19408,11 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal = unitMissingInTextReason && !manualUnitConfirmed
-                            ? 0
-                            : getSafeFormItemTotal(item);
+                          const itemTotal =
+                            hasExplicitBlockingReviewV17_90L241 ||
+                            (unitMissingInTextReason && !manualUnitConfirmed)
+                              ? 0
+                              : getSafeFormItemTotal(item);
                           const itemHasInternalReviewServiceName =
                             isInternalReviewServiceName(item.serviceName);
                           const itemHasInternalReviewUnit =
@@ -19223,6 +19486,7 @@ export default function AuftraegePage() {
                             hasInternalHardReviewState ||
                             showPriceContradictionReviewV17_90L234 ||
                             hasMissingItemInput ||
+                            hasExplicitBlockingReviewV17_90L241 ||
                             Boolean(unitMissingInTextReason && !manualUnitConfirmed) ||
                             (showPriceReferenceReview &&
                               !isCompleteItemForCatalogAction) ||
@@ -19236,6 +19500,7 @@ export default function AuftraegePage() {
                               showCurrencyConflictItemReview ||
                               unitMismatchReason ||
                               unitMissingInTextReason ||
+                              canonicalMutationReviewReasonV17_90L241 ||
                               item.aiWarning?.trim() ||
                               priceUnclearReason ||
                               priceContradictionReasonV17_90L234 ||
@@ -20227,7 +20492,16 @@ export default function AuftraegePage() {
                                           {showUnitConflict &&
                                             !hasInternalHardReviewState && (
                                             <div className="space-y-0.5">
-                                              {manualUnitConfirmed ? (
+                                              {manualReviewConfirmedV17_90L241 ? (
+                                                <>
+                                                  <div className="font-semibold">
+                                                    Angaben bestätigt
+                                                  </div>
+                                                  <div>
+                                                    Die aktuell sichtbaren Werte wurden bewusst übernommen.
+                                                  </div>
+                                                </>
+                                              ) : manualUnitConfirmed ? (
                                                 <>
                                                   <div className="font-semibold">
                                                     Einheit ergänzt
@@ -20261,10 +20535,19 @@ export default function AuftraegePage() {
                                                     erstellt wird.
                                                   </div>
                                                 </>
+                                              ) : canonicalMutationReviewReasonV17_90L241 ? (
+                                                <>
+                                                  <div className="font-semibold">
+                                                    Erfassung sicherheitshalber blockiert.
+                                                  </div>
+                                                  <div>
+                                                    Die aktuell sichtbaren Werte stammen aus dem letzten sicheren Stand. Bitte übernehmen oder verwerfen.
+                                                  </div>
+                                                </>
                                               ) : (
                                                 <>
                                                   <div>
-                                                    Text:{" "}
+                                                    Text: {" "}
                                                     <span className="font-medium">
                                                       {orderSummary}
                                                     </span>
@@ -20438,6 +20721,38 @@ export default function AuftraegePage() {
                                               Optional über Menü übernehmen.
                                             </div>
                                           )}
+
+                                          {hasExplicitBlockingReviewV17_90L241 && (
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                <button
+                                                  type="button"
+                                                  disabled={
+                                                    saving ||
+                                                    !isCompleteItemForCatalogAction
+                                                  }
+                                                  onClick={() =>
+                                                    void confirmCurrentItemReviewV17_90L241(
+                                                      index,
+                                                    )
+                                                  }
+                                                  className="inline-flex h-8 items-center rounded-md border border-red-300 bg-white px-3 text-xs font-semibold text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200 dark:hover:bg-red-950/40"
+                                                >
+                                                  Übernehmen
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={saving}
+                                                  onClick={() =>
+                                                    void discardCurrentItemReviewV17_90L241(
+                                                      index,
+                                                    )
+                                                  }
+                                                  className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/40"
+                                                >
+                                                  Verwerfen
+                                                </button>
+                                              </div>
+                                            )}
                                         </div>
                                       </div>
                                     )}
