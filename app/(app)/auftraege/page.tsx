@@ -10329,22 +10329,29 @@ const formatDocumentApiBlockersV17_90L36 = (payload: any): string => {
 };
 
 
+type ResponsiveOrderServiceRowV17_90L231 = {
+  name: string;
+  amountLabel: string;
+};
+
 function ResponsiveOrderServicePreviewV17_95({
   orderId,
-  serviceNames,
+  services,
   expanded,
   onToggle,
   onOpenItems,
 }: {
   orderId: string;
-  serviceNames: string[];
+  services: ResponsiveOrderServiceRowV17_90L231[];
   expanded: boolean;
   onToggle: () => void;
   onOpenItems: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
-  const serviceKey = serviceNames.join("\u241f");
+  const serviceKey = services
+    .map((service) => `${service.name}\u241f${service.amountLabel}`)
+    .join("\u241e");
 
   useEffect(() => {
     const element = listRef.current;
@@ -10352,7 +10359,7 @@ function ResponsiveOrderServicePreviewV17_95({
 
     const measure = () => {
       const width = element.clientWidth;
-      if (serviceNames.length < 4 || width < 560) {
+      if (services.length < 2 || width < 620) {
         setUseTwoColumns(false);
         return;
       }
@@ -10360,7 +10367,7 @@ function ResponsiveOrderServicePreviewV17_95({
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       if (!context) {
-        setUseTwoColumns(width >= 760);
+        setUseTwoColumns(width >= 820);
         return;
       }
 
@@ -10370,12 +10377,13 @@ function ResponsiveOrderServicePreviewV17_95({
         `${style.fontWeight || 400} ${style.fontSize || "12px"} ${
           style.fontFamily || "sans-serif"
         }`;
-      const columnWidth = (width - 24) / 2;
-      const longestTextWidth = serviceNames.reduce(
-        (maxWidth, name) => Math.max(maxWidth, context.measureText(name).width),
-        0,
-      );
-      setUseTwoColumns(longestTextWidth + 34 <= columnWidth);
+      const columnWidth = (width - 32) / 2;
+      const widestRow = services.reduce((maxWidth, service) => {
+        const nameWidth = context.measureText(service.name).width;
+        const amountWidth = context.measureText(service.amountLabel).width;
+        return Math.max(maxWidth, nameWidth + amountWidth + 52);
+      }, 0);
+      setUseTwoColumns(widestRow <= columnWidth);
     };
 
     measure();
@@ -10389,17 +10397,17 @@ function ResponsiveOrderServicePreviewV17_95({
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [serviceKey, serviceNames.length]);
+  }, [serviceKey, services.length]);
 
   const collapsedLimit = 6;
   const visibleServices = expanded
-    ? serviceNames
-    : serviceNames.slice(0, collapsedLimit);
-  const hiddenCount = Math.max(0, serviceNames.length - collapsedLimit);
+    ? services
+    : services.slice(0, collapsedLimit);
+  const hiddenCount = Math.max(0, services.length - collapsedLimit);
 
   return (
     <div
-      className="mt-2 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 px-3 py-2 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
+      className="mt-3 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 p-3 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
       onClick={(event) => {
         event.stopPropagation();
         onOpenItems();
@@ -10413,22 +10421,30 @@ function ResponsiveOrderServicePreviewV17_95({
         }
       }}
     >
-      <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
-        Leistungen · {serviceNames.length}
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
+        Leistungen · {services.length}
       </div>
       <div
         ref={listRef}
-        className="text-[12px] [column-gap:1.5rem]"
-        style={{ columnCount: useTwoColumns ? 2 : 1 }}
+        className="grid gap-x-8 gap-y-1"
+        style={{
+          gridTemplateColumns: useTwoColumns
+            ? "repeat(2, minmax(0, 1fr))"
+            : "minmax(0, 1fr)",
+        }}
       >
-        {visibleServices.map((serviceName, serviceIndex) => (
+        {visibleServices.map((service, serviceIndex) => (
           <div
             key={`${orderId}:responsive-service:${serviceIndex}`}
-            className="mb-1 flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
-            style={{ breakInside: "avoid" }}
+            className="flex min-w-0 items-start gap-2 text-sm"
           >
-            <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-            <span className="min-w-0 break-words">{serviceName}</span>
+            <span className="mt-[0.45rem] h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
+            <span className="min-w-0 flex-1 break-words leading-snug">
+              {service.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+              {service.amountLabel}
+            </span>
           </div>
         ))}
       </div>
@@ -10442,7 +10458,7 @@ function ResponsiveOrderServicePreviewV17_95({
             event.stopPropagation();
             onToggle();
           }}
-          className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
+          className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 active:scale-[0.99]"
         >
           {expanded
             ? "Weniger Leistungen anzeigen"
@@ -16228,16 +16244,58 @@ export default function AuftraegePage() {
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
             const mobileServiceLine = getMobileOrderCardServiceSummary(o);
-            const mobileOrderServiceNames = (o.items || [])
-              .map((item) =>
-                canonicalServiceNameForOrderItem(item.serviceName || ""),
-              )
-              .filter(Boolean);
-            if (mobileOrderServiceNames.length === 0 && o.serviceName) {
-              mobileOrderServiceNames.push(
-                canonicalServiceNameForOrderItem(o.serviceName),
-              );
+            const mobileOrderServiceRows: ResponsiveOrderServiceRowV17_90L231[] =
+              (o.items || [])
+                .map((item) => {
+                  const name = canonicalServiceNameForOrderItem(
+                    item.serviceName || "",
+                  );
+                  if (!name) return null;
+                  const quantity = Number(item.quantity || 0);
+                  const unitPrice = Number(item.unitPrice || 0);
+                  const storedTotal = Number(item.totalPrice);
+                  const calculatedTotal = quantity * unitPrice;
+                  const blocked = Boolean(
+                    item.needsReview &&
+                      (!Number.isFinite(storedTotal) || storedTotal <= 0),
+                  );
+                  const amount =
+                    Number.isFinite(storedTotal) && storedTotal > 0
+                      ? storedTotal
+                      : calculatedTotal;
+                  const currency =
+                    item.currency === "EUR" || item.detectedCurrency === "EUR"
+                      ? "EUR"
+                      : o.currency === "EUR"
+                        ? "EUR"
+                        : "CHF";
+                  return {
+                    name,
+                    amountLabel: blocked
+                      ? "Preis prüfen"
+                      : formatCurrency(
+                          Number.isFinite(amount) ? amount : 0,
+                          currency,
+                        ),
+                  };
+                })
+                .filter(
+                  (
+                    row,
+                  ): row is ResponsiveOrderServiceRowV17_90L231 => Boolean(row),
+                );
+            if (mobileOrderServiceRows.length === 0 && o.serviceName) {
+              mobileOrderServiceRows.push({
+                name: canonicalServiceNameForOrderItem(o.serviceName),
+                amountLabel: formatCurrency(
+                  getSafeOrderTotal(o),
+                  o.currency === "EUR" ? "EUR" : "CHF",
+                ),
+              });
             }
+            const mobileOrderServiceNames = mobileOrderServiceRows.map(
+              (row) => row.name,
+            );
             const mobileOrderServicesExpanded =
               expandedMobileServiceCards.has(o.id);
             const orderCardExpanded = expandedOrderCardIds.has(o.id);
@@ -16883,13 +16941,14 @@ export default function AuftraegePage() {
                             type="button"
                             data-card-toggle-ignore="true"
                             onPointerDown={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.stopPropagation()}
                             onTouchStart={(event) => event.stopPropagation()}
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
                               const menu = event.currentTarget.closest("details");
                               if (menu instanceof HTMLDetailsElement) menu.open = false;
-                              window.setTimeout(() => setArchiveId(o.id), 0);
+                              setArchiveId(o.id);
                             }}
                             className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
                           >
@@ -17163,7 +17222,7 @@ export default function AuftraegePage() {
 
                         <ResponsiveOrderServicePreviewV17_95
                           orderId={o.id}
-                          serviceNames={mobileOrderServiceNames}
+                          services={mobileOrderServiceRows}
                           expanded={mobileOrderServicesExpanded}
                           onToggle={() => toggleMobileServiceCard(o.id)}
                           onOpenItems={() => openEdit(o, { focusSection: "items" })}

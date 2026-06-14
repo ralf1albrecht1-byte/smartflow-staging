@@ -341,13 +341,21 @@ function accessEvidenceKindsV17_90L217(value: unknown): Set<string> {
   ) {
     kinds.add("route");
   }
-  if (/\b(?:schlussel|schluessel|key|cle|chiave|llave)\b/i.test(text)) {
+  if (
+    /\b(?:[a-z]*schlussel[a-z]*|[a-z]*schluessel[a-z]*|key|cle|chiave|llave)\b/i.test(
+      text,
+    )
+  ) {
     kinds.add("key");
   }
   if (/\b(?:code|pin|passcode|kennzahl)\b/i.test(text)) {
     kinds.add("code");
   }
-  if (/\b(?:badge|ausweis|zutrittskarte|access card)\b/i.test(text)) {
+  if (
+    /\b(?:badge|[a-z]*ausweis|zugangskarte|zutrittskarte|access card)\b/i.test(
+      text,
+    )
+  ) {
     kinds.add("badge");
   }
   return kinds;
@@ -2949,7 +2957,7 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
   const currentHouseNumber = currentStreet.match(/\b\d+[a-z]?\b/i)?.[0] || "";
   if (!currentKey || !currentHouseNumber) return currentStreet;
 
-  // V17.90L230: WhatsApp normalization may flatten the complete message into
+  // V17.90L231: WhatsApp normalization may flatten the complete message into
   // one line. In that case parseBillingStreetLine can return the first billing
   // street and never expose the later execution street. Search first for the
   // exact current street with precisely one Unicode letter directly in front.
@@ -2964,7 +2972,11 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
         "giu",
       );
       return Array.from(rawSource.matchAll(pattern))
-        .map((match) => cleanExecutionStreetCandidate(match[1]))
+        .map((match) =>
+          String(match[1] || "")
+            .replace(/\s+/g, " ")
+            .trim(),
+        )
         .filter((line): line is string => Boolean(line));
     })
     .filter((candidate) => {
@@ -5317,6 +5329,21 @@ function translatedRoleEvidenceScoreV17_90L201(
   return matched / lineTokens.length >= 0.8 ? 1 : 0;
 }
 
+function originalRoleEvidenceScoreV17_90L231(
+  line: string,
+  originalText?: string | null,
+): number {
+  const lineKey = canonicalRoleVariantKeyV17_90L201(line);
+  const sourceKey = canonicalRoleVariantKeyV17_90L201(originalText);
+  if (!lineKey || !sourceKey) return 0;
+  if (sourceKey.includes(lineKey)) return 3;
+
+  const lineTokens = lineKey.split(/\s+/g).filter((token) => token.length >= 3);
+  if (lineTokens.length === 0) return 0;
+  const matched = lineTokens.filter((token) => sourceKey.includes(token)).length;
+  return matched / lineTokens.length >= 0.8 ? 1 : 0;
+}
+
 function dedupeTranslatedRoleVariantsV17_90L201(
   lines: string[],
   translationText?: string | null,
@@ -5369,6 +5396,7 @@ function dedupeTranslatedRoleVariantsV17_90L201(
 function dedupeTranslatedAccessRoleVariantsV17_90L230(
   lines: string[],
   translationText?: string | null,
+  originalText?: string | null,
 ): string[] {
   const base = dedupeTranslatedRoleVariantsV17_90L201(lines, translationText);
   const result: string[] = [];
@@ -5406,10 +5434,21 @@ function dedupeTranslatedAccessRoleVariantsV17_90L230(
         existing,
         translationText,
       );
-      // Only collapse a cross-language pair when exactly one version is
-      // directly supported by the German working translation. Two distinct
-      // translated instructions of the same kind remain separate.
-      return (existingScore > 0) !== (candidateScore > 0);
+      const existingOriginalScore = originalRoleEvidenceScoreV17_90L231(
+        existing,
+        originalText,
+      );
+      const candidateOriginalScore = originalRoleEvidenceScoreV17_90L231(
+        line,
+        originalText,
+      );
+      // V17.90L231: Establish a translated/original duplicate by evidence
+      // provenance instead of a fixed translation dictionary. Role kind,
+      // numbers/codes and polarity must already be identical.
+      const crossSourcePair =
+        (existingScore > 0 && candidateOriginalScore > 0) ||
+        (candidateScore > 0 && existingOriginalScore > 0);
+      return crossSourcePair || (existingScore > 0) !== (candidateScore > 0);
     });
 
     if (duplicateIndex < 0) {
@@ -13540,6 +13579,7 @@ export async function processIncomingMessage(
       dedupeTranslatedAccessRoleVariantsV17_90L230(
         finalAiRoleBucketsV17_90L215.access,
         translationText,
+        messageText,
       ),
     ),
     parking: Object.freeze(

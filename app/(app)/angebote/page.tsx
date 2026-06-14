@@ -2792,36 +2792,43 @@ type OfferCatalogDecision = {
 };
 
 
+type ResponsiveOfferServiceRowV17_90L231 = {
+  name: string;
+  amountLabel: string;
+};
+
 function ResponsiveOfferServicePreviewV17_95({
   offerId,
-  serviceNames,
+  services,
   expanded,
   onToggle,
   onOpenItems,
 }: {
   offerId: string;
-  serviceNames: string[];
+  services: ResponsiveOfferServiceRowV17_90L231[];
   expanded: boolean;
   onToggle: () => void;
   onOpenItems: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
-  const serviceKey = serviceNames.join("\u241f");
+  const serviceKey = services
+    .map((service) => `${service.name}\u241f${service.amountLabel}`)
+    .join("\u241e");
 
   useEffect(() => {
     const element = listRef.current;
     if (!element || typeof window === "undefined") return;
     const measure = () => {
       const width = element.clientWidth;
-      if (serviceNames.length < 4 || width < 560) {
+      if (services.length < 2 || width < 620) {
         setUseTwoColumns(false);
         return;
       }
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       if (!context) {
-        setUseTwoColumns(width >= 760);
+        setUseTwoColumns(width >= 820);
         return;
       }
       const style = window.getComputedStyle(element);
@@ -2830,12 +2837,13 @@ function ResponsiveOfferServicePreviewV17_95({
         `${style.fontWeight || 400} ${style.fontSize || "12px"} ${
           style.fontFamily || "sans-serif"
         }`;
-      const columnWidth = (width - 24) / 2;
-      const longestTextWidth = serviceNames.reduce(
-        (maxWidth, name) => Math.max(maxWidth, context.measureText(name).width),
-        0,
-      );
-      setUseTwoColumns(longestTextWidth + 34 <= columnWidth);
+      const columnWidth = (width - 32) / 2;
+      const widestRow = services.reduce((maxWidth, service) => {
+        const nameWidth = context.measureText(service.name).width;
+        const amountWidth = context.measureText(service.amountLabel).width;
+        return Math.max(maxWidth, nameWidth + amountWidth + 52);
+      }, 0);
+      setUseTwoColumns(widestRow <= columnWidth);
     };
     measure();
     const observer =
@@ -2846,17 +2854,17 @@ function ResponsiveOfferServicePreviewV17_95({
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [serviceKey, serviceNames.length]);
+  }, [serviceKey, services.length]);
 
   const collapsedLimit = 6;
   const visibleServices = expanded
-    ? serviceNames
-    : serviceNames.slice(0, collapsedLimit);
-  const hiddenCount = Math.max(0, serviceNames.length - collapsedLimit);
+    ? services
+    : services.slice(0, collapsedLimit);
+  const hiddenCount = Math.max(0, services.length - collapsedLimit);
 
   return (
     <div
-      className="mt-2 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 px-3 py-2 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
+      className="mt-3 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 p-3 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
       onClick={(event) => {
         event.stopPropagation();
         onOpenItems();
@@ -2870,22 +2878,30 @@ function ResponsiveOfferServicePreviewV17_95({
         }
       }}
     >
-      <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
-        Leistungen · {serviceNames.length}
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
+        Leistungen · {services.length}
       </div>
       <div
         ref={listRef}
-        className="text-[12px] [column-gap:1.5rem]"
-        style={{ columnCount: useTwoColumns ? 2 : 1 }}
+        className="grid gap-x-8 gap-y-1"
+        style={{
+          gridTemplateColumns: useTwoColumns
+            ? "repeat(2, minmax(0, 1fr))"
+            : "minmax(0, 1fr)",
+        }}
       >
-        {visibleServices.map((serviceName, serviceIndex) => (
+        {visibleServices.map((service, serviceIndex) => (
           <div
             key={`${offerId}:responsive-service:${serviceIndex}`}
-            className="mb-1 flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
-            style={{ breakInside: "avoid" }}
+            className="flex min-w-0 items-start gap-2 text-sm"
           >
-            <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-            <span className="min-w-0 break-words">{serviceName}</span>
+            <span className="mt-[0.45rem] h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
+            <span className="min-w-0 flex-1 break-words leading-snug">
+              {service.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+              {service.amountLabel}
+            </span>
           </div>
         ))}
       </div>
@@ -2899,7 +2915,7 @@ function ResponsiveOfferServicePreviewV17_95({
             event.stopPropagation();
             onToggle();
           }}
-          className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
+          className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 active:scale-[0.99]"
         >
           {expanded
             ? "Weniger Leistungen anzeigen"
@@ -5539,9 +5555,46 @@ export default function AngebotePage() {
                       offerCurrency,
                       "blocker",
                     );
-                  const mobileOfferServiceNames = (off.items || [])
-                    .map((item: any) => String(item?.description || "").trim())
-                    .filter(Boolean);
+                  const mobileOfferServiceRows: ResponsiveOfferServiceRowV17_90L231[] =
+                    (off.items || [])
+                      .map((item: any) => {
+                        const name = String(item?.description || "").trim();
+                        if (!name) return null;
+                        const quantity = Number(item?.quantity || 0);
+                        const unitPrice = Number(item?.unitPrice || 0);
+                        const storedTotal = Number(item?.totalPrice);
+                        const calculatedTotal = quantity * unitPrice;
+                        const blocked = Boolean(
+                          item?.needsReview &&
+                            (!Number.isFinite(storedTotal) || storedTotal <= 0),
+                        );
+                        const amount =
+                          Number.isFinite(storedTotal) && storedTotal > 0
+                            ? storedTotal
+                            : calculatedTotal;
+                        const currency =
+                          item?.currency === "EUR" || off.currency === "EUR"
+                            ? "EUR"
+                            : "CHF";
+                        return {
+                          name,
+                          amountLabel: blocked
+                            ? "Preis prüfen"
+                            : formatCurrency(
+                                Number.isFinite(amount) ? amount : 0,
+                                currency,
+                              ),
+                        };
+                      })
+                      .filter(
+                        (
+                          row: ResponsiveOfferServiceRowV17_90L231 | null,
+                        ): row is ResponsiveOfferServiceRowV17_90L231 =>
+                          Boolean(row),
+                      );
+                  const mobileOfferServiceNames = mobileOfferServiceRows.map(
+                    (row) => row.name,
+                  );
                   const mobileOfferServicesExpanded =
                     expandedMobileServiceCards.has(off.id);
                   const offerCardExpanded = expandedOfferCardIds.has(off.id);
@@ -6351,7 +6404,7 @@ export default function AngebotePage() {
 
                                 <ResponsiveOfferServicePreviewV17_95
                                   offerId={off.id}
-                                  serviceNames={mobileOfferServiceNames}
+                                  services={mobileOfferServiceRows}
                                   expanded={mobileOfferServicesExpanded}
                                   onToggle={() => toggleMobileServiceCard(off.id)}
                                   onOpenItems={() => openOfferSection(off, "items")}
