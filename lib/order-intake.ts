@@ -8577,6 +8577,223 @@ function normalizeOrdinalLocationServiceNameV17_90L204(args: {
   return normalized.replace(/\s+/g, " ").trim();
 }
 
+
+// V17.90L226: Evidence-bound structural completion before the canonical lock.
+// This layer is deliberately service-agnostic: it does not classify trades or
+// rely on customer-specific wording. It only interprets explicit billing
+// structure inside the first AI row's own evidence. Clear total/flat prices are
+// normalized to 1 × Pauschal. If total and per-unit interpretations conflict,
+// the explicit count is retained while the price remains blocked for review.
+type CanonicalEvidenceAmountV17_90L226 = {
+  value: number;
+  index: number;
+  end: number;
+};
+
+type CanonicalEvidenceStructureV17_90L226 = {
+  explicitFlatTotal: boolean;
+  perUnitSignal: boolean;
+  priceConflict: boolean;
+  inferredQuantity: number;
+  inferredUnit: string | null;
+  inferredFlatPrice: number;
+  inferredPerUnitPrice: number;
+  consistentTotalAndPerUnit: boolean;
+};
+
+function parseCanonicalEvidenceNumberV17_90L226(value: unknown): number {
+  const raw = String(value ?? "")
+    .replace(/[’']/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+  if (!raw) return 0;
+
+  const lastComma = raw.lastIndexOf(",");
+  const lastDot = raw.lastIndexOf(".");
+  let normalized = raw;
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalIndex = Math.max(lastComma, lastDot);
+    const decimalSeparator = raw[decimalIndex];
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+    normalized = raw
+      .replace(new RegExp(`\\${thousandsSeparator}`, "g"), "")
+      .replace(decimalSeparator, ".");
+  } else if (lastComma >= 0) {
+    normalized = raw.replace(/\./g, "").replace(",", ".");
+  } else {
+    normalized = raw.replace(/,/g, "");
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function extractCanonicalEvidenceAmountsV17_90L226(
+  value: unknown,
+): CanonicalEvidenceAmountV17_90L226[] {
+  const source = String(value || "");
+  if (!source.trim()) return [];
+
+  const currency = String.raw`(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|DOLLAR|GBP|PFUND|€|\$|£)`;
+  const number = String.raw`([0-9][0-9’'.,]*)`;
+  const pattern = new RegExp(
+    String.raw`(?:\b${currency}\s*${number}\b|\b${number}\s*${currency}\b)`,
+    "giu",
+  );
+  const result: CanonicalEvidenceAmountV17_90L226[] = [];
+  for (const match of source.matchAll(pattern)) {
+    const rawNumber = match[1] || match[2] || "";
+    const parsed = parseCanonicalEvidenceNumberV17_90L226(rawNumber);
+    if (!parsed) continue;
+    const index = match.index ?? -1;
+    if (index < 0) continue;
+    result.push({ value: parsed, index, end: index + match[0].length });
+  }
+  return result;
+}
+
+function nearestCanonicalEvidenceAmountV17_90L226(args: {
+  markers: number[];
+  amounts: CanonicalEvidenceAmountV17_90L226[];
+  maxDistance: number;
+}): number {
+  let best: { value: number; distance: number } | null = null;
+  for (const marker of args.markers) {
+    for (const amount of args.amounts) {
+      const distance = Math.min(
+        Math.abs(amount.index - marker),
+        Math.abs(amount.end - marker),
+      );
+      if (distance > args.maxDistance) continue;
+      if (!best || distance < best.distance) {
+        best = { value: amount.value, distance };
+      }
+    }
+  }
+  return best?.value || 0;
+}
+
+function canonicalMarkerIndexesV17_90L226(
+  source: string,
+  pattern: RegExp,
+): number[] {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const globalPattern = new RegExp(pattern.source, flags);
+  return Array.from(source.matchAll(globalPattern))
+    .map((match) => match.index ?? -1)
+    .filter((index) => index >= 0);
+}
+
+function inferCanonicalCountFromOwnEvidenceV17_90L226(args: {
+  sourceText: string;
+  serviceName: string;
+}): { quantity: number; unit: string | null } {
+  const explicit = detectAllQuantityUnitsFromText(args.sourceText)[0];
+  if (explicit?.value && explicit.value > 0) {
+    return {
+      quantity: explicit.value,
+      unit: unitTypeToDisplayUnit(explicit.unit),
+    };
+  }
+
+  const serviceTokens = new Set(
+    canonicalServiceKeyV17_90L88(args.serviceName)
+      .split(/\s+/g)
+      .filter((token) => token.length >= 4),
+  );
+  if (serviceTokens.size === 0) return { quantity: 0, unit: null };
+
+  const source = String(args.sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const countPattern = /(?:^|[^\d])(\d+(?:[.,]\d+)?)\s+([\p{L}][\p{L}'’\-]{2,})/giu;
+  for (const match of source.matchAll(countPattern)) {
+    const quantity = parseCanonicalEvidenceNumberV17_90L226(match[1]);
+    if (!quantity || quantity > 100000) continue;
+
+    const nounKey = canonicalServiceKeyV17_90L88(match[2]);
+    if (!nounKey || nounKey.length < 4) continue;
+
+    // A singular floor/location number is an ordinal location, not a billing
+    // quantity. Plural counts remain eligible.
+    if (
+      /^(?:etage|stock|stockwerk|geschoss|floor|storey|piano)$/i.test(
+        nounKey,
+      )
+    ) {
+      continue;
+    }
+
+    const overlapsService = [...serviceTokens].some(
+      (token) => token === nounKey || token.includes(nounKey) || nounKey.includes(token),
+    );
+    if (!overlapsService) continue;
+    return { quantity, unit: "Stück" };
+  }
+
+  return { quantity: 0, unit: null };
+}
+
+function analyzeCanonicalEvidenceStructureV17_90L226(args: {
+  sourceText: string;
+  serviceName: string;
+}): CanonicalEvidenceStructureV17_90L226 {
+  const source = String(args.sourceText || "");
+  const amounts = extractCanonicalEvidenceAmountsV17_90L226(source);
+
+  const flatMarkerPattern = /\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total\s+price|total\s+amount|flat\s+rate|lump\s+sum|forfait(?:\s+total)?|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|a\s+corpo|precio\s+total|importe\s+total|tarifa\s+fija|pre[cç]o\s+total|valor\s+total|pre[cç]o\s+fixo)\b/giu;
+  const perUnitPattern = /(?:\b(?:pro|je|per|each|par|por|cada)\b|(?:à|@)\s*(?:(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|GBP|€|\$|£)\s*)?\d)/giu;
+
+  const flatMarkers = canonicalMarkerIndexesV17_90L226(
+    source,
+    flatMarkerPattern,
+  );
+  const perUnitMarkers = canonicalMarkerIndexesV17_90L226(
+    source,
+    perUnitPattern,
+  );
+  const flatAmount = nearestCanonicalEvidenceAmountV17_90L226({
+    markers: flatMarkers,
+    amounts,
+    maxDistance: 140,
+  });
+  const perUnitAmount = nearestCanonicalEvidenceAmountV17_90L226({
+    markers: perUnitMarkers,
+    amounts,
+    maxDistance: 100,
+  });
+  const inferred = inferCanonicalCountFromOwnEvidenceV17_90L226(args);
+  const explicitFlatTotal = flatMarkers.length > 0 && flatAmount > 0;
+  const perUnitSignal = perUnitMarkers.length > 0 && perUnitAmount > 0;
+
+  let priceConflict = false;
+  let consistentTotalAndPerUnit = false;
+  if (explicitFlatTotal && perUnitSignal) {
+    if (inferred.quantity > 0) {
+      const calculatedTotal = roundIntakeMoney(
+        perUnitAmount * inferred.quantity,
+      );
+      priceConflict =
+        Math.abs(calculatedTotal - roundIntakeMoney(flatAmount)) >= 0.01;
+      consistentTotalAndPerUnit = !priceConflict;
+    } else {
+      priceConflict = Math.abs(flatAmount - perUnitAmount) >= 0.01;
+      consistentTotalAndPerUnit = !priceConflict;
+    }
+  }
+
+  return {
+    explicitFlatTotal,
+    perUnitSignal,
+    priceConflict,
+    inferredQuantity: inferred.quantity,
+    inferredUnit: inferred.unit,
+    inferredFlatPrice: flatAmount,
+    inferredPerUnitPrice: perUnitAmount,
+    consistentTotalAndPerUnit,
+  };
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   _translatedText?: string | null,
@@ -8615,10 +8832,10 @@ function buildCanonicalAiOrderItemsV17_90L88(
       .trim();
 
     const serviceName = rawServiceName || "Leistung prüfen";
-    const quantity = parsePositiveCanonicalNumberV17_90L89(
+    const aiQuantity = parsePositiveCanonicalNumberV17_90L89(
       raw?.quantity ?? raw?.menge,
     );
-    const unitPrice = parsePositiveCanonicalNumberV17_90L89(
+    const aiUnitPrice = parsePositiveCanonicalNumberV17_90L89(
       raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
     );
 
@@ -8626,13 +8843,52 @@ function buildCanonicalAiOrderItemsV17_90L88(
       .replace(/\s+/g, " ")
       .trim();
     const rawUnitType = getServiceUnitType(rawUnit);
-    const unit =
-      rawUnitType !== "unknown"
+    const evidenceStructureV17_90L226 =
+      analyzeCanonicalEvidenceStructureV17_90L226({
+        sourceText,
+        serviceName,
+      });
+
+    // A clear total/flat amount is one billable package even when the service
+    // description contains room/floor/object counts. A contradictory total vs.
+    // per-unit statement is never resolved automatically: retain the explicit
+    // count and block only the price.
+    const useExplicitFlatTotalV17_90L226 = Boolean(
+      evidenceStructureV17_90L226.explicitFlatTotal &&
+        !evidenceStructureV17_90L226.perUnitSignal &&
+        !evidenceStructureV17_90L226.priceConflict,
+    );
+    const quantity = useExplicitFlatTotalV17_90L226
+      ? 1
+      : aiQuantity > 0
+        ? aiQuantity
+        : evidenceStructureV17_90L226.inferredQuantity;
+    const unitPrice = evidenceStructureV17_90L226.priceConflict
+      ? 0
+      : evidenceStructureV17_90L226.consistentTotalAndPerUnit &&
+          evidenceStructureV17_90L226.inferredPerUnitPrice > 0
+        ? evidenceStructureV17_90L226.inferredPerUnitPrice
+        : aiUnitPrice > 0
+          ? aiUnitPrice
+          : useExplicitFlatTotalV17_90L226
+            ? evidenceStructureV17_90L226.inferredFlatPrice
+            : 0;
+
+    const unit = useExplicitFlatTotalV17_90L226
+      ? "Pauschal"
+      : rawUnitType !== "unknown"
         ? unitTypeToDisplayUnit(rawUnitType)
-        : rawUnit || "Einheit prüfen";
-    const unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
-      ? "ai"
-      : "missing";
+        : evidenceStructureV17_90L226.inferredUnit ||
+          rawUnit ||
+          "Einheit prüfen";
+    const unitSource: CanonicalUnitSourceV17_90L89 =
+      useExplicitFlatTotalV17_90L226
+        ? "structural_flat"
+        : rawUnit
+          ? "ai"
+          : evidenceStructureV17_90L226.inferredUnit
+            ? "structural_piece"
+            : "missing";
 
     const explicitCurrency = String(raw?.currency || "")
       .trim()
@@ -8671,27 +8927,29 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     const needsReview = Boolean(
       explicitNeedsReview ||
+        evidenceStructureV17_90L226.priceConflict ||
         missingServiceName ||
         missingEvidence ||
         missingPrice ||
         missingQuantity ||
         missingUnit,
     );
-    const reviewReason =
-      explicitReviewReason ||
-      (missingServiceName
-        ? "service_name_missing"
-        : missingEvidence
-          ? `source_evidence_missing:${serviceName}`
-          : missingPrice
-            ? `price_unclear:${serviceName}`
-            : missingQuantity
-              ? `quantity_review:${serviceName}`
-              : missingUnit
-                ? `unit_missing_in_text:${serviceName}`
-                : explicitNeedsReview
-                  ? `ai_review_required:${serviceName}`
-                  : null);
+    const reviewReason = evidenceStructureV17_90L226.priceConflict
+      ? `price_structure_conflict:${serviceName}`
+      : explicitReviewReason ||
+        (missingServiceName
+          ? "service_name_missing"
+          : missingEvidence
+            ? `source_evidence_missing:${serviceName}`
+            : missingPrice
+              ? `price_unclear:${serviceName}`
+              : missingQuantity
+                ? `quantity_review:${serviceName}`
+                : missingUnit
+                  ? `unit_missing_in_text:${serviceName}`
+                  : explicitNeedsReview
+                    ? `ai_review_required:${serviceName}`
+                    : null);
 
     return {
       serviceName,
@@ -12057,6 +12315,10 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
+- Klare Gesamt-/Pauschalpreise strukturell korrekt ausgeben: Wenn eine Leistung ausdrücklich als Gesamtpreis, Pauschalpreis, Fixpreis, forfait total, total price oder gleichbedeutend für die gesamte Arbeit genannt wird und keine Pro-/Je-/Per-Angabe widerspricht, dann menge = 1, einheit = "Pauschal", unit_price = der Gesamtbetrag. Eine im Leistungstext genannte Anzahl von Räumen, Etagen, Objekten oder Bereichen beschreibt dann nur den Leistungsumfang und darf nicht mit dem Gesamtpreis multipliziert werden.
+- Preiswidersprüche nie still entscheiden: Wenn für dieselbe Leistung sowohl ein Gesamtbetrag als auch ein abweichender Preis pro/je/per Einheit genannt wird, behalte eine ausdrücklich genannte Menge und ihre passende Einheit, setze unit_price = null, confidence = "niedrig" und verwende die zusammengehörigen Sätze als evidence. Die Position muss sichtbar erhalten bleiben und geprüft werden.
+- Eine ausdrücklich genannte Anzahl darf bei einem Preiswiderspruch nicht verloren gehen. Beispielprinzip ohne feste Fachwörter: "7 [zählbare Objekte]" bleibt menge = 7 und einheit = "Stück"; nur der widersprüchliche Preis bleibt offen.
+- Gesamtbetrag und Einzelpreis sind nur dann widersprüchlich, wenn sie rechnerisch nicht zusammenpassen. Stimmen Anzahl × Einzelpreis und Gesamtbetrag überein, dürfen die line-lokalen Werte normal übernommen werden.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
 - Fremdsprachige, mundartliche oder unprofessionell formulierte Leistungen semantisch auf deutsche professionelle Leistungsnamen übersetzen: "Nettoyage des vitres"/"Nettoyage des vitrines" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen, "Déplacement" = Anfahrt.
 - Erkenne semantisch jede eigenständige Kostenposition für Weg/Fahrt/Einsatz beim Kunden als eigene Leistung "Anfahrt". Das gilt unabhängig von Sprache oder Formulierung. Speichere niemals die fremdsprachige Originalform als Leistungsnamen. Wenn der Kundentext dafür einen klaren Pauschalpreis nennt: name/action_name = "Anfahrt", einheit = "Pauschal", menge = 1, unit_price = Betrag, currency = erkannte Währung, evidence = exakte Preiszeile.
@@ -14417,6 +14679,12 @@ export async function processIncomingMessage(
         .join("\n"),
     ).map((item) => Object.freeze({ ...item })),
   ) as unknown as CanonicalAiOrderItemV17_90L88[];
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03e_first_ai_structural_hydration",
+    { items: summarizeIntakeDiagnosticItems(canonicalAiOrderItemsV17_90L88) },
+  );
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
