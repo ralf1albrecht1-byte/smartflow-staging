@@ -76,6 +76,8 @@ import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 
+const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
+
 interface InvoiceItem {
   description: string;
   quantity: string;
@@ -191,6 +193,83 @@ const compactInvoiceValue = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+type InvoiceCurrencyReviewDetailV17_90L227 = {
+  serviceName: string;
+  sourceCurrency: string;
+  documentCurrency: string;
+  originalAmount: number | null;
+};
+
+function collectInvoiceCurrencyReviewDetailsV17_90L227(
+  document: Invoice,
+): InvoiceCurrencyReviewDetailV17_90L227[] {
+  const documentCurrency =
+    String(document.currency || "CHF").trim().toUpperCase() || "CHF";
+  const sourceText = (document.orders || [])
+    .flatMap((order: any) => [order?.notes, order?.description, order?.audioTranscript])
+    .filter(Boolean)
+    .join("\n");
+  const seen = new Set<string>();
+  const details: InvoiceCurrencyReviewDetailV17_90L227[] = [];
+
+  for (const order of document.orders || []) {
+    for (const rawReason of order?.reviewReasons || []) {
+      const parts = String(rawReason || "")
+        .split(":")
+        .map((part) => compactInvoiceValue(part));
+      if (!["item_currency_mismatch", "currency_conflict_item"].includes(parts[0])) {
+        continue;
+      }
+      const serviceName = parts[1] || "Leistung";
+      const sourceCurrency = String(parts[2] || "").toUpperCase();
+      const targetCurrency = String(parts[3] || documentCurrency).toUpperCase();
+      const key = `${serviceName.toLowerCase()}|${sourceCurrency}|${targetCurrency}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const escapedCurrency = sourceCurrency.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const amountPatterns = escapedCurrency
+        ? [
+            new RegExp(`\\b${escapedCurrency}\\s*(\\d+(?:[.,]\\d{1,2})?)`, "i"),
+            new RegExp(`\\b(\\d+(?:[.,]\\d{1,2})?)\\s*${escapedCurrency}\\b`, "i"),
+          ]
+        : [];
+      let originalAmount: number | null = null;
+      for (const pattern of amountPatterns) {
+        const match = sourceText.match(pattern);
+        const parsed = Number(String(match?.[1] || "").replace(",", "."));
+        if (Number.isFinite(parsed) && parsed > 0) {
+          originalAmount = parsed;
+          break;
+        }
+      }
+
+      details.push({
+        serviceName,
+        sourceCurrency: sourceCurrency || "prüfen",
+        documentCurrency: targetCurrency || documentCurrency,
+        originalAmount,
+      });
+    }
+  }
+  return details;
+}
+
+function formatInvoiceCurrencyReviewTooltipV17_90L227(
+  details: InvoiceCurrencyReviewDetailV17_90L227[],
+): string {
+  return [
+    "Währung prüfen",
+    ...details.map((detail) => {
+      const original =
+        detail.originalAmount && detail.originalAmount > 0
+          ? `${detail.sourceCurrency} ${detail.originalAmount.toFixed(2)}`
+          : detail.sourceCurrency;
+      return `• ${detail.serviceName} — Original ${original}, Dokumentwährung ${detail.documentCurrency} · nicht berechnet`;
+    }),
+  ].join("\n");
+}
+
 
 function InvoiceWhatsAppIcon({
   className = "h-4 w-4",
@@ -1364,7 +1443,13 @@ function InvoiceViewportTooltip({
           bottom: window.innerHeight - rect.top + gap,
         };
   };
+  const closeOtherPopovers = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+  };
+
   const openTooltipImmediately = () => {
+    closeOtherPopovers();
     clearOpenTimer();
     clearHideTimer();
     const next = calculatePosition();
@@ -1376,6 +1461,7 @@ function InvoiceViewportTooltip({
     clearOpenTimer();
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null;
+      closeOtherPopovers();
       const next = calculatePosition();
       if (next) setPosition(next);
       setTooltipOpen(true);
@@ -1451,6 +1537,24 @@ function InvoiceViewportTooltip({
     },
     [],
   );
+
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      if (!openRef.current) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closeTooltipImmediately();
+    };
+    const closeFromGlobalEvent = () => closeTooltipImmediately();
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227, closeFromGlobalEvent);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227, closeFromGlobalEvent);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -2924,6 +3028,10 @@ export default function RechnungenPage() {
       focusItems?: boolean;
     },
   ) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+    }
+    setActiveInvoiceServiceSheet(null);
     setEditingInvoice(inv);
     setEditingInvoiceCustomer(inv.customer ? { ...inv.customer } : null);
     setDupCheckOpen(false);
@@ -4280,6 +4388,10 @@ export default function RechnungenPage() {
     visibleInvoiceIds.every((id) => expandedInvoiceCardIds.has(id));
 
   const toggleInvoiceCard = (id: string) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+    }
+    setActiveInvoiceServiceSheet(null);
     setExpandedInvoiceCardIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -4484,6 +4596,14 @@ export default function RechnungenPage() {
                   );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
+                  const invoiceCurrencyReviewDetails =
+                    collectInvoiceCurrencyReviewDetailsV17_90L227(inv);
+                  const invoiceCurrencyReviewCount =
+                    invoiceCurrencyReviewDetails.length;
+                  const invoiceCurrencyReviewTooltip =
+                    formatInvoiceCurrencyReviewTooltipV17_90L227(
+                      invoiceCurrencyReviewDetails,
+                    );
 
                   const renderInvoiceQuickActions = () => (
                     <div
@@ -4667,11 +4787,44 @@ export default function RechnungenPage() {
                     );
                   };
 
+                  const renderInvoiceCurrencyReviewChip = (slot: string) => {
+                    if (invoiceCurrencyReviewCount <= 0) return null;
+                    const title = `Währung prüfen · ${invoiceCurrencyReviewCount}`;
+                    return (
+                      <button
+                        key={`${slot}-currency-review`}
+                        type="button"
+                        aria-label={title}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (!useTouchChipPopovers) openEditInvoice(inv, { focusItems: true });
+                        }}
+                        className="relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0 text-[10px] font-bold text-red-800 shadow-sm hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-1"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Währung</span>
+                        <span>{invoiceCurrencyReviewCount}</span>
+                        <InvoiceViewportTooltip
+                          preferredWidth={360}
+                          mobileDismissOnInteraction
+                        >
+                          <span className="whitespace-pre-wrap break-words">
+                            {invoiceCurrencyReviewTooltip}
+                          </span>
+                        </InvoiceViewportTooltip>
+                      </button>
+                    );
+                  };
+
                   const renderInvoiceServicesChip = (
                     placement: "compact" | "expanded" = "compact",
                   ) =>
                     invoiceYellowReviewEntries.length > 0 ||
                     invoiceBlockerEntries.length > 0 ||
+                    invoiceCurrencyReviewCount > 0 ||
                     Boolean(invoiceAppointmentDisplayLabel) ? (
                       <span
                         className={
@@ -4683,6 +4836,7 @@ export default function RechnungenPage() {
                         <span className="inline-flex items-center gap-1.5">
                           {renderInvoiceCompactReviewChip("yellow")}
                           {renderInvoiceCompactReviewChip("red")}
+                          {renderInvoiceCurrencyReviewChip("review-group")}
                           {invoiceAppointmentDisplayLabel && (
                             <button
                               type="button"
@@ -4725,7 +4879,7 @@ export default function RechnungenPage() {
                       transition={{ delay: i * 0.02 }}
                     >
                       <Card
-                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 transition-shadow hover:shadow-md tap-safe"
+                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 transition-all hover:shadow-md tap-safe active:scale-[0.998]"
                         aria-expanded={invoiceCardExpanded}
                         onClick={(event) => {
                           if (
@@ -4821,7 +4975,7 @@ export default function RechnungenPage() {
 
                             {!invoiceCardExpanded && (
                               <div
-                                className={`min-w-0 flex-1 cursor-pointer ${isPaid ? "opacity-80" : ""}`}
+                                className={`min-w-0 flex-1 cursor-pointer rounded-lg px-1.5 py-1 transition-colors hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-slate-800/80 dark:active:bg-slate-700 ${isPaid ? "opacity-80" : ""}`}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   toggleInvoiceCard(inv.id);
@@ -4858,6 +5012,11 @@ export default function RechnungenPage() {
                                           ? "Kunde nicht zugeordnet"
                                           : inv?.customer?.name || "–"}
                                       </span>
+                                      {inv?.customer?.customerNumber && (
+                                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                                          ({inv.customer.customerNumber})
+                                        </span>
+                                      )}
                                       {invoiceExecutionSites.length > 0 && (
                                         <button
                                           type="button"
@@ -4951,6 +5110,7 @@ export default function RechnungenPage() {
                                         (invoiceYellowReviewEntries.length >
                                           0 ||
                                           invoiceBlockerEntries.length > 0 ||
+                                          invoiceCurrencyReviewCount > 0 ||
                                           Boolean(
                                             invoiceAppointmentDisplayLabel,
                                           )) && (
@@ -4962,6 +5122,7 @@ export default function RechnungenPage() {
                                               {renderInvoiceCompactReviewChip(
                                                 "red",
                                               )}
+                                              {renderInvoiceCurrencyReviewChip("review-group")}
                                               {invoiceAppointmentDisplayLabel && (
                                                 <button
                                                   type="button"
@@ -5034,7 +5195,7 @@ export default function RechnungenPage() {
                               className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""} ${invoiceCardExpanded ? "" : "hidden"}`}
                             >
                               <div
-                                className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 md:flex-nowrap"
+                                className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 md:flex-nowrap"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   toggleInvoiceCard(inv.id);
@@ -5224,6 +5385,7 @@ export default function RechnungenPage() {
                                 {useTouchChipPopovers ? (
                                   (invoiceYellowReviewEntries.length > 0 ||
                                     invoiceBlockerEntries.length > 0 ||
+                                    invoiceCurrencyReviewCount > 0 ||
                                     Boolean(
                                       invoiceAppointmentDisplayLabel,
                                     )) && (
@@ -5233,6 +5395,7 @@ export default function RechnungenPage() {
                                           "yellow",
                                         )}
                                         {renderInvoiceCompactReviewChip("red")}
+                                        {renderInvoiceCurrencyReviewChip("review-group")}
                                         {invoiceAppointmentDisplayLabel && (
                                           <button
                                             type="button"

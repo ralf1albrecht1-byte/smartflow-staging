@@ -104,6 +104,9 @@ import {
 } from "@/lib/intake-v2/view";
 import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 
+const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
+  "smartflow:close-card-popovers-v17-90l227";
+
 const NORMAL_DOG_ICON_DATA_URI =
   "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
 const DANGEROUS_DOG_ICON_DATA_URI =
@@ -269,6 +272,10 @@ interface OrderItem {
   unit: string;
   unitPrice: number;
   totalPrice: number;
+  currency?: string | null;
+  detectedCurrency?: string | null;
+  needsReview?: boolean | null;
+  reviewReason?: string | null;
 }
 
 interface Order {
@@ -4899,7 +4906,26 @@ const getActiveCurrencyMismatchReviewDetailsV17_90L78 = (
       unitKey === "einheit pruefen" ||
       unitKey === "einheit prufen";
 
+    const itemCurrency = String(
+      matchingItem.detectedCurrency || matchingItem.currency || "",
+    )
+      .trim()
+      .toUpperCase();
+    const reviewReason = String(matchingItem.reviewReason || "");
+    const hasStoredCurrencyMismatch =
+      reviewReason.startsWith("item_currency_mismatch:") ||
+      reviewReason.startsWith("currency_conflict_item:");
+    const currencyStillDiffers =
+      Boolean(itemCurrency) &&
+      itemCurrency !== String(detail.orderCurrency || "").toUpperCase();
+    const pricedButBlocked =
+      Number(matchingItem.unitPrice || 0) > 0 &&
+      Number(matchingItem.totalPrice || 0) <= 0;
+
     return (
+      hasStoredCurrencyMismatch ||
+      currencyStillDiffers ||
+      pricedButBlocked ||
       Number(matchingItem.unitPrice || 0) <= 0 ||
       Number(matchingItem.quantity || 0) <= 0 ||
       serviceStillOpen ||
@@ -5929,8 +5955,22 @@ const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
           : undefined,
       );
 
+      const originalPrice = Number(matchingItem?.unitPrice || 0);
+      const originalCurrency =
+        String(
+          matchingItem?.detectedCurrency ||
+            matchingItem?.currency ||
+            detail.textCurrency ||
+            "",
+        )
+          .trim()
+          .toUpperCase() || "prüfen";
+      const originalLabel =
+        originalPrice > 0
+          ? `${originalCurrency} ${originalPrice.toFixed(2)}`
+          : originalCurrency;
       currencyLines.push(
-        `• ${detail.serviceName || "Leistung"} — Text ${detail.textCurrency || "prüfen"}, Auftrag ${detail.orderCurrency || orderCurrency} · nicht berechnet`,
+        `• ${detail.serviceName || "Leistung"} — Original ${originalLabel}, Auftragswährung ${detail.orderCurrency || orderCurrency} · nicht berechnet`,
       );
       if (sourceLine) currencyLines.push(`  Text: ${sourceLine}`);
     });
@@ -8535,7 +8575,20 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         };
   };
 
+  const closeOtherPopovers = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227),
+    );
+    if (badge.key !== "site_address") {
+      window.dispatchEvent(
+        new Event("smartflow:close-execution-address-popovers"),
+      );
+    }
+  };
+
   const openTooltipImmediately = () => {
+    closeOtherPopovers();
     clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
@@ -8562,6 +8615,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     clearOpenTimer();
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null;
+      closeOtherPopovers();
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
       setOpen(true);
@@ -8638,6 +8692,36 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       window.removeEventListener(
         "smartflow:close-execution-address-popovers",
         closeExecutionAddressPopoverV17_90L215,
+      );
+    };
+  }, [badge.key, open]);
+
+  useEffect(() => {
+    if (badge.key === "site_address") return;
+    const closePopover = () => {
+      clearOpenTimer();
+      clearHideTimer();
+      clearAutoCloseTimer();
+      setOpen(false);
+    };
+    const outside = (event: PointerEvent) => {
+      if (!open) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closePopover();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener(
+      SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+      closePopover,
+    );
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener(
+        SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+        closePopover,
       );
     };
   }, [badge.key, open]);
@@ -8854,6 +8938,7 @@ const ViewportAwareOrderServiceTooltip = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -8924,7 +9009,18 @@ const ViewportAwareOrderServiceTooltip = ({
         };
   };
 
+  const closeOtherPopovers = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227),
+    );
+    window.dispatchEvent(
+      new Event("smartflow:close-execution-address-popovers"),
+    );
+  };
+
   const openTooltipImmediately = () => {
+    closeOtherPopovers();
     clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
@@ -8936,6 +9032,7 @@ const ViewportAwareOrderServiceTooltip = ({
     clearOpenTimer();
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null;
+      closeOtherPopovers();
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
       setOpen(true);
@@ -8974,6 +9071,34 @@ const ViewportAwareOrderServiceTooltip = ({
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
+    const closePopover = () => {
+      clearOpenTimer();
+      clearHideTimer();
+      setOpen(false);
+    };
+    const outside = (event: PointerEvent) => {
+      if (!open) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closePopover();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener(
+      SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+      closePopover,
+    );
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener(
+        SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+        closePopover,
+      );
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     const update = () => {
       const nextPosition = calculatePosition();
@@ -8997,6 +9122,7 @@ const ViewportAwareOrderServiceTooltip = ({
         typeof document !== "undefined" &&
         createPortal(
         <span
+          ref={tooltipRef}
           role="tooltip"
           onPointerEnter={clearHideTimer}
           onPointerLeave={scheduleHideTooltip}
@@ -9025,6 +9151,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -9092,7 +9219,18 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
         };
   };
 
+  const closeOtherPopovers = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227),
+    );
+    window.dispatchEvent(
+      new Event("smartflow:close-execution-address-popovers"),
+    );
+  };
+
   const openTooltipImmediately = () => {
+    closeOtherPopovers();
     clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
@@ -9104,6 +9242,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
     clearOpenTimer();
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null;
+      closeOtherPopovers();
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
       setOpen(true);
@@ -9142,6 +9281,34 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   }, [align]);
 
   useEffect(() => {
+    const closePopover = () => {
+      clearOpenTimer();
+      clearHideTimer();
+      setOpen(false);
+    };
+    const outside = (event: PointerEvent) => {
+      if (!open) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closePopover();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener(
+      SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+      closePopover,
+    );
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener(
+        SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227,
+        closePopover,
+      );
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     const update = () => {
       const nextPosition = calculatePosition();
@@ -9165,6 +9332,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
         typeof document !== "undefined" &&
         createPortal(
         <span
+          ref={tooltipRef}
           role="tooltip"
           onPointerEnter={clearHideTimer}
           onPointerLeave={scheduleHideTooltip}
@@ -10613,6 +10781,14 @@ export default function AuftraegePage() {
   };
 
   const toggleOrderCard = (id: string) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+      new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227),
+    );
+      window.dispatchEvent(
+        new Event("smartflow:close-execution-address-popovers"),
+      );
+    }
     setExpandedOrderCardIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -11038,6 +11214,14 @@ export default function AuftraegePage() {
       focusSection?: "specialNotes" | "items" | "executionAddress";
     },
   ) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+      new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227),
+    );
+      window.dispatchEvent(
+        new Event("smartflow:close-execution-address-popovers"),
+      );
+    }
     // V17.90L215: Ein offenes Ausführungsort-Popover darf niemals über dem
     // Bearbeitungsdialog stehen bleiben. Nur dieses Popover wird geschlossen;
     // Termin- und andere Chiplogik bleibt unverändert.
@@ -16606,7 +16790,7 @@ export default function AuftraegePage() {
                 transition={{ delay: i * 0.015 }}
               >
                 <Card
-                  className={`border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-shadow tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+                  className={`border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-all tap-safe max-w-full overflow-visible active:scale-[0.998] ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   aria-expanded={orderCardExpanded}
                   onClick={(event) => {
                     if (
@@ -16710,7 +16894,7 @@ export default function AuftraegePage() {
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
                       {!orderCardExpanded && (
                         <div
-                          className="min-w-0 flex-1 cursor-pointer"
+                          className="min-w-0 flex-1 cursor-pointer rounded-lg px-1.5 py-1 transition-colors hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-slate-800/80 dark:active:bg-slate-700"
                           onClick={(event) => {
                             event.stopPropagation();
                             setActiveMobileTooltipKey(null);
@@ -16747,6 +16931,12 @@ export default function AuftraegePage() {
                                     ? "Kunde nicht zugeordnet"
                                     : o.customer?.name || "–"}
                                 </span>
+                                {!isFallbackCustomerName(o.customer?.name) &&
+                                  cardOrderForChips.customer?.customerNumber && (
+                                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                                      ({cardOrderForChips.customer.customerNumber})
+                                    </span>
+                                  )}
                                 {compactExecutionAddressBadge && (
                                   <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-none sm:max-w-[18rem]">
                                     {renderInteractiveMobileTextBadge(
@@ -16900,7 +17090,7 @@ export default function AuftraegePage() {
                       )}
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
                         <div
-                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
+                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700"
                           onClick={(event) => {
                             event.stopPropagation();
                             setActiveMobileTooltipKey(null);
