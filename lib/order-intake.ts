@@ -24,6 +24,7 @@ import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repai
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   applyUnitlessQuantityPriceLineGuard,
+  detectReadOnlyPriceContradictionsV17_90L234,
   extractExecutionAddressFromText,
   extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99,
   runReadOnlyIntakeRiskValidator,
@@ -15299,20 +15300,88 @@ export async function processIncomingMessage(
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
 
-  let canonicalAiOrderItemsV17_90L88 = Object.freeze(
+  const canonicalAiOrderItemsBaseV17_90L234 =
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
       [messageText, parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
         .filter(Boolean)
         .join("\n"),
-    ).map((item) => Object.freeze({ ...item })),
+    );
+
+  // V17.90L234: The second checker remains read-only. It compares the full
+  // customer source with the hydrated first-AI rows and may only add a review
+  // flag when the same service contains an incompatible total/flat price and
+  // per-unit price. Names, quantity, unit, unit price, currency and evidence
+  // remain untouched. Only the calculable line total is blocked until the user
+  // confirms or corrects the detected price.
+  const priceContradictionFindingsV17_90L234 =
+    detectReadOnlyPriceContradictionsV17_90L234({
+      originalText: messageText,
+      translatedText: translationText,
+      items: canonicalAiOrderItemsBaseV17_90L234,
+    });
+  const priceContradictionByItemIndexV17_90L234 = new Map<
+    number,
+    (typeof priceContradictionFindingsV17_90L234)[number]
+  >();
+  for (const finding of priceContradictionFindingsV17_90L234) {
+    priceContradictionByItemIndexV17_90L234.set(
+      finding.itemIndex,
+      finding,
+    );
+  }
+
+  let canonicalAiOrderItemsV17_90L88 = Object.freeze(
+    canonicalAiOrderItemsBaseV17_90L234.map((item, index) => {
+      const finding = priceContradictionByItemIndexV17_90L234.get(index);
+      if (!finding) return Object.freeze({ ...item });
+
+      return Object.freeze({
+        ...item,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: finding.reason,
+      });
+    }),
   ) as unknown as CanonicalAiOrderItemV17_90L88[];
+
+  if (priceContradictionFindingsV17_90L234.length > 0) {
+    console.warn(
+      `[${source}] ⚠️ Read-only price contradiction review: ${priceContradictionFindingsV17_90L234
+        .map(
+          (finding) =>
+            `${finding.serviceName}: total=${finding.totalAmount}, perUnit=${finding.perUnitAmount}, quantity=${finding.inferredQuantity ?? "unknown"}`,
+        )
+        .join(" | ")}`,
+    );
+  }
+
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
     "03e_first_ai_structural_hydration",
     { items: summarizeIntakeDiagnosticItems(canonicalAiOrderItemsV17_90L88) },
+  );
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03f_readonly_price_contradiction_review",
+    {
+      findingCount: priceContradictionFindingsV17_90L234.length,
+      findings: priceContradictionFindingsV17_90L234.map((finding) => ({
+        itemIndex: finding.itemIndex + 1,
+        serviceName: redactIntakeDiagnosticText(finding.serviceName, 180),
+        totalAmount: finding.totalAmount,
+        perUnitAmount: finding.perUnitAmount,
+        inferredQuantity: finding.inferredQuantity,
+        totalEvidence: redactIntakeDiagnosticText(finding.totalEvidence, 320),
+        perUnitEvidence: redactIntakeDiagnosticText(
+          finding.perUnitEvidence,
+          320,
+        ),
+      })),
+    },
   );
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
@@ -17424,6 +17493,7 @@ export async function processIncomingMessage(
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
       reason.startsWith("item_currency_mismatch:") ||
+      reason.startsWith("price_contradiction:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )

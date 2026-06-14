@@ -84,6 +84,445 @@ export interface ReadOnlyIntakeRiskValidatorResult {
   };
 }
 
+
+// V17.90L234: Narrow read-only price-contradiction gate.
+// It never renames, adds, removes or recalculates a service. It only reports
+// when the same service is described with a total/flat price and a conflicting
+// per-unit price. The caller may then keep the detected unit price visible,
+// set needsReview and block only the line total until manual confirmation.
+export interface ReadOnlyPriceContradictionItemV17_90L234 {
+  serviceName?: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+  description?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+}
+
+export interface ReadOnlyPriceContradictionFindingV17_90L234 {
+  itemIndex: number;
+  serviceName: string;
+  totalAmount: number;
+  perUnitAmount: number;
+  inferredQuantity: number | null;
+  totalEvidence: string;
+  perUnitEvidence: string;
+  reason: string;
+}
+
+const PRICE_CONTRADICTION_STOPWORDS_V17_90L234 = new Set([
+  "reinigen",
+  "reinigung",
+  "putzen",
+  "saubern",
+  "saeubern",
+  "komplett",
+  "grundlich",
+  "gruendlich",
+  "machen",
+  "arbeiten",
+  "leistung",
+  "leistungen",
+  "gesamtpreis",
+  "gesamtbetrag",
+  "totalpreis",
+  "total",
+  "pauschal",
+  "pauschale",
+  "fixpreis",
+  "festpreis",
+  "preis",
+  "preise",
+  "chf",
+  "eur",
+  "euro",
+  "fr",
+  "sfr",
+  "je",
+  "pro",
+  "per",
+  "each",
+  "forfait",
+  "bitte",
+  "ebenfalls",
+  "gleichzeitig",
+  "auch",
+  "und",
+  "oder",
+  "der",
+  "die",
+  "das",
+  "den",
+  "dem",
+  "des",
+  "ein",
+  "eine",
+  "einen",
+  "einem",
+  "einer",
+  "mit",
+  "fur",
+  "fuer",
+  "von",
+  "vom",
+]);
+
+const PRICE_CONTRADICTION_NUMBER_WORDS_V17_90L234: Record<string, number> = {
+  zwei: 2,
+  drei: 3,
+  vier: 4,
+  funf: 5,
+  fuenf: 5,
+  sechs: 6,
+  sieben: 7,
+  acht: 8,
+  neun: 9,
+  zehn: 10,
+  elf: 11,
+  zwolf: 12,
+  zwoelf: 12,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  deux: 2,
+  trois: 3,
+  quatre: 4,
+  cinq: 5,
+  sept: 7,
+  huit: 8,
+  neuf: 9,
+  dix: 10,
+  due: 2,
+  tre: 3,
+  quattro: 4,
+  cinque: 5,
+  sei: 6,
+  sette: 7,
+  otto: 8,
+  nove: 9,
+  dieci: 10,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+};
+
+function normalizePriceContradictionTextV17_90L234(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9'.,\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitPriceContradictionSegmentsV17_90L234(value: unknown): string[] {
+  const seen = new Set<string>();
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+|;\s+/g)
+    .map((segment) => segment.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((segment) => {
+      const key = normalizePriceContradictionTextV17_90L234(segment);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function priceContradictionTokensV17_90L234(value: unknown): string[] {
+  return normalizePriceContradictionTextV17_90L234(value)
+    .split(/\s+/g)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter(
+      (token) =>
+        token.length >= 4 &&
+        !/^\d+$/.test(token) &&
+        !PRICE_CONTRADICTION_STOPWORDS_V17_90L234.has(token),
+    );
+}
+
+function priceContradictionTokenOverlapV17_90L234(
+  segment: string,
+  tokens: string[],
+): boolean {
+  if (tokens.length === 0) return false;
+  const segmentTokens = new Set(
+    normalizePriceContradictionTextV17_90L234(segment)
+      .split(/\s+/g)
+      .map((token) => token.replace(/[^a-z0-9]/g, ""))
+      .filter(Boolean),
+  );
+  return tokens.some((token) =>
+    [...segmentTokens].some(
+      (candidate) =>
+        candidate === token ||
+        (Math.min(candidate.length, token.length) >= 6 &&
+          (candidate.startsWith(token) || token.startsWith(candidate))),
+    ),
+  );
+}
+
+function extractPriceAmountsV17_90L234(value: unknown): number[] {
+  const source = String(value || "");
+  const matches = Array.from(
+    source.matchAll(
+      /(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\b|\b([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\s*(?:chf|eur|euro|sfr|fr)\.?\b)/giu,
+    ),
+  );
+  const values = matches
+    .map((match) => match[1] || match[2] || "")
+    .map((raw) =>
+      Number(
+        String(raw)
+          .replace(/['’]/g, "")
+          .replace(",", "."),
+      ),
+    )
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return Array.from(new Set(values.map((value) => Number(value.toFixed(2)))));
+}
+
+function hasTotalPriceMarkerV17_90L234(value: unknown): boolean {
+  const text = normalizePriceContradictionTextV17_90L234(value);
+  return /\b(?:gesamtpreis|gesamtbetrag|totalpreis|total amount|total price|prix total|prezzo totale|precio total|preco total|forfait|lump sum|fixed price|fixpreis|festpreis|pauschal(?:preis)?)\b/.test(
+    text,
+  );
+}
+
+function hasPerUnitPriceMarkerV17_90L234(value: unknown): boolean {
+  const text = normalizePriceContradictionTextV17_90L234(value);
+  return (
+    /\b(?:preis\s+)?(?:je|pro|per|each|par|por)\b/.test(text) ||
+    /(?:^|\s)à(?:\s|$)/iu.test(String(value || ""))
+  );
+}
+
+function inferPriceContradictionQuantityV17_90L234(
+  segments: string[],
+  tokens: string[],
+  fallbackQuantity?: number | null,
+): number | null {
+  for (const segment of segments) {
+    if (!priceContradictionTokenOverlapV17_90L234(segment, tokens)) continue;
+    const normalized = normalizePriceContradictionTextV17_90L234(segment);
+    const numeric = normalized.match(/\b(\d{1,4}(?:[.,]\d+)?)\b/);
+    if (numeric?.[1]) {
+      const value = Number(numeric[1].replace(",", "."));
+      if (Number.isFinite(value) && value > 1 && value <= 10000) return value;
+    }
+    for (const [word, value] of Object.entries(
+      PRICE_CONTRADICTION_NUMBER_WORDS_V17_90L234,
+    )) {
+      if (new RegExp(`\\b${word}\\b`, "i").test(normalized)) return value;
+    }
+  }
+  const fallback = Number(fallbackQuantity || 0);
+  return Number.isFinite(fallback) && fallback > 1 ? fallback : null;
+}
+
+
+function totalPriceCandidateBelongsToItemV17_90L234(args: {
+  segments: string[];
+  candidateIndex: number;
+  candidateSegment: string;
+  itemTokens: string[];
+}): boolean {
+  if (
+    priceContradictionTokenOverlapV17_90L234(
+      args.candidateSegment,
+      args.itemTokens,
+    )
+  ) {
+    return true;
+  }
+
+  // A non-matching total line is only allowed as a generic amount-only line,
+  // e.g. "Gesamtpreis pauschal CHF 980". A line that names another service,
+  // e.g. "Empfang reinigen pauschal CHF 180", must never be borrowed.
+  if (priceContradictionTokensV17_90L234(args.candidateSegment).length > 0) {
+    return false;
+  }
+
+  for (
+    let index = args.candidateIndex - 1;
+    index >= Math.max(0, args.candidateIndex - 2);
+    index -= 1
+  ) {
+    const segment = args.segments[index];
+    if (priceContradictionTokensV17_90L234(segment).length === 0) continue;
+    return priceContradictionTokenOverlapV17_90L234(
+      segment,
+      args.itemTokens,
+    );
+  }
+
+  for (
+    let index = args.candidateIndex + 1;
+    index <= Math.min(args.segments.length - 1, args.candidateIndex + 1);
+    index += 1
+  ) {
+    const segment = args.segments[index];
+    if (priceContradictionTokensV17_90L234(segment).length === 0) continue;
+    return priceContradictionTokenOverlapV17_90L234(
+      segment,
+      args.itemTokens,
+    );
+  }
+
+  return false;
+}
+
+export function detectReadOnlyPriceContradictionsV17_90L234(args: {
+  originalText: string;
+  translatedText?: string | null;
+  items: ReadOnlyPriceContradictionItemV17_90L234[];
+}): ReadOnlyPriceContradictionFindingV17_90L234[] {
+  const segments = splitPriceContradictionSegmentsV17_90L234(
+    [args.originalText, args.translatedText].filter(Boolean).join("\n"),
+  );
+  if (segments.length === 0 || !Array.isArray(args.items)) return [];
+
+  const findings: ReadOnlyPriceContradictionFindingV17_90L234[] = [];
+
+  args.items.forEach((item, itemIndex) => {
+    const serviceName = String(item.serviceName || "").trim();
+    if (!serviceName) return;
+
+    const tokens = Array.from(
+      new Set(
+        priceContradictionTokensV17_90L234(
+          [
+            serviceName,
+            item.sourceText,
+            item.evidence,
+            item.description,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ),
+      ),
+    );
+    if (tokens.length === 0) return;
+
+    const anchorIndexes = segments
+      .map((segment, index) =>
+        priceContradictionTokenOverlapV17_90L234(segment, tokens)
+          ? index
+          : -1,
+      )
+      .filter((index) => index >= 0);
+    if (anchorIndexes.length === 0) return;
+
+    const totalCandidates = segments
+      .map((segment, index) => ({
+        segment,
+        index,
+        amounts: extractPriceAmountsV17_90L234(segment),
+        isTotal: hasTotalPriceMarkerV17_90L234(segment),
+      }))
+      .filter(
+        (candidate) =>
+          candidate.isTotal &&
+          candidate.amounts.length > 0 &&
+          totalPriceCandidateBelongsToItemV17_90L234({
+            segments,
+            candidateIndex: candidate.index,
+            candidateSegment: candidate.segment,
+            itemTokens: tokens,
+          }) &&
+          anchorIndexes.some(
+            (anchorIndex) => Math.abs(candidate.index - anchorIndex) <= 2,
+          ),
+      );
+
+    const perUnitCandidates = segments
+      .map((segment, index) => ({
+        segment,
+        index,
+        amounts: extractPriceAmountsV17_90L234(segment),
+        isPerUnit: hasPerUnitPriceMarkerV17_90L234(segment),
+        matchesService: priceContradictionTokenOverlapV17_90L234(
+          segment,
+          tokens,
+        ),
+      }))
+      .filter(
+        (candidate) =>
+          candidate.isPerUnit &&
+          candidate.amounts.length > 0 &&
+          candidate.matchesService &&
+          anchorIndexes.some(
+            (anchorIndex) => Math.abs(candidate.index - anchorIndex) <= 2,
+          ),
+      );
+
+    if (totalCandidates.length === 0 || perUnitCandidates.length === 0) return;
+
+    const pairs = totalCandidates
+      .flatMap((totalCandidate) =>
+        perUnitCandidates.map((perCandidate) => ({
+          totalCandidate,
+          perCandidate,
+          distance: Math.abs(totalCandidate.index - perCandidate.index),
+        })),
+      )
+      .filter((pair) => pair.distance <= 2)
+      .sort((left, right) => left.distance - right.distance);
+    const pair = pairs[0];
+    if (!pair) return;
+
+    const totalAmount = pair.totalCandidate.amounts[0];
+    const perUnitAmount = pair.perCandidate.amounts[0];
+    const quantity = inferPriceContradictionQuantityV17_90L234(
+      segments.filter((segment) =>
+        priceContradictionTokenOverlapV17_90L234(segment, tokens),
+      ),
+      tokens,
+      item.quantity,
+    );
+
+    const tolerance = 0.02;
+    const inconsistent = quantity
+      ? Math.abs(totalAmount - quantity * perUnitAmount) > tolerance
+      : Math.abs(totalAmount - perUnitAmount) > tolerance;
+    if (!inconsistent) return;
+
+    findings.push({
+      itemIndex,
+      serviceName,
+      totalAmount,
+      perUnitAmount,
+      inferredQuantity: quantity,
+      totalEvidence: pair.totalCandidate.segment,
+      perUnitEvidence: pair.perCandidate.segment,
+      reason: `price_contradiction:${serviceName}`,
+    });
+  });
+
+  return findings;
+}
+
 const normalizeRiskText = (value?: string | null) =>
   String(value || "")
     .toLowerCase()
