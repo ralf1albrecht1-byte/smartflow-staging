@@ -453,16 +453,15 @@ const buildAdaptiveAppointmentLabels = (
   value: unknown,
 ): AdaptiveAppointmentLabels => {
   const full = compactInvoiceValue(value) || "Termin klären";
-  // V17.90L239: Der Kartenchip zeigt immer mindestens TT.MM., sobald
-  // irgendwo im vollständigen Termintext ein echtes Datum vorhanden ist.
-  // Uhrzeit, Tageszeit und Vorankündigung bleiben ausschließlich im Tooltip.
-  const dateMatch = full.match(
-    /(?:^|\D)(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?(?:\D|$)/,
-  );
+  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
   const month = dateMatch[2].padStart(2, "0");
-  return { full, dateOnly: `${day}.${month}.` };
+  const year = dateMatch[3] || "";
+  return {
+    full,
+    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+  };
 };
 
 // V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
@@ -634,91 +633,21 @@ function invoiceHintMatchesServiceEvidenceV17_90L237(
   return false;
 }
 
-const normalizeInvoiceInfoKeyV17_90L238 = (value: unknown) =>
-  compactInvoiceValue(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-function invoiceInfoLinesEquivalentV17_90L238(
-  left: string,
-  right: string,
-): boolean {
-  const a = normalizeInvoiceInfoKeyV17_90L238(left);
-  const b = normalizeInvoiceInfoKeyV17_90L238(right);
-  if (!a || !b) return false;
-  if (a === b) return true;
-
-  const accessIdentity = (text: string) => {
-    const code = text.match(/\b\d{3,8}\b/)?.[0] || "";
-    const isAccess = /\b(?:schlussel|schluessel|key|box|kasten|code|kode|zugang|zutritt|access|entree|cle|chiave|llave)\b/i.test(text);
-    return code && isAccess ? `access:${code}` : "";
-  };
-  const accessA = accessIdentity(a);
-  const accessB = accessIdentity(b);
-  if (accessA && accessA === accessB) return true;
-
-  const appointmentIdentity = (text: string) => {
-    if (!/\btermin\b/i.test(text)) return null;
-    const date = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
-    if (!date) return null;
-    const dateKey = `${date[1].padStart(2, "0")}.${date[2].padStart(2, "0")}.${date[3] || ""}`;
-    const times = Array.from(text.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)).map(
-      (match) => `${match[1].padStart(2, "0")}:${match[2]}`,
-    );
-    return { dateKey, times };
-  };
-  const appointmentA = appointmentIdentity(a);
-  const appointmentB = appointmentIdentity(b);
-  if (appointmentA && appointmentB && appointmentA.dateKey === appointmentB.dateKey) {
-    const sameTimes =
-      appointmentA.times.join("|") === appointmentB.times.join("|");
-    if (sameTimes || appointmentA.times.length === 0 || appointmentB.times.length === 0) {
-      return true;
-    }
-  }
-
-  const shorter = a.length <= b.length ? a : b;
-  const longer = a.length > b.length ? a : b;
-  if (shorter.length >= 8 && longer.includes(shorter)) return true;
-
-  const tokens = (value: string) =>
-    new Set(value.split(/\s+/g).filter((token) => token.length >= 3));
-  const aTokens = tokens(a);
-  const bTokens = tokens(b);
-  if (aTokens.size < 2 || bTokens.size < 2) return false;
-  const overlap = [...aTokens].filter((token) => bTokens.has(token)).length;
-  return overlap >= 2 && overlap / Math.min(aTokens.size, bTokens.size) >= 0.72;
-}
-
 function uniquePreferredInvoiceInfoLinesV17_90L237(values: string[]): string[] {
   const result: string[] = [];
   for (const raw of values) {
     const line = compactInvoiceValue(raw);
-    const key = normalizeInvoiceInfoKeyV17_90L238(line);
+    const key = normalizeInvoiceServiceName(line);
     if (!line || !key) continue;
-    const existingIndex = result.findIndex((entry) =>
-      invoiceInfoLinesEquivalentV17_90L238(entry, line),
-    );
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeInvoiceServiceName(entry);
+      if (existing === key) return true;
+      const shorter = existing.length <= key.length ? existing : key;
+      const longer = existing.length > key.length ? existing : key;
+      return shorter.length >= 8 && longer.includes(shorter);
+    });
     if (existingIndex >= 0) {
-      const quality = (value: string) => {
-        const normalized = normalizeInvoiceInfoKeyV17_90L238(value);
-        const germanAccess = /\b(?:schlussel|schluessel|zugang|zutritt|tuer|tur|hauswart|empfang)\b/i.test(normalized)
-          ? 80
-          : 0;
-        const fullLocation = /\b(?:box|kasten|hauswart|empfang|seiteneingang|hintereingang)\b/i.test(normalized)
-          ? 40
-          : 0;
-        const tokenScore = Math.min(30, normalized.split(/\s+/g).length * 3);
-        return germanAccess + fullLocation + tokenScore + Math.min(40, value.length / 2);
-      };
-      if (quality(line) > quality(result[existingIndex])) {
-        result[existingIndex] = line;
-      }
+      if (line.length > result[existingIndex].length) result[existingIndex] = line;
       continue;
     }
     result.push(line);
@@ -1445,7 +1374,6 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
   };
 
   for (const [orderIndex, order] of (invoice.orders || []).entries()) {
-    let hasStructuredAppointmentForOrder = false;
     const combinedSource = [
       order?.specialNotes,
       order?.notes,
@@ -1464,38 +1392,21 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
       for (const line of extractInvoiceAppointmentLinesV17_90L177R(section)) {
         const label = parseInvoiceAppointmentLineV17_90L177R(line);
         if (!label) continue;
-        hasStructuredAppointmentForOrder = true;
         addEntry({ site, label, source: line });
       }
     });
 
     const directRaw = compactInvoiceValue(order?.date);
-    const createdRaw = compactInvoiceValue(order?.createdAt);
-    const directDate = directRaw ? new Date(directRaw) : null;
-    const createdDate = createdRaw ? new Date(createdRaw) : null;
-    const sameCalendarDayAsCreated = Boolean(
-      directDate &&
-        createdDate &&
-        !Number.isNaN(directDate.getTime()) &&
-        !Number.isNaN(createdDate.getTime()) &&
-        directDate.getFullYear() === createdDate.getFullYear() &&
-        directDate.getMonth() === createdDate.getMonth() &&
-        directDate.getDate() === createdDate.getDate(),
-    );
-
-    // V17.90L238: order.date is often the order creation timestamp, not the
-    // execution appointment. Use it only as a fallback when no structured
-    // appointment exists and it is not the same calendar day as createdAt.
-    if (directRaw && !hasStructuredAppointmentForOrder && !sameCalendarDayAsCreated) {
+    if (directRaw) {
       let directLabel = "";
-      const fallbackDirectDate = new Date(directRaw);
-      if (!Number.isNaN(fallbackDirectDate.getTime())) {
-        const day = String(fallbackDirectDate.getDate()).padStart(2, "0");
-        const month = String(fallbackDirectDate.getMonth() + 1).padStart(2, "0");
-        const year = fallbackDirectDate.getFullYear();
+      const directDate = new Date(directRaw);
+      if (!Number.isNaN(directDate.getTime())) {
+        const day = String(directDate.getDate()).padStart(2, "0");
+        const month = String(directDate.getMonth() + 1).padStart(2, "0");
+        const year = directDate.getFullYear();
         const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(directRaw);
         const time = hasTime
-          ? fallbackDirectDate.toLocaleTimeString("de-CH", {
+          ? directDate.toLocaleTimeString("de-CH", {
               hour: "2-digit",
               minute: "2-digit",
             })
@@ -4801,7 +4712,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-2 dark:border-slate-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3 dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -5040,12 +4951,12 @@ export default function RechnungenPage() {
                                 event.preventDefault();
                                 event.stopPropagation();
                               }}
-                              className={`relative inline-flex h-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
+                              className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                               aria-label={invoiceAppointmentDisplayLabel}
                             >
                               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                               {invoiceAppointmentChipLabels.dateOnly && (
-                                <span className="ml-1.5 whitespace-nowrap">
+                                <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
                                   {invoiceAppointmentChipLabels.dateOnly}
                                 </span>
                               )}
@@ -5308,7 +5219,7 @@ export default function RechnungenPage() {
                                           Boolean(
                                             invoiceAppointmentDisplayLabel,
                                           )) && (
-                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                             <span className="inline-flex items-center gap-1.5">
                                               {renderInvoiceCompactReviewChip(
                                                 "yellow",
@@ -5330,17 +5241,12 @@ export default function RechnungenPage() {
                                                     event.preventDefault();
                                                     event.stopPropagation();
                                                   }}
-                                                  className={`relative inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
+                                                  className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
                                                   aria-label={
                                                     invoiceAppointmentDisplayLabel
                                                   }
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                                  {invoiceAppointmentChipLabels.dateOnly && (
-                                                    <span className="ml-1.5 whitespace-nowrap">
-                                                      {invoiceAppointmentChipLabels.dateOnly}
-                                                    </span>
-                                                  )}
                                                   <InvoiceViewportTooltip
                                                     preferredWidth={320}
                                                     mobileDismissOnInteraction
@@ -5608,7 +5514,7 @@ export default function RechnungenPage() {
                                     Boolean(
                                       invoiceAppointmentDisplayLabel,
                                     )) && (
-                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                       <span className="inline-flex items-center gap-1.5">
                                         {renderInvoiceCompactReviewChip(
                                           "yellow",
@@ -5628,7 +5534,7 @@ export default function RechnungenPage() {
                                               event.preventDefault();
                                               event.stopPropagation();
                                             }}
-                                            className={`relative inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
+                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
                                             aria-label={
                                               invoiceAppointmentDisplayLabel
                                             }
@@ -7560,12 +7466,6 @@ export default function RechnungenPage() {
                           !(
                             hasConcreteAppointmentV17_90L237 &&
                             /termin\s+klären|termin\s+klaeren/i.test(line)
-                          ) &&
-                          !hazards.some((warning) =>
-                            invoiceInfoLinesEquivalentV17_90L238(
-                              warning,
-                              line,
-                            ),
                           ),
                       );
                       const primaryHints = allHints.filter(

@@ -267,33 +267,20 @@ function priceContradictionTokenOverlapV17_90L234(
   tokens: string[],
 ): boolean {
   if (tokens.length === 0) return false;
-  const segmentTokens = Array.from(
-    new Set(
-      normalizePriceContradictionTextV17_90L234(segment)
-        .split(/\s+/g)
-        .map((token) => token.replace(/[^a-z0-9]/g, ""))
-        .filter(Boolean),
-    ),
+  const segmentTokens = new Set(
+    normalizePriceContradictionTextV17_90L234(segment)
+      .split(/\s+/g)
+      .map((token) => token.replace(/[^a-z0-9]/g, ""))
+      .filter(Boolean),
   );
-  if (segmentTokens.length === 0) return false;
-
-  const matched = tokens.filter((token) =>
-    segmentTokens.some(
+  return tokens.some((token) =>
+    [...segmentTokens].some(
       (candidate) =>
         candidate === token ||
         (Math.min(candidate.length, token.length) >= 6 &&
           (candidate.startsWith(token) || token.startsWith(candidate))),
     ),
-  ).length;
-
-  // V17.90L238: One shared generic action word must not connect prices from
-  // different service lines. A single token is sufficient only when the item
-  // itself has at most two meaningful tokens (for example "Treppenhäuser").
-  // Longer labels require either two matching tokens or at least half of the
-  // item's meaningful tokens. This keeps the checker line-local without any
-  // customer- or service-specific mapping list.
-  if (tokens.length <= 2) return matched >= 1;
-  return matched >= 2 || matched / tokens.length >= 0.5;
+  );
 }
 
 function extractPriceAmountsV17_90L234(value: unknown): number[] {
