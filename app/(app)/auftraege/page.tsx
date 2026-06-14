@@ -4505,7 +4505,7 @@ const compactAmountReviewCountV17_90L165 = (badge: ReviewBadge) => {
   );
   if (explicitCount > 0) return explicitCount;
   if (isRedAmountReviewBadgeV17_90L165(badge)) {
-    return concreteRedReviewCountV17_90L82(badge);
+    return concreteRedReviewPositionCountV17_90L242([badge]);
   }
   return 1;
 };
