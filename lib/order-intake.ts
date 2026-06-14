@@ -4310,6 +4310,44 @@ function normalizeStructuredAppointmentTimeV17_90L86(
   return `${String(hour).padStart(2, "0")}:${minute}`;
 }
 
+function normalizeStructuredAppointmentDaypartV17_90L225(
+  appointment: AiAppointmentV17_90L86,
+): string | null {
+  const record = appointment as AiAppointmentV17_90L86 &
+    Record<string, unknown>;
+  const source = [
+    record.tageszeit,
+    record.daypart,
+    record.zeitfenster,
+    record.time_window,
+    record.zeit,
+    record.when,
+    appointment.datum,
+    appointment.date,
+    appointment.evidence,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!source) return null;
+
+  const patterns: Array<[RegExp, string]> = [
+    [/\b(?:frueh|früh|morgens?|morning|matin|mattina|mañana)\b/iu, "morgens"],
+    [/\b(?:vormittags?|late\s+morning|avant[-\s]?midi|mattinata)\b/iu, "vormittags"],
+    [/\b(?:mittags?|noon|midi|mezzogiorno)\b/iu, "mittags"],
+    [/\b(?:nachmittags?|afternoon|apres[-\s]?midi|après[-\s]?midi|pomeriggio|tarde)\b/iu, "nachmittags"],
+    [/\b(?:abends?|evening|soir|sera|noche)\b/iu, "abends"],
+    [/\b(?:nachts?|night|nuit|notte)\b/iu, "nachts"],
+    [/\b(?:ganztags?|ganztägig|all\s+day|toute\s+la\s+journee|toute\s+la\s+journée|giornata\s+intera)\b/iu, "ganztägig"],
+  ];
+
+  for (const [pattern, label] of patterns) {
+    if (pattern.test(source)) return label;
+  }
+  return null;
+}
+
 function sourceSupportsAppointmentPartV17_90L86(
   source: string,
   value?: string | null,
@@ -4416,8 +4454,11 @@ function buildStructuredAppointmentHintsV17_90L86(
     }
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
+    const daypart = normalizeStructuredAppointmentDaypartV17_90L225(
+      appointment,
+    );
 
-    if (!date && !start) continue;
+    if (!date && !start && !daypart) continue;
     // V17.90L103: The first-AI appointment is preserved. Evidence checks may
     // create a review warning, but must not silently remove the appointment
     // from the order or its Important information section.
@@ -4463,7 +4504,8 @@ function buildStructuredAppointmentHintsV17_90L86(
         }`
       : "";
     const timeRange = start && end ? `${start}–${end}` : start || "";
-    const line = `Termin: ${[date, timeRange, notice].filter(Boolean).join(" · ")}`;
+    const timeDescriptor = timeRange || daypart || "";
+    const line = `Termin: ${[date, timeDescriptor, notice].filter(Boolean).join(" · ")}`;
     if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
       result.push(line);
     }
@@ -6855,7 +6897,9 @@ function applyFinalAmountBlockersBeforePersist(
     }
 
     if (currencyBlocked) {
-      next.unitPrice = 0;
+      // V17.90L225: Preserve the exact foreign-currency amount for the editor.
+      // Blocking applies only to totalPrice; the user must still see e.g.
+      // EUR 35 before confirming a target-currency price or discarding the row.
       if (!next.reviewReason || next.reviewReason === "currency_review") {
         next.reviewReason =
           detectedCurrency &&
@@ -8535,200 +8579,140 @@ function normalizeOrdinalLocationServiceNameV17_90L204(args: {
 
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
-  translatedText?: string | null,
-  contextText?: string | null,
+  _translatedText?: string | null,
+  _contextText?: string | null,
 ): CanonicalAiOrderItemV17_90L88[] {
   if (!Array.isArray(rawItems)) return [];
 
-  const builtItems = rawItems
-    .map((raw, canonicalOrder) => {
-      const sourceText = compactText(
-        raw?.sourceText ||
-          raw?.source_text ||
-          raw?.evidence ||
-          raw?.raw ||
-          raw?.description ||
-          "",
-      );
-      const rawServiceName = compactText(
-        raw?.serviceName ||
-          raw?.name ||
-          raw?.action_name ||
-          raw?.service_name ||
-          raw?.matched_service_name ||
-          "",
-      );
-      const confidenceKey = normalizeUnitText(raw?.confidence || "");
-      const confidence =
-        confidenceKey.includes("niedrig") || confidenceKey.includes("low")
-          ? "niedrig"
-          : confidenceKey.includes("mittel") ||
-              confidenceKey.includes("medium")
-            ? "mittel"
-            : "hoch";
+  // V17.90L225: Hard first-AI service boundary.
+  // Every structured AI row is retained in its original order. Missing or
+  // uncertain business fields become visible review fields; they are never a
+  // reason to delete the row or rebuild it from the whole customer message.
+  return rawItems.map((raw, canonicalOrder) => {
+    const sourceText = String(
+      raw?.sourceText ??
+        raw?.source_text ??
+        raw?.evidence ??
+        raw?.raw ??
+        raw?.description ??
+        "",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
-      const unitPrice = parsePositiveCanonicalNumberV17_90L89(
-        raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
-      );
-      const rawQuantity = parsePositiveCanonicalNumberV17_90L89(
-        raw?.quantity ?? raw?.menge,
-      );
-      const explicitQuantityRangeV17_90L121 =
-        detectExplicitQuantityRangeV17_90L121(sourceText);
-      const sourceQuantity =
-        detectAllQuantityUnitsFromText(sourceText)[0] || null;
-      const leadingCount =
-        extractLeadingCountFromEvidenceV17_90L89(sourceText);
-      let quantity = explicitQuantityRangeV17_90L121
-        ? 0
-        : rawQuantity || sourceQuantity?.value || leadingCount || 0;
+    const rawServiceName = String(
+      raw?.serviceName ??
+        raw?.name ??
+        raw?.action_name ??
+        raw?.service_name ??
+        raw?.matched_service_name ??
+        "",
+    )
+      .replace(/\s+/g, " ")
+      .trim();
 
-      const rawUnit = raw?.unit ?? raw?.einheit ?? null;
-      const rawUnitType = getServiceUnitType(rawUnit);
-      const sourceUnitType =
-        explicitQuantityRangeV17_90L121?.unit ||
-        sourceQuantity?.unit ||
-        "unknown";
-      let unitType =
-        rawUnitType !== "unknown"
-          ? rawUnitType
-          : sourceUnitType !== "unknown"
-            ? sourceUnitType
-            : "unknown";
-      let unitSource: CanonicalUnitSourceV17_90L89 =
-        rawUnitType !== "unknown"
-          ? "ai"
-          : sourceUnitType !== "unknown"
-            ? "evidence"
-            : "missing";
+    const serviceName = rawServiceName || "Leistung prüfen";
+    const quantity = parsePositiveCanonicalNumberV17_90L89(
+      raw?.quantity ?? raw?.menge,
+    );
+    const unitPrice = parsePositiveCanonicalNumberV17_90L89(
+      raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
+    );
 
-      if (
-        unitType === "unknown" &&
-        /\b(?:pauschal|fixpreis|festpreis|flat\s*fee)\b/i.test(sourceText)
-      ) {
-        unitType = "flat";
-        unitSource = "evidence";
-      } else if (
-        unitType === "unknown" &&
-        evidenceSupportsStructuralPieceUnitV17_90L89(sourceText, quantity)
-      ) {
-        unitType = "piece";
-        unitSource = "structural_piece";
-      } else if (
-        unitType === "unknown" &&
-        evidenceSupportsStructuralFlatUnitV17_90L89(
-          sourceText,
-          quantity,
-          unitPrice,
-        )
-      ) {
-        unitType = "flat";
-        unitSource = "structural_flat";
-      }
+    const rawUnit = String(raw?.unit ?? raw?.einheit ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const rawUnitType = getServiceUnitType(rawUnit);
+    const unit =
+      rawUnitType !== "unknown"
+        ? unitTypeToDisplayUnit(rawUnitType)
+        : rawUnit || "Einheit prüfen";
+    const unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
+      ? "ai"
+      : "missing";
 
-      const ordinalLocationEvidenceV17_90L204 =
-        detectSingularOrdinalLocationEvidenceV17_90L204(sourceText);
-      if (
-        ordinalLocationEvidenceV17_90L204 &&
-        unitPrice > 0 &&
-        quantity === ordinalLocationEvidenceV17_90L204.number &&
-        (unitType === "piece" || unitType === "unknown")
-      ) {
-        quantity = 1;
-        unitType = "flat";
-        unitSource = "structural_flat";
-      }
+    const explicitCurrency = String(raw?.currency || "")
+      .trim()
+      .toUpperCase();
+    const detectedCurrency =
+      explicitCurrency ||
+      String(detectCurrencyFromText(sourceText) || "")
+        .trim()
+        .toUpperCase() ||
+      null;
 
-      if (quantity <= 0 && unitType === "flat" && unitPrice > 0) quantity = 1;
+    const confidenceKey = normalizeUnitText(
+      raw?.confidence ?? raw?.service_confidence ?? "",
+    );
+    const confidence =
+      confidenceKey.includes("niedrig") || confidenceKey.includes("low")
+        ? "niedrig"
+        : confidenceKey.includes("mittel") ||
+            confidenceKey.includes("medium")
+          ? "mittel"
+          : "hoch";
 
-      const unit =
-        unitType !== "unknown"
-          ? unitTypeToDisplayUnit(unitType)
-          : compactText(rawUnit || "");
-      const detectedCurrency =
-        compactText(raw?.currency || detectCurrencyFromText(sourceText) || "")
-          .toUpperCase() || null;
+    const missingServiceName = !rawServiceName;
+    const missingEvidence = !sourceText;
+    const missingPrice = unitPrice <= 0;
+    const missingQuantity = quantity <= 0;
+    const missingUnit = !rawUnit || isReviewUnitV17_90L(unit);
+    const explicitNeedsReview = Boolean(
+      raw?.needsReview ?? raw?.needs_review ?? false,
+    );
+    const explicitReviewReason = String(
+      raw?.reviewReason ?? raw?.review_reason ?? "",
+    )
+      .replace(/\s+/g, " ")
+      .trim();
 
-      // V17.90L206: The structured first-AI service name is authoritative.
-      // After the model has produced a valid semantic name, no translated line,
-      // dominant action or spelling repair may shorten, extend or rephrase it.
-      // Only data already stored in structured fields (quantity/unit) and a
-      // leading list conjunction are removed from the visible label.
-      const cleanedServiceName = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
-        serviceName: rawServiceName
-          .replace(
-            /^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i,
-            "",
-          )
-          .trim(),
-        quantity,
-      });
-      const ordinalSafeServiceName = ordinalLocationEvidenceV17_90L204
-        ? normalizeOrdinalLocationServiceNameV17_90L204({
-            serviceName: cleanedServiceName,
-            ordinal: ordinalLocationEvidenceV17_90L204,
-          })
-        : cleanedServiceName;
-      const serviceName = ordinalSafeServiceName
-        ? `${ordinalSafeServiceName.charAt(0).toUpperCase()}${ordinalSafeServiceName.slice(1)}`
-        : "";
+    const needsReview = Boolean(
+      explicitNeedsReview ||
+        missingServiceName ||
+        missingEvidence ||
+        missingPrice ||
+        missingQuantity ||
+        missingUnit,
+    );
+    const reviewReason =
+      explicitReviewReason ||
+      (missingServiceName
+        ? "service_name_missing"
+        : missingEvidence
+          ? `source_evidence_missing:${serviceName}`
+          : missingPrice
+            ? `price_unclear:${serviceName}`
+            : missingQuantity
+              ? `quantity_review:${serviceName}`
+              : missingUnit
+                ? `unit_missing_in_text:${serviceName}`
+                : explicitNeedsReview
+                  ? `ai_review_required:${serviceName}`
+                  : null);
 
-      const safeName = Boolean(
-        serviceName &&
-          serviceName.length >= 4 &&
-          serviceName.length <= 120 &&
-          !isInternalReviewServiceNameV17_90L(serviceName) &&
-          !/\b(?:CHF|EUR|USD|GBP)\b/i.test(serviceName),
-      );
-      const safeEvidence = Boolean(
-        sourceText && sourceText.length <= 420 && !/[\r\n]/.test(sourceText),
-      );
-
-      // V17.90L102: Confidence is advisory only. A structured first-AI row
-      // with a valid service name and line-local evidence is part of the
-      // immutable canonical snapshot even when the model marks it as low
-      // confidence. Later validators may warn, but they may not delete it.
-      if (!safeName || !safeEvidence) return null;
-
-      const missingPrice = unitPrice <= 0;
-      const missingQuantity = quantity <= 0;
-      const missingUnit = !unit || isReviewUnitV17_90L(unit);
-      const needsReview = missingPrice || missingQuantity || missingUnit;
-      const reviewReason = missingPrice
-        ? `price_unclear:${serviceName}`
-        : explicitQuantityRangeV17_90L121
-          ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
-          : missingQuantity
-            ? `quantity_review:${serviceName}`
-            : missingUnit
-              ? `unit_missing_in_text:${serviceName}`
-              : null;
-
-      return {
-        serviceName,
-        description: sourceText,
-        quantity,
-        unit: unit || "Einheit prüfen",
-        unitPrice,
-        totalPrice:
-          unitPrice > 0 && quantity > 0 && !missingUnit
-            ? roundIntakeMoney(unitPrice * quantity)
-            : 0,
-        needsReview,
-        reviewReason,
-        sourceText,
-        evidence: sourceText,
-        detectedCurrency,
-        canonicalOrder,
-        confidence,
-        unitSource,
-      } as CanonicalAiOrderItemV17_90L88;
-    })
-    .filter(Boolean) as CanonicalAiOrderItemV17_90L88[];
-
-  // V17.90L206: Do not run any semantic name reconstruction after the
-  // canonical AI rows were built. Validators remain advisory only.
-  return builtItems;
+    return {
+      serviceName,
+      description: sourceText || serviceName,
+      quantity,
+      unit,
+      unitPrice,
+      totalPrice:
+        !needsReview && quantity > 0 && unitPrice > 0
+          ? roundIntakeMoney(quantity * unitPrice)
+          : 0,
+      needsReview,
+      reviewReason,
+      sourceText: sourceText || null,
+      evidence: sourceText || null,
+      detectedCurrency,
+      canonicalOrder,
+      confidence,
+      unitSource,
+    } as CanonicalAiOrderItemV17_90L88;
+  });
 }
 
 function buildEvidenceBoundRescueCanonicalItemsV17_90L217(
@@ -8957,23 +8941,24 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     const missingPrice = unitPrice <= 0;
     const missingQuantity = quantity <= 0;
     const missingUnit = !unit || isReviewUnitV17_90L(unit);
-    const canonicalQuantityRangeReason =
-      String(canonical.reviewReason || "").startsWith("quantity_range_review:")
-        ? String(canonical.reviewReason)
-        : null;
+    const canonicalReviewReason = String(canonical.reviewReason || "").trim();
     const reviewReason = isForeignCurrency
       ? `item_currency_mismatch:${canonical.serviceName}:${canonicalCurrency}:${finalCurrency}`
-      : missingPrice
-        ? `price_unclear:${canonical.serviceName}`
-        : canonicalQuantityRangeReason
-          ? canonicalQuantityRangeReason
+      : canonicalReviewReason ||
+        (missingPrice
+          ? `price_unclear:${canonical.serviceName}`
           : missingQuantity
             ? `quantity_review:${canonical.serviceName}`
             : missingUnit
               ? `unit_missing_in_text:${canonical.serviceName}`
-              : null;
+              : null);
     const needsReview = Boolean(
-      isForeignCurrency || missingPrice || missingQuantity || missingUnit,
+      canonical.needsReview ||
+        canonicalReviewReason ||
+        isForeignCurrency ||
+        missingPrice ||
+        missingQuantity ||
+        missingUnit,
     );
 
     result.push({
@@ -8981,9 +8966,12 @@ function reconcileWithCanonicalAiItemsV17_90L88(
       description: canonical.sourceText || canonical.description,
       quantity,
       unit,
-      unitPrice: isForeignCurrency ? 0 : unitPrice,
+      // V17.90L225: Keep the original foreign-currency amount visible. Only
+      // the calculable line total is blocked until the target currency/price is
+      // confirmed by the user.
+      unitPrice,
       totalPrice:
-        !isForeignCurrency && !missingPrice && !missingQuantity && !missingUnit
+        !needsReview && !isForeignCurrency
           ? roundIntakeMoney(quantity * unitPrice)
           : 0,
       needsReview,
@@ -9015,73 +9003,11 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     }
   }
 
-  // A later parser may contribute only a genuinely unresolved line that the
-  // first model omitted. Complete priced lines become review suggestions via
-  // the read-only risk validator; they are never injected automatically.
-  const supplementalSeen = new Set<string>();
-  for (const item of remaining) {
-    const price = Number(item.unitPrice || 0);
-    const quantity = Number(item.quantity || 0);
-    const total = Number(item.totalPrice || 0);
-    const isIncomplete =
-      Boolean(item.needsReview) &&
-      (price <= 0 ||
-        quantity <= 0 ||
-        total <= 0 ||
-        isReviewUnitV17_90L(item.unit));
-    if (!isIncomplete) continue;
+  // V17.90L225: The canonical first-AI rows are the complete persisted item
+  // set. Later parser/validator rows are diagnostics or proposals only and may
+  // never be appended, removed, merged or reordered here.
+  return result;
 
-    const ownLine =
-      findOwnSourceLineForServiceV17_90L88(item.serviceName, originalText) ||
-      compactText(item.sourceText || item.evidence || item.description || "");
-    const ownEvidence = canonicalEvidenceKeyV17_90L88(ownLine);
-    if (!ownLine || !ownEvidence || ownLine.length > 420) continue;
-
-    const duplicatesCanonical = canonicalItems.some((canonical) => {
-      const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
-        canonical.sourceText || canonical.evidence,
-      );
-      return Boolean(
-        canonicalEvidence &&
-          (ownEvidence === canonicalEvidence ||
-            (ownEvidence.length >= 16 &&
-              canonicalEvidence.length >= 16 &&
-              (ownEvidence.includes(canonicalEvidence) ||
-                canonicalEvidence.includes(ownEvidence)))),
-      );
-    });
-    if (duplicatesCanonical || supplementalSeen.has(ownEvidence)) continue;
-
-    const explicitlyUnresolved =
-      /(?:preis|betrag|price|prix|prezzo|precio)\s*(?:noch\s*)?(?:offen|fehlt|unklar|missing|open|unknown|tbd)|(?:nach\s+aufwand|on\s+request|sur\s+demande)|(?:währung|waehrung|currency)\s*(?:prüfen|pruefen|check)/iu.test(
-        ownLine,
-      ) ||
-      Boolean(
-        item.detectedCurrency &&
-          finalCurrency &&
-          String(item.detectedCurrency).toUpperCase() !==
-            String(finalCurrency).toUpperCase(),
-      );
-    if (!explicitlyUnresolved) continue;
-
-    supplementalSeen.add(ownEvidence);
-    result.push({
-      ...item,
-      description: ownLine,
-      sourceText: ownLine,
-      evidence: ownLine,
-      quantity: quantity > 0 ? quantity : 1,
-      unit:
-        !item.unit || isReviewUnitV17_90L(item.unit)
-          ? "Pauschal"
-          : item.unit,
-      unitPrice: 0,
-      totalPrice: 0,
-      needsReview: true,
-    });
-  }
-
-  return dedupeEquivalentSourceRowsV17_90L81(result);
 }
 
 function canonicalItemsStableAfterValidationV17_90L89(
@@ -9090,51 +9016,61 @@ function canonicalItemsStableAfterValidationV17_90L89(
   finalCurrency: string,
 ): boolean {
   if (canonicalItems.length === 0) return false;
+  if (canonicalItems.length !== finalItems.length) return false;
 
-  return canonicalItems.every((canonical) => {
-    const evidenceKey = canonicalEvidenceKeyV17_90L88(
-      canonical.sourceText || canonical.evidence,
-    );
+  const orderedCanonical = [...canonicalItems].sort(
+    (left, right) => left.canonicalOrder - right.canonicalOrder,
+  );
+
+  return orderedCanonical.every((canonical, index) => {
+    const item = finalItems[index];
+    if (!item) return false;
+
     const expectedCurrency = String(
       canonical.detectedCurrency || finalCurrency || "",
-    ).toUpperCase();
+    )
+      .trim()
+      .toUpperCase();
+    const actualCurrency = String(
+      item.detectedCurrency || finalCurrency || "",
+    )
+      .trim()
+      .toUpperCase();
+    const expectedEvidence = String(
+      canonical.sourceText || canonical.evidence || canonical.description || "",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
+    const actualEvidence = String(
+      item.sourceText || item.evidence || item.description || "",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
 
-    return finalItems.some((item) => {
-      const itemEvidenceKey = canonicalEvidenceKeyV17_90L88(
-        item.sourceText || item.evidence || item.description,
-      );
-      const sameEvidence = Boolean(
-        evidenceKey &&
-          itemEvidenceKey &&
-          (evidenceKey === itemEvidenceKey ||
-            (evidenceKey.length >= 16 &&
-              itemEvidenceKey.length >= 16 &&
-              (evidenceKey.includes(itemEvidenceKey) ||
-                itemEvidenceKey.includes(evidenceKey)))),
-      );
-      const sameName =
-        canonicalServiceKeyV17_90L88(item.serviceName) ===
-        canonicalServiceKeyV17_90L88(canonical.serviceName);
-      const sameQuantity =
-        Math.abs(
-          Number(item.quantity || 0) - Number(canonical.quantity || 0),
-        ) < 0.0001;
-      const foreignCurrency =
-        expectedCurrency &&
-        finalCurrency &&
-        expectedCurrency !== String(finalCurrency).toUpperCase();
-      const samePrice = foreignCurrency
-        ? Number(item.unitPrice || 0) === 0
-        : Math.abs(
-            Number(item.unitPrice || 0) -
-              Number(canonical.unitPrice || 0),
-          ) < 0.0001;
-      const sameUnit =
-        isReviewUnitV17_90L(canonical.unit) ||
-        getServiceUnitType(item.unit) === getServiceUnitType(canonical.unit);
+    const sameName =
+      String(item.serviceName || "").trim() ===
+      String(canonical.serviceName || "").trim();
+    const sameQuantity =
+      Math.abs(Number(item.quantity || 0) - Number(canonical.quantity || 0)) <
+      0.0001;
+    const samePrice =
+      Math.abs(Number(item.unitPrice || 0) - Number(canonical.unitPrice || 0)) <
+      0.0001;
+    const sameUnit =
+      String(item.unit || "").trim() === String(canonical.unit || "").trim();
+    const sameCurrency = actualCurrency === expectedCurrency;
+    const sameEvidence = actualEvidence === expectedEvidence;
 
-      return sameEvidence && sameName && sameQuantity && samePrice && sameUnit;
-    });
+    return (
+      sameName &&
+      sameQuantity &&
+      samePrice &&
+      sameUnit &&
+      sameCurrency &&
+      sameEvidence
+    );
   });
 }
 
@@ -12785,6 +12721,39 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L225: Capture the complete first structured AI business graph at
+  // the exact 03_llm_structured boundary. Downstream logic may work on mutable
+  // copies, but these originals are the only authoritative sources for
+  // customer, execution address, on-site contact and appointments.
+  const cloneFirstAiStructuredValueV17_90L225 = <T,>(value: T): T =>
+    JSON.parse(JSON.stringify(value ?? null)) as T;
+  const firstAiCustomerSnapshotV17_90L225 = Object.freeze(
+    cloneFirstAiStructuredValueV17_90L225(parsed.kunde || {}),
+  );
+  const firstAiCustomerMatchSnapshotV17_90L225 = Object.freeze(
+    cloneFirstAiStructuredValueV17_90L225(parsed.kundenabgleich || {}),
+  );
+  const firstAiExecutionAddressSnapshotV17_90L225 = parsed.auftrag
+    ?.ausfuehrungsadresse
+    ? Object.freeze(
+        cloneFirstAiStructuredValueV17_90L225(
+          parsed.auftrag.ausfuehrungsadresse,
+        ),
+      )
+    : null;
+  const firstAiOnsiteContactSnapshotV17_90L225 = parsed.auftrag
+    ?.kontakt_vor_ort
+    ? Object.freeze(
+        cloneFirstAiStructuredValueV17_90L225(parsed.auftrag.kontakt_vor_ort),
+      )
+    : null;
+  const firstAiAppointmentsSnapshotV17_90L225 = Object.freeze(
+    (Array.isArray(parsed.auftrag?.termine) ? parsed.auftrag.termine : []).map(
+      (appointment: unknown) =>
+        Object.freeze(cloneFirstAiStructuredValueV17_90L225(appointment)),
+    ),
+  );
+
   // V17.90L213: Capture the first structured AI service rows immediately.
   // Every later validator/repair path works on separate data; it can no longer
   // mutate the source that is used to build the canonical persistence rows.
@@ -12860,12 +12829,12 @@ export async function processIncomingMessage(
 
   const firstAiAppointmentHintsV17_90L216 =
     buildStructuredAppointmentHintsV17_90L86(
-      parsed.auftrag?.termine,
+      firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
       [
         messageText,
         translationText,
-        parsed.auftrag?.kontakt_vor_ort
-          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
+        firstAiOnsiteContactSnapshotV17_90L225
+          ? JSON.stringify(firstAiOnsiteContactSnapshotV17_90L225)
           : "",
       ]
         .filter(Boolean)
@@ -13106,12 +13075,16 @@ export async function processIncomingMessage(
   // After this final AI role review every downstream path is read-only.
 
   // --- Customer resolution based on kundenabgleich.status ---
-  const abgleich = parsed.kundenabgleich || {};
+  const abgleich = cloneFirstAiStructuredValueV17_90L225(
+    firstAiCustomerMatchSnapshotV17_90L225,
+  ) as any;
   let abgleichStatus = abgleich.status || "kein_treffer";
   let matchId = abgleich.bestehende_kunden_id || "";
 
   // Ensure address is split properly
-  const kundeData = parsed.kunde || {};
+  const kundeData = cloneFirstAiStructuredValueV17_90L225(
+    firstAiCustomerSnapshotV17_90L225,
+  ) as any;
 
   // V16.9: Telefonnummern aus "Kontakt vor Ort" dürfen nicht als normale
   // Kundentelefonnummer gespeichert oder für Matching verwendet werden.
@@ -13123,7 +13096,7 @@ export async function processIncomingMessage(
   let onsiteContactHint = extractOnsiteContactHint(
     messageText,
     kundeData.telefon || null,
-    parsed.auftrag?.kontakt_vor_ort || null,
+    firstAiOnsiteContactSnapshotV17_90L225 || null,
   );
   if (onsiteContactHint.phoneBelongsToSiteContact) {
     console.log(
@@ -13140,7 +13113,7 @@ export async function processIncomingMessage(
     !matchId &&
     hasExplicitStoredCustomerReuseIntentV17_90L87(
       messageText,
-      parsed.kundenabgleich?.reuse_requested,
+      abgleich.reuse_requested,
     )
   ) {
     const mentionedCustomer = findUniqueMentionedCustomerV17_90L87(
@@ -13191,7 +13164,7 @@ export async function processIncomingMessage(
     !matchId &&
     hasExplicitStoredCustomerReuseIntentV17_90L87(
       messageText,
-      parsed.kundenabgleich?.reuse_requested,
+      abgleich.reuse_requested,
     )
   ) {
     const mentionedCustomer = findUniqueMentionedCustomerV17_90L87(
@@ -13211,7 +13184,7 @@ export async function processIncomingMessage(
   if (
     hasExplicitStoredCustomerReuseIntentV17_90L87(
       messageText,
-      parsed.kundenabgleich?.reuse_requested,
+      abgleich.reuse_requested,
     )
   ) {
     const preferredStoredCustomerV17_90L88B =
@@ -13512,7 +13485,7 @@ export async function processIncomingMessage(
     abgleichStatus === "reuse_requested" ||
     hasExplicitStoredCustomerReuseIntentV17_90L87(
       messageText,
-      parsed.kundenabgleich?.reuse_requested,
+      abgleich.reuse_requested,
     );
   if (abgleichStatus === "reuse_requested") {
     abgleichStatus = "moeglicher_treffer";
@@ -14151,12 +14124,12 @@ export async function processIncomingMessage(
   );
   const structuredAppointmentHintsV17_90L86 =
     buildStructuredAppointmentHintsV17_90L86(
-      parsed.auftrag?.termine,
+      firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
       [
         messageText,
         translationText,
-        parsed.auftrag?.kontakt_vor_ort
-          ? JSON.stringify(parsed.auftrag.kontakt_vor_ort)
+        firstAiOnsiteContactSnapshotV17_90L225
+          ? JSON.stringify(firstAiOnsiteContactSnapshotV17_90L225)
           : "",
       ]
         .filter(Boolean)
@@ -15947,7 +15920,15 @@ export async function processIncomingMessage(
   );
   if (canonicalPersistenceViolationV17_90L98) {
     console.error(
-      `[${source}] canonical persistence invariant unresolved; order remains blocked for manual review`,
+      `[${source}] canonical persistence invariant unresolved; order creation is blocked`,
+    );
+  }
+  if (
+    canonicalAiOrderItemsV17_90L88.length > 0 &&
+    !canonicalPostLockActiveV17_90L209
+  ) {
+    throw new Error(
+      "CANONICAL_FIRST_AI_MUTATION_BLOCK:service_items",
     );
   }
 
@@ -15960,7 +15941,7 @@ export async function processIncomingMessage(
     ) as unknown as typeof finalOrderItems;
   }
 
-  const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
+  const aiExecutionAddress = firstAiExecutionAddressSnapshotV17_90L225;
   const executionAddressCustomerContext = {
     customerAddress: addr.street || resolvedCustomerMaster?.address || null,
     customerPlz: addr.plz || resolvedCustomerMaster?.plz || null,
@@ -15975,10 +15956,12 @@ export async function processIncomingMessage(
     validationSourceText,
   );
   const explicitPartialExecutionAddressFallback =
-    extractExecutionAddressFromText(
-      validationSourceText,
-      executionAddressCustomerContext,
-    );
+    legacyAddressFallbackEnabled
+      ? extractExecutionAddressFromText(
+          validationSourceText,
+          executionAddressCustomerContext,
+        )
+      : null;
   // V17.90L194: The first-AI execution-address object is the protected
   // source of truth. Whole-message address recreation is disabled by default;
   // it is available only behind the explicit legacy environment switch.
@@ -15988,7 +15971,11 @@ export async function processIncomingMessage(
       ? explicitPartialExecutionAddressFallback
       : null);
 
-  if (aiStructuredExecutionAddress && explicitPartialExecutionAddressFallback) {
+  if (
+    legacyAddressFallbackEnabled &&
+    aiStructuredExecutionAddress &&
+    explicitPartialExecutionAddressFallback
+  ) {
     protectedExecutionAddressCandidateV17_90L103 = {
       siteName: preferOriginalExecutionSiteNameV17_90L199({
         aiAddress: aiStructuredExecutionAddress,
@@ -16023,7 +16010,12 @@ export async function processIncomingMessage(
   // customer when street and city identify the same place. This keeps a real
   // work-area label such as "Treppenhaus Haus B" while preventing "in Baden"
   // and a missing PLZ from creating an artificial address review.
-  if (extractedExecutionAddress && resolvedCustomerMaster) {
+  if (
+    legacyAddressFallbackEnabled &&
+    !firstAiExecutionAddressSnapshotV17_90L225 &&
+    extractedExecutionAddress &&
+    resolvedCustomerMaster
+  ) {
     const normalizedSiteCity = cleanIntakeCityCandidate(
       extractedExecutionAddress.siteCity,
     );
@@ -16059,6 +16051,8 @@ export async function processIncomingMessage(
   const explicitExecutionSiteDescriptor =
     originalExecutionSiteDescriptorFromTextV17_50(validationSourceText);
   if (
+    legacyAddressFallbackEnabled &&
+    !firstAiExecutionAddressSnapshotV17_90L225 &&
     extractedExecutionAddress &&
     explicitExecutionSiteDescriptor &&
     (!extractedExecutionAddress.siteName ||
@@ -16083,35 +16077,32 @@ export async function processIncomingMessage(
     executionAddressCustomerContext.customerPlz &&
     executionAddressCustomerContext.customerCity
   ) {
-    const sameAddressWorkArea = sameAddressWorkAreaDescriptorV17_66(validationSourceText);
-    const sameAddressWorkAreaKeyV17_90L209 = normalizeUnitText(
-      sameAddressWorkArea || "",
-    )
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    const isGenericSameAddressLabelV17_90L209 =
-      !sameAddressWorkAreaKeyV17_90L209 ||
-      /^(?:firma|wie firma|gleiche adresse|selbe adresse|same address|company|betrieb)$/.test(
-        sameAddressWorkAreaKeyV17_90L209,
+    // V17.90L225: Same-address instructions may only retain a work-area name
+    // that the first structured AI address object explicitly supplied. The raw
+    // sentence is never reparsed into a site label; therefore phrases such as
+    // "keine separate Ausführungsadresse anlegen" cannot create "anlegen".
+    const firstAiSameAddressSiteNameV17_90L225 =
+      cleanExecutionSiteNameCandidate(
+        normalizeStructuredTextField(
+          (firstAiExecutionAddressSnapshotV17_90L225 as any)?.name,
+        ),
       );
-
-    // "Gleiche Adresse wie Firma" is an address-role instruction, not a new
-    // work-site name. Keep a genuinely named work area, but never materialize
-    // generic labels such as "Firma" or "wie Firma" as a separate site.
-    extractedExecutionAddress =
-      sameAddressWorkArea && !isGenericSameAddressLabelV17_90L209
-        ? {
-            siteName: sameAddressWorkArea,
-            siteAddress: executionAddressCustomerContext.customerAddress,
-            sitePlz: executionAddressCustomerContext.customerPlz,
-            siteCity: executionAddressCustomerContext.customerCity,
-            siteNote: null,
-          }
-        : null;
+    extractedExecutionAddress = firstAiSameAddressSiteNameV17_90L225
+      ? {
+          siteName: firstAiSameAddressSiteNameV17_90L225,
+          siteAddress: executionAddressCustomerContext.customerAddress,
+          sitePlz: executionAddressCustomerContext.customerPlz,
+          siteCity: executionAddressCustomerContext.customerCity,
+          siteNote: null,
+        }
+      : null;
   }
 
-  if (extractedExecutionAddress) {
+  if (
+    extractedExecutionAddress &&
+    legacyAddressFallbackEnabled &&
+    !firstAiExecutionAddressSnapshotV17_90L225
+  ) {
     const enrichedSiteNameV17_90L203 = enrichExecutionSiteNameFromEvidenceV17_90L203({
       currentName: extractedExecutionAddress.siteName,
       siteAddress: extractedExecutionAddress.siteAddress,
@@ -16383,6 +16374,16 @@ export async function processIncomingMessage(
           intakeValidation.finalCurrency,
         );
 
+  const canonicalItemReviewReasonsV17_90L225 = finalOrderItems
+    .filter((item) => Boolean(item.needsReview))
+    .map((item) =>
+      String(
+        item.reviewReason ||
+          `ai_review_required:${String(item.serviceName || "Leistung")}`,
+      ).trim(),
+    )
+    .filter(Boolean);
+
   let allReviewReasons: string[] = Array.from(new Set([
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
@@ -16390,6 +16391,7 @@ export async function processIncomingMessage(
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
+    ...canonicalItemReviewReasonsV17_90L225,
     ...(canonicalPostLockActiveV17_90L209
       ? []
       : unitlessQuantityGuardBeforePersist.reviewReasons),
@@ -16473,6 +16475,7 @@ export async function processIncomingMessage(
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
+      reason.startsWith("item_currency_mismatch:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -16835,8 +16838,12 @@ export async function processIncomingMessage(
     (sum, item) => sum + Number(item.totalPrice || 0),
     0,
   );
-  const canonicalReviewReasonsV17_90L213 = Array.from(
-    new Set(canonicalPersistenceSourceV17_90L213.reviewReasons || []),
+  const canonicalReviewReasonsV17_90L213: string[] = Array.from(
+    new Set<string>(
+      (canonicalPersistenceSourceV17_90L213.reviewReasons || []).map((reason) =>
+        String(reason),
+      ),
+    ),
   );
   const canonicalNeedsReviewV17_90L213 = Boolean(
     forceReview || canonicalReviewReasonsV17_90L213.length > 0,
@@ -16846,6 +16853,7 @@ export async function processIncomingMessage(
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
+      reason.startsWith("item_currency_mismatch:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
