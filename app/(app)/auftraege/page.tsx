@@ -4458,6 +4458,8 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "unit_conflict",
   "currency_review",
   "price_contradiction",
+  "canonical_mutation",
+  "intake_failure",
   "recognition_review",
   "order_review_summary",
   "price_deviation",
@@ -4470,6 +4472,8 @@ const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "price_quantity",
   "unit_conflict",
   "price_contradiction",
+  "canonical_mutation",
+  "intake_failure",
   "price_deviation",
 ]);
 
@@ -6415,6 +6419,8 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const redReviewKeys = new Set([
     "currency_review",
     "price_contradiction",
+    "canonical_mutation",
+    "intake_failure",
     "recognition_review",
     "price_quantity",
     "unit_conflict",
@@ -7351,6 +7357,60 @@ const getSystemBadges = (
           (serviceName) =>
             `• ${serviceName} — Gesamt-/Pauschalpreis und Preis je Einheit widersprechen sich. Bitte kontrollieren und freigeben.`,
         ),
+      ].join("\n"),
+      focusTarget: "items",
+    });
+  }
+
+  const canonicalMutationServiceNamesV17_90L235 = Array.from(
+    new Set(
+      (order.reviewReasons || [])
+        .filter((reason) =>
+          String(reason || "").startsWith("canonical_mutation_blocked:"),
+        )
+        .map((reason) =>
+          canonicalServiceNameForOrderItem(
+            String(reason || "").split(":").slice(1).join(":"),
+          ),
+        )
+        .map(compactText)
+        .filter(Boolean),
+    ),
+  );
+
+  if (canonicalMutationServiceNamesV17_90L235.length > 0) {
+    pushUniqueBadge(badges, {
+      key: "canonical_mutation",
+      label: `Erfassung prüfen · ${canonicalMutationServiceNamesV17_90L235.length}`,
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: [
+        "Erfassung sicherheitshalber blockiert",
+        ...canonicalMutationServiceNamesV17_90L235.map(
+          (serviceName) =>
+            `• ${serviceName} — Eine nachgelagerte Verarbeitung wollte kanonische Leistungsdaten verändern. Der letzte sichere KI-Stand wurde erhalten; bitte kontrollieren und freigeben.`,
+        ),
+      ].join("\n"),
+      focusTarget: "items",
+    });
+  }
+
+  const intakeFailureReasonsV17_90L235 = (order.reviewReasons || []).filter(
+    (reason) =>
+      String(reason || "").startsWith("intake_processing_error:"),
+  );
+
+  if (intakeFailureReasonsV17_90L235.length > 0) {
+    pushUniqueBadge(badges, {
+      key: "intake_failure",
+      label: "Erfassung unvollständig",
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: [
+        "Erfassung unvollständig",
+        "• Die Nachricht wurde trotz eines technischen Erfassungsfehlers als Prüfauftrag gespeichert.",
+        "• Vollständige Kundennachricht kontrollieren und fehlende Daten manuell ergänzen.",
+        "• Angebot und Rechnung bleiben bis zur Korrektur blockiert.",
       ].join("\n"),
       focusTarget: "items",
     });
@@ -10352,6 +10412,14 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
 
   if (reviewReasons.includes("total_unrealistic_check")) {
     blockers.push("Betrag prüfen");
+  }
+
+  if (
+    reviewReasons.some((reason) =>
+      String(reason || "").startsWith("canonical_mutation_blocked:"),
+    )
+  ) {
+    blockers.push("Erfassung prüfen");
   }
 
   if (hasActiveAddressRoleReviewV17_90K(order)) {

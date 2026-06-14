@@ -16829,11 +16829,19 @@ export async function processIncomingMessage(
     intakeValidation.finalCurrency,
   );
 
-  // V17.90L98: Final source-of-truth invariant. No step after the canonical
-  // lock may silently alter a first-AI row. If a later amount/currency guard
-  // changed one, restore the canonical set once more. Only a still-unresolved
-  // invariant becomes a visible blocker; no wrong values are persisted quietly.
+  // V17.90L98 / V17.90L235: Final source-of-truth invariant.
+  // No step after the canonical lock may silently alter a first-AI row.
+  //
+  // L235 changes only the failure handling:
+  // - the mutated post-lock candidate is discarded;
+  // - the last safe canonical rows are restored unchanged;
+  // - only the affected rows are blocked with total 0.00 and a visible review;
+  // - the order is still created so the original customer message, customer,
+  //   address, contact, appointment and operational facts remain available.
+  // A still-unrecoverable invariant continues to throw and is caught by the
+  // queue-level raw-review fallback, so no WhatsApp message disappears.
   let canonicalPersistenceViolationV17_90L98 = false;
+  let canonicalMutationRecoveryReasonsV17_90L235: string[] = [];
   if (
     canonicalAiOrderItemsV17_90L88.length > 0 &&
     !canonicalItemsStableAfterValidationV17_90L89(
@@ -16864,6 +16872,194 @@ export async function processIncomingMessage(
         intakeValidation.finalCurrency,
       );
   }
+
+  if (
+    canonicalPersistenceViolationV17_90L98 &&
+    canonicalAiOrderItemsV17_90L88.length > 0
+  ) {
+    const unsafePostLockItemsV17_90L235 = finalOrderItems.map((item) => ({
+      ...item,
+    }));
+    const orderedCanonicalItemsV17_90L235 = [
+      ...canonicalAiOrderItemsV17_90L88,
+    ].sort((left, right) => left.canonicalOrder - right.canonicalOrder);
+
+    const canonicalMutationFindingsV17_90L235 =
+      orderedCanonicalItemsV17_90L235.map((canonical, index) => {
+        const candidate = unsafePostLockItemsV17_90L235[index];
+        const fields: string[] = [];
+        if (!candidate) {
+          fields.push("missing_item");
+        } else {
+          const expectedCurrency = String(
+            canonical.detectedCurrency || intakeValidation.finalCurrency || "",
+          )
+            .trim()
+            .toUpperCase();
+          const actualCurrency = String(
+            candidate.detectedCurrency ||
+              intakeValidation.finalCurrency ||
+              "",
+          )
+            .trim()
+            .toUpperCase();
+          const expectedEvidence = String(
+            canonical.sourceText ||
+              canonical.evidence ||
+              canonical.description ||
+              "",
+          )
+            .replace(/\r\n/g, "\n")
+            .replace(/\r/g, "\n")
+            .trim();
+          const actualEvidence = String(
+            candidate.sourceText ||
+              candidate.evidence ||
+              candidate.description ||
+              "",
+          )
+            .replace(/\r\n/g, "\n")
+            .replace(/\r/g, "\n")
+            .trim();
+
+          if (
+            String(candidate.serviceName || "").trim() !==
+            String(canonical.serviceName || "").trim()
+          ) {
+            fields.push("service_name");
+          }
+          if (
+            Math.abs(
+              Number(candidate.quantity || 0) -
+                Number(canonical.quantity || 0),
+            ) >= 0.0001
+          ) {
+            fields.push("quantity");
+          }
+          if (
+            String(candidate.unit || "").trim() !==
+            String(canonical.unit || "").trim()
+          ) {
+            fields.push("unit");
+          }
+          if (
+            Math.abs(
+              Number(candidate.unitPrice || 0) -
+                Number(canonical.unitPrice || 0),
+            ) >= 0.0001
+          ) {
+            fields.push("unit_price");
+          }
+          if (actualCurrency !== expectedCurrency) {
+            fields.push("currency");
+          }
+          if (actualEvidence !== expectedEvidence) {
+            fields.push("source_text");
+          }
+        }
+
+        return fields.length > 0
+          ? {
+              index,
+              serviceName:
+                String(canonical.serviceName || "").trim() ||
+                `Leistung ${index + 1}`,
+              fields,
+            }
+          : null;
+      }).filter(Boolean) as Array<{
+        index: number;
+        serviceName: string;
+        fields: string[];
+      }>;
+
+    if (
+      unsafePostLockItemsV17_90L235.length >
+      orderedCanonicalItemsV17_90L235.length
+    ) {
+      canonicalMutationFindingsV17_90L235.push({
+        index: -1,
+        serviceName: "Leistungsliste",
+        fields: ["extra_item"],
+      });
+    }
+
+    const mutationByIndexV17_90L235 = new Map(
+      canonicalMutationFindingsV17_90L235.map((finding) => [
+        finding.index,
+        finding,
+      ]),
+    );
+
+    // Restore directly from the safe canonical rows. Do not run any later
+    // mutating amount/unit repair again on this recovery path.
+    finalOrderItems = reconcileWithCanonicalAiItemsV17_90L88(
+      canonicalAiOrderItemsV17_90L88,
+      [],
+      intakeValidation.finalCurrency,
+      messageText,
+    ).map((item, index) => {
+      const finding = mutationByIndexV17_90L235.get(index);
+      if (!finding) return item;
+
+      const recoveryReason = `canonical_mutation_blocked:${finding.serviceName}`;
+      canonicalMutationRecoveryReasonsV17_90L235.push(recoveryReason);
+      return {
+        ...item,
+        totalPrice: 0,
+        needsReview: true,
+        // Preserve a concrete existing uncertainty reason (for example
+        // unit_missing_in_text) and expose the blocked mutation globally.
+        reviewReason: item.reviewReason || recoveryReason,
+      };
+    });
+
+    for (const finding of canonicalMutationFindingsV17_90L235) {
+      if (finding.index >= 0) continue;
+      canonicalMutationRecoveryReasonsV17_90L235.push(
+        `canonical_mutation_blocked:${finding.serviceName}`,
+      );
+    }
+    canonicalMutationRecoveryReasonsV17_90L235 = Array.from(
+      new Set(canonicalMutationRecoveryReasonsV17_90L235),
+    );
+    canonicalPersistenceViolationV17_90L98 =
+      !canonicalItemsStableAfterValidationV17_90L89(
+        canonicalAiOrderItemsV17_90L88,
+        finalOrderItems,
+        intakeValidation.finalCurrency,
+      );
+
+    logIntakeDiagnosticTrace(
+      intakeDiagnosticTraceEnabled,
+      intakeDiagnosticTraceId,
+      "05d_canonical_mutation_recovered",
+      {
+        recovered: !canonicalPersistenceViolationV17_90L98,
+        findings: canonicalMutationFindingsV17_90L235.map((finding) => ({
+          itemIndex: finding.index + 1,
+          serviceName: redactIntakeDiagnosticText(
+            finding.serviceName,
+            180,
+          ),
+          fields: finding.fields,
+        })),
+        items: summarizeIntakeDiagnosticItems(finalOrderItems),
+      },
+    );
+
+    if (!canonicalPersistenceViolationV17_90L98) {
+      console.error(
+        `[${source}] 🛟 Canonical mutation blocked and recovered as review order: ${canonicalMutationFindingsV17_90L235
+          .map(
+            (finding) =>
+              `${finding.serviceName}[${finding.fields.join(",")}]`,
+          )
+          .join(" | ")}`,
+      );
+    }
+  }
+
   const canonicalPostLockActiveV17_90L209 = Boolean(
     canonicalAiOrderItemsV17_90L88.length > 0 &&
       !canonicalPersistenceViolationV17_90L98 &&
@@ -16881,12 +17077,14 @@ export async function processIncomingMessage(
     {
       canonicalCount: canonicalAiOrderItemsV17_90L88.length,
       stable: canonicalPostLockActiveV17_90L209,
+      recoveredAsReview:
+        canonicalMutationRecoveryReasonsV17_90L235.length > 0,
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
   if (canonicalPersistenceViolationV17_90L98) {
     console.error(
-      `[${source}] canonical persistence invariant unresolved; order creation is blocked`,
+      `[${source}] canonical persistence invariant unresolved after safe recovery`,
     );
   }
   if (
@@ -17409,6 +17607,7 @@ export async function processIncomingMessage(
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
     ...canonicalItemReviewReasonsV17_90L225,
+    ...canonicalMutationRecoveryReasonsV17_90L235,
     ...(canonicalPostLockActiveV17_90L209
       ? []
       : unitlessQuantityGuardBeforePersist.reviewReasons),
@@ -17494,6 +17693,7 @@ export async function processIncomingMessage(
       reason.startsWith("currency_") ||
       reason.startsWith("item_currency_mismatch:") ||
       reason.startsWith("price_contradiction:") ||
+      reason.startsWith("canonical_mutation_blocked:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -17872,6 +18072,7 @@ export async function processIncomingMessage(
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
       reason.startsWith("item_currency_mismatch:") ||
+      reason.startsWith("canonical_mutation_blocked:") ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -18262,7 +18463,7 @@ export async function processIncomingMessage(
  * @param reason Machine-readable failure reason (e.g. 'llm_api_error',
  *               'llm_parse_error', 'llm_empty_response', 'llm_network_error').
  */
-async function createFallbackOrderFromRawPayload(
+export async function createFallbackOrderFromRawPayload(
   input: IntakeInput,
   reason: string,
 ): Promise<IntakeResult | null> {
@@ -18346,8 +18547,11 @@ async function createFallbackOrderFromRawPayload(
     // ignores it. Originaltext (the raw user message) is NOT prefixed —
     // that is genuine user content and may legitimately contain an address.
     const timestampIso = new Date().toISOString();
+    const isLlmFailure = String(reason || "").startsWith("llm_");
     const notesParts = [
-      "⚠️ KI-Analyse fehlgeschlagen – bitte manuell prüfen.",
+      isLlmFailure
+        ? "⚠️ KI-Analyse fehlgeschlagen – bitte manuell prüfen."
+        : "⚠️ Erfassung unvollständig – bitte kontrollieren und ergänzen.",
       `[META] Quelle: ${source}`,
       `[META] Absender (WhatsApp/Telegram-Profilname): ${senderName || "Unbekannt"}`,
       `[META] Empfangen: ${timestampIso}`,

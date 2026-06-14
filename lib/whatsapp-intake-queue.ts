@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { processIncomingMessage } from "@/lib/order-intake";
+import {
+  createFallbackOrderFromRawPayload,
+  processIncomingMessage,
+} from "@/lib/order-intake";
 import { logAuditAsync } from "@/lib/audit";
 import { maskPhoneForLog } from "@/lib/phone";
 import { rememberExecutionAddressesFromOrder } from "@/lib/customer-execution-addresses";
@@ -361,6 +364,116 @@ async function processClaimedWhatsAppTextMessage(
       `[WhatsAppQueue] Processing failed for ${maskPhoneForLog(message.phoneNumber || "")}:`,
       err,
     );
+
+    // V17.90L235: Last-resort fail-visible path.
+    // A canonical/DB/runtime error must never make a WhatsApp message disappear.
+    // The main intake already attempts the richer safe-canonical recovery. If
+    // that still fails, create a raw review order containing the complete
+    // customer message so the user can inspect and complete it manually.
+    const failureCode = String(errorMessage || "unknown")
+      .replace(/[^a-zA-Z0-9:_-]+/g, "_")
+      .slice(0, 180);
+
+    // Avoid creating a second fallback order if the main order was already
+    // committed and only a later non-critical step threw.
+    if (message.userId && text) {
+      try {
+        const recentCommittedOrder = await prisma.order.findFirst({
+          where: {
+            userId: message.userId,
+            createdAt: { gte: new Date(Date.now() - 90_000) },
+            notes: {
+              contains: `WhatsApp:\n${text.slice(0, 220)}`,
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+        if (recentCommittedOrder?.id) {
+          await prisma.intakeQueueMessage.update({
+            where: { id: message.id },
+            data: {
+              status: "done",
+              processedAt: new Date(),
+              error: `order_already_committed_after_error:${failureCode}`.slice(
+                0,
+                4000,
+              ),
+              retryCount: { increment: 1 },
+            },
+          });
+          console.error(
+            `[WhatsAppQueue] Main order ${recentCommittedOrder.id} was already committed; no duplicate fallback created`,
+          );
+          return;
+        }
+      } catch (dedupeCheckError) {
+        console.warn(
+          "[WhatsAppQueue] Recent committed-order check failed; continuing with review fallback",
+          dedupeCheckError,
+        );
+      }
+    }
+
+    let recoveredReviewOrder: Awaited<
+      ReturnType<typeof createFallbackOrderFromRawPayload>
+    > = null;
+
+    try {
+      recoveredReviewOrder = await createFallbackOrderFromRawPayload(
+        {
+          source: "WhatsApp",
+          senderName: message.senderName || "Unbekannt",
+          messageText: text,
+          phoneNumber: message.phoneNumber || null,
+          imageBase64: null,
+          imageMimeType: "image/jpeg",
+          savedMediaPath: null,
+          savedMediaType: null,
+          optimizedPreviewPath: null,
+          optimizedThumbnailPath: null,
+          userId: message.userId || null,
+        },
+        `intake_processing_error:${failureCode}`,
+      );
+    } catch (fallbackError) {
+      console.error(
+        `[WhatsAppQueue] Raw review fallback also failed for ${maskPhoneForLog(message.phoneNumber || "")}:`,
+        fallbackError,
+      );
+    }
+
+    if (recoveredReviewOrder?.orderId) {
+      await prisma.intakeQueueMessage.update({
+        where: { id: message.id },
+        data: {
+          status: "done",
+          processedAt: new Date(),
+          error: `recovered_as_review_order:${failureCode}`.slice(0, 4000),
+          retryCount: { increment: 1 },
+        },
+      });
+
+      console.error(
+        `[WhatsAppQueue] 🛟 Failed intake preserved as review order ${recoveredReviewOrder.orderId}`,
+      );
+
+      logAuditAsync({
+        userId: message.userId || undefined,
+        action: "WHATSAPP_TEXT_QUEUE_RECOVERED_AS_REVIEW_ORDER",
+        area: "WEBHOOK",
+        targetType: "Order",
+        targetId: recoveredReviewOrder.orderId,
+        success: true,
+        details: {
+          phone: maskPhoneForLog(message.phoneNumber || ""),
+          messageCount: 1,
+          mode: "individual_parallel_queue",
+          originalError: errorMessage,
+        },
+      });
+      return;
+    }
 
     await prisma.intakeQueueMessage.update({
       where: { id: message.id },

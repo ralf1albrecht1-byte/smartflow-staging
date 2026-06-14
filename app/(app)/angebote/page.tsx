@@ -287,14 +287,18 @@ type AdaptiveAppointmentLabels = {
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
   const full = compactOfferValue(value);
-  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  // V17.90L235: The card chip always exposes the short execution date when a
+  // valid date exists anywhere inside the complete appointment tooltip. Time,
+  // day period and pre-announcement details remain in hover/click only.
+  const dateMatch = full.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
   const month = dateMatch[2].padStart(2, "0");
-  const year = dateMatch[3] || "";
   return {
     full,
-    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+    dateOnly: `${day}.${month}.`,
   };
 };
 
@@ -5968,8 +5972,8 @@ export default function AngebotePage() {
                     serviceReview.blockerCount > 0 ||
                     offerCurrencyReviewCount > 0 ||
                     Boolean(appointmentDisplayLabel) ? (
-                      <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
-                        <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                        <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
                           {renderOfferCompactReviewChip(
                             "yellow",
                             "compact-service-review",
@@ -6234,8 +6238,8 @@ export default function AngebotePage() {
                                           serviceReview.blockerCount > 0 ||
                                           offerCurrencyReviewCount > 0 ||
                                           Boolean(appointmentDisplayLabel)) && (
-                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
-                                            <span className="inline-flex items-center gap-1.5">
+                                          <span className="inline-flex min-w-0 max-w-full flex-wrap items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                            <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
                                               {renderOfferCompactReviewChip(
                                                 "yellow",
                                                 "compact-touch-service-review",
@@ -6261,10 +6265,15 @@ export default function AngebotePage() {
                                                       event,
                                                     );
                                                   }}
-                                                  className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  className={`group relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "w-auto" : "w-8 px-0"}`}
                                                   aria-label={appointmentDisplayLabel}
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                  {appointmentChipLabels.dateOnly && (
+                                                    <span className="ml-1.5 whitespace-nowrap">
+                                                      {appointmentChipLabels.dateOnly}
+                                                    </span>
+                                                  )}
                                                 </button>
                                               )}
                                             </span>
