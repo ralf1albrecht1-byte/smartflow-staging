@@ -970,7 +970,11 @@ const cleanServiceLabelContextNoiseV17_90L27 = (value?: string | null) => {
   for (let pass = 0; pass < 3; pass += 1) {
     const before = text;
     text = text
-      .replace(/^(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|patientenzimmer|schluessel|schlüssel|key|code|buero|büro|office|bahnhofplatz|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b\s*[,;:-]?\s*/i, "")
+      // V17.90L233: Kontextwörter am Anfang nur bei einer sichtbaren
+      // Trennstelle entfernen. Ohne Komma/Doppelpunkt/Bindestrich kann das
+      // erste Wort selbst Teil der kanonischen Leistung sein, z. B.
+      // „Empfang und zwei Sitzungszimmer komplett reinigen“.
+      .replace(/^(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|patientenzimmer|schluessel|schlüssel|key|code|buero|büro|office|bahnhofplatz|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b\s*[,;:-]\s*/i, "")
       .replace(/^(?:bitte|nur|kein|keine|nicht|vorher|sms|whatsapp|telefon|anruf|rueckruf|rückruf|achtung|vorsicht|oprez|attention|hund|pas|dog|oelspur|ölspur|kabel|strom|rutschig|scivoloso|nass)\b\s*[,;:-]?\s*/i, "")
       .trim();
     if (text === before) break;
