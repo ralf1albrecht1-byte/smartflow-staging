@@ -453,15 +453,16 @@ const buildAdaptiveAppointmentLabels = (
   value: unknown,
 ): AdaptiveAppointmentLabels => {
   const full = compactInvoiceValue(value) || "Termin klären";
-  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  // V17.90L239: Der Kartenchip zeigt immer mindestens TT.MM., sobald
+  // irgendwo im vollständigen Termintext ein echtes Datum vorhanden ist.
+  // Uhrzeit, Tageszeit und Vorankündigung bleiben ausschließlich im Tooltip.
+  const dateMatch = full.match(
+    /(?:^|\D)(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?(?:\D|$)/,
+  );
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
   const month = dateMatch[2].padStart(2, "0");
-  const year = dateMatch[3] || "";
-  return {
-    full,
-    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
-  };
+  return { full, dateOnly: `${day}.${month}.` };
 };
 
 // V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
@@ -4800,7 +4801,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3 dark:border-slate-700"
+                      className="inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-2 dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -5039,12 +5040,12 @@ export default function RechnungenPage() {
                                 event.preventDefault();
                                 event.stopPropagation();
                               }}
-                              className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                              className={`relative inline-flex h-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
                               aria-label={invoiceAppointmentDisplayLabel}
                             >
                               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                               {invoiceAppointmentChipLabels.dateOnly && (
-                                <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                <span className="ml-1.5 whitespace-nowrap">
                                   {invoiceAppointmentChipLabels.dateOnly}
                                 </span>
                               )}
@@ -5307,7 +5308,7 @@ export default function RechnungenPage() {
                                           Boolean(
                                             invoiceAppointmentDisplayLabel,
                                           )) && (
-                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
                                             <span className="inline-flex items-center gap-1.5">
                                               {renderInvoiceCompactReviewChip(
                                                 "yellow",
@@ -5329,12 +5330,17 @@ export default function RechnungenPage() {
                                                     event.preventDefault();
                                                     event.stopPropagation();
                                                   }}
-                                                  className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  className={`relative inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
                                                   aria-label={
                                                     invoiceAppointmentDisplayLabel
                                                   }
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                  {invoiceAppointmentChipLabels.dateOnly && (
+                                                    <span className="ml-1.5 whitespace-nowrap">
+                                                      {invoiceAppointmentChipLabels.dateOnly}
+                                                    </span>
+                                                  )}
                                                   <InvoiceViewportTooltip
                                                     preferredWidth={320}
                                                     mobileDismissOnInteraction
@@ -5602,7 +5608,7 @@ export default function RechnungenPage() {
                                     Boolean(
                                       invoiceAppointmentDisplayLabel,
                                     )) && (
-                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
                                       <span className="inline-flex items-center gap-1.5">
                                         {renderInvoiceCompactReviewChip(
                                           "yellow",
@@ -5622,7 +5628,7 @@ export default function RechnungenPage() {
                                               event.preventDefault();
                                               event.stopPropagation();
                                             }}
-                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                            className={`relative inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "w-auto px-2.5" : "w-8 px-0"}`}
                                             aria-label={
                                               invoiceAppointmentDisplayLabel
                                             }
