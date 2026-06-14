@@ -6384,9 +6384,43 @@ const compactRedReviewDetailLinesV17_90L73 = (badge: ReviewBadge) => {
     .slice(0, 6);
 };
 
-const concreteRedReviewCountV17_90L82 = (badge: ReviewBadge) => {
+const redReviewPositionKeysV17_90L242 = (badge: ReviewBadge) => {
+  const keys = new Set<string>();
   const details = compactRedReviewDetailLinesV17_90L73(badge);
-  return Math.max(1, details.length);
+
+  details.forEach((line) => {
+    const match = line.match(/^(.+?)\s+[—–-]\s+/u);
+    if (!match?.[1]) return;
+
+    const rawServiceName = match[1].replace(/^•\s*/, "").trim();
+    const serviceName = canonicalServiceNameForOrderItem(rawServiceName);
+    const key = normalizeForMatch(serviceName || rawServiceName);
+    if (key) keys.add(key);
+  });
+
+  return keys;
+};
+
+const concreteRedReviewPositionCountV17_90L242 = (
+  badges: ReviewBadge[],
+) => {
+  const positionKeys = new Set<string>();
+  let orderLevelReviewCount = 0;
+
+  badges.forEach((badge) => {
+    const badgePositionKeys = redReviewPositionKeysV17_90L242(badge);
+    if (badgePositionKeys.size > 0) {
+      badgePositionKeys.forEach((key) => positionKeys.add(key));
+      return;
+    }
+
+    // Ein rein auftragsbezogener Blocker ohne konkrete Leistungszeile zählt
+    // einmal. Mehrere Prüfgründe derselben Leistung werden dagegen über den
+    // Positionsschlüssel oben zusammengeführt.
+    orderLevelReviewCount += 1;
+  });
+
+  return Math.max(1, positionKeys.size + orderLevelReviewCount);
 };
 
 const compactSingleRedReviewTooltipV17_90L73 = (badge: ReviewBadge) => {
@@ -6501,10 +6535,8 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
 
   if (redBadges.length > 1) {
-    const concreteReviewCount = redBadges.reduce(
-      (sum, badge) => sum + concreteRedReviewCountV17_90L82(badge),
-      0,
-    );
+    const concreteReviewCount =
+      concreteRedReviewPositionCountV17_90L242(redBadges);
     const summarySections = redBadges.flatMap((badge, index) => {
       const details = compactRedReviewDetailLinesV17_90L73(badge);
       return [
@@ -19492,6 +19524,71 @@ export default function AuftraegePage() {
                               !isCompleteItemForCatalogAction) ||
                             (showUnitConflict &&
                               !isCompleteItemForCatalogAction);
+                          const compactBlockingReviewFieldsV17_90L242 = Array.from(
+                            new Set(
+                              [
+                                itemHasInternalReviewServiceName ||
+                                /leistung\s+(?:oder\s+einheit\s+)?(?:unklar|offen|pr[üu]fen)|service[_\s-]*(?:unclear|review)/i.test(
+                                  [item.aiWarning, item.description, item.sourceDescription]
+                                    .filter(Boolean)
+                                    .join(" "),
+                                )
+                                  ? "Leistung"
+                                  : "",
+                                itemHasInternalReviewUnit ||
+                                Boolean(unitMissingInTextReason) ||
+                                /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen)|unit\s+(?:missing|open|unknown|unclear|review)/i.test(
+                                  [item.aiWarning, item.description, item.sourceDescription]
+                                    .filter(Boolean)
+                                    .join(" "),
+                                )
+                                  ? "Einheit"
+                                  : "",
+                                quantityInputReview ? "Menge" : "",
+                                priceInputReview &&
+                                itemPriceNumber <= 0 &&
+                                !unresolvedCurrencyItem
+                                  ? "Preis"
+                                  : "",
+                              ].filter(Boolean),
+                            ),
+                          );
+                          const compactBlockingFieldListV17_90L242 =
+                            compactBlockingReviewFieldsV17_90L242.length <= 1
+                              ? compactBlockingReviewFieldsV17_90L242[0] || ""
+                              : compactBlockingReviewFieldsV17_90L242.length === 2
+                                ? compactBlockingReviewFieldsV17_90L242.join(" und ")
+                                : `${compactBlockingReviewFieldsV17_90L242
+                                    .slice(0, -1)
+                                    .join(", ")} und ${compactBlockingReviewFieldsV17_90L242.at(-1)}`;
+                          const compactBlockingReviewMessageV17_90L242 =
+                            unresolvedCurrencyItem
+                              ? "Währung und Preis müssen bestätigt werden."
+                              : showPriceContradictionReviewV17_90L234
+                                ? "Gesamt-/Pauschalpreis und Preis je Einheit widersprechen sich."
+                                : compactBlockingFieldListV17_90L242
+                                  ? `${compactBlockingFieldListV17_90L242} ${
+                                      compactBlockingReviewFieldsV17_90L242.length === 1
+                                        ? "ist"
+                                        : "sind"
+                                    } unklar.${
+                                      itemPriceNumber > 0 &&
+                                      !compactBlockingReviewFieldsV17_90L242.includes("Preis")
+                                        ? ` Preis ${formatCurrency(itemPriceNumber, currency)} erkannt.`
+                                        : ""
+                                    }`
+                                  : canonicalMutationReviewReasonV17_90L241
+                                    ? "Aktuelle Angaben aus dem letzten sicheren Stand prüfen."
+                                    : "Angaben prüfen und bestätigen.";
+                          const compactBlockingReviewSourceV17_90L242 = (() => {
+                            const value = String(sourceLineForItem || "")
+                              .replace(/\s+/g, " ")
+                              .trim();
+                            if (!value) return "";
+                            return value.length > 150
+                              ? `${value.slice(0, 147).trim()}…`
+                              : value;
+                          })();
                           const isMenuOpen = serviceActionMenuKey === item.key;
                           const hasCriticalItemReview = isBlockingItemReview;
                           const hasResolvedReviewCatalogAction =
@@ -20451,278 +20548,49 @@ export default function AuftraegePage() {
                                             : "Manuell prüfen"}
                                         </div>
 
-                                        <div className="space-y-0.5">
-                                          {hasInternalHardReviewState && (
-                                            <div className="space-y-0.5">
+                                        {isBlockingItemReview ? (
+                                          <div className="space-y-1">
+                                            <div>{compactBlockingReviewMessageV17_90L242}</div>
+                                            {compactBlockingReviewSourceV17_90L242 && (
                                               <div>
-                                                Leistung oder Einheit ist noch
-                                                unklar.
-                                              </div>
-                                              <div>
-                                                Diese Position wird nicht in
-                                                Netto/MwSt./Total gerechnet, bis
-                                                Leistung und Einheit bestätigt
-                                                sind.
-                                              </div>
-                                            </div>
-                                          )}
-                                          {showCurrencyConflictItemReview && (
-                                            <div className="space-y-0.5">
-                                              <div>
-                                                Währung/Preis noch nicht
-                                                bestätigt.
-                                              </div>
-                                              {sourceLineForItem && (
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              <div>
-                                                Diese Position wird nicht in
-                                                Netto/MwSt./Total gerechnet, bis
-                                                die Währung und der Preis
-                                                eindeutig bestätigt sind.
-                                              </div>
-                                            </div>
-                                          )}
-
-                                          {showUnitConflict &&
-                                            !hasInternalHardReviewState && (
-                                            <div className="space-y-0.5">
-                                              {manualReviewConfirmedV17_90L241 ? (
-                                                <>
-                                                  <div className="font-semibold">
-                                                    Angaben bestätigt
-                                                  </div>
-                                                  <div>
-                                                    Die aktuell sichtbaren Werte wurden bewusst übernommen.
-                                                  </div>
-                                                </>
-                                              ) : manualUnitConfirmed ? (
-                                                <>
-                                                  <div className="font-semibold">
-                                                    Einheit ergänzt
-                                                  </div>
-                                                  <div>
-                                                    Manuell eingetragen: {" "}
-                                                    <span className="font-medium">
-                                                      {formatReviewUnitLabel(item.unit)}
-                                                    </span>
-                                                  </div>
-                                                  <div>
-                                                    Bitte prüfen, ob diese Einheit zur Leistung passt.
-                                                  </div>
-                                                </>
-                                              ) : unitMissingInTextReason ? (
-                                                <>
-                                                  <div>
-                                                    Einheit fehlt im Kundentext.
-                                                  </div>
-                                                  {sourceLineForItem && (
-                                                    <div>
-                                                      Text:{" "}
-                                                      <span className="font-medium">
-                                                        {sourceLineForItem}
-                                                      </span>
-                                                    </div>
-                                                  )}
-                                                  <div>
-                                                    Bitte Einheit bestätigen,
-                                                    bevor Angebot oder Rechnung
-                                                    erstellt wird.
-                                                  </div>
-                                                </>
-                                              ) : canonicalMutationReviewReasonV17_90L241 ? (
-                                                <>
-                                                  <div className="font-semibold">
-                                                    Erfassung sicherheitshalber blockiert.
-                                                  </div>
-                                                  <div>
-                                                    Die aktuell sichtbaren Werte stammen aus dem letzten sicheren Stand. Bitte übernehmen oder verwerfen.
-                                                  </div>
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <div>
-                                                    Text: {" "}
-                                                    <span className="font-medium">
-                                                      {orderSummary}
-                                                    </span>
-                                                  </div>
-                                                  {catalogSummary && (
-                                                    <div>
-                                                      Katalog:{" "}
-                                                      <span className="font-medium">
-                                                        {catalogSummary}
-                                                      </span>
-                                                    </div>
-                                                  )}
-                                                  <div>
-                                                    Einheit prüfen:{" "}
-                                                    {item.serviceName ||
-                                                      "Leistung"}
-                                                  </div>
-                                                </>
-                                              )}
-                                            </div>
-                                          )}
-
-                                          {!showUnitConflict &&
-                                            showPriceOverride &&
-                                            catalogService && (
-                                              <div className="space-y-0.5">
-                                                {hasFrontendCatalogUnitDeviation ? (
-                                                  <>
-                                                    <div>
-                                                      Einheit manuell eingetragen
-                                                      oder vom Katalog
-                                                      abweichend.
-                                                    </div>
-                                                    <div>
-                                                      Auftrag: {unitShortLabel(item.unit)} · {formatCurrency(itemPriceNumber, currency)}
-                                                    </div>
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <div className="font-semibold">
-                                                      Textpreis übernommen
-                                                    </div>
-                                                    <div>
-                                                      Textpreis:{" "}
-                                                      <span className="font-medium">
-                                                        {formatCurrency(itemPriceNumber, currency)} / {unitShortLabel(item.unit)}
-                                                      </span>
-                                                    </div>
-                                                  </>
-                                                )}
-                                                <div className="text-amber-700/75 dark:text-amber-200/75">
-                                                  Katalogpreis:{" "}
-                                                  <span className="font-medium">
-                                                    {formatCurrency(catalogPrice, currency)} / {unitShortLabel(catalogService.unit)}
-                                                  </span>
-                                                </div>
+                                                Quelle:{" "}
+                                                <span className="font-medium">
+                                                  {compactBlockingReviewSourceV17_90L242}
+                                                </span>
                                               </div>
                                             )}
 
-                                          {!showUnitConflict &&
-                                            showPriceContradictionReviewV17_90L234 && (
-                                              <div className="space-y-1.5">
-                                                <div className="font-semibold">
-                                                  Preisangaben widersprechen sich.
-                                                </div>
-                                                <div>
-                                                  Gesamtpreis und Preis je Einheit
-                                                  wurden gleichzeitig erkannt. Erst
-                                                  nach Bestätigung wird der Betrag
-                                                  berechnet.
-                                                </div>
-                                                {sourceLineForItem && (
-                                                  <div>
-                                                    Kundentext:{" "}
-                                                    <span className="font-medium">
-                                                      {sourceLineForItem}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    setFormItems((previous) =>
-                                                      previous.map(
-                                                        (entry, entryIndex) =>
-                                                          entryIndex === index
-                                                            ? {
-                                                                ...entry,
-                                                                aiWarning: "",
-                                                                manualCurrencyConfirmed:
-                                                                  true,
-                                                              }
-                                                            : entry,
-                                                      ),
+                                            {showPriceContradictionReviewV17_90L234 && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setFormItems((previous) =>
+                                                    previous.map(
+                                                      (entry, entryIndex) =>
+                                                        entryIndex === index
+                                                          ? {
+                                                              ...entry,
+                                                              aiWarning: "",
+                                                              manualCurrencyConfirmed: true,
+                                                            }
+                                                          : entry,
+                                                    ),
+                                                  )
+                                                }
+                                                className="mt-1 inline-flex h-7 items-center rounded-md border border-red-300 bg-white px-2.5 text-[11px] font-semibold text-red-800 hover:bg-red-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200 dark:hover:bg-red-950/40"
+                                              >
+                                                Erkannten Preis{" "}
+                                                {itemPriceNumber > 0
+                                                  ? formatCurrency(
+                                                      itemPriceNumber,
+                                                      currency,
                                                     )
-                                                  }
-                                                  className="mt-1 inline-flex h-7 items-center rounded-md border border-red-300 bg-white px-2.5 text-[11px] font-semibold text-red-800 hover:bg-red-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200 dark:hover:bg-red-950/40"
-                                                >
-                                                  Erkannten Preis{" "}
-                                                  {itemPriceNumber > 0
-                                                    ? formatCurrency(
-                                                        itemPriceNumber,
-                                                        currency,
-                                                      )
-                                                    : ""}
-                                                  bestätigen
-                                                </button>
-                                              </div>
+                                                  : ""}{" "}
+                                                bestätigen
+                                              </button>
                                             )}
 
-                                          {!showUnitConflict &&
-                                            !showPriceOverride &&
-                                            showManualCurrencyConfirmedReview && (
-                                              <div className="space-y-0.5">
-                                                <div>
-                                                  {priceContradictionReasonV17_90L234
-                                                    ? "Preis manuell bestätigt."
-                                                    : "Preis/Währung manuell bestätigt."}
-                                                </div>
-                                                {sourceLineForItem && (
-                                                  <div>
-                                                    Ausgangstext:{" "}
-                                                    <span className="font-medium">
-                                                      {sourceLineForItem}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                          {!showUnitConflict &&
-                                            showPriceReferenceReview && (
-                                              <div>Preis im Text unklar.</div>
-                                            )}
-
-                                          {!showUnitConflict &&
-                                            (priceInputReview ||
-                                              quantityInputReview) && (
-                                              <div className="space-y-0.5">
-                                                {priceInputReview && (
-                                                  <div>
-                                                    Preis fehlt oder ist
-                                                    unsicher.
-                                                  </div>
-                                                )}
-                                                {quantityInputReview && (
-                                                  <>
-                                                    <div>
-                                                      Menge fehlt oder ist
-                                                      unsicher.
-                                                    </div>
-                                                    {sourceLineForItem && (
-                                                      <div>
-                                                        Text:{" "}
-                                                        <span className="font-medium">
-                                                          {sourceLineForItem}
-                                                        </span>
-                                                      </div>
-                                                    )}
-                                                  </>
-                                                )}
-                                                <div>
-                                                  Vor Angebot/Rechnung ergänzen.
-                                                </div>
-                                              </div>
-                                            )}
-
-                                          {showManualServiceReview && (
-                                            <div>
-                                              Nicht im Leistungskatalog.
-                                              Optional über Menü übernehmen.
-                                            </div>
-                                          )}
-
-                                          {hasExplicitBlockingReviewV17_90L241 && (
+                                            {hasExplicitBlockingReviewV17_90L241 && (
                                               <div className="mt-2 flex flex-wrap gap-2">
                                                 <button
                                                   type="button"
@@ -20753,7 +20621,127 @@ export default function AuftraegePage() {
                                                 </button>
                                               </div>
                                             )}
-                                        </div>
+                                          </div>
+                                        ) : (
+                                          <div className="space-y-0.5">
+                                            {showUnitConflict && (
+                                              <div className="space-y-0.5">
+                                                {manualReviewConfirmedV17_90L241 ? (
+                                                  <>
+                                                    <div className="font-semibold">
+                                                      Angaben bestätigt
+                                                    </div>
+                                                    <div>
+                                                      Die aktuell sichtbaren Werte wurden bewusst übernommen.
+                                                    </div>
+                                                  </>
+                                                ) : manualUnitConfirmed ? (
+                                                  <>
+                                                    <div className="font-semibold">
+                                                      Einheit ergänzt
+                                                    </div>
+                                                    <div>
+                                                      Manuell eingetragen:{" "}
+                                                      <span className="font-medium">
+                                                        {formatReviewUnitLabel(item.unit)}
+                                                      </span>
+                                                    </div>
+                                                    <div>
+                                                      Bitte prüfen, ob diese Einheit zur Leistung passt.
+                                                    </div>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <div>
+                                                      Text:{" "}
+                                                      <span className="font-medium">
+                                                        {orderSummary}
+                                                      </span>
+                                                    </div>
+                                                    {catalogSummary && (
+                                                      <div>
+                                                        Katalog:{" "}
+                                                        <span className="font-medium">
+                                                          {catalogSummary}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                    <div>
+                                                      Einheit prüfen:{" "}
+                                                      {item.serviceName || "Leistung"}
+                                                    </div>
+                                                  </>
+                                                )}
+                                              </div>
+                                            )}
+
+                                            {!showUnitConflict &&
+                                              showPriceOverride &&
+                                              catalogService && (
+                                                <div className="space-y-0.5">
+                                                  {hasFrontendCatalogUnitDeviation ? (
+                                                    <>
+                                                      <div>
+                                                        Einheit manuell eingetragen oder vom Katalog abweichend.
+                                                      </div>
+                                                      <div>
+                                                        Auftrag: {unitShortLabel(item.unit)} · {formatCurrency(itemPriceNumber, currency)}
+                                                      </div>
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <div className="font-semibold">
+                                                        Textpreis übernommen
+                                                      </div>
+                                                      <div>
+                                                        Textpreis:{" "}
+                                                        <span className="font-medium">
+                                                          {formatCurrency(itemPriceNumber, currency)} / {unitShortLabel(item.unit)}
+                                                        </span>
+                                                      </div>
+                                                    </>
+                                                  )}
+                                                  <div className="text-amber-700/75 dark:text-amber-200/75">
+                                                    Katalogpreis:{" "}
+                                                    <span className="font-medium">
+                                                      {formatCurrency(catalogPrice, currency)} / {unitShortLabel(catalogService.unit)}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              )}
+
+                                            {!showUnitConflict &&
+                                              !showPriceOverride &&
+                                              showManualCurrencyConfirmedReview && (
+                                                <div className="space-y-0.5">
+                                                  <div>
+                                                    {priceContradictionReasonV17_90L234
+                                                      ? "Preis manuell bestätigt."
+                                                      : "Preis/Währung manuell bestätigt."}
+                                                  </div>
+                                                  {sourceLineForItem && (
+                                                    <div>
+                                                      Ausgangstext:{" "}
+                                                      <span className="font-medium">
+                                                        {sourceLineForItem}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
+
+                                            {!showUnitConflict &&
+                                              showPriceReferenceReview && (
+                                                <div>Preis im Text unklar.</div>
+                                              )}
+
+                                            {showManualServiceReview && (
+                                              <div>
+                                                Nicht im Leistungskatalog. Optional über Menü übernehmen.
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                     </div>
