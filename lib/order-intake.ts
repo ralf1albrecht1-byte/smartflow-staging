@@ -306,7 +306,21 @@ function ordinaryHintCoveredByAppointmentV17_90L217(
 function accessEvidenceKindsV17_90L217(value: unknown): Set<string> {
   const text = normalizeRoleReviewTextV17_90L106(value);
   const kinds = new Set<string>();
-  if (/\b(?:eingang|seiteneingang|zugangsweg|zufahrt|entrance|entree|acceso|ingresso)\b/i.test(text)) {
+  // V17.90L229: A bare word such as "Eingang" inside a safety sentence is
+  // not an access route. Route evidence needs a concrete route/entrance form
+  // or a directional construction. This prevents fragments such as
+  // "Eingang. Für die Leuchten ist eine" from becoming access facts.
+  if (
+    /\b(?:seiteneingang|hintereingang|haupteingang|zugangsweg|zufahrt|entrance|entree|acceso|ingresso)\b/i.test(
+      text,
+    ) ||
+    /\b(?:uber|ueber|via|durch|bei|am)\s+(?:den\s+|die\s+|das\s+)?eingang\b/i.test(
+      text,
+    ) ||
+    /\beingang\s+(?:hinten|vorne|links|rechts|bei|beim|am|durch|uber|ueber|via)\b/i.test(
+      text,
+    )
+  ) {
     kinds.add("route");
   }
   if (/\b(?:schlussel|schluessel|key|cle|chiave|llave)\b/i.test(text)) {
@@ -319,6 +333,35 @@ function accessEvidenceKindsV17_90L217(value: unknown): Set<string> {
     kinds.add("badge");
   }
   return kinds;
+}
+
+function isCompleteAccessCandidateV17_90L229(
+  value: unknown,
+  kinds: Set<string>,
+): boolean {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || kinds.size === 0 || text.length > 220) return false;
+  if (
+    /\b(?:eine|einer|einem|einen|der|die|das|den|dem|des|für|fuer|und|oder|mit|bei|beim|am|an|im|in|zum|zur)\s*$/iu.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (/^[,.;:\-–—\s]+|[,;:\-–—\s]+$/u.test(text)) return false;
+
+  // A route-only candidate must describe how/where to enter. Merely mentioning
+  // that something is near an entrance is not sufficient access evidence.
+  if (
+    kinds.size === 1 &&
+    kinds.has("route") &&
+    !/\b(?:zugang|zugangsweg|zufahrt|seiteneingang|hintereingang|haupteingang|uber|ueber|via|durch|benutzen|nehmen|betreten|eingang\s+(?:hinten|vorne|links|rechts))\b/i.test(
+      normalizeRoleReviewTextV17_90L106(text),
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 const extractRoleReviewLinesV17_90L106 = (
@@ -2877,6 +2920,43 @@ function repairExecutionStreetFromText(args: {
   return null;
 }
 
+function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
+  currentStreet?: string | null;
+  originalText?: string | null;
+  translatedText?: string | null;
+}): string | null {
+  const currentStreet = cleanExecutionStreetCandidate(args.currentStreet);
+  if (!currentStreet) return currentStreet;
+  const currentKey = normalizeUnitText(currentStreet).replace(/\s+/g, " ").trim();
+  const currentHouseNumber = currentStreet.match(/\b\d+[a-z]?\b/i)?.[0] || "";
+  if (!currentKey || !currentHouseNumber) return currentStreet;
+
+  const candidates = [args.originalText, args.translatedText]
+    .flatMap((source) =>
+      String(source || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+|(?<=[.!?])\s+/g),
+    )
+    .map((line) => parseBillingStreetLine(line) || cleanExecutionStreetCandidate(line))
+    .filter((line): line is string => Boolean(line));
+
+  const matches = candidates.filter((candidate) => {
+    const candidateKey = normalizeUnitText(candidate).replace(/\s+/g, " ").trim();
+    const candidateHouseNumber = candidate.match(/\b\d+[a-z]?\b/i)?.[0] || "";
+    return Boolean(
+      candidateKey &&
+        candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase() &&
+        candidateKey.length === currentKey.length + 1 &&
+        candidateKey.endsWith(currentKey),
+    );
+  });
+  const unique = Array.from(
+    new Map(matches.map((candidate) => [normalizeUnitText(candidate), candidate])).values(),
+  );
+  return unique.length === 1 ? unique[0] : currentStreet;
+}
+
 function compactRepeatedExecutionSiteDescriptorsV17_48(
   descriptors: string[],
 ): string[] {
@@ -4097,6 +4177,26 @@ function buildOnsiteContactHintV17_90L86(args: {
   };
 }
 
+function normalizeAiOnsiteContactValueV17_90L229(
+  value: unknown,
+): AiOnsiteContactV17_90L86 | null {
+  let current: unknown = value;
+  for (let depth = 0; depth < 2; depth += 1) {
+    if (current && typeof current === "object" && !Array.isArray(current)) {
+      return current as AiOnsiteContactV17_90L86;
+    }
+    if (typeof current !== "string" || !current.trim()) return null;
+    try {
+      current = JSON.parse(current);
+    } catch {
+      return null;
+    }
+  }
+  return current && typeof current === "object" && !Array.isArray(current)
+    ? (current as AiOnsiteContactV17_90L86)
+    : null;
+}
+
 function extractAiOnsiteContactHintV17_90L86(
   rawText: string,
   candidateCustomerPhone: string | null | undefined,
@@ -4310,12 +4410,88 @@ function normalizeStructuredAppointmentTimeV17_90L86(
   return `${String(hour).padStart(2, "0")}:${minute}`;
 }
 
+function extractStructuredAppointmentDaypartLabelV17_90L229(
+  value: unknown,
+): string | null {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  if (!source) return null;
+
+  // Specific compound dayparts must be checked before the contained word
+  // "midi/mittag". Otherwise "après-midi" is incorrectly reduced to midday.
+  const patterns: Array<[RegExp, string]> = [
+    [
+      /\b(?:ganztags?|ganztägig|all\s+day|toute\s+la\s+journee|toute\s+la\s+journée|giornata\s+intera)\b/iu,
+      "ganztägig",
+    ],
+    [
+      /\b(?:vormittags?|late\s+morning|avant[-\s]?midi|mattinata)\b/iu,
+      "vormittags",
+    ],
+    [
+      /\b(?:nachmittags?|afternoon|apres[-\s]?midi|après[-\s]?midi|pomeriggio|tarde)\b/iu,
+      "nachmittags",
+    ],
+    [
+      /\b(?:frueh|früh|morgens?|morning|matin|mattina|mañana)\b/iu,
+      "morgens",
+    ],
+    [/\b(?:mittags?|noon|midi|mezzogiorno)\b/iu, "mittags"],
+    [/\b(?:abends?|evening|soir|sera|noche)\b/iu, "abends"],
+    [/\b(?:nachts?|night|nuit|notte)\b/iu, "nachts"],
+  ];
+
+  for (const [pattern, label] of patterns) {
+    if (pattern.test(source)) return label;
+  }
+  return null;
+}
+
+function appointmentScopedSourceV17_90L229(
+  appointment: AiAppointmentV17_90L86,
+  rawText: string,
+  appointmentCount: number,
+): string {
+  const evidence = normalizeStructuredTextBlock(appointment?.evidence) || "";
+  const source = String(rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source) return evidence;
+
+  const segments = source
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const rawDate = String(appointment?.datum || appointment?.date || "").trim();
+  const dateMatch = rawDate.match(
+    /(?:\b(\d{4})-(\d{1,2})-(\d{1,2})\b)|(?:\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-]\d{2,4})?\b)/,
+  );
+  const day = dateMatch?.[3] || dateMatch?.[4] || "";
+  const month = dateMatch?.[2] || dateMatch?.[5] || "";
+  const datePattern =
+    day && month
+      ? new RegExp(
+          `(?:^|\\D)0?${Number(day)}[.\\/-]0?${Number(month)}(?:[.\\/-]\\d{2,4})?(?:$|\\D)`,
+        )
+      : null;
+  const matchedSegments = datePattern
+    ? segments.filter((line) => datePattern.test(line))
+    : [];
+
+  // With one structured appointment, the complete message is a safe fallback
+  // for a daypart omitted from the JSON fields. With multiple appointments,
+  // use only the segment carrying this appointment's date.
+  const fallback =
+    matchedSegments.join(" ") || (appointmentCount === 1 ? source : "");
+  return [evidence, fallback].filter(Boolean).join(" ");
+}
+
 function normalizeStructuredAppointmentDaypartV17_90L225(
   appointment: AiAppointmentV17_90L86,
+  fallbackSource = "",
 ): string | null {
   const record = appointment as AiAppointmentV17_90L86 &
     Record<string, unknown>;
-  const source = [
+  const structuredSource = [
     record.tageszeit,
     record.daypart,
     record.zeitfenster,
@@ -4327,25 +4503,12 @@ function normalizeStructuredAppointmentDaypartV17_90L225(
     appointment.evidence,
   ]
     .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!source) return null;
+    .join(" ");
 
-  const patterns: Array<[RegExp, string]> = [
-    [/\b(?:frueh|früh|morgens?|morning|matin|mattina|mañana)\b/iu, "morgens"],
-    [/\b(?:vormittags?|late\s+morning|avant[-\s]?midi|mattinata)\b/iu, "vormittags"],
-    [/\b(?:mittags?|noon|midi|mezzogiorno)\b/iu, "mittags"],
-    [/\b(?:nachmittags?|afternoon|apres[-\s]?midi|après[-\s]?midi|pomeriggio|tarde)\b/iu, "nachmittags"],
-    [/\b(?:abends?|evening|soir|sera|noche)\b/iu, "abends"],
-    [/\b(?:nachts?|night|nuit|notte)\b/iu, "nachts"],
-    [/\b(?:ganztags?|ganztägig|all\s+day|toute\s+la\s+journee|toute\s+la\s+journée|giornata\s+intera)\b/iu, "ganztägig"],
-  ];
-
-  for (const [pattern, label] of patterns) {
-    if (pattern.test(source)) return label;
-  }
-  return null;
+  return (
+    extractStructuredAppointmentDaypartLabelV17_90L229(structuredSource) ||
+    extractStructuredAppointmentDaypartLabelV17_90L229(fallbackSource)
+  );
 }
 
 function sourceSupportsAppointmentPartV17_90L86(
@@ -4456,6 +4619,11 @@ function buildStructuredAppointmentHintsV17_90L86(
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
     const daypart = normalizeStructuredAppointmentDaypartV17_90L225(
       appointment,
+      appointmentScopedSourceV17_90L229(
+        appointment,
+        rawText,
+        appointments.length,
+      ),
     );
 
     if (!date && !start && !daypart) continue;
@@ -13003,12 +13171,18 @@ export async function processIncomingMessage(
         ),
       )
     : null;
-  const firstAiOnsiteContactSnapshotV17_90L225 = parsed.auftrag
-    ?.kontakt_vor_ort
-    ? Object.freeze(
-        cloneFirstAiStructuredValueV17_90L225(parsed.auftrag.kontakt_vor_ort),
-      )
-    : null;
+  const normalizedFirstAiOnsiteContactV17_90L229 =
+    normalizeAiOnsiteContactValueV17_90L229(
+      parsed.auftrag?.kontakt_vor_ort,
+    );
+  const firstAiOnsiteContactSnapshotV17_90L225 =
+    normalizedFirstAiOnsiteContactV17_90L229
+      ? Object.freeze(
+          cloneFirstAiStructuredValueV17_90L225(
+            normalizedFirstAiOnsiteContactV17_90L229,
+          ),
+        )
+      : null;
   const firstAiAppointmentsSnapshotV17_90L225 = Object.freeze(
     (Array.isArray(parsed.auftrag?.termine) ? parsed.auftrag.termine : []).map(
       (appointment: unknown) =>
@@ -13089,6 +13263,18 @@ export async function processIncomingMessage(
     },
   );
 
+  const firstAiCanonicalEvidenceSourceV17_90L229 = [
+    messageText,
+    translationText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const firstAiOnsiteContactHintV17_90L229 = extractOnsiteContactHint(
+    firstAiCanonicalEvidenceSourceV17_90L229,
+    (firstAiCustomerSnapshotV17_90L225 as any)?.telefon || null,
+    firstAiOnsiteContactSnapshotV17_90L225 || null,
+  );
+
   const firstAiAppointmentHintsV17_90L216 =
     buildStructuredAppointmentHintsV17_90L86(
       firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
@@ -13118,10 +13304,10 @@ export async function processIncomingMessage(
   const readOnlySpecialNoteRoleFindingsV17_90L106 =
     finalAiRoleReviewV17_90L216.findings;
 
-  // V17.90L216: The final AI consistency pass may only re-role existing
-  // statements, suppress a proven semantic duplicate, or add an exact quote
-  // from original/translation evidence. The resulting snapshot is sealed
-  // immediately; every downstream parser remains read-only.
+  // V17.90L229: The second role checker is diagnostics-only. Persisted role
+  // facts start from the first structured AI buckets. Deterministic code may
+  // remove duplicates or attach a missing bounded access fact, but it may not
+  // move contact/appointment text into another business role.
   const finalAiRoleBucketsV17_90L215: Record<
     FinalAiStructuredRoleV17_90L215,
     string[]
@@ -13132,48 +13318,20 @@ export async function processIncomingMessage(
     other: [...firstAiRoleSnapshotV17_90L214.other],
     ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
   };
-  for (const finding of readOnlySpecialNoteRoleFindingsV17_90L106) {
-    const sourceBucket = finalAiRoleBucketsV17_90L215[finding.currentRole];
-    const sourceIndex = sourceBucket.findIndex(
-      (line) =>
-        normalizeRoleReviewTextV17_90L106(line) ===
-        normalizeRoleReviewTextV17_90L106(finding.text),
-    );
-    if (sourceIndex < 0) continue;
-    const [exactText] = sourceBucket.splice(sourceIndex, 1);
-    const targetBucket = finalAiRoleBucketsV17_90L215[finding.expectedRole];
-    if (
-      !targetBucket.some(
-        (line) =>
-          normalizeRoleReviewTextV17_90L106(line) ===
-          normalizeRoleReviewTextV17_90L106(exactText),
-      )
-    ) {
-      targetBucket.push(exactText);
-    }
-  }
-  for (const suppression of finalAiRoleReviewV17_90L216.suppressions) {
-    const bucket = finalAiRoleBucketsV17_90L215[suppression.currentRole];
-    const index = bucket.findIndex(
-      (line) =>
-        normalizeRoleReviewTextV17_90L106(line) ===
-        normalizeRoleReviewTextV17_90L106(suppression.text),
-    );
-    if (index >= 0) bucket.splice(index, 1);
-  }
 
-  for (const addition of finalAiRoleReviewV17_90L216.additions) {
-    const alreadyPresent = (
-      Object.values(finalAiRoleBucketsV17_90L215) as string[][]
-    ).some((bucket) =>
-      bucket.some((line) =>
-        canonicalRoleLinesEquivalentV17_90L201(line, addition.text),
-      ),
+  const firstAiSpecializedRoleLinesV17_90L229 = [
+    ...finalAiRoleBucketsV17_90L215.safety,
+    ...finalAiRoleBucketsV17_90L215.access,
+    ...finalAiRoleBucketsV17_90L215.parking,
+    ...finalAiRoleBucketsV17_90L215.other,
+  ];
+  finalAiRoleBucketsV17_90L215.ordinary =
+    finalAiRoleBucketsV17_90L215.ordinary.filter(
+      (line) =>
+        !firstAiSpecializedRoleLinesV17_90L229.some((specializedLine) =>
+          canonicalRoleLinesEquivalentV17_90L201(line, specializedLine),
+        ),
     );
-    if (!alreadyPresent) {
-      finalAiRoleBucketsV17_90L215[addition.expectedRole].push(addition.text);
-    }
-  }
 
   // V17.90L218: Before the immutable lock, correct only role placement for
   // access evidence that the final AI already preserved in another bucket.
@@ -13232,6 +13390,9 @@ export async function processIncomingMessage(
     }
 
     const candidateKinds = accessEvidenceKindsV17_90L217(compactCandidate);
+    if (!isCompleteAccessCandidateV17_90L229(compactCandidate, candidateKinds)) {
+      continue;
+    }
     const missingKinds = [...candidateKinds].filter(
       (kind) => !representedAccessKindsV17_90L217.has(kind),
     );
@@ -13254,6 +13415,10 @@ export async function processIncomingMessage(
       (line) =>
         !firstAiAppointmentHintsV17_90L216.some((appointment) =>
           ordinaryHintCoveredByAppointmentV17_90L217(line, appointment),
+        ) &&
+        !lineMatchesOnsiteContactIdentityV17_90L87(
+          line,
+          firstAiOnsiteContactHintV17_90L229,
         ),
     );
 
@@ -13355,11 +13520,9 @@ export async function processIncomingMessage(
   // Hauswart Meier
   // Tel. 079 123 45 67
   // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
-  let onsiteContactHint = extractOnsiteContactHint(
-    messageText,
-    kundeData.telefon || null,
-    firstAiOnsiteContactSnapshotV17_90L225 || null,
-  );
+  let onsiteContactHint: OnsiteContactHint = {
+    ...firstAiOnsiteContactHintV17_90L229,
+  };
   if (onsiteContactHint.phoneBelongsToSiteContact) {
     console.log(
       `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
@@ -16273,6 +16436,25 @@ export async function processIncomingMessage(
     validationSourceText,
     { preservePopulatedAiFields: Boolean(aiStructuredExecutionAddress) },
   );
+
+  // V17.90L229: Restore only a single leading Unicode letter that is present
+  // on the exact source street line and was omitted by the structured AI value
+  // (for example Überlandstrasse -> berlandstrasse). No broader address parser
+  // may overwrite a populated first-AI street.
+  if (extractedExecutionAddress?.siteAddress) {
+    const restoredStreetV17_90L229 =
+      restoreExecutionStreetLeadingCharacterV17_90L229({
+        currentStreet: extractedExecutionAddress.siteAddress,
+        originalText: messageText,
+        translatedText: translationText,
+      });
+    if (restoredStreetV17_90L229) {
+      extractedExecutionAddress = {
+        ...extractedExecutionAddress,
+        siteAddress: restoredStreetV17_90L229,
+      };
+    }
+  }
 
   // V17.90L85: Complete only missing address fields from the verified reused
   // customer when street and city identify the same place. This keeps a real
