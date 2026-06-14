@@ -287,14 +287,15 @@ type AdaptiveAppointmentLabels = {
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
   const full = compactOfferValue(value);
-  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  const dateMatch = full.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
   const month = dateMatch[2].padStart(2, "0");
-  const year = dateMatch[3] || "";
   return {
     full,
-    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+    dateOnly: `${day}.${month}.`,
   };
 };
 
@@ -922,6 +923,36 @@ function offerInfoLinesEquivalentV17_66(left: string, right: string): boolean {
   const b = normalizeOfferHint(right);
   if (!a || !b) return false;
   if (a === b) return true;
+
+  const accessIdentity = (text: string) => {
+    const code = text.match(/\b\d{3,8}\b/)?.[0] || "";
+    const isAccess = /\b(?:schluessel|schlussel|schlüssel|key|box|kasten|code|kode|zugang|zutritt|access|entree|entrée|cle|clé|chiave|llave)\b/i.test(text);
+    return code && isAccess ? `access:${code}` : "";
+  };
+  const accessA = accessIdentity(a);
+  const accessB = accessIdentity(b);
+  if (accessA && accessA === accessB) return true;
+
+  const appointmentIdentity = (text: string) => {
+    if (!/\btermin\b/i.test(text)) return null;
+    const date = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+    if (!date) return null;
+    const dateKey = `${date[1].padStart(2, "0")}.${date[2].padStart(2, "0")}.${date[3] || ""}`;
+    const times = Array.from(text.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)).map(
+      (match) => `${match[1].padStart(2, "0")}:${match[2]}`,
+    );
+    return { dateKey, times };
+  };
+  const appointmentA = appointmentIdentity(a);
+  const appointmentB = appointmentIdentity(b);
+  if (appointmentA && appointmentB && appointmentA.dateKey === appointmentB.dateKey) {
+    const sameTimes =
+      appointmentA.times.join("|") === appointmentB.times.join("|");
+    if (sameTimes || appointmentA.times.length === 0 || appointmentB.times.length === 0) {
+      return true;
+    }
+  }
+
   const shorter = a.length <= b.length ? a : b;
   const longer = a.length > b.length ? a : b;
   if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.58) {
@@ -1067,12 +1098,24 @@ function extractOfferAccessLinesV17_90L237(
         (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
       )
     ) return;
-    const existingIndex = result.findIndex((entry) => {
-      const existing = normalizeOfferHint(entry);
-      return existing === key || existing.includes(key) || key.includes(existing);
-    });
+    const existingIndex = result.findIndex((entry) =>
+      offerInfoLinesEquivalentV17_66(entry, clean),
+    );
     if (existingIndex >= 0) {
-      if (clean.length > result[existingIndex].length) result[existingIndex] = clean;
+      const quality = (value: string) => {
+        const normalized = normalizeOfferHint(value);
+        const germanAccess = /\b(?:schluessel|schlussel|schlüssel|zugang|zutritt|tuer|tur|tür|hauswart|empfang)\b/i.test(normalized)
+          ? 80
+          : 0;
+        const fullLocation = /\b(?:box|kasten|hauswart|empfang|seiteneingang|hintereingang)\b/i.test(normalized)
+          ? 40
+          : 0;
+        const tokenScore = Math.min(30, normalized.split(/\s+/g).length * 3);
+        return germanAccess + fullLocation + tokenScore + Math.min(40, value.length / 2);
+      };
+      if (quality(clean) > quality(result[existingIndex])) {
+        result[existingIndex] = clean;
+      }
       return;
     }
     result.push(clean);
@@ -1152,6 +1195,13 @@ function buildOfferInfoSummary(
   const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const serviceEvidence = collectOfferServiceEvidenceLinesV17_90L237(sourceOrders);
   const accessLines = extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames);
+  const parkingDetails = collectOfferParkingInfoV17_90L101(
+    (sourceOrders || []).flatMap((order: any) => [
+      order?.specialNotes,
+      order?.notes,
+      order?.audioTranscript,
+    ]),
+  ).details;
   const hasConcreteAppointment = /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(appointmentLabel);
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
   const safety = uniqueOfferInfoLinesV17_66([
@@ -1180,6 +1230,7 @@ function buildOfferInfoSummary(
     contactAction,
   );
   const additional = uniqueOfferInfoLinesV17_66([
+    ...parkingDetails,
     ...(parsedNotes.jobHints || []).filter(
       (line) =>
         !isOfferDogHint(line) &&
@@ -6396,10 +6447,15 @@ export default function AngebotePage() {
                                                       event,
                                                     );
                                                   }}
-                                                  className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  className={`group relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "w-auto" : "w-8"}`}
                                                   aria-label={appointmentDisplayLabel}
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                  {appointmentChipLabels.dateOnly && (
+                                                    <span className="ml-1.5 whitespace-nowrap">
+                                                      {appointmentChipLabels.dateOnly}
+                                                    </span>
+                                                  )}
                                                 </button>
                                               )}
                                             </span>
@@ -6834,10 +6890,15 @@ export default function AngebotePage() {
                                                   event,
                                                 )
                                               }
-                                              className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
+                                              className={`group relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "w-auto" : "w-8"}`}
                                               aria-label={appointmentDisplayLabel}
                                             >
                                               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                              {appointmentChipLabels.dateOnly && (
+                                                <span className="ml-1.5 whitespace-nowrap">
+                                                  {appointmentChipLabels.dateOnly}
+                                                </span>
+                                              )}
                                             </button>
                                           )}
                                         </span>

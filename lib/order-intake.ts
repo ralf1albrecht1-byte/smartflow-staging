@@ -9307,6 +9307,72 @@ function findSharedFlatPackageEvidenceV17_90L232(args: {
     if (!best || result.sourceText.length < best.sourceText.length) best = result;
   }
 
+  if (best && args.translatedText) {
+    const translatedLines = String(args.translatedText || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+/g)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const translatedCandidates: SharedFlatPackageEvidenceV17_90L232[] = [];
+
+    for (let index = 0; index < translatedLines.length; index += 1) {
+      const line = translatedLines[index];
+      const next = translatedLines[index + 1] || "";
+      const pair = [line, next].filter(Boolean).join("\n");
+      const structure = analyzeCanonicalEvidenceStructureV17_90L226({
+        sourceText: pair,
+        serviceName: line,
+      });
+      if (
+        !structure.explicitFlatTotal ||
+        structure.perUnitSignal ||
+        structure.priceConflict ||
+        Math.abs(
+          roundIntakeMoney(structure.inferredFlatPrice) -
+            roundIntakeMoney(best.price),
+        ) >= 0.01
+      ) {
+        continue;
+      }
+
+      const serviceName = stripSharedFlatPriceTailV17_90L232(line);
+      if (
+        !serviceName ||
+        serviceName.length < 4 ||
+        serviceName.length > 220 ||
+        /\b(?:CHF|EUR|USD|GBP)\b/i.test(serviceName) ||
+        !/\p{L}/u.test(serviceName)
+      ) {
+        continue;
+      }
+
+      translatedCandidates.push({
+        serviceName: normalizeVisibleServiceNameCasingV17_66(serviceName),
+        sourceText: `${normalizeVisibleServiceNameCasingV17_66(serviceName)}\n${
+          explicitSharedFlatFragmentV17_90L232(pair) || next || pair
+        }`
+          .replace(/\n{3,}/g, "\n\n")
+          .trim(),
+        price: best.price,
+        currency:
+          String(detectCurrencyFromText(pair) || best.currency || "")
+            .trim()
+            .toUpperCase() || null,
+      });
+    }
+
+    const uniqueTranslated = Array.from(
+      new Map(
+        translatedCandidates.map((candidate) => [
+          canonicalServiceKeyV17_90L88(candidate.serviceName),
+          candidate,
+        ]),
+      ).values(),
+    );
+    if (uniqueTranslated.length === 1) return uniqueTranslated[0];
+  }
+
   return best;
 }
 
@@ -9465,7 +9531,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
       .replace(/\s+/g, " ")
       .trim();
 
-    const serviceName = rawServiceName || "Leistung prüfen";
+    const initialServiceName = rawServiceName || "Leistung prüfen";
     const aiQuantity = parsePositiveCanonicalNumberV17_90L89(
       raw?.quantity ?? raw?.menge,
     );
@@ -9480,7 +9546,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
     const evidenceStructureV17_90L226 =
       analyzeCanonicalEvidenceStructureV17_90L226({
         sourceText,
-        serviceName,
+        serviceName: initialServiceName,
       });
 
     // A clear total/flat amount is one billable package even when the service
@@ -9523,6 +9589,19 @@ function buildCanonicalAiOrderItemsV17_90L88(
           : evidenceStructureV17_90L226.inferredUnit
             ? "structural_piece"
             : "missing";
+
+    // V17.90L238: Preserve the complete line-local service wording before the
+    // canonical seal. This only replaces a shortened first-AI label when the
+    // same quantity, unit and price identify exactly one source/translation
+    // line. It does not classify or remap services.
+    const serviceName = preferLineLocalGermanServiceNameV17_90L200({
+      rawServiceName: initialServiceName,
+      sourceText,
+      translatedText: _translatedText,
+      quantity,
+      unitPrice,
+      unit,
+    });
 
     const explicitCurrency = String(raw?.currency || "")
       .trim()
