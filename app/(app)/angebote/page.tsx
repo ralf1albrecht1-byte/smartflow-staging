@@ -6357,7 +6357,21 @@ export default function AngebotePage() {
                                   onOpenItems={() => openOfferSection(off, "items")}
                                 />
 
-                                <div className="relative mt-2 flex min-h-8 flex-wrap items-center gap-1.5 overflow-visible">
+                                <div
+                                  className="relative mt-2 flex min-h-8 cursor-pointer flex-wrap items-center gap-1.5 overflow-visible rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700"
+                                  onClick={(event) => {
+                                    if (
+                                      event.target instanceof Element &&
+                                      event.target.closest(
+                                        "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                      )
+                                    )
+                                      return;
+                                    event.stopPropagation();
+                                    setActiveMobileTooltip(null);
+                                    toggleOfferCard(off.id);
+                                  }}
+                                >
                                   <select
                                     onClick={(event) => event.stopPropagation()}
                                     className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -6689,7 +6703,21 @@ export default function AngebotePage() {
                                   )}
                                 </div>
 
-                                <div className="relative mt-2 flex min-h-0 items-start justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700 sm:min-h-12 sm:justify-between">
+                                <div
+                                  className="relative mt-2 flex min-h-0 cursor-pointer items-start justify-end gap-3 rounded-lg border-t border-slate-200 px-1.5 py-2 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:border-slate-700 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 sm:min-h-12 sm:justify-between"
+                                  onClick={(event) => {
+                                    if (
+                                      event.target instanceof Element &&
+                                      event.target.closest(
+                                        "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                      )
+                                    )
+                                      return;
+                                    event.stopPropagation();
+                                    setActiveMobileTooltip(null);
+                                    toggleOfferCard(off.id);
+                                  }}
+                                >
                                   <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                                   <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">

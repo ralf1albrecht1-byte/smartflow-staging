@@ -5274,8 +5274,15 @@ export default function RechnungenPage() {
                                     }
                                   />
                                 )}
-                                <span className="ml-auto shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
-                                  {inv?.invoiceNumber ?? ""}
+                                <span className="ml-auto flex shrink-0 flex-col items-end whitespace-nowrap leading-tight">
+                                  <span className="font-mono text-[11px] text-muted-foreground">
+                                    {inv?.invoiceNumber ?? ""}
+                                  </span>
+                                  {dueLabel && (
+                                    <span className="mt-0.5 text-[10px] font-medium text-muted-foreground">
+                                      Fällig: {dueLabel}
+                                    </span>
+                                  )}
                                 </span>
                               </div>
 
@@ -5349,7 +5356,20 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                              <div
+                                className="relative mt-1.5 flex min-h-8 min-w-0 cursor-pointer flex-wrap items-center gap-1.5 overflow-visible rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700"
+                                onClick={(event) => {
+                                  if (
+                                    event.target instanceof Element &&
+                                    event.target.closest(
+                                      "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                    )
+                                  )
+                                    return;
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className={`h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium ${
@@ -5433,14 +5453,22 @@ export default function RechnungenPage() {
                                 ) : (
                                   <>{renderInvoiceServicesChip("expanded")}</>
                                 )}
-                                {dueLabel && (
-                                  <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-muted-foreground md:absolute md:right-0 md:ml-0">
-                                    Fällig {dueLabel}
-                                  </span>
-                                )}
                               </div>
 
-                              <div className="relative mt-3 flex min-h-0 items-start justify-end gap-3 border-t pt-2 sm:min-h-12 sm:justify-between sm:pt-3">
+                              <div
+                                className="relative mt-2 flex min-h-0 cursor-pointer items-start justify-end gap-3 rounded-lg border-t px-1.5 py-2 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 sm:min-h-12 sm:justify-between sm:py-3"
+                                onClick={(event) => {
+                                  if (
+                                    event.target instanceof Element &&
+                                    event.target.closest(
+                                      "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                    )
+                                  )
+                                    return;
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
                                 <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
                                 <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
                                   <div className="shrink-0 text-right">

@@ -16188,7 +16188,7 @@ export default function AuftraegePage() {
       </div>
 
       <div className="space-y-1.5">
-        {archiveId ? null : filtered?.length === 0 ? (
+        {filtered?.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
             Keine Aufträge gefunden
           </p>
@@ -16828,8 +16828,11 @@ export default function AuftraegePage() {
                       {/* Left: 3-dot menu */}
                       <details
                         data-order-action-menu
+                        data-card-toggle-ignore="true"
                         className="relative shrink-0 group"
-                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
                       >
                         <summary
                           className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
@@ -16877,11 +16880,16 @@ export default function AuftraegePage() {
                           </button>
                           <div className="border-t my-0.5" />
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const menu = e.currentTarget.closest("details");
+                            type="button"
+                            data-card-toggle-ignore="true"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const menu = event.currentTarget.closest("details");
                               if (menu instanceof HTMLDetailsElement) menu.open = false;
-                              remove(o.id);
+                              window.setTimeout(() => setArchiveId(o.id), 0);
                             }}
                             className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
                           >
@@ -17161,7 +17169,26 @@ export default function AuftraegePage() {
                           onOpenItems={() => openEdit(o, { focusSection: "items" })}
                         />
 
-                        <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                        <div
+                          className="relative mt-1.5 flex min-h-8 min-w-0 cursor-pointer flex-wrap items-center gap-1.5 overflow-visible rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700"
+                          onClick={(event) => {
+                            if (
+                              event.target instanceof Element &&
+                              event.target.closest(
+                                "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                              )
+                            )
+                              return;
+                            event.stopPropagation();
+                            setActiveMobileTooltipKey(null);
+                            setActiveMobileTooltip(null);
+                            if (isMergeMode) {
+                              handleToggleSelect(o.id);
+                              return;
+                            }
+                            toggleOrderCard(o.id);
+                          }}
+                        >
                           <select
                             onClick={(event) => event.stopPropagation()}
                             className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -17264,7 +17291,26 @@ export default function AuftraegePage() {
                         </div>
 
 
-                        <div className="relative mt-2 flex min-h-0 items-start justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700 sm:min-h-12 sm:justify-between">
+                        <div
+                          className="relative mt-2 flex min-h-0 cursor-pointer items-start justify-end gap-3 rounded-lg border-t border-slate-200 px-1.5 py-2 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:border-slate-700 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 sm:min-h-12 sm:justify-between"
+                          onClick={(event) => {
+                            if (
+                              event.target instanceof Element &&
+                              event.target.closest(
+                                "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                              )
+                            )
+                              return;
+                            event.stopPropagation();
+                            setActiveMobileTooltipKey(null);
+                            setActiveMobileTooltip(null);
+                            if (isMergeMode) {
+                              handleToggleSelect(o.id);
+                              return;
+                            }
+                            toggleOrderCard(o.id);
+                          }}
+                        >
                           <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                           <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
