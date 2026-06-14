@@ -293,14 +293,32 @@ function ordinaryHintCoveredByAppointmentV17_90L217(
   );
   if (hintTokens.size < 2) return false;
 
-  const covered = [...hintTokens].every((token) => appointmentTokens.has(token));
-  if (!covered) return false;
-
   const hintNegated = hasCanonicalRoleNegationV17_90L201(hintText);
   const appointmentNegated = hasCanonicalRoleNegationV17_90L201(
     appointmentText,
   );
-  return hintNegated === appointmentNegated;
+  if (hintNegated !== appointmentNegated) return false;
+
+  const covered = [...hintTokens].every((token) => appointmentTokens.has(token));
+  if (covered) return true;
+
+  // V17.90L230: Equivalent pre-announcement wording is often normalized from
+  // "vor der Ankunft benachrichtigen" to "vorher per SMS melden". The exact
+  // minute value and compatible communication channel are stronger evidence
+  // than wording-token overlap. Do not suppress a genuinely different channel.
+  const isArrivalNotice = (value: string) =>
+    /\b(?:vorher|vor\s+(?:der\s+)?ankunft|vor\s+dem\s+eintreffen|before(?:\s+arrival)?|prior\s+to(?:\s+arrival)?|avant(?:\s+l['’]?arriv[ée]e)?|prima(?:\s+dell['’]?arrivo)?|antes(?:\s+de\s+la\s+llegada)?)\b/iu.test(
+      value,
+    );
+  if (!isArrivalNotice(hintText) || !isArrivalNotice(appointmentText)) {
+    return false;
+  }
+  const hintChannel = normalizeAiContactChannelV17_90L86(hintText);
+  const appointmentChannel = normalizeAiContactChannelV17_90L86(appointmentText);
+  if (hintChannel && appointmentChannel && hintChannel !== appointmentChannel) {
+    return false;
+  }
+  return true;
 }
 
 function accessEvidenceKindsV17_90L217(value: unknown): Set<string> {
@@ -2931,6 +2949,35 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
   const currentHouseNumber = currentStreet.match(/\b\d+[a-z]?\b/i)?.[0] || "";
   if (!currentKey || !currentHouseNumber) return currentStreet;
 
+  // V17.90L230: WhatsApp normalization may flatten the complete message into
+  // one line. In that case parseBillingStreetLine can return the first billing
+  // street and never expose the later execution street. Search first for the
+  // exact current street with precisely one Unicode letter directly in front.
+  // This is a one-character evidence repair only; it cannot replace the street
+  // with a different address or change the house number.
+  const directMatches = [args.originalText, args.translatedText]
+    .flatMap((source) => {
+      const rawSource = String(source || "");
+      if (!rawSource) return [] as string[];
+      const pattern = new RegExp(
+        `(?:^|[^\\p{L}\\p{N}])([\\p{L}]${escapeRegExpLocal(currentStreet)})(?=$|[^\\p{L}\\p{N}])`,
+        "giu",
+      );
+      return Array.from(rawSource.matchAll(pattern))
+        .map((match) => cleanExecutionStreetCandidate(match[1]))
+        .filter((line): line is string => Boolean(line));
+    })
+    .filter((candidate) => {
+      const candidateHouseNumber = candidate.match(/\b\d+[a-z]?\b/i)?.[0] || "";
+      return candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase();
+    });
+  const uniqueDirectMatches = Array.from(
+    new Map(
+      directMatches.map((candidate) => [normalizeUnitText(candidate), candidate]),
+    ).values(),
+  );
+  if (uniqueDirectMatches.length === 1) return uniqueDirectMatches[0];
+
   const candidates = [args.originalText, args.translatedText]
     .flatMap((source) =>
       String(source || "")
@@ -4564,9 +4611,9 @@ function inferAppointmentNoticeV17_90L203(
   if (!source) return { minutes: 0, channel: null };
 
   const noticePatterns = [
-    /\b(\d{1,3})\s*(?:min(?:ute)?n?)?\s*(?:vorher|vor\s+ankunft)\b[^.!?\n]{0,100}/i,
-    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:before|prior\s+to)\b[^.!?\n]{0,100}/i,
-    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:avant|prima|antes)\b[^.!?\n]{0,100}/i,
+    /\b(\d{1,3})\s*(?:min(?:ute)?n?)?\s*(?:vorher|vor\s+(?:der\s+)?ankunft|vor\s+dem\s+eintreffen)\b[^.!?\n]{0,120}/i,
+    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:before(?:\s+arrival)?|prior\s+to(?:\s+arrival)?)\b[^.!?\n]{0,120}/i,
+    /\b(\d{1,3})\s*(?:min(?:ute)?s?)?\s*(?:avant(?:\s+l['’]?arriv[ée]e)?|prima(?:\s+dell['’]?arrivo)?|antes(?:\s+de\s+la\s+llegada)?)\b[^.!?\n]{0,120}/iu,
   ];
   let matched = "";
   let minutes = 0;
@@ -5314,6 +5361,66 @@ function dedupeTranslatedRoleVariantsV17_90L201(
     if (candidateSuperset || candidateScore > existingScore) {
       result[duplicateIndex] = line;
     }
+  }
+
+  return result;
+}
+
+function dedupeTranslatedAccessRoleVariantsV17_90L230(
+  lines: string[],
+  translationText?: string | null,
+): string[] {
+  const base = dedupeTranslatedRoleVariantsV17_90L201(lines, translationText);
+  const result: string[] = [];
+
+  for (const line of base) {
+    const candidateKinds = accessEvidenceKindsV17_90L217(line);
+    const candidateInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
+    const candidateScore = translatedRoleEvidenceScoreV17_90L201(
+      line,
+      translationText,
+    );
+    const duplicateIndex = result.findIndex((existing) => {
+      if (canonicalRoleLinesEquivalentV17_90L201(existing, line)) return true;
+      const existingKinds = accessEvidenceKindsV17_90L217(existing);
+      if (
+        candidateKinds.size !== 1 ||
+        existingKinds.size !== 1 ||
+        [...candidateKinds][0] !== [...existingKinds][0]
+      ) {
+        return false;
+      }
+      if (
+        canonicalRoleInvariantTokensV17_90L201(existing).join("|") !==
+        candidateInvariants
+      ) {
+        return false;
+      }
+      if (
+        hasCanonicalRoleNegationV17_90L201(existing) !==
+        hasCanonicalRoleNegationV17_90L201(line)
+      ) {
+        return false;
+      }
+      const existingScore = translatedRoleEvidenceScoreV17_90L201(
+        existing,
+        translationText,
+      );
+      // Only collapse a cross-language pair when exactly one version is
+      // directly supported by the German working translation. Two distinct
+      // translated instructions of the same kind remain separate.
+      return (existingScore > 0) !== (candidateScore > 0);
+    });
+
+    if (duplicateIndex < 0) {
+      result.push(line);
+      continue;
+    }
+    const existingScore = translatedRoleEvidenceScoreV17_90L201(
+      result[duplicateIndex],
+      translationText,
+    );
+    if (candidateScore > existingScore) result[duplicateIndex] = line;
   }
 
   return result;
@@ -13430,7 +13537,7 @@ export async function processIncomingMessage(
       ),
     ),
     access: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
+      dedupeTranslatedAccessRoleVariantsV17_90L230(
         finalAiRoleBucketsV17_90L215.access,
         translationText,
       ),
@@ -16537,15 +16644,47 @@ export async function processIncomingMessage(
           (firstAiExecutionAddressSnapshotV17_90L225 as any)?.name,
         ),
       );
-    extractedExecutionAddress = firstAiSameAddressSiteNameV17_90L225
-      ? {
-          siteName: firstAiSameAddressSiteNameV17_90L225,
-          siteAddress: executionAddressCustomerContext.customerAddress,
-          sitePlz: executionAddressCustomerContext.customerPlz,
-          siteCity: executionAddressCustomerContext.customerCity,
-          siteNote: null,
-        }
-      : null;
+    const billingIdentityNameV17_90L230 = cleanAiStructuredBillingName(
+      (firstAiCustomerSnapshotV17_90L225 as any)?.name ||
+        resolvedCustomerMaster?.name ||
+        null,
+    );
+    const explicitWorkAreaV17_90L230 = sameAddressWorkAreaDescriptorV17_66(
+      validationSourceText,
+    );
+    const firstAiSiteKeyV17_90L230 = normalizeUnitText(
+      firstAiSameAddressSiteNameV17_90L225 || "",
+    );
+    const billingNameKeyV17_90L230 = normalizeUnitText(
+      billingIdentityNameV17_90L230 || "",
+    );
+    const explicitWorkAreaKeyV17_90L230 = normalizeUnitText(
+      explicitWorkAreaV17_90L230 || "",
+    );
+    const siteNameIsBillingIdentityV17_90L230 = Boolean(
+      firstAiSiteKeyV17_90L230 &&
+        billingNameKeyV17_90L230 &&
+        firstAiSiteKeyV17_90L230 === billingNameKeyV17_90L230,
+    );
+    const siteNameHasExplicitWorkAreaEvidenceV17_90L230 = Boolean(
+      firstAiSiteKeyV17_90L230 &&
+        explicitWorkAreaKeyV17_90L230 &&
+        (firstAiSiteKeyV17_90L230 === explicitWorkAreaKeyV17_90L230 ||
+          firstAiSiteKeyV17_90L230.includes(explicitWorkAreaKeyV17_90L230) ||
+          explicitWorkAreaKeyV17_90L230.includes(firstAiSiteKeyV17_90L230)),
+    );
+    extractedExecutionAddress =
+      firstAiSameAddressSiteNameV17_90L225 &&
+      !siteNameIsBillingIdentityV17_90L230 &&
+      siteNameHasExplicitWorkAreaEvidenceV17_90L230
+        ? {
+            siteName: firstAiSameAddressSiteNameV17_90L225,
+            siteAddress: executionAddressCustomerContext.customerAddress,
+            sitePlz: executionAddressCustomerContext.customerPlz,
+            siteCity: executionAddressCustomerContext.customerCity,
+            siteNote: null,
+          }
+        : null;
   }
 
   if (
