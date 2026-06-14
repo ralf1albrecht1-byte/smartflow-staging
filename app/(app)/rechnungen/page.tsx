@@ -586,6 +586,111 @@ const uniqueInvoiceLines = (values: Array<string | null | undefined>) =>
     ).values(),
   );
 
+function splitInvoiceSourceLinesV17_90L237(value: unknown): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line.replace(/^\s*[-•*]+\s*/g, "")))
+    .filter(Boolean);
+}
+
+function collectInvoiceServiceEvidenceLinesV17_90L237(invoice?: Invoice | null): Set<string> {
+  const result = new Set<string>();
+  for (const order of invoice?.orders || []) {
+    const raw = String(order?.notes || order?.audioTranscript || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const lines = raw.split(/\n+/g).map((line) => compactInvoiceValue(line));
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) continue;
+      const next = lines.slice(index + 1).find(Boolean) || "";
+      const sameLinePrice = /\b(?:CHF|EUR|USD|GBP)\s*\d|\b\d+(?:[.,]\d+)?\s*(?:CHF|EUR|USD|GBP)\b/i.test(line);
+      const nextLinePrice = /\b(?:gesamtpreis|pauschalpreis|prix\s+total|prix\s+forfaitaire|total\s+price|flat\s+fee|prezzo\s+totale|precio\s+total)\b.{0,40}\b(?:CHF|EUR|USD|GBP)\b/i.test(next);
+      if (sameLinePrice || nextLinePrice) result.add(normalizeInvoiceServiceName(line));
+    }
+  }
+  return result;
+}
+
+function invoiceHintMatchesServiceEvidenceV17_90L237(
+  value: string,
+  evidence: Set<string>,
+): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  for (const candidate of evidence) {
+    if (!candidate) continue;
+    if (key === candidate) return true;
+    const shorter = key.length <= candidate.length ? key : candidate;
+    const longer = key.length > candidate.length ? key : candidate;
+    if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.72) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function uniquePreferredInvoiceInfoLinesV17_90L237(values: string[]): string[] {
+  const result: string[] = [];
+  for (const raw of values) {
+    const line = compactInvoiceValue(raw);
+    const key = normalizeInvoiceServiceName(line);
+    if (!line || !key) continue;
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeInvoiceServiceName(entry);
+      if (existing === key) return true;
+      const shorter = existing.length <= key.length ? existing : key;
+      const longer = existing.length > key.length ? existing : key;
+      return shorter.length >= 8 && longer.includes(shorter);
+    });
+    if (existingIndex >= 0) {
+      if (line.length > result[existingIndex].length) result[existingIndex] = line;
+      continue;
+    }
+    result.push(line);
+  }
+  return result;
+}
+
+function extractInvoiceAccessLinesV17_90L237(
+  invoice: Invoice | null,
+  serviceNames: string[],
+): string[] {
+  const serviceKeys = (serviceNames || []).map(normalizeInvoiceServiceName).filter(Boolean);
+  const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
+  const candidates: string[] = [];
+  for (const order of invoice?.orders || []) {
+    for (const source of [order?.specialNotes, order?.notes, order?.audioTranscript]) {
+      for (const line of splitInvoiceSourceLinesV17_90L237(source)) {
+        const key = normalizeInvoiceServiceName(line);
+        if (!key || !accessPattern.test(key)) continue;
+        if (
+          serviceKeys.some((serviceKey) =>
+            serviceKey.length >= 8 &&
+            (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
+          )
+        ) continue;
+        candidates.push(line);
+      }
+    }
+  }
+  return uniquePreferredInvoiceInfoLinesV17_90L237(candidates);
+}
+
+function collectInvoiceCanonicalSpecialNotesV17_90L237(
+  invoice: Invoice | null,
+  fallback?: string | null,
+): string {
+  const canonical = (invoice?.orders || [])
+    .map((order) => String(order?.specialNotes || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  return canonical || String(fallback || "");
+}
+
 const cleanInvoiceCustomerMessage = (value?: string | null) =>
   String(value || "")
     .replace(/\r\n/g, "\n")
@@ -611,7 +716,7 @@ const isPrimaryInvoiceInformationLine = (value?: string | null) => {
   const text = normalizeInvoiceServiceName(value);
   if (!text) return false;
   return (
-    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort)\b/.test(
+    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort|zugang|zutritt|schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|seiteneingang|hintereingang|keybox|door code|access code)\b/.test(
       text,
     ) ||
     /\b\d{1,2}[:.]\d{2}\b/.test(text) ||
@@ -7310,8 +7415,13 @@ export default function RechnungenPage() {
 
                   {editOrderCtx &&
                     (() => {
+                      const canonicalSpecialNotesV17_90L237 =
+                        collectInvoiceCanonicalSpecialNotesV17_90L237(
+                          editingInvoice,
+                          editOrderCtx.specialNotes,
+                        );
                       const parsed = splitSpecialNotes(
-                        editOrderCtx.specialNotes,
+                        canonicalSpecialNotesV17_90L237,
                       );
                       const rawHazards = uniqueInvoiceLines(
                         parsed.safetyWarnings || [],
@@ -7325,10 +7435,39 @@ export default function RechnungenPage() {
                       const hazards = rawHazards.filter(
                         (line) => !isContactInstruction(line),
                       );
-                      const allHints = uniqueInvoiceLines([
+                      const appointmentHintsV17_90L237 = editingInvoice
+                        ? collectInvoiceAppointmentEntriesV17_90L177R(
+                            editingInvoice,
+                          ).map((entry) => entry.label)
+                        : [];
+                      const hasConcreteAppointmentV17_90L237 =
+                        appointmentHintsV17_90L237.some((line) =>
+                          /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line),
+                        );
+                      const accessHintsV17_90L237 = extractInvoiceAccessLinesV17_90L237(
+                        editingInvoice,
+                        items.map((item) => String(item?.description || "")),
+                      );
+                      const serviceEvidenceV17_90L237 =
+                        collectInvoiceServiceEvidenceLinesV17_90L237(
+                          editingInvoice,
+                        );
+                      const allHints = uniquePreferredInvoiceInfoLinesV17_90L237([
+                        ...accessHintsV17_90L237,
+                        ...appointmentHintsV17_90L237,
                         ...(parsed.jobHints || []),
                         ...communicationHazards,
-                      ]);
+                      ]).filter(
+                        (line) =>
+                          !invoiceHintMatchesServiceEvidenceV17_90L237(
+                            line,
+                            serviceEvidenceV17_90L237,
+                          ) &&
+                          !(
+                            hasConcreteAppointmentV17_90L237 &&
+                            /termin\s+klären|termin\s+klaeren/i.test(line)
+                          ),
+                      );
                       const primaryHints = allHints.filter(
                         isPrimaryInvoiceInformationLine,
                       );

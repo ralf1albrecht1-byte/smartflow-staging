@@ -287,18 +287,14 @@ type AdaptiveAppointmentLabels = {
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
   const full = compactOfferValue(value);
-  // V17.90L235: The card chip always exposes the short execution date when a
-  // valid date exists anywhere inside the complete appointment tooltip. Time,
-  // day period and pre-announcement details remain in hover/click only.
-  const dateMatch = full.match(
-    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
-  );
+  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
   const month = dateMatch[2].padStart(2, "0");
+  const year = dateMatch[3] || "";
   return {
     full,
-    dateOnly: `${day}.${month}.`,
+    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
   };
 };
 
@@ -1005,6 +1001,119 @@ function isOfferParkingLineV17_90L101(value?: string | null): boolean {
   );
 }
 
+// V17.90L237: Angebot/Rechnung erhalten Termin- und Zugangsdaten aus den
+// unveränderten Quellaufträgen. Rohtexte werden nur für klar erkennbare
+// Zugangssätze verwendet; Leistungszeilen bleiben aus Besonderheiten draußen.
+function splitOfferSourceLinesV17_90L237(value: unknown): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function collectOfferServiceEvidenceLinesV17_90L237(orders: any[]): Set<string> {
+  const result = new Set<string>();
+  for (const order of orders || []) {
+    const raw = String(order?.notes || order?.audioTranscript || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const lines = raw.split(/\n+/g).map((line) => line.replace(/\s+/g, " ").trim());
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) continue;
+      const next = lines.slice(index + 1).find(Boolean) || "";
+      const sameLinePrice = /\b(?:CHF|EUR|USD|GBP)\s*\d|\b\d+(?:[.,]\d+)?\s*(?:CHF|EUR|USD|GBP)\b/i.test(line);
+      const nextLinePrice = /\b(?:gesamtpreis|pauschalpreis|prix\s+total|prix\s+forfaitaire|total\s+price|flat\s+fee|prezzo\s+totale|precio\s+total)\b.{0,40}\b(?:CHF|EUR|USD|GBP)\b/i.test(next);
+      if (sameLinePrice || nextLinePrice) result.add(normalizeOfferHint(line));
+    }
+  }
+  return result;
+}
+
+function offerHintMatchesServiceEvidenceV17_90L237(
+  value: string,
+  evidence: Set<string>,
+): boolean {
+  const key = normalizeOfferHint(value);
+  if (!key) return false;
+  for (const candidate of evidence) {
+    if (!candidate) continue;
+    if (key === candidate) return true;
+    const shorter = key.length <= candidate.length ? key : candidate;
+    const longer = key.length > candidate.length ? key : candidate;
+    if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.72) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function extractOfferAccessLinesV17_90L237(
+  orders: any[],
+  serviceNames: string[],
+): string[] {
+  const serviceKeys = (serviceNames || []).map(normalizeOfferHint).filter(Boolean);
+  const result: string[] = [];
+  const add = (line: string) => {
+    const clean = cleanOfferInfoLineV17_66(line);
+    const key = normalizeOfferHint(clean);
+    if (!clean || !key) return;
+    if (
+      serviceKeys.some((serviceKey) =>
+        serviceKey.length >= 8 &&
+        (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
+      )
+    ) return;
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeOfferHint(entry);
+      return existing === key || existing.includes(key) || key.includes(existing);
+    });
+    if (existingIndex >= 0) {
+      if (clean.length > result[existingIndex].length) result[existingIndex] = clean;
+      return;
+    }
+    result.push(clean);
+  };
+
+  const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
+  for (const order of orders || []) {
+    for (const source of [order?.specialNotes, order?.notes, order?.audioTranscript]) {
+      for (const line of splitOfferSourceLinesV17_90L237(source)) {
+        if (accessPattern.test(normalizeOfferHint(line))) add(line);
+      }
+    }
+  }
+  return result;
+}
+
+function resolveOfferAppointmentLabelV17_90L237(
+  orders: any[],
+  fallbackData?: CommunicationData | null,
+): string {
+  const candidates = [
+    formatMergedAppointmentTooltip(collectMergedAppointmentEntries((orders || []) as any)),
+    ...(orders || []).flatMap((order: any) => [
+      extractOfferAppointmentLabel(order?.specialNotes),
+      extractOfferAppointmentLabel(order?.date),
+      extractOfferAppointmentLabel(order?.notes),
+      extractOfferAppointmentLabel(order?.description),
+    ]),
+    extractOfferAppointmentLabel(
+      [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+  ]
+    .map(compactOfferValue)
+    .filter(Boolean);
+  const concrete = candidates.find((value) => /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(value));
+  if (concrete) return concrete;
+  return candidates.find((value) => !/termin\s+klären|termin\s+klaeren/i.test(value)) || candidates[0] || "";
+}
+
 function compactOfferPrimaryInfoLinesV17_90L124(
   values: string[],
   appointmentLabel: string,
@@ -1037,8 +1146,13 @@ function buildOfferInfoSummary(
   parsedNotes = splitSpecialNotes(data.specialNotes),
   appointmentLabel = "",
   contactAction?: OfferContactAction | null,
+  sourceOrders: any[] = [],
+  serviceNames: string[] = [],
 ): OfferInfoSummary {
   const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
+  const serviceEvidence = collectOfferServiceEvidenceLinesV17_90L237(sourceOrders);
+  const accessLines = extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames);
+  const hasConcreteAppointment = /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(appointmentLabel);
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
   const safety = uniqueOfferInfoLinesV17_66([
     ...(parsedNotes.safetyWarnings || []),
@@ -1047,14 +1161,18 @@ function buildOfferInfoSummary(
   const importantRawLines = extractOfferImportantInstructionLines(source);
   const appointmentLines = extractOfferAppointmentSnippets(source);
   const primary = uniqueOfferInfoLinesV17_66([
+    ...accessLines,
     ...(parsedNotes.jobHints || [])
       .filter(isOfferPrimaryInfoHint)
-      .filter((line) => !isOfferParkingLineV17_90L101(line)),
+      .filter((line) => !isOfferParkingLineV17_90L101(line))
+      .filter((line) => !(hasConcreteAppointment && /termin\s+klären|termin\s+klaeren/i.test(line))),
     ...appointmentLines,
     ...importantRawLines.filter(isOfferPrimaryInfoHint),
     appointmentLines.length === 0 ? appointmentLabel : "",
   ]).filter(
-    (line) => !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
+    (line) =>
+      !offerHintMatchesServiceEvidenceV17_90L237(line, serviceEvidence) &&
+      !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
   );
   const compactPrimary = compactOfferPrimaryInfoLinesV17_90L124(
     primary,
@@ -1075,6 +1193,7 @@ function buildOfferInfoSummary(
     ),
   ]).filter(
     (line) =>
+      !offerHintMatchesServiceEvidenceV17_90L237(line, serviceEvidence) &&
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
@@ -3874,13 +3993,23 @@ export default function AngebotePage() {
     linkedOrderData || ({} as CommunicationData),
     linkedOfferCustomer,
   );
+  const linkedEditorOrdersV17_90L237 =
+    linkedOrderMessages.length > 0
+      ? (linkedOrderMessages as any[])
+      : linkedOrderData
+        ? ([linkedOrderData] as any[])
+        : [];
+  const linkedAppointmentLabelV17_90L237 = resolveOfferAppointmentLabelV17_90L237(
+    linkedEditorOrdersV17_90L237,
+    linkedOrderData,
+  );
   const linkedInfoSummary = buildOfferInfoSummary(
     linkedOrderData || ({} as CommunicationData),
     parsedLinkedSpecialNotes,
-    extractOfferAppointmentLabel(
-      [linkedOrderData?.specialNotes, linkedOrderData?.notes].filter(Boolean).join("\n"),
-    ),
+    linkedAppointmentLabelV17_90L237,
     linkedContactAction,
+    linkedEditorOrdersV17_90L237,
+    items.map((item) => String(item?.description || "")),
   );
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
@@ -5507,6 +5636,8 @@ export default function AngebotePage() {
                     parsedOfferNotes,
                     appointmentLabel,
                     contactAction,
+                    (off.orders || []) as any[],
+                    (off.items || []).map((item: any) => String(item?.description || "")),
                   );
                   const contactChipData = buildOfferContactChipData(
                     orderCtx,
@@ -5972,8 +6103,8 @@ export default function AngebotePage() {
                     serviceReview.blockerCount > 0 ||
                     offerCurrencyReviewCount > 0 ||
                     Boolean(appointmentDisplayLabel) ? (
-                      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center border-l border-slate-200 pl-2 dark:border-slate-700">
-                        <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
+                      <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                        <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
                             "compact-service-review",
@@ -6238,8 +6369,8 @@ export default function AngebotePage() {
                                           serviceReview.blockerCount > 0 ||
                                           offerCurrencyReviewCount > 0 ||
                                           Boolean(appointmentDisplayLabel)) && (
-                                          <span className="inline-flex min-w-0 max-w-full flex-wrap items-center border-l border-slate-200 pl-2 dark:border-slate-700">
-                                            <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                            <span className="inline-flex items-center gap-1.5">
                                               {renderOfferCompactReviewChip(
                                                 "yellow",
                                                 "compact-touch-service-review",
@@ -6265,15 +6396,10 @@ export default function AngebotePage() {
                                                       event,
                                                     );
                                                   }}
-                                                  className={`group relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-2 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "w-auto" : "w-8 px-0"}`}
+                                                  className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
                                                   aria-label={appointmentDisplayLabel}
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                                  {appointmentChipLabels.dateOnly && (
-                                                    <span className="ml-1.5 whitespace-nowrap">
-                                                      {appointmentChipLabels.dateOnly}
-                                                    </span>
-                                                  )}
                                                 </button>
                                               )}
                                             </span>

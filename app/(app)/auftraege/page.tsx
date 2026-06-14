@@ -20328,20 +20328,17 @@ export default function AuftraegePage() {
                                             showPriceContradictionReviewV17_90L234 && (
                                               <div className="space-y-1.5">
                                                 <div className="font-semibold">
-                                                  Widersprüchliche Preisangaben im
-                                                  Kundentext.
+                                                  Preisangaben widersprechen sich.
                                                 </div>
                                                 <div>
-                                                  Es wurden ein Gesamt-/Pauschalpreis
-                                                  und gleichzeitig ein Preis je
-                                                  Einheit erkannt. Der erkannte
-                                                  Preis bleibt eingetragen, wird
-                                                  aber bis zur Freigabe nicht in
-                                                  Netto/MwSt./Total gerechnet.
+                                                  Gesamtpreis und Preis je Einheit
+                                                  wurden gleichzeitig erkannt. Erst
+                                                  nach Bestätigung wird der Betrag
+                                                  berechnet.
                                                 </div>
                                                 {sourceLineForItem && (
                                                   <div>
-                                                    Erkannte Quelle:{" "}
+                                                    Kundentext:{" "}
                                                     <span className="font-medium">
                                                       {sourceLineForItem}
                                                     </span>
