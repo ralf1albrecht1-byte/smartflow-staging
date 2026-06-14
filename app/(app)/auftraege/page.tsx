@@ -17020,6 +17020,8 @@ export default function AuftraegePage() {
             return (
               <motion.div
                 key={o.id}
+                data-order-card-wrapper
+                className="relative"
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.015 }}
@@ -17065,6 +17067,16 @@ export default function AuftraegePage() {
                         data-order-action-menu
                         data-card-toggle-ignore="true"
                         className="relative shrink-0 group"
+                        onToggle={(event) => {
+                          const wrapper = event.currentTarget.closest(
+                            "[data-order-card-wrapper]",
+                          );
+                          if (wrapper instanceof HTMLElement) {
+                            wrapper.style.zIndex = event.currentTarget.open
+                              ? "10000"
+                              : "";
+                          }
+                        }}
                         onPointerDown={(event) => event.stopPropagation()}
                         onTouchStart={(event) => event.stopPropagation()}
                         onClick={(event) => event.stopPropagation()}
@@ -17121,11 +17133,10 @@ export default function AuftraegePage() {
                             onMouseDown={(event) => event.stopPropagation()}
                             onTouchStart={(event) => event.stopPropagation()}
                             onClick={(event) => {
-                              event.preventDefault();
                               event.stopPropagation();
+                              setArchiveId(o.id);
                               const menu = event.currentTarget.closest("details");
                               if (menu instanceof HTMLDetailsElement) menu.open = false;
-                              setArchiveId(o.id);
                             }}
                             className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
                           >
