@@ -9108,6 +9108,318 @@ function analyzeCanonicalEvidenceStructureV17_90L226(args: {
   };
 }
 
+
+type SharedFlatPackageEvidenceV17_90L232 = {
+  serviceName: string;
+  sourceText: string;
+  price: number;
+  currency: string | null;
+};
+
+function rawAiItemEvidenceV17_90L232(raw: any): string {
+  return String(
+    raw?.sourceText ??
+      raw?.source_text ??
+      raw?.evidence ??
+      raw?.raw ??
+      raw?.description ??
+      "",
+  )
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function rawAiItemServiceNameV17_90L232(raw: any): string {
+  return String(
+    raw?.serviceName ??
+      raw?.name ??
+      raw?.action_name ??
+      raw?.service_name ??
+      raw?.matched_service_name ??
+      "",
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sharedPackageEvidenceKeyV17_90L232(value: unknown): string {
+  return normalizeSemanticText(String(value || ""))
+    .replace(/\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total price|total amount|flat rate|lump sum|forfait total|prix total|montant total|prezzo totale|importo totale|a corpo|precio total|importe total|tarifa fija|preco total|preço total|valor total|preco fixo|preço fixo)\b.*$/iu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sharedPackageEvidenceEquivalentV17_90L232(
+  left: string,
+  right: string,
+): boolean {
+  const leftKey = sharedPackageEvidenceKeyV17_90L232(left);
+  const rightKey = sharedPackageEvidenceKeyV17_90L232(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+
+  const leftTokens = new Set(
+    leftKey.split(/\s+/g).filter((token) => token.length >= 3),
+  );
+  const rightTokens = new Set(
+    rightKey.split(/\s+/g).filter((token) => token.length >= 3),
+  );
+  if (leftTokens.size < 3 || rightTokens.size < 3) return false;
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return overlap / Math.max(leftTokens.size, rightTokens.size) >= 0.9;
+}
+
+function stripSharedFlatPriceTailV17_90L232(value: unknown): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(
+      /\s*[.,;:\-–—]*\s*\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total\s+price|total\s+amount|flat\s+rate|lump\s+sum|forfait(?:\s+total)?|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|a\s+corpo|precio\s+total|importe\s+total|tarifa\s+fija|pre[cç]o\s+total|valor\s+total|pre[cç]o\s+fixo)\b.*$/iu,
+      "",
+    )
+    .replace(/[.,;:\-–—]+$/g, "")
+    .trim();
+}
+
+function explicitSharedFlatFragmentV17_90L232(value: unknown): string | null {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  if (!source) return null;
+
+  const currency = String.raw`(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|DOLLAR|GBP|PFUND|€|\$|£)`;
+  const amount = String.raw`[0-9][0-9’'.,]*`;
+  const flat = String.raw`(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total\s+price|total\s+amount|flat\s+rate|lump\s+sum|forfait(?:\s+total)?|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|a\s+corpo|precio\s+total|importe\s+total|tarifa\s+fija|pre[cç]o\s+total|valor\s+total|pre[cç]o\s+fixo)`;
+  const forward = new RegExp(
+    String.raw`\b${flat}\b[^.!?\n]{0,80}?(?:${currency}\s*${amount}|${amount}\s*${currency})`,
+    "iu",
+  );
+  const reverse = new RegExp(
+    String.raw`(?:${currency}\s*${amount}|${amount}\s*${currency})[^.!?\n]{0,50}?\b${flat}\b`,
+    "iu",
+  );
+  return source.match(forward)?.[0] || source.match(reverse)?.[0] || null;
+}
+
+function findSharedFlatPackageEvidenceV17_90L232(args: {
+  sharedEvidence: string;
+  contextText?: string | null;
+  translatedText?: string | null;
+  serviceNames: string[];
+}): SharedFlatPackageEvidenceV17_90L232 | null {
+  const sourceEvidence = String(args.sharedEvidence || "").trim();
+  if (!sourceEvidence) return null;
+
+  const candidateTexts: string[] = [sourceEvidence];
+  const evidenceKey = sharedPackageEvidenceKeyV17_90L232(sourceEvidence);
+
+  for (const corpusValue of [args.contextText, args.translatedText]) {
+    const corpus = String(corpusValue || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
+    if (!corpus) continue;
+
+    const lines = corpus
+      .split(/\n+/g)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!sharedPackageEvidenceEquivalentV17_90L232(line, sourceEvidence)) {
+        continue;
+      }
+      candidateTexts.push(line);
+      if (lines[index + 1]) candidateTexts.push(`${line}\n${lines[index + 1]}`);
+      if (lines[index - 1]) candidateTexts.push(`${lines[index - 1]}\n${line}`);
+    }
+
+    const exactIndex = corpus.toLocaleLowerCase("de-CH").indexOf(
+      sourceEvidence.toLocaleLowerCase("de-CH"),
+    );
+    if (exactIndex >= 0) {
+      const tail = corpus.slice(
+        exactIndex + sourceEvidence.length,
+        exactIndex + sourceEvidence.length + 220,
+      );
+      const flatFragment = explicitSharedFlatFragmentV17_90L232(tail);
+      if (flatFragment) {
+        candidateTexts.push(`${sourceEvidence}\n${flatFragment}`);
+      }
+    } else if (evidenceKey) {
+      // Flattened WhatsApp text may differ only in punctuation/spacing. Search
+      // for the first and last substantial evidence tokens and inspect only the
+      // short local tail between the shared service and the next statement.
+      const tokens = evidenceKey.split(/\s+/g).filter((token) => token.length >= 4);
+      if (tokens.length >= 2) {
+        const corpusKey = normalizeSemanticText(corpus);
+        const firstIndex = corpusKey.indexOf(tokens[0]);
+        const lastToken = tokens[tokens.length - 1];
+        const lastIndex = firstIndex >= 0 ? corpusKey.indexOf(lastToken, firstIndex) : -1;
+        if (firstIndex >= 0 && lastIndex >= firstIndex) {
+          const approximateTail = corpusKey.slice(lastIndex + lastToken.length, lastIndex + lastToken.length + 180);
+          const flatFragment = explicitSharedFlatFragmentV17_90L232(approximateTail);
+          if (flatFragment) candidateTexts.push(`${sourceEvidence}\n${flatFragment}`);
+        }
+      }
+    }
+  }
+
+  let best: SharedFlatPackageEvidenceV17_90L232 | null = null;
+  for (const candidate of candidateTexts) {
+    const structure = analyzeCanonicalEvidenceStructureV17_90L226({
+      sourceText: candidate,
+      serviceName: args.serviceNames.join(" "),
+    });
+    if (
+      !structure.explicitFlatTotal ||
+      structure.perUnitSignal ||
+      structure.priceConflict ||
+      structure.inferredFlatPrice <= 0
+    ) {
+      continue;
+    }
+
+    const amounts = extractCanonicalEvidenceAmountsV17_90L226(candidate);
+    const distinctAmounts = Array.from(
+      new Set(amounts.map((entry) => roundIntakeMoney(entry.value))),
+    );
+    if (distinctAmounts.length !== 1) continue;
+
+    const serviceName = stripSharedFlatPriceTailV17_90L232(sourceEvidence);
+    if (!serviceName || serviceName.length < 4 || serviceName.length > 220) {
+      continue;
+    }
+
+    const price = structure.inferredFlatPrice;
+    const currency = String(detectCurrencyFromText(candidate) || "")
+      .trim()
+      .toUpperCase() || null;
+    const result = {
+      serviceName,
+      sourceText: `${serviceName}\n${explicitSharedFlatFragmentV17_90L232(candidate) || candidate}`
+        .replace(/\n{3,}/g, "\n\n")
+        .trim(),
+      price,
+      currency,
+    };
+    if (!best || result.sourceText.length < best.sourceText.length) best = result;
+  }
+
+  return best;
+}
+
+function mergeSharedFlatPackageRowsV17_90L232(
+  rawItems: any[],
+  translatedText?: string | null,
+  contextText?: string | null,
+): any[] {
+  if (!Array.isArray(rawItems) || rawItems.length < 2) return rawItems;
+
+  const consumed = new Set<number>();
+  const mergedAt = new Map<number, any>();
+
+  for (let index = 0; index < rawItems.length; index += 1) {
+    if (consumed.has(index)) continue;
+    const sourceText = rawAiItemEvidenceV17_90L232(rawItems[index]);
+    if (!sourceText) continue;
+
+    const groupIndexes = rawItems
+      .map((raw, candidateIndex) => ({ raw, candidateIndex }))
+      .filter(
+        ({ candidateIndex, raw }) =>
+          candidateIndex >= index &&
+          !consumed.has(candidateIndex) &&
+          sharedPackageEvidenceEquivalentV17_90L232(
+            sourceText,
+            rawAiItemEvidenceV17_90L232(raw),
+          ),
+      )
+      .map(({ candidateIndex }) => candidateIndex);
+    if (groupIndexes.length < 2) continue;
+
+    const serviceNames = groupIndexes
+      .map((candidateIndex) => rawAiItemServiceNameV17_90L232(rawItems[candidateIndex]))
+      .filter(Boolean);
+    if (new Set(serviceNames.map(canonicalServiceKeyV17_90L88)).size < 2) {
+      continue;
+    }
+
+    const packageEvidence = findSharedFlatPackageEvidenceV17_90L232({
+      sharedEvidence: sourceText,
+      contextText,
+      translatedText,
+      serviceNames,
+    });
+    if (!packageEvidence) continue;
+
+    const explicitRowPrices = Array.from(
+      new Set(
+        groupIndexes
+          .map((candidateIndex) =>
+            parsePositiveCanonicalNumberV17_90L89(
+              rawItems[candidateIndex]?.unitPrice ??
+                rawItems[candidateIndex]?.unit_price ??
+                rawItems[candidateIndex]?.price,
+            ),
+          )
+          .filter((price) => price > 0)
+          .map(roundIntakeMoney),
+      ),
+    );
+    if (
+      explicitRowPrices.length > 1 ||
+      (explicitRowPrices.length === 1 &&
+        Math.abs(explicitRowPrices[0] - roundIntakeMoney(packageEvidence.price)) >= 0.01)
+    ) {
+      continue;
+    }
+
+    const firstRaw = rawItems[groupIndexes[0]];
+    mergedAt.set(groupIndexes[0], {
+      ...firstRaw,
+      serviceName: packageEvidence.serviceName,
+      name: packageEvidence.serviceName,
+      action_name: packageEvidence.serviceName,
+      service_name: packageEvidence.serviceName,
+      quantity: 1,
+      menge: 1,
+      unit: "Pauschal",
+      einheit: "Pauschal",
+      unitPrice: packageEvidence.price,
+      unit_price: packageEvidence.price,
+      price: packageEvidence.price,
+      currency:
+        packageEvidence.currency || String(firstRaw?.currency || "CHF").toUpperCase(),
+      sourceText: packageEvidence.sourceText,
+      source_text: packageEvidence.sourceText,
+      evidence: packageEvidence.sourceText,
+      raw: packageEvidence.sourceText,
+      needsReview: false,
+      needs_review: false,
+      reviewReason: "",
+      review_reason: "",
+    });
+    for (const candidateIndex of groupIndexes) consumed.add(candidateIndex);
+
+    console.log(
+      `[FirstAiSharedFlatPackageV17_90L232] merged rows=${groupIndexes.length} service=${packageEvidence.serviceName} price=${packageEvidence.price}`,
+    );
+  }
+
+  if (mergedAt.size === 0) return rawItems;
+  const result: any[] = [];
+  for (let index = 0; index < rawItems.length; index += 1) {
+    if (mergedAt.has(index)) {
+      result.push(mergedAt.get(index));
+      continue;
+    }
+    if (consumed.has(index)) continue;
+    result.push(rawItems[index]);
+  }
+  return result;
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   _translatedText?: string | null,
@@ -9115,11 +9427,18 @@ function buildCanonicalAiOrderItemsV17_90L88(
 ): CanonicalAiOrderItemV17_90L88[] {
   if (!Array.isArray(rawItems)) return [];
 
+  const structurallyPreparedRawItemsV17_90L232 =
+    mergeSharedFlatPackageRowsV17_90L232(
+      rawItems,
+      _translatedText,
+      _contextText,
+    );
+
   // V17.90L225: Hard first-AI service boundary.
   // Every structured AI row is retained in its original order. Missing or
   // uncertain business fields become visible review fields; they are never a
   // reason to delete the row or rebuild it from the whole customer message.
-  return rawItems.map((raw, canonicalOrder) => {
+  return structurallyPreparedRawItemsV17_90L232.map((raw, canonicalOrder) => {
     const sourceText = String(
       raw?.sourceText ??
         raw?.source_text ??
@@ -14984,7 +15303,7 @@ export async function processIncomingMessage(
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
-      [parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+      [messageText, parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
         .filter(Boolean)
         .join("\n"),
     ).map((item) => Object.freeze({ ...item })),
