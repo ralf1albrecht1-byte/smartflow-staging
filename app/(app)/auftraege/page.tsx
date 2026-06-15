@@ -12631,19 +12631,14 @@ export default function AuftraegePage() {
             nextItem.manualUnitConfirmed = true;
           }
 
-          // V17.19: Währungs-/Preisblocker pro Position bestätigen,
-          // ohne die Position künstlich als Katalogprüfung-erledigt zu markieren.
-          // So wird eine korrigierte einzelne Zeile sofort gelb/normal berechnet
-          // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
-          // V17.90L41: Sobald eine echte Währungs-Prüfposition durch den
-          // Benutzer vollständig ausgefüllt wurde, gilt sie unmittelbar als
-          // bestätigt. Die Bestätigung darf nicht davon abhängen, ob der
-          // sichtbare Warntext noch direkt am Item hängt oder nur als
-          // orderweiter ReviewReason gespeichert ist. Sonst bleibt das
-          // Preisfeld rot und der Server setzt den Preis beim Reload wieder 0.
-          if (isResolvedInput && itemHadCurrencyOrPriceReview) {
-            nextItem.aiWarning = "";
-            nextItem.manualCurrencyConfirmed = true;
+          // V17.90L244: Eine rote Preis-/Währungsprüfung wird nicht mehr allein
+          // durch das Ausfüllen eines Feldes aufgelöst. Die bearbeitete Position
+          // bleibt sichtbar rot und zeigt weiterhin Übernehmen/Verwerfen, bis
+          // der Nutzer genau diese Position ausdrücklich bestätigt oder verwirft.
+          // Eine bewusste Katalogauswahl behält ihren separaten Bestätigungsweg.
+          if (itemHadCurrencyOrPriceReview) {
+            nextItem.manualCurrencyConfirmed = false;
+            nextItem.manualReviewConfirmed = false;
           }
         }
 
@@ -20654,36 +20649,6 @@ export default function AuftraegePage() {
                                                   {compactBlockingReviewSourceV17_90L242}
                                                 </span>
                                               </div>
-                                            )}
-
-                                            {showPriceContradictionReviewV17_90L234 && (
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  setFormItems((previous) =>
-                                                    previous.map(
-                                                      (entry, entryIndex) =>
-                                                        entryIndex === index
-                                                          ? {
-                                                              ...entry,
-                                                              aiWarning: "",
-                                                              manualCurrencyConfirmed: true,
-                                                            }
-                                                          : entry,
-                                                    ),
-                                                  )
-                                                }
-                                                className="mt-1 inline-flex h-7 items-center rounded-md border border-red-300 bg-white px-2.5 text-[11px] font-semibold text-red-800 hover:bg-red-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200 dark:hover:bg-red-950/40"
-                                              >
-                                                Erkannten Preis{" "}
-                                                {itemPriceNumber > 0
-                                                  ? formatCurrency(
-                                                      itemPriceNumber,
-                                                      currency,
-                                                    )
-                                                  : ""}{" "}
-                                                bestätigen
-                                              </button>
                                             )}
 
                                             {isBlockingItemReview && (

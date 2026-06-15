@@ -342,6 +342,12 @@ function inferPriceContradictionQuantityV17_90L234(
 }
 
 
+function isPriceStructureTokenV17_90L244(token: string): boolean {
+  return /^(?:gesamt(?:preis|pris|betrag)?|total(?:preis|betrag|amount|price)?|pauschal(?:preis)?|fixpreis|festpreis|preis|price|amount|forfait|prix|prezzo|precio|preco)$/.test(
+    token,
+  );
+}
+
 function totalPriceCandidateBelongsToItemV17_90L234(args: {
   segments: string[];
   candidateIndex: number;
@@ -358,9 +364,14 @@ function totalPriceCandidateBelongsToItemV17_90L234(args: {
   }
 
   // A non-matching total line is only allowed as a generic amount-only line,
-  // e.g. "Gesamtpreis pauschal CHF 980". A line that names another service,
-  // e.g. "Empfang reinigen pauschal CHF 180", must never be borrowed.
-  if (priceContradictionTokensV17_90L234(args.candidateSegment).length > 0) {
+  // e.g. "Gesamtpreis pauschal CHF 980". Structural price words, including
+  // dialect variants such as "Gesamtpris", are not service identity. A line
+  // that names another service, e.g. "Empfang reinigen pauschal CHF 180",
+  // must never be borrowed.
+  const candidateIdentityTokens = priceContradictionTokensV17_90L234(
+    args.candidateSegment,
+  ).filter((token) => !isPriceStructureTokenV17_90L244(token));
+  if (candidateIdentityTokens.length > 0) {
     return false;
   }
 
@@ -409,18 +420,22 @@ export function detectReadOnlyPriceContradictionsV17_90L234(args: {
     const serviceName = String(item.serviceName || "").trim();
     if (!serviceName) return;
 
+    // V17.90L244: Service identity must come from the normalized service name.
+    // Broad evidence text often contains generic action words or neighbouring
+    // services and can otherwise make a clear line inherit another line's
+    // total-price contradiction. Only fall back to line-local evidence when
+    // the normalized service name yields no usable identity token.
+    const serviceIdentityTokens = priceContradictionTokensV17_90L234(
+      serviceName,
+    );
+    const lineLocalEvidenceTokens = priceContradictionTokensV17_90L234(
+      [item.sourceText, item.evidence].filter(Boolean).join(" "),
+    );
     const tokens = Array.from(
       new Set(
-        priceContradictionTokensV17_90L234(
-          [
-            serviceName,
-            item.sourceText,
-            item.evidence,
-            item.description,
-          ]
-            .filter(Boolean)
-            .join(" "),
-        ),
+        serviceIdentityTokens.length > 0
+          ? serviceIdentityTokens
+          : lineLocalEvidenceTokens,
       ),
     );
     if (tokens.length === 0) return;
