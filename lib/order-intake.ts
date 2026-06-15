@@ -17989,13 +17989,14 @@ export async function processIncomingMessage(
     },
   });
 
-  // V17.90L249: If an explicit unresolved work statement is already present
-  // as an actionable red review row, it must not survive a second time as an
-  // ordinary/other canonical fact. Remove only the overlapping sentence or
-  // clause and preserve independent context from the same note (for example an
-  // inventory fact before the unresolved work statement). This is semantic and
-  // evidence-bound; no service vocabulary is hard-coded.
-  const subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249 = (
+  // V17.90L250: If an explicit unresolved work statement is already present
+  // as an actionable red review row, the overlapping AI role line must not be
+  // persisted a second time as an ordinary/other fact. Never shorten, split or
+  // rewrite a sealed AI fact here: a partially retained sentence would create
+  // a new post-AI fact and violate the canonical source lock. Independent
+  // context is preserved only when the AI supplied it as its own separate role
+  // line; a combined line is suppressed as a whole.
+  const suppressRoleLineCoveredByUnresolvedReviewV17_90L250 = (
     value: string,
   ): string | null => {
     const sourceLine = compactText(value);
@@ -18003,80 +18004,59 @@ export async function processIncomingMessage(
       return sourceLine || null;
     }
 
-    const overlapsUnresolvedEvidence = (candidate: string) => {
-      const candidateKey = canonicalEvidenceKeyV17_90L88(candidate);
-      return unresolvedReviewEvidenceV17_90L247.some((evidence) => {
+    const sourceKey = canonicalEvidenceKeyV17_90L88(sourceLine);
+    const overlapsUnresolvedEvidence = unresolvedReviewEvidenceV17_90L247.some(
+      (evidence) => {
         const evidenceKey = canonicalEvidenceKeyV17_90L88(evidence);
         return Boolean(
-          semanticRoleOverlapV17_90L87(candidate, evidence) ||
-            (candidateKey &&
+          semanticRoleOverlapV17_90L87(sourceLine, evidence) ||
+            (sourceKey &&
               evidenceKey &&
-              (candidateKey === evidenceKey ||
-                (candidateKey.length >= 12 &&
-                  evidenceKey.includes(candidateKey)) ||
-                (evidenceKey.length >= 12 &&
-                  candidateKey.includes(evidenceKey)))),
+              (sourceKey === evidenceKey ||
+                (sourceKey.length >= 12 && evidenceKey.includes(sourceKey)) ||
+                (evidenceKey.length >= 12 && sourceKey.includes(evidenceKey)))),
         );
-      });
-    };
-
-    const segments = String(value || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .split(/\n+|(?<=[.!?])\s+|;\s+/g)
-      .map((segment) => segment.replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-
-    if (segments.length <= 1) {
-      return overlapsUnresolvedEvidence(sourceLine) ? null : sourceLine;
-    }
-
-    const retainedSegments = segments.filter(
-      (segment) => !overlapsUnresolvedEvidence(segment),
+      },
     );
-    if (retainedSegments.length === segments.length) {
-      return overlapsUnresolvedEvidence(sourceLine) ? null : sourceLine;
-    }
 
-    const retained = retainedSegments.join(" ").replace(/\s+/g, " ").trim();
-    return retained || null;
+    return overlapsUnresolvedEvidence ? null : sourceLine;
   };
 
-  const canonicalAiRoleSnapshotV17_90L249 = {
+  const canonicalAiRoleSnapshotV17_90L250 = {
     safety: finalAiRoleSnapshotV17_90L215.safety,
     access: finalAiRoleSnapshotV17_90L215.access,
     parking: finalAiRoleSnapshotV17_90L215.parking,
     other: finalAiRoleSnapshotV17_90L215.other
-      .map(subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249)
+      .map(suppressRoleLineCoveredByUnresolvedReviewV17_90L250)
       .filter((line): line is string => Boolean(line)),
     ordinary: finalAiRoleSnapshotV17_90L215.ordinary
-      .map(subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249)
+      .map(suppressRoleLineCoveredByUnresolvedReviewV17_90L250)
       .filter((line): line is string => Boolean(line)),
   };
 
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [
-      ...canonicalAiRoleSnapshotV17_90L249.safety.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L250.safety.map((text) => ({
         role: "safety" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...canonicalAiRoleSnapshotV17_90L249.access.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L250.access.map((text) => ({
         role: "access" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...canonicalAiRoleSnapshotV17_90L249.parking.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L250.parking.map((text) => ({
         role: "parking" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...canonicalAiRoleSnapshotV17_90L249.other.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L250.other.map((text) => ({
         role: "other" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...canonicalAiRoleSnapshotV17_90L249.ordinary.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L250.ordinary.map((text) => ({
         role: "ordinary" as const,
         text,
         evidenceSource: "ai_structured" as const,
