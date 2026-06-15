@@ -4913,6 +4913,19 @@ const recognitionReviewHasSeparateDisplayTextV17_90L253 = (
   );
 };
 
+const compactRecognitionReviewSourceV17_90L262 = (
+  value?: string | null,
+  maxLength = 160,
+) => {
+  const text = compactText(value);
+  if (text.length <= maxLength) return text;
+
+  const prefix = text.slice(0, maxLength);
+  const lastSpace = prefix.lastIndexOf(" ");
+  const cutAt = lastSpace >= Math.floor(maxLength * 0.7) ? lastSpace : maxLength;
+  return `${prefix.slice(0, cutAt).trim()}…`;
+};
+
 // V17.90j2: Top-level helper, weil der Editor denselben Prüfzustand braucht
 // wie die Karten-Badges. Das sind Smartflow-interne Review-Platzhalter,
 // keine Service-Wortliste und keine fachliche Service-Erkennung.
@@ -13091,41 +13104,67 @@ export default function AuftraegePage() {
     const originalSourceText = compactText(detail.sourceText);
     const displayEvidenceText = compactText(detail.relatedRoleText);
     const sourceDescription = originalSourceText || displayEvidenceText;
+    const selectableSites = formWorkSites.filter((site) =>
+      Boolean(
+        compactText(site.siteName) ||
+          compactText(site.siteAddress) ||
+          compactText(site.sitePlz) ||
+          compactText(site.siteCity) ||
+          site.id === activeWorkSiteId ||
+          site.id === editingWorkSiteId,
+      ),
+    );
     const defaultWorkSiteId =
       activeWorkSiteId ||
-      (formWorkSites.length === 1 ? formWorkSites[0]?.id || null : null);
+      (selectableSites.length === 1 ? selectableSites[0]?.id || null : null);
     const newItemKey = Math.random().toString(36).slice(2);
+    const nextItem = {
+      key: newItemKey,
+      serviceName,
+      unit,
+      unitPrice: unitPrice > 0 ? String(unitPrice) : "",
+      quantity: quantity > 0 ? String(quantity) : "",
+      aiWarning: sourceDescription ? `Text: ${sourceDescription}` : "",
+      catalogReviewConfirmed: false,
+      manualCurrencyConfirmed: false,
+      manualUnitConfirmed: Boolean(
+        unit && !/(?:prüfen|pruefen|prufen)/i.test(unit),
+      ),
+      manualReviewConfirmed: false,
+      pendingManualReviewDecision: true,
+      pendingReviewSourceServiceName: serviceName,
+      recognitionReviewKey: recognitionReviewDetailKeyV17_90L70(detail),
+      sourceDescription,
+      workSiteId: defaultWorkSiteId,
+    };
 
     setFormItems((previous) => [
+      nextItem,
       ...previous.filter(
         (item) =>
           item.serviceName.trim() ||
           item.unitPrice.trim() ||
           item.quantity.trim(),
       ),
-      {
-        key: newItemKey,
-        serviceName,
-        unit,
-        unitPrice: unitPrice > 0 ? String(unitPrice) : "",
-        quantity: quantity > 0 ? String(quantity) : "",
-        aiWarning: sourceDescription ? `Text: ${sourceDescription}` : "",
-        catalogReviewConfirmed: false,
-        manualCurrencyConfirmed: false,
-        manualUnitConfirmed: Boolean(
-          unit && !/(?:prüfen|pruefen|prufen)/i.test(unit),
-        ),
-        manualReviewConfirmed: false,
-        pendingManualReviewDecision: true,
-        pendingReviewSourceServiceName: serviceName,
-        recognitionReviewKey: recognitionReviewDetailKeyV17_90L70(detail),
-        sourceDescription,
-        workSiteId: defaultWorkSiteId,
-      },
     ]);
-    setExpandedServiceItemKeys((current) =>
-      current.includes(newItemKey) ? current : [...current, newItemKey],
-    );
+    setExpandedServiceItemKeys([newItemKey]);
+    if (defaultWorkSiteId) {
+      setActiveWorkSiteId(defaultWorkSiteId);
+      setExpandedWorkSiteIds((previous) =>
+        previous.includes(defaultWorkSiteId)
+          ? previous
+          : [defaultWorkSiteId, ...previous],
+      );
+      setMovingItemKey(null);
+    } else {
+      setExpandedWorkSiteIds((previous) =>
+        previous.includes("__unassigned__")
+          ? previous
+          : ["__unassigned__", ...previous],
+      );
+      setMovingItemKey(selectableSites.length > 1 ? newItemKey : null);
+    }
+    setServiceActionMenuKey(null);
     toast.success("Leistung übernommen. Bitte prüfen und speichern.");
   };
 
@@ -14526,7 +14565,31 @@ export default function AuftraegePage() {
         if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return true;
         return classifySpecialNoteRoleV17_90L93(line) === "safety";
       });
-  const primaryInfoLines = formInfoSummary.primary;
+  const recognitionReviewSpecialNoteTextsV17_90L262 =
+    uniqueOrderInfoLinesV17_66([
+      ...currentRecognitionReviewDetailsV17_90L69.flatMap((detail) => [
+        compactText(detail.relatedRoleText),
+        compactText(detail.sourceText),
+      ]),
+      ...formItems
+        .filter((item) => Boolean(item.recognitionReviewKey))
+        .flatMap((item) => [
+          compactText(item.sourceDescription),
+          compactText(item.aiWarning).replace(/^Text:\s*/i, ""),
+        ]),
+    ]).filter(Boolean);
+  const isRecognitionReviewSpecialNoteV17_90L262 = (
+    line?: string | null,
+  ) =>
+    Boolean(
+      compactText(line) &&
+        recognitionReviewSpecialNoteTextsV17_90L262.some((reviewText) =>
+          orderInfoLinesEquivalentV17_66(compactText(line), reviewText),
+        ),
+    );
+  const primaryInfoLines = formInfoSummary.primary.filter(
+    (line) => !isRecognitionReviewSpecialNoteV17_90L262(line),
+  );
   const compactPrimaryInfoLines: string[] = canonicalFormInfoV2
     ? [...primaryInfoLines]
     : compactImportantInfoLinesV17_90L73(primaryInfoLines);
@@ -14553,9 +14616,11 @@ export default function AuftraegePage() {
     );
   // Canonical additional facts already contain parking, ordinary hints and
   // other operational information, while safety remains exclusively red.
-  const editableAdditionalJobHints = canonicalFormInfoV2
-    ? canonicalFormInfoV2.additional
-    : legacyEditableAdditionalJobHints;
+  const editableAdditionalJobHints = (
+    canonicalFormInfoV2
+      ? canonicalFormInfoV2.additional
+      : legacyEditableAdditionalJobHints
+  ).filter((line) => !isRecognitionReviewSpecialNoteV17_90L262(line));
   const normalSpecialNotesText = formatSpecialNotesForDisplay(
     editableAdditionalJobHints,
   );
@@ -19654,10 +19719,6 @@ export default function AuftraegePage() {
                     {hasCurrentRecognitionReviewV17_90L69 && (
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
                         <div className="font-semibold">⚠ Erkennung prüfen</div>
-                        <div className="mt-1 text-red-700 dark:text-red-200">
-                          Vorschlag übernehmen oder verwerfen.
-                        </div>
-
                         {currentRecognitionReviewDetailsV17_90L69.length > 0 ? (
                           <div className="mt-2 space-y-2">
                             {currentRecognitionReviewDetailsV17_90L69
@@ -19667,26 +19728,31 @@ export default function AuftraegePage() {
                                   key={`${recognitionReviewDetailKeyV17_90L70(detail)}-${index}`}
                                   className="rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50"
                                 >
-                                  <div className="font-medium">
+                                  <div className="font-semibold leading-snug">
                                     {formatRecognitionReviewLineV17_90L69(detail).replace(/^•\s*/, "")}
                                   </div>
                                   {detail.kind === "missing_work" &&
                                     recognitionReviewHasSeparateDisplayTextV17_90L253(
                                       detail,
                                     ) && (
-                                      <div className="mt-1 text-[11px] leading-snug text-red-800 dark:text-red-100">
-                                        Vorschlag: {recognitionReviewTakeoverTextV17_90L253(detail)}
+                                      <div className="mt-1 text-[11px] font-semibold leading-snug text-red-900 dark:text-red-100">
+                                        {recognitionReviewTakeoverTextV17_90L253(detail)}
                                       </div>
                                     )}
                                   {compactText(detail.sourceText) && (
-                                    <div className="mt-1 text-[11px] leading-snug text-red-700 dark:text-red-200">
-                                      {detail.kind === "missing_work" &&
-                                      recognitionReviewHasSeparateDisplayTextV17_90L253(
-                                        detail,
-                                      )
-                                        ? "Originalquelle"
-                                        : "Quelle"}
-                                      : {compactText(detail.sourceText)}
+                                    <div className="mt-1 text-[11px] font-medium leading-snug text-red-800 dark:text-red-100">
+                                      <span className="font-semibold">
+                                        {detail.kind === "missing_work" &&
+                                        recognitionReviewHasSeparateDisplayTextV17_90L253(
+                                          detail,
+                                        )
+                                          ? "Originalquelle"
+                                          : "Quelle"}
+                                        :
+                                      </span>{" "}
+                                      {compactRecognitionReviewSourceV17_90L262(
+                                        detail.sourceText,
+                                      )}
                                     </div>
                                   )}
                                   <div className="mt-2 flex flex-wrap gap-2">

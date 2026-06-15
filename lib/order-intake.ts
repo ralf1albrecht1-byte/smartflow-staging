@@ -534,6 +534,173 @@ async function runReadOnlyTranslatedPossibleWorkAuditV17_90L261(args: {
   }
 }
 
+
+// V17.90L262: Full-source read-only fallback. The first AI workItems remain
+// immutable. This audit only creates a red control finding when the complete
+// original/translated text contains a high-confidence possible work statement
+// that is not represented by an existing work item. It never creates, changes,
+// renames, removes or recalculates a service.
+async function runReadOnlyWholeTextPossibleWorkAuditV17_90L262(args: {
+  originalText: string;
+  translatedText?: string | null;
+  workItems: Array<{
+    index: number;
+    serviceName: string;
+    sourceText: string;
+    quantity: number | null;
+    unit: string;
+    unitPrice: number | null;
+  }>;
+  roleEntries: Array<{ role: string; text: string }>;
+  alreadyCoveredTexts: string[];
+}): Promise<ReadOnlyWorkCoverageMissingFindingV17_90L251[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const originalText = compactExactSourceTextV17_90L251(args.originalText);
+  const translatedText = compactExactSourceTextV17_90L251(
+    args.translatedText,
+  );
+  if (!apiKey || !translatedText) return [];
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0,
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: [
+              "Du bist ein sprachunabhängiger, rein prüfender Kontrollpass für bereits unveränderbar erkannte Auftragsdaten.",
+              "Die vorhandenen workItems stammen aus der ersten KI und sind unveränderbar. Du darfst keine Leistung erzeugen, ergänzen, umbenennen, löschen, zusammenführen, aufteilen oder berechnen.",
+              "Prüfe den vollständigen Originaltext und, falls vorhanden, die vollständige Übersetzung auf ausdrücklich mögliche oder verlangte Arbeiten, die durch kein workItem abgedeckt sind.",
+              "Eine mögliche Arbeit mit noch unbekannter genauer Tätigkeit, Menge, Einheit oder Preis ist ein Kontrollbefund. Erfinde dabei keinerlei fachliche Werte.",
+              "Ausdrückliche Verneinungen oder Verbote, dass etwas nicht gemacht werden soll, sind kein Kontrollbefund.",
+              "Kontakt-, Zugang-, Schlüssel-, Parkplatz-, Termin-, Sicherheits- und Verhaltenshinweise sind keine Arbeit, sofern sie nicht selbst ausdrücklich eine auszuführende Arbeit verlangen.",
+              "Original und Übersetzung derselben Aussage ergeben höchstens einen Befund. Bevorzuge ein exaktes Originalzitat; falls nur die Übersetzung die Aussage klar wiedergibt, verwende ein exaktes Übersetzungszitat.",
+              "quote muss ein kurzes, exakt zusammenhängendes Zitat aus der angegebenen source sein. Nicht umformulieren, nicht übersetzen und nichts hinzufügen.",
+              "relatedRoleText darf nur exakt einem übergebenen roleEntries.text entsprechen; andernfalls null.",
+              "Melde ausschließlich confidence=high. Bei Unsicherheit, ob überhaupt eine Arbeit gemeint ist, melde nichts.",
+              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":\"exakter roleEntries.text-Wert oder null\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+            ].join("\n"),
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              originalText: originalText.slice(0, 6500),
+              translatedText: translatedText.slice(0, 6500),
+              workItems: args.workItems.slice(0, 40),
+              roleEntries: args.roleEntries.slice(0, 40),
+              alreadyCoveredTexts: args.alreadyCoveredTexts.slice(0, 30),
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[WholeTextPossibleWorkAuditV17_90L262] API error ${response.status}; no supplemental finding added`,
+      );
+      return [];
+    }
+
+    const payload = await response.json();
+    const rawContent = String(
+      payload?.choices?.[0]?.message?.content || "",
+    ).trim();
+    const parsed = rawContent ? JSON.parse(rawContent) : null;
+    const roleTextSet = new Set(
+      args.roleEntries
+        .map((entry) => compactExactSourceTextV17_90L251(entry.text))
+        .filter(Boolean),
+    );
+    const coveredKeys = new Set(
+      args.alreadyCoveredTexts
+        .map((value) =>
+          compactExactSourceTextV17_90L251(value).toLocaleLowerCase("de-CH"),
+        )
+        .filter(Boolean),
+    );
+    const findings: ReadOnlyWorkCoverageMissingFindingV17_90L251[] = [];
+    const seenQuotes = new Set<string>();
+
+    for (const raw of Array.isArray(parsed?.missingWork)
+      ? parsed.missingWork.slice(0, 10)
+      : []) {
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const source = String(raw?.source || "").toLowerCase() as
+        | "original"
+        | "translation"
+        | "";
+      const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+      const quoteKey = quote.toLocaleLowerCase("de-CH");
+      const relatedRoleCandidate = compactExactSourceTextV17_90L251(
+        raw?.relatedRoleText,
+      ).slice(0, 520);
+      const relatedRoleText = roleTextSet.has(relatedRoleCandidate)
+        ? relatedRoleCandidate
+        : null;
+
+      if (
+        confidence !== "high" ||
+        !["original", "translation"].includes(source) ||
+        quote.length < 8 ||
+        seenQuotes.has(quoteKey) ||
+        coveredKeys.has(quoteKey) ||
+        (relatedRoleText &&
+          coveredKeys.has(relatedRoleText.toLocaleLowerCase("de-CH")))
+      ) {
+        continue;
+      }
+
+      const selectedSource =
+        source === "translation" ? translatedText : originalText;
+      if (
+        !selectedSource ||
+        !exactQuoteExistsInSourceV17_90L251(selectedSource, quote)
+      ) {
+        continue;
+      }
+
+      const evidenceAlreadyRepresented = args.workItems.some((item) => {
+        const existing = compactExactSourceTextV17_90L251(item.sourceText);
+        return Boolean(
+          existing &&
+            (existing.toLocaleLowerCase("de-CH").includes(quoteKey) ||
+              quoteKey.includes(existing.toLocaleLowerCase("de-CH"))),
+        );
+      });
+      if (evidenceAlreadyRepresented) continue;
+
+      seenQuotes.add(quoteKey);
+      findings.push({
+        semanticId: deterministicReviewFindingIdV17_90L252(
+          relatedRoleText || quote,
+        ),
+        source: source as "original" | "translation",
+        quote,
+        relatedRoleText,
+        reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
+      });
+    }
+
+    return findings;
+  } catch (error: any) {
+    console.warn(
+      "[WholeTextPossibleWorkAuditV17_90L262] failed; no supplemental finding added",
+      error?.message || error,
+    );
+    return [];
+  }
+}
+
 async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
   originalText: string;
   translatedText?: string | null;
@@ -780,6 +947,51 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                 existing.relatedRoleText,
               ).toLocaleLowerCase("de-CH") === roleKey),
         )
+      ) {
+        continue;
+      }
+      semanticRoleById.set(finding.semanticId, roleKey);
+      if (roleKey) seenRoleTexts.add(roleKey);
+      missingWork.push(finding);
+    }
+
+    const supplementalWholeTextMissingWorkV17_90L262 =
+      await runReadOnlyWholeTextPossibleWorkAuditV17_90L262({
+        originalText: args.originalText,
+        translatedText: args.translatedText,
+        workItems: args.workItems,
+        roleEntries: args.roleEntries,
+        alreadyCoveredTexts: missingWork.flatMap((finding) =>
+          [finding.relatedRoleText, finding.quote].filter(
+            (value): value is string => Boolean(value),
+          ),
+        ),
+      });
+    for (const finding of supplementalWholeTextMissingWorkV17_90L262) {
+      const roleKey = compactExactSourceTextV17_90L251(
+        finding.relatedRoleText,
+      ).toLocaleLowerCase("de-CH");
+      const quoteKey = compactExactSourceTextV17_90L251(
+        finding.quote,
+      ).toLocaleLowerCase("de-CH");
+      if (roleKey && seenRoleTexts.has(roleKey)) continue;
+      if (
+        missingWork.some((existing) => {
+          const existingRoleKey = compactExactSourceTextV17_90L251(
+            existing.relatedRoleText,
+          ).toLocaleLowerCase("de-CH");
+          const existingQuoteKey = compactExactSourceTextV17_90L251(
+            existing.quote,
+          ).toLocaleLowerCase("de-CH");
+          return Boolean(
+            existing.semanticId === finding.semanticId ||
+              (roleKey && existingRoleKey === roleKey) ||
+              (quoteKey &&
+                existingQuoteKey &&
+                (existingQuoteKey.includes(quoteKey) ||
+                  quoteKey.includes(existingQuoteKey))),
+          );
+        })
       ) {
         continue;
       }
