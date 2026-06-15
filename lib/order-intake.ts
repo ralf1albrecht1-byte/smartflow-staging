@@ -3956,6 +3956,8 @@ type AiAppointmentV17_90L86 = {
   announcement_minutes?: number | string | null;
   ankuendigung_kanal?: string | null;
   announcement_channel?: string | null;
+  tageszeit?: string | null;
+  daypart?: string | null;
   evidence?: string | null;
 };
 
@@ -12759,21 +12761,22 @@ ZIELE
 - beschreibung enthält NUR die Arbeiten/Leistungen, kurz und sachlich.
 - beschreibung darf KEINE Gefahren, Warnhinweise, organisatorischen Hinweise, Rückrufe, Zugangshinweise, Hund-/Öl-/Strom-Hinweise oder lange Kundenerklärungen enthalten.
 - gefahren: JSON-Array mit echten Sicherheitsrisiken / Warnhinweisen, z.B. ["Hund läuft frei auf dem Grundstück", "Offene Stromkabel im Keller", "Rutschiger Boden wegen Öl"]
-- besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen oder positiven Arbeitserleichterungen, z.B. ["Leiter benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof reserviert"]
-  (GEFAHREN und BESONDERHEITEN strikt trennen.)
+- besonderheiten: VERALTETES KOMPATIBILITÄTSFELD. Dieses Array MUSS immer leer bleiben: [].
+- Alle organisatorischen Informationen ausschließlich in die strukturierten Zielfelder termine, kontakt_vor_ort, zugangshinweise, parkhinweise oder sonstige_hinweise schreiben.
+  (GEFAHREN und strukturierte HINWEISROLLEN strikt trennen.)
   (Leiter allein ist KEINE Gefahr. Leiter nur dann als Gefahr werten, wenn zusätzlich ein echtes Risiko genannt wird, z.B. Absturzgefahr, instabiler Stand, Arbeiten in großer Höhe.)
   (PRODUKTREGEL HUND: Jede tatsächlich erwähnte Hundaussage genau einmal in gefahren ausgeben, damit der rote Hund-Chip erscheint. Den Zustand neutral und originalgetreu auf ${hauptsprache} wiedergeben. Niemals Gefährlichkeit, Freiheit oder Sicherung erfinden.)
-  (Parkplatz/Zugang unterscheiden: reserviert/vorhanden/Innenhof = positive besonderheit; schwierig/kein Parkplatz/enge Zufahrt = wichtige besonderheit.)
+  (Parkplatz/Zugang unterscheiden: alle Parkplatz- und Zufahrtsinformationen ausschließlich in parkhinweise; Zugang und Schlüssel ausschließlich in zugangshinweise.)
   (Neutrale oder unwichtige Erleichterungen NICHT als Außen-Hinweis erzwingen: "Parkplatz ist kein Thema", "man kann direkt halten", "Zugang frei", "Tür ist offen".)
   (Rückruf NUR aufnehmen, wenn der Kunde ausdrücklich einen TELEFONISCHEN Rückruf/Anruf verlangt. Klingeln, warten, an der Tür melden, Kunde ist vor Ort, Schlüsselübergabe an der Tür oder "nicht anrufen" sind KEIN Rückruf. Dann höchstens als normaler Hinweis formulieren, z.B. "Vor Arbeitsbeginn klingeln und warten".)
   (Verneinte oder nicht relevante Aussagen NICHT aufnehmen: "kein Hund", "kein Öl", "keine Scherben", "Leiter nicht benötigt", "Termin flexibel", "Parkplatz kein Thema".)
-  (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
+  (Keine Leistungen, Preise oder Mengen in gefahren oder Hinweisrollen schreiben.)
   (Kommunikationshinweise semantisch vollständig ausgeben: Kanal erlaubt/verboten/bevorzugt und Kontaktzeit sauber trennen. Wenn ein Kanal verboten ist, darf er nicht positiv formuliert werden. Beispiel: nicht über WhatsApp schreiben => "Kein WhatsApp; lieber Telefonkontakt". Beispiel: WhatsApp erst ab 18:00 => "WhatsApp-Kontakt erst ab 18:00 Uhr möglich".)
   (WICHTIG: Verneinungen immer semantisch an den richtigen Satzteil binden. "WhatsApp an 079..., nicht einfach kommen" bedeutet WhatsApp bevorzugt + nicht unangemeldet kommen. Es bedeutet NICHT "Keine WhatsApp".)
   (Kontaktzeiten wie SMS/WhatsApp/Mail/Telefon erst ab/nach Uhrzeit sind KEINE Ausführungstermine.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
-  (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
+  (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in die passenden deutschen strukturierten Rollen übersetzt werden.)
 
 2a. Strukturierte Rollen – verbindlich und sprachunabhängig:
 - kontakt_vor_ort ist ausschließlich die Person, die für DIESEN Auftrag vor Ort kontaktiert werden soll.
@@ -12788,14 +12791,17 @@ ZIELE
 - In diesem Fall die vollständige, im Nachrichtentext genannte Firma mit bestehende_kunden vergleichen.
   Nur bei genau einem eindeutigen vollständigen Namen bestehende_kunden_id setzen; niemals Stammdaten aus der Liste in kunde kopieren.
 - termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
-  art = "ausfuehrung", datum, von, bis, ankuendigung_minuten, ankuendigung_kanal, evidence.
+  art = "ausfuehrung", datum, von, bis, tageszeit, ankuendigung_minuten, ankuendigung_kanal, evidence.
+- tageszeit ist ausschließlich einer der deutschen kanonischen Werte "morgens", "vormittags", "mittags", "nachmittags", "abends", "nachts", "ganztägig" oder null. Jede ausdrücklich genannte ungefähre Tageszeit muss semantisch übersetzt und erhalten bleiben, auch bei Dialekt, Fremdsprache oder gemischtem Text. Sie darf nicht wegen einer Vorankündigung oder Kontaktangabe verloren gehen.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
 - zugangshinweise, parkhinweise und sonstige_hinweise müssen atomar sein: pro Array-Eintrag genau eine fachliche Aussage. Schlüssel und zugehöriger Code bleiben gemeinsam; Parkplatz, Lift/Ausrüstung und sonstige Hinweise sind getrennte Einträge.
 - Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
 - Jeder Zutrittsnachweis und jeder Zugangscode gehört ausschließlich in zugangshinweise: Türcode, Torcode, Code Tor, PIN, Schlüsselbox-Code, Badge-Code oder vergleichbare alphanumerische Zugangsdaten. Solche Angaben niemals zusätzlich in besonderheiten, sonstige_hinweise oder parkhinweise ausgeben.
 - Beispiel: "Code Tor 1122" => zugangshinweise: ["Code Tor 1122"], sonstige_hinweise: [].
 - Parkplatz/Rampe/Anlieferung jeweils als kurze einzelne Einträge in parkhinweise.
-- Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise in sonstige_hinweise.
+- Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise ausschließlich in sonstige_hinweise.
+- HARTE EXKLUSIVITÄTSREGEL: Jede fachliche Aussage darf in der gesamten JSON-Ausgabe genau einmal vorkommen und genau eine Rolle besitzen. Inhalte aus gefahren, kontakt_vor_ort, termine, zugangshinweise oder parkhinweise dürfen niemals zusätzlich in sonstige_hinweise oder besonderheiten gespiegelt werden.
+- Vor der Ausgabe einen abschließenden internen Rollenabgleich durchführen: Für jede Aussage genau eine Zielrolle bestimmen; Dubletten aus allen anderen Arrays entfernen, bevor JSON ausgegeben wird. Original und Übersetzung derselben Aussage sind ebenfalls nur ein Sachverhalt.
 - Höflichkeits- und Ruhehinweise wie Bewohner nicht stören, leise arbeiten oder Schlafzeiten beachten sind keine Gefahren.
 - SEMANTISCHE ROLLENENTSCHEIDUNG: Gefahr nur dann, wenn die Nachricht ausdrücklich einen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko beschreibt.
 - Eine Arbeitsanweisung, Schonregel, Kommunikationsregel, Zugangsregel, Reihenfolge, Frist oder Fertigstellungszeit ohne ausdrücklich beschriebenen Gefahrzustand ist sonstige_hinweise, niemals gefahren.
@@ -12897,7 +12903,7 @@ LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
 - Bei bekannten Standardarbeiten kurze deutsche Fachnamen verwenden: "Nettoyer le sol" → "Boden reinigen", "Déplacement" → "Anfahrt", "Nettoyage des vitres"/"Nettoyage des vitrines" → "Fenster reinigen".
 - Der Originaltext gehört nur in raw/evidence/sourceText, nicht als sichtbarer Leistungsname.
 - Termin-, Kontakt-, Zugangs-, Adress- und Hinweis-Sätze dürfen NIEMALS in service_name/name/action_name stehen. Beispiele für verbotene sichtbare Leistungsnamen: "Bitte morgen Vormittag Boden reinigen", "vorher WhatsApp schreiben", "Torcode danach rechts", "Menge: ...", "pro m²". Wenn nur so ein Satz als Name möglich wäre: service_name/name/action_name = null und confidence = "niedrig".
-- Leistungsnamen müssen aus der konkreten Preis-/Mengen-Leistungszeile entstehen. Gesamtbeschreibung, Terminwunsch und Besonderheiten bleiben nur in raw/evidence/sourceText/besonderheiten.
+- Leistungsnamen müssen aus der konkreten Preis-/Mengen-Leistungszeile entstehen. Gesamtbeschreibung, Terminwunsch und Hinweise bleiben nur in raw/evidence/sourceText beziehungsweise ihrer passenden strukturierten Rolle.
 - Kundenname, Firmenname, separat angegebener Ausführungsort, Gebäude-/Objektname und Adresse sind eigenständige Entitäten. Kopiere oder ergänze sie NIEMALS automatisch in service_name/name/action_name.
 - Ein Raum-/Bereichsbezug darf nur dann Teil des Leistungsnamens sein, wenn genau die eigene evidence/sourceText-Zeile diesen Bereich als Ort der konkreten Arbeit nennt. Ein separat im Adressblock genannter Objektname ist keine line-lokale Leistungsevidence.
 - Beispielprinzip ohne feste Fachwortliste: Steht in der Leistungszeile nur „Boden reinigen, 38 Quadratmeter …“ und an anderer Stelle ein Objektname, lautet die Leistung „Boden reinigen“ und nicht „Boden [Objektname] reinigen“. Wenn du diese Trennung nicht sicher beherrschst, setze name/action_name auf null und confidence = „niedrig“.
@@ -12967,7 +12973,7 @@ Sortiere nach Bedeutung, nicht nach einzelnen Signalwörtern:
 - Wer/was bezahlt oder bekommt die Rechnung? → kunde
 - Wo wird die Arbeit tatsächlich ausgeführt? → auftrag.ausfuehrungsadresse
 - Welche einzelnen Arbeiten werden gemacht? → auftrag.arbeitspositionen
-- Was ist nur Hinweis/Kommunikation/Termin/Zugang? → besonderheiten
+- Was ist nur Hinweis/Kommunikation/Termin/Zugang? → ausschließlich die passende strukturierte Rolle; übrige Hinweise → sonstige_hinweise
 
 Wenn ein Wert nicht sicher ist: null setzen. Nicht raten.
 Labels, Einleitungen, Arbeitsanweisungen, Kommunikationswünsche, Termine und
@@ -13176,28 +13182,28 @@ sonst → ""
 
 9a. GEFAHREN / BESONDERHEITEN:
 - auftrag.gefahren enthält NUR echte Sicherheitsrisiken oder Warnhinweise.
-- auftrag.besonderheiten enthält normale Hinweise zur Ausführung / Organisation.
+- auftrag.besonderheiten bleibt immer ein leeres Array [].
 - Gefahren semantisch erkennen: Es geht um Bedeutung und Arbeitsrisiko, nicht um feste Wörter.
-- Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
+- Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und alle strukturierten Hinweisrollen auf ${hauptsprache} ausgegeben werden.
 - Beispiele für gefahren: offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
 - PRODUKTREGEL HUND: Sobald ein Hund erwähnt wird, genau EINEN Eintrag in gefahren ausgeben, damit der rote Hund-Chip erscheint. Den tatsächlichen Inhalt originalgetreu und neutral auf ${hauptsprache} wiedergeben, z.B. "Hund ist angeleint", "Hund läuft frei", "Hund hinter Gitter". Niemals Verhalten oder Gefährlichkeit erfinden, verschärfen oder abschwächen. Aus "angeleint" darf niemals "frei oder ungesichert" werden.
-- Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar.
+- Organisatorische Hinweise ausschließlich strukturiert ausgeben: Rückruf in kontakt_vor_ort/termine, Zugang und Schlüssel in zugangshinweise, Parken und Zufahrt in parkhinweise, übrige Ablaufhinweise in sonstige_hinweise. besonderheiten bleibt immer [].
 - Kommunikationshinweise immer nach Absicht ausgeben, nicht nur zusammenfassen: Kanal verboten / bevorzugt / erlaubt plus Kontaktzeit. Ein verbotener Kanal darf nie als bevorzugter Kanal erscheinen.
 - Verneinungen müssen am richtigen Bezug hängen: "nicht einfach kommen" / "nicht eintreten" / "nicht ohne Rücksprache" sind Zugangs-/Ablaufhinweise und dürfen niemals als WhatsApp-/SMS-Verbot interpretiert werden, wenn WhatsApp/SMS in derselben Zeile positiv genannt ist.
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
-- Reine Arbeits-, Ablauf- oder Schonhinweise ohne eigenes körperliches Sicherheitsrisiko gehören in besonderheiten/sonstige_hinweise, nicht in gefahren. Die Rolle nach Bedeutung bestimmen, nicht anhand einzelner Wörter.
+- Reine Arbeits-, Ablauf- oder Schonhinweise ohne eigenes körperliches Sicherheitsrisiko gehören ausschließlich in sonstige_hinweise, nicht in gefahren. Die Rolle nach Bedeutung bestimmen, nicht anhand einzelner Wörter.
 - Ein Verbot oder eine Handlungsanweisung ist für sich allein kein Gefahrzustand. Nur wenn die Nachricht zusätzlich den konkreten gefährlichen Zustand ausdrücklich beschreibt, gehört die Aussage in gefahren.
 - Reine Schutz- oder Betriebsanweisungen für Geräte, Maschinen, Mobiliar, Dokumente oder Materialien bleiben normale Hinweise, solange kein konkreter gefährlicher Zustand ausdrücklich genannt ist. Die gewünschte Handlung darf nicht als versteckte Gefahr interpretiert werden.
 - Eine Fertigstellungszeit, Öffnungszeit, Reihenfolge oder Priorität ist Termin/Ablaufhinweis und niemals allein eine Gefahr.
 - Vor Ausgabe einen stillen Rollen-Selbstcheck durchführen und jede nicht eindeutig gefährliche Aussage aus gefahren in sonstige_hinweise einordnen. Textinhalt dabei nicht umformulieren.
 - Ausführungsadresse strikt strukturiert ausgeben: Objekt-/Bereichsname ohne Satzanfang wie "Arbeiten müssen im"; Straße nur Straße/Hausnummer; Ort nur Ortsname. Keine Satzreste wie "ausgeführt werden" an Objekt oder Ort anhängen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
-- Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
-- Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
+- Positive Arbeitserleichterungen nur in ihrer strukturierten Rolle aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden in parkhinweise, Schlüssel liegt bereit in zugangshinweise. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
+- Wichtig: "Leiter benötigt" allein ist sonstige_hinweise, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
 - Wichtig: Jede tatsächlich erwähnte Hundaussage kommt genau einmal in gefahren, ausschließlich wegen des roten Hund-Chips. Inhalt und Zustand des Hundes originalgetreu wiedergeben; niemals bewerten oder umdeuten.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
-- Keine Doppelung: Eine Information darf genau einmal und nur in ihrer fachlich richtigen strukturierten Rolle stehen. Zugangscodes/PINs ausschließlich in zugangshinweise, Parkinformationen ausschließlich in parkhinweise, sonstige Ablaufhinweise ausschließlich in sonstige_hinweise. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
+- Keine Doppelung: Eine Information darf genau einmal und nur in ihrer fachlich richtigen strukturierten Rolle stehen. Zugangscodes/PINs ausschließlich in zugangshinweise, Parkinformationen ausschließlich in parkhinweise, sonstige Ablaufhinweise ausschließlich in sonstige_hinweise. Kontakt und Vorankündigung ausschließlich in kontakt_vor_ort beziehungsweise termine. besonderheiten bleibt immer []. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
 - Jede Rollen-Aussage muss ihren Inhalt erhalten. Nicht umformulieren, verschärfen, abschwächen oder mit einer anderen Aussage zusammenführen.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
 - Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
@@ -13243,7 +13249,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Fail-closed-Regel: Wenn du keinen kurzen professionellen deutschen Leistungsnamen aus genau derselben Mengen-/Preis-Zeile bilden kannst, lasse service_name/name/action_name leer/null. Speichere niemals einen ganzen Kundensatz, Terminwunsch, Zugangshinweis, Kommunikationshinweis oder Feldlabel als sichtbare Leistung.
 - Sichtbare Leistungsnamen müssen eine echte Tätigkeit oder Kostenposition ausdrücken. Wenn eine Preiszeile nur Bereich + Objekt + Menge + Preis enthält, formuliere daraus eine einzige deutsche Leistung mit Objekt und Bereich, z. B. sinngemäß "Boden Gemeinschaftsraum reinigen" statt Rohsprache oder zwei Split-Positionen.
 - Wenn du eine fremdsprachige/mundartliche Leistung nicht sicher auf Deutsch formulieren kannst, setze name/action_name lieber auf null und confidence = "niedrig", statt die Rohform sichtbar zu speichern.
-- Zustand, Verschmutzungsgrad und Rechenwörter gehören nicht in den Leistungsnamen: "sehr dreckig", "stark verschmutzt", "mal", "je", "à", "pro" in besonderheiten/evidence lassen, aber aus name/action_name entfernen.
+- Zustand, Verschmutzungsgrad und Rechenwörter gehören nicht in den Leistungsnamen: "sehr dreckig", "stark verschmutzt", "mal", "je", "à", "pro" in sonstige_hinweise/evidence lassen, aber aus name/action_name entfernen.
 - Strukturwörter aus einer Arbeitsfassung wie "Fläche:", "Anzahl:", "Menge:", "Preis:" oder "Einheit:" sind Feldlabels für Menge/Einheit/Preis und dürfen niemals Teil von service_name/name/action_name werden.
 - Eine Kundenzeile mit Objekt + Menge + Preis ergibt genau eine Position. Nicht zusätzlich den Preisanker oder einen Teil der Zeile als zweite Position ausgeben.
 
@@ -13289,7 +13295,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Wenn die Rolle der Adresse unsicher ist, wenn Strasse/PLZ/Ort fehlen oder wenn du nur aus dem Titel/Leistungstext raten müsstest:
   ist_abweichend = false
   keine Ausführungsadresse speichern
-  in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
+  in sonstige_hinweise kurz "Ausführungsadresse prüfen" aufnehmen.
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.
 - Der name der Ausführungsadresse darf ausschließlich aus dem eigentlichen Arbeitsort-/Ausführungsadressblock stammen, normalerweise aus der Zeile direkt vor der Straßenzeile. Sobald die Straße/PLZ/Ort abgeschlossen sind, gehören die folgenden Zeilen zu Kommunikation, Termin, Zugang, Gefahr oder Besonderheiten und dürfen nicht mehr an den Ausführungsort angehängt werden.
 - Wenn du nur durch Anhängen einer folgenden Hinweiszeile einen längeren Ausführungsort bilden könntest, ist das falsch: nutze nur die belegte Objektzeile vor der Adresse.
@@ -13983,7 +13989,7 @@ export async function processIncomingMessage(
       ),
     ),
     ordinary: Object.freeze(
-      extractRoleReviewLinesV17_90L106(parsed.auftrag?.besonderheiten),
+      extractRoleReviewLinesV17_90L106(parsed.auftrag?.sonstige_hinweise),
     ),
     access: Object.freeze(
       extractRoleReviewLinesV17_90L106(parsed.auftrag?.zugangshinweise),
@@ -13991,9 +13997,10 @@ export async function processIncomingMessage(
     parking: Object.freeze(
       extractRoleReviewLinesV17_90L106(parsed.auftrag?.parkhinweise),
     ),
-    other: Object.freeze(
-      extractRoleReviewLinesV17_90L106(parsed.auftrag?.sonstige_hinweise),
-    ),
+    // V17.90L255: `sonstige_hinweise` is the single canonical ordinary-role
+    // source. The legacy `besonderheiten` field is deliberately non-canonical
+    // and must stay empty in the first-AI contract.
+    other: Object.freeze([]),
   });
 
   // V17.90L251: A second semantic AI checks the complete first-AI business
@@ -15205,7 +15212,10 @@ export async function processIncomingMessage(
     parsed.auftrag?.gefahren ??
     parsed.auftrag?.warnhinweise ??
     parsed.auftrag?.sicherheitswarnungen;
-  const rawBesonderheiten = parsed.auftrag?.besonderheiten;
+  // V17.90L255: `besonderheiten` is a deprecated compatibility field and is
+  // never a canonical source. All first-AI operational facts come from the
+  // exclusive structured role arrays captured above.
+  const rawBesonderheiten: unknown[] = [];
 
   const rawGefahrenItems = toNoteArray(rawGefahren).filter(
     (line) => !isTechnicalIntakeMetaLineV17_90L17(line),
