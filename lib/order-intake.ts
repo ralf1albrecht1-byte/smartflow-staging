@@ -4824,105 +4824,33 @@ function normalizeStructuredAppointmentTimeV17_90L86(
   return `${String(hour).padStart(2, "0")}:${minute}`;
 }
 
-function extractStructuredAppointmentDaypartLabelV17_90L229(
-  value: unknown,
-): string | null {
-  const source = String(value || "").replace(/\s+/g, " ").trim();
-  if (!source) return null;
+const CANONICAL_APPOINTMENT_DAYPARTS_V17_90L256 = new Map<string, string>([
+  ["morgens", "morgens"],
+  ["vormittags", "vormittags"],
+  ["mittags", "mittags"],
+  ["nachmittags", "nachmittags"],
+  ["abends", "abends"],
+  ["nachts", "nachts"],
+  ["ganztagig", "ganztägig"],
+]);
 
-  // Specific compound dayparts must be checked before the contained word
-  // "midi/mittag". Otherwise "après-midi" is incorrectly reduced to midday.
-  const patterns: Array<[RegExp, string]> = [
-    [
-      /\b(?:ganztags?|ganztägig|all\s+day|toute\s+la\s+journee|toute\s+la\s+journée|giornata\s+intera)\b/iu,
-      "ganztägig",
-    ],
-    [
-      /\b(?:vormittags?|late\s+morning|avant[-\s]?midi|mattinata)\b/iu,
-      "vormittags",
-    ],
-    [
-      /\b(?:nachmittags?|afternoon|apres[-\s]?midi|après[-\s]?midi|pomeriggio|tarde)\b/iu,
-      "nachmittags",
-    ],
-    [
-      /\b(?:frueh|früh|morgens?|morning|matin|mattina|mañana)\b/iu,
-      "morgens",
-    ],
-    [/\b(?:mittags?|noon|midi|mezzogiorno)\b/iu, "mittags"],
-    [/\b(?:abends?|evening|soir|sera|noche)\b/iu, "abends"],
-    [/\b(?:nachts?|night|nuit|notte)\b/iu, "nachts"],
-  ];
-
-  for (const [pattern, label] of patterns) {
-    if (pattern.test(source)) return label;
-  }
-  return null;
-}
-
-function appointmentScopedSourceV17_90L229(
+function normalizeStructuredAppointmentDaypartV17_90L256(
   appointment: AiAppointmentV17_90L86,
-  rawText: string,
-  appointmentCount: number,
-): string {
-  const evidence = normalizeStructuredTextBlock(appointment?.evidence) || "";
-  const source = String(rawText || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (!source) return evidence;
-
-  const segments = source
-    .split(/\n+|(?<=[.!?])\s+/g)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const rawDate = String(appointment?.datum || appointment?.date || "").trim();
-  const dateMatch = rawDate.match(
-    /(?:\b(\d{4})-(\d{1,2})-(\d{1,2})\b)|(?:\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-]\d{2,4})?\b)/,
-  );
-  const day = dateMatch?.[3] || dateMatch?.[4] || "";
-  const month = dateMatch?.[2] || dateMatch?.[5] || "";
-  const datePattern =
-    day && month
-      ? new RegExp(
-          `(?:^|\\D)0?${Number(day)}[.\\/-]0?${Number(month)}(?:[.\\/-]\\d{2,4})?(?:$|\\D)`,
-        )
-      : null;
-  const matchedSegments = datePattern
-    ? segments.filter((line) => datePattern.test(line))
-    : [];
-
-  // With one structured appointment, the complete message is a safe fallback
-  // for a daypart omitted from the JSON fields. With multiple appointments,
-  // use only the segment carrying this appointment's date.
-  const fallback =
-    matchedSegments.join(" ") || (appointmentCount === 1 ? source : "");
-  return [evidence, fallback].filter(Boolean).join(" ");
-}
-
-function normalizeStructuredAppointmentDaypartV17_90L225(
-  appointment: AiAppointmentV17_90L86,
-  fallbackSource = "",
 ): string | null {
   const record = appointment as AiAppointmentV17_90L86 &
     Record<string, unknown>;
-  const structuredSource = [
-    record.tageszeit,
-    record.daypart,
-    record.zeitfenster,
-    record.time_window,
-    record.zeit,
-    record.when,
-    appointment.datum,
-    appointment.date,
-    appointment.evidence,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const raw = String(record.tageszeit ?? record.daypart ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  return (
-    extractStructuredAppointmentDaypartLabelV17_90L229(structuredSource) ||
-    extractStructuredAppointmentDaypartLabelV17_90L229(fallbackSource)
-  );
+  // V17.90L256: Only the first structured AI may write the canonical daypart.
+  // No raw-text, translation, evidence or regex fallback is allowed to infer,
+  // correct or replace it after the 03_llm_structured boundary. Invalid or
+  // uncertain values fail closed as null and must be marked by the first AI.
+  return CANONICAL_APPOINTMENT_DAYPARTS_V17_90L256.get(raw) || null;
 }
 
 function sourceSupportsAppointmentPartV17_90L86(
@@ -5031,13 +4959,8 @@ function buildStructuredAppointmentHintsV17_90L86(
     }
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
-    const daypart = normalizeStructuredAppointmentDaypartV17_90L225(
+    const daypart = normalizeStructuredAppointmentDaypartV17_90L256(
       appointment,
-      appointmentScopedSourceV17_90L229(
-        appointment,
-        rawText,
-        appointments.length,
-      ),
     );
 
     if (!date && !start && !daypart) continue;
@@ -5415,6 +5338,8 @@ Regeln:
 - show_customer_translation=false bei normalem Standard-${targetLanguage}, auch wenn darin echte fremdsprachige Eigennamen, Raum-/Gebäudenamen, Firmennamen, Straßennamen oder Ortsnamen vorkommen. Beispiel: "Rue du Lac", "Bâtiment Lumière", "Sala Verde", "Route de Genève" sind Namen und lösen allein keinen sichtbaren Übersetzungsblock aus.
 - Übersetze/normalisiere bei needs_normalization=true den kompletten Text nach professionellem Standard-${targetLanguage}.
 - Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
+- Zeitliche Bedeutung ist fachlich kritisch: Datum, Uhrzeit, Zeitfenster, Reihenfolge und ungefähre Tageszeit müssen semantisch exakt erhalten bleiben. Eine dialektale, fremdsprachige oder gemischte Zeitangabe darf niemals in eine andere Tageszeit umgedeutet werden.
+- Wenn die Bedeutung einer Zeitangabe nicht sicher verstanden wird, den ursprünglichen Ausdruck in der Arbeitsfassung unverändert stehen lassen statt eine Tageszeit zu raten. Die Arbeitsfassung darf dem Original niemals widersprechen.
 - Echte Eigennamen, Firmennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten, wenn sie als Namen gemeint sind. Nicht aus "Sala Verde" automatisch "Grüner Saal" machen, nicht aus "Bâtiment Les Cèdres" automatisch "Gebäude Les Cèdres" machen.
 - Nur frei beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie keine Eigennamen sind und die Bedeutung eindeutig ist. Im Zweifel Originalnamen behalten.
 - Leistungszeilen müssen in der Arbeitsfassung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
@@ -12793,6 +12718,9 @@ ZIELE
 - termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
   art = "ausfuehrung", datum, von, bis, tageszeit, ankuendigung_minuten, ankuendigung_kanal, evidence.
 - tageszeit ist ausschließlich einer der deutschen kanonischen Werte "morgens", "vormittags", "mittags", "nachmittags", "abends", "nachts", "ganztägig" oder null. Jede ausdrücklich genannte ungefähre Tageszeit muss semantisch übersetzt und erhalten bleiben, auch bei Dialekt, Fremdsprache oder gemischtem Text. Sie darf nicht wegen einer Vorankündigung oder Kontaktangabe verloren gehen.
+- Für die Terminbedeutung ist immer der lokale Originalsatz maßgeblich. Eine normalisierte Arbeitsfassung ist nur eine Sprachhilfe und darf eine Tageszeit aus dem Original niemals überschreiben oder in ihr Gegenteil verkehren.
+- Vor der JSON-Ausgabe jeden Termin intern gegen seine eigene Original-Evidence prüfen: tageszeit muss semantisch exakt zu dieser Evidence passen. Nicht über Wortähnlichkeit, Wortbestandteile oder die Übersetzung raten.
+- Wenn Original und Arbeitsfassung widersprechen oder die Tageszeit aus dem Original nicht sicher verstanden wird: tageszeit = null und system.needs_review = true. Niemals die scheinbar plausiblere Tageszeit auswählen.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
 - zugangshinweise, parkhinweise und sonstige_hinweise müssen atomar sein: pro Array-Eintrag genau eine fachliche Aussage. Schlüssel und zugehöriger Code bleiben gemeinsam; Parkplatz, Lift/Ausrüstung und sonstige Hinweise sind getrennte Einträge.
 - Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
@@ -13604,7 +13532,7 @@ export async function processIncomingMessage(
       ? [
           `Nachricht Original:\n"${messageText}"`,
           `--- Semantisch normalisierte Arbeitsfassung (${hauptsprache}) ---\n${translationText}`,
-          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Strasse/PLZ/Ort. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen und Hinweise. Für Ausführungsort-Namen gilt: echte Eigennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten; nur beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie eindeutig keine Eigennamen sind. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert. Arbeitsobjekte nicht verflachen: Fenster/Tische/Vitrinen im Raum bleiben Fenster/Tische/Vitrinen, nicht nur der Raum.`,
+          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes, Strasse/PLZ/Ort und die semantische Bedeutung aller Terminangaben. Die Arbeitsfassung ist nur Sprachhilfe für professionelle ${hauptsprache}-Leistungsnamen und Hinweise; sie darf eine im Original genannte Tageszeit niemals überschreiben. Bei einem Widerspruch zwischen Original und Arbeitsfassung gilt für den Termin ausschließlich das Original. Kann die Originalbedeutung nicht sicher bestimmt werden, tageszeit=null und system.needs_review=true. Für Ausführungsort-Namen gilt: echte Eigennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten; nur beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie eindeutig keine Eigennamen sind. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert. Arbeitsobjekte nicht verflachen: Fenster/Tische/Vitrinen im Raum bleiben Fenster/Tische/Vitrinen, nicht nur der Raum.`,
         ].join("\n\n")
       : `Nachricht:\n"${messageText}"`;
 
