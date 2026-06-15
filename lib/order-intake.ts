@@ -731,6 +731,154 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       }
     }
 
+    // V17.90L267: Final stronger read-only forensic audit. This pass runs
+    // only when the previous reviewers still returned no missing-work finding
+    // and/or no invalid-item finding for translated/dialect input. It uses the
+    // stronger model to independently interpret every original source line.
+    // It may only append review findings; it never mutates, renames, creates or
+    // deletes canonical workItems.
+    const forensicMissingCountV17_90L267 = Array.isArray(parsed?.missingWork)
+      ? parsed.missingWork.length
+      : 0;
+    const forensicInvalidCountV17_90L267 =
+      (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
+      (Array.isArray(parsed?.itemAssessments)
+        ? parsed.itemAssessments.filter((entry: any) =>
+            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
+              String(entry?.classification || "").toLowerCase(),
+            ),
+          ).length
+        : 0);
+    const forensicNeedsMissingAuditV17_90L267 =
+      forensicMissingCountV17_90L267 === 0;
+    const forensicNeedsItemAuditV17_90L267 =
+      forensicInvalidCountV17_90L267 === 0 &&
+      Boolean(compactExactSourceTextV17_90L251(args.translatedText)) &&
+      args.workItems.length > 0;
+
+    if (
+      forensicNeedsMissingAuditV17_90L267 ||
+      forensicNeedsItemAuditV17_90L267
+    ) {
+      try {
+        const forensicAuditResponseV17_90L267 = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4.1",
+              temperature: 0,
+              max_tokens: 2200,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "Du bist der verbindliche forensische Schlussprüfer einer Auftragserfassung. Du arbeitest ausschließlich read-only.",
+                    "Die erste KI und alle workItems sind unveränderbar. Du darfst nichts korrigieren, umbenennen, ergänzen, löschen oder als neue Leistung erzeugen. Du darfst ausschließlich rote Review-Befunde melden.",
+                    "Arbeite sprachunabhängig und ohne feste Service-Wortlisten. Interpretiere Dialekt und Fremdsprache selbstständig aus dem ORIGINAL; vertraue weder einer vorhandenen Übersetzung noch dem aktuellen serviceName blind.",
+                    "AUFGABE A – Vollständigkeitsprüfung: Zerlege Original und Übersetzung intern vollständig in atomare Aussagen. Überspringe keine Aussage, auch wenn der Eingangstext ohne Satzzeichen oder als langer Einzeiler vorliegt. Prüfe für jede Aussage, ob eine mögliche, zusätzliche, verlangte oder noch unklare Kundenarbeit erwähnt wird, die kein workItem abdeckt.",
+                    "Eine ausdrücklich mögliche Arbeit bleibt missingWork, auch wenn Tätigkeit, Menge, Einheit oder Preis noch unbekannt sind. Genau diese Unsicherheit erfordert den roten Befund.",
+                    "Ausdrückliche Nicht-Arbeit, Verbote, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit und organisatorische Bedingungen sind keine fehlenden Leistungen.",
+                    "AUFGABE B – Belegprüfung: Prüfe JEDEN workItem separat gegen seine eigene ORIGINAL-sourceText-Zeile. Ermittle die Bedeutung dieser Zeile unabhängig neu. Wenn serviceName mit hoher Sicherheit ein anderes Arbeitsobjekt oder eine andere Tätigkeit bezeichnet als sourceText, melde invalid_evidence_mismatch.",
+                    "Normale Übersetzung, Flexion, Singular/Plural, Wortstellung und echte Synonyme sind valid. Wenn du die Originalbedeutung nicht sicher verstehst, melde uncertain und keinen invalid-Befund.",
+                    "Beispielprinzip ohne feste Zuordnung: Wenn ein Dialektwort in sourceText semantisch Objekt A bezeichnet, serviceName aber Objekt B, ist das invalid_evidence_mismatch. Gib niemals einen korrigierten Namen zurück.",
+                    "Original und Übersetzung derselben fehlenden Arbeit sind ein einziger Befund. Bevorzuge ein kurzes, exakt zusammenhängendes Originalzitat. Falls nur die Übersetzung ein exakt zitierbares Segment enthält, source=translation.",
+                    "Melde ausschließlich confidence=high. relatedRoleText muss exakt einem roleEntries.text entsprechen oder null sein.",
+                    "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":null,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"itemAssessments\":[{\"index\":1,\"classification\":\"valid|invalid_evidence_mismatch|uncertain\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+                  ].join("\n"),
+                },
+                {
+                  role: "user",
+                  content: JSON.stringify({
+                    auditMissingWork:
+                      forensicNeedsMissingAuditV17_90L267,
+                    auditItemEvidence:
+                      forensicNeedsItemAuditV17_90L267,
+                    originalText: String(args.originalText || "").slice(0, 8500),
+                    translatedText: String(args.translatedText || "").slice(
+                      0,
+                      8500,
+                    ),
+                    workItems: args.workItems.slice(0, 40),
+                    roleEntries: args.roleEntries.slice(0, 40),
+                  }),
+                },
+              ],
+            }),
+          },
+        );
+
+        if (forensicAuditResponseV17_90L267.ok) {
+          const forensicPayloadV17_90L267 =
+            await forensicAuditResponseV17_90L267.json();
+          const forensicContentV17_90L267 = String(
+            forensicPayloadV17_90L267?.choices?.[0]?.message?.content || "",
+          ).trim();
+          const forensicParsedV17_90L267 = forensicContentV17_90L267
+            ? JSON.parse(forensicContentV17_90L267)
+            : null;
+
+          parsed = {
+            ...(parsed || {}),
+            ...(forensicNeedsMissingAuditV17_90L267 &&
+            Array.isArray(forensicParsedV17_90L267?.missingWork)
+              ? {
+                  missingWork: [
+                    ...(Array.isArray(parsed?.missingWork)
+                      ? parsed.missingWork
+                      : []),
+                    ...forensicParsedV17_90L267.missingWork.slice(0, 8),
+                  ],
+                }
+              : {}),
+            ...(forensicNeedsItemAuditV17_90L267 &&
+            Array.isArray(forensicParsedV17_90L267?.itemAssessments)
+              ? {
+                  itemAssessments: [
+                    ...(Array.isArray(parsed?.itemAssessments)
+                      ? parsed.itemAssessments
+                      : []),
+                    ...forensicParsedV17_90L267.itemAssessments.slice(
+                      0,
+                      args.workItems.length + 4,
+                    ),
+                  ],
+                }
+              : {}),
+            ...(forensicNeedsItemAuditV17_90L267 &&
+            Array.isArray(forensicParsedV17_90L267?.invalidItems)
+              ? {
+                  invalidItems: [
+                    ...(Array.isArray(parsed?.invalidItems)
+                      ? parsed.invalidItems
+                      : []),
+                    ...forensicParsedV17_90L267.invalidItems.slice(
+                      0,
+                      args.workItems.length + 4,
+                    ),
+                  ],
+                }
+              : {}),
+          };
+        } else {
+          console.warn(
+            `[WorkCoverageCheckerV17_90L267] API error ${forensicAuditResponseV17_90L267.status}; previous review result kept`,
+          );
+        }
+      } catch (forensicAuditErrorV17_90L267: any) {
+        console.warn(
+          "[WorkCoverageCheckerV17_90L267] forensic audit failed; previous review result kept",
+          forensicAuditErrorV17_90L267?.message ||
+            forensicAuditErrorV17_90L267,
+        );
+      }
+    }
+
     const rawRoleAssessmentMissingWork = (
       Array.isArray(parsed?.roleAssessments)
         ? parsed.roleAssessments.slice(0, args.roleEntries.length + 8)
