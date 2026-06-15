@@ -21407,8 +21407,7 @@ export default function AuftraegePage() {
                     </div>
                   </div>
 
-                  {!showNewCustomer && (
-                    <div className="rounded-xl border bg-background p-2 sm:p-3">
+                  <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <Button
                           type="button"
@@ -21461,7 +21460,6 @@ export default function AuftraegePage() {
                         </div>
                       </div>
                     </div>
-                  )}
 
                   {/* Besonderheiten — always visible, important warnings highlighted */}
                   <div

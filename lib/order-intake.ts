@@ -309,6 +309,8 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "Wenn serviceName zusätzliche fachliche Inhalte enthält, die die eigene sourceText-Zeile nicht belegt, ist das invalid_evidence_mismatch.",
               "WICHTIG: Du bist ausschließlich Prüfer. Deine Befunde dürfen niemals workItems verändern oder neue workItems erzeugen.",
               "Bewerte jeden roleEntries-Eintrag ausdrücklich darauf, ob er semantisch eine mögliche/verlangte Arbeit beschreibt. Wenn ja und kein workItem dieselbe Arbeit abdeckt, muss genau ein missingWork-Befund entstehen.",
+              "Eine Aussage über mögliche zusätzliche Arbeit bleibt auch dann mögliche Arbeit, wenn Tätigkeit, Menge, Einheit oder Preis noch nicht feststehen. Formulierungen nach dem Bedeutungsprinzip 'in einem weiteren Bereich müsste eventuell noch etwas gemacht werden, genaue Arbeiten noch unbekannt' sind classification=uncertain und müssen als missingWork gemeldet werden; sie sind niemals nur ein gewöhnlicher Hinweis.",
+              "Nutze not_work nur für echte Organisation, Zugang, Sicherheit, Kontakt, Termin, Parken oder ausdrücklich ausgeschlossene Arbeit. Unklare Arbeitsinhalte gehören fail-closed in possible_work_missing oder uncertain.",
               "Original und Übersetzung derselben Aussage sind nur zwei Belege derselben Arbeit. Gib pro zugrunde liegender Arbeit genau einen Befund zurück, bevorzuge dafür das Originalzitat und verwende für beide Sprachvarianten dieselbe semanticId.",
               "relatedRoleText muss, falls die Aussage bereits in roleEntries steht, exakt den vollständigen roleEntries.text-Wert enthalten. Sonst null.",
               "Gib zusätzlich roleAssessments zurück und bewerte jeden übergebenen roleEntries-Eintrag genau einmal. classification ist possible_work_missing, possible_work_covered, not_work oder uncertain. Eine mögliche Arbeit mit unklaren Details ist possible_work_missing, wenn kein workItem sie abdeckt. uncertain ist ebenfalls ein Kontrollbefund, niemals eine automatische Leistung.",
@@ -363,15 +365,24 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
           compactExactSourceTextV17_90L251(entry.text) === roleText,
       );
       if (
-        confidence !== "high" ||
+        !["high", "medium"].includes(confidence) ||
         !roleExists ||
         !["possible_work_missing", "uncertain"].includes(classification)
       ) {
         return [];
       }
+      const rawSource = String(raw?.source || "").toLowerCase();
+      const rawQuote = compactExactSourceTextV17_90L251(raw?.quote).slice(
+        0,
+        520,
+      );
       return [
         {
           ...raw,
+          source: ["original", "translation"].includes(rawSource)
+            ? rawSource
+            : "original",
+          quote: rawQuote || roleText,
           relatedRoleText: roleText,
           reason:
             compactExactSourceTextV17_90L251(raw?.reason) ||
@@ -417,7 +428,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
             relatedRoleText || quote,
           );
         if (
-          confidence !== "high" ||
+          !["high", "medium"].includes(confidence) ||
           !["original", "translation"].includes(source) ||
           quote.length < 8
         ) {
@@ -425,7 +436,11 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
         }
         const selectedSource =
           source === "translation" ? args.translatedText : args.originalText;
-        if (!exactQuoteExistsInSourceV17_90L251(selectedSource, quote)) {
+        const isSealedRoleEvidence = Boolean(relatedRoleText);
+        if (
+          !exactQuoteExistsInSourceV17_90L251(selectedSource, quote) &&
+          !isSealedRoleEvidence
+        ) {
           return null;
         }
 
@@ -13935,6 +13950,9 @@ export async function processIncomingMessage(
     other: Object.freeze([]),
   });
 
+  // V17.90L259: The final semantic checker now treats uncertain possible
+  // work as a non-destructive red review even when exact work details are
+  // missing. It remains review-only and never changes canonical service rows.
   // V17.90L251: A second semantic AI checks the complete first-AI business
   // graph before the canonical lock. It does not rewrite services. It may only
   // report a missing possible work statement or flag an unsupported service

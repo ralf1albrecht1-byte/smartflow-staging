@@ -7291,8 +7291,7 @@ export default function RechnungenPage() {
                     </div>
                   </div>
 
-                  {!showNewCustomer && (
-                    <div className="rounded-xl border bg-background p-2 sm:p-3">
+                  <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div
                         className={
                           editingInvoice
@@ -7368,7 +7367,6 @@ export default function RechnungenPage() {
                         Abbrechen
                       </Button>
                     </div>
-                  )}
 
                   <div className="rounded-xl border p-3 sm:p-4">
                     <h3 className="text-base font-semibold">

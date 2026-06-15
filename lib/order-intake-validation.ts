@@ -9796,8 +9796,16 @@ export function applyUnitlessQuantityPriceLineGuard(
   const candidates = extractUnitlessQuantityPriceLineCandidates(originalText);
   if (candidates.length === 0) return { items, reviewReasons: [] };
 
+  // V17.90L259: A quantity plus price does not prove a unit. This final guard
+  // is intentionally structural and language-independent: if the evidence line
+  // contains no explicit unit, no downstream parser may silently turn it into
+  // Stück, Stunde, Quadratmeter or another calculable unit. The detected name,
+  // quantity and price remain visible, but the row stays red until the user
+  // explicitly confirms or discards it.
   const reviewReasons: string[] = [];
   const guardedItems = items.map((item) => {
+    if (isFlatUnit(item.unit)) return item;
+
     const candidate = candidates.find((entry) =>
       unitlessCandidateMatchesItem(item, entry),
     );
@@ -9807,71 +9815,34 @@ export function applyUnitlessQuantityPriceLineGuard(
       String(
         item.serviceName || candidate.serviceName || "Leistung prüfen",
       ).trim() || "Leistung prüfen";
+    const reason = `unit_missing_in_text:${serviceName}`;
 
-    // V17.54: A leading count with a local work object and unit price is a
-    // countable Stück line, not an unknown unit. Example structure:
-    // "3 <object/action> à CHF 12". This remains purely structural; it does
-    // not depend on the object name.
+    reviewReasons.push(
+      reason,
+      `unit_mismatch:${serviceName}:Unklar:${item.unit || "Unklar"}:0`,
+    );
+
     return {
       ...item,
       serviceName,
       description: candidate.raw,
       quantity: candidate.quantity,
-      unit: "Stück",
+      unit: "prüfen",
       unitPrice: candidate.unitPrice,
-      totalPrice: roundMoney(candidate.quantity * candidate.unitPrice),
-      needsReview: false,
-      reviewReason: null,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
       sourceText: candidate.raw,
       evidence: candidate.raw,
       detectedCurrency: candidate.currency || item.detectedCurrency || null,
     };
   });
 
-  const completedItems = guardedItems.slice();
-  for (const candidate of candidates) {
-    const covered = completedItems.some((item) =>
-      unitlessCandidateMatchesItem(item, candidate) ||
-      (Math.abs(Number(item.quantity || 0) - candidate.quantity) < 0.001 &&
-        Math.abs(Number(item.unitPrice || 0) - candidate.unitPrice) < 0.01 &&
-        normalizeCompare([item.sourceText, item.evidence, item.description].filter(Boolean).join(" ")).includes(candidate.key)),
-    );
-    if (covered) continue;
-
-    const cleanedServiceName = cleanValidationServiceDisplayName(candidate.serviceName);
-    if (!cleanedServiceName || normalizeCompare(cleanedServiceName) === "unbekannte leistung") continue;
-    const serviceName = isUnsafeGenericAreaMakeLineV17_90F(
-      cleanedServiceName,
-      candidate.raw,
-    )
-      ? "Leistung prüfen"
-      : cleanedServiceName;
-
-    completedItems.push({
-      serviceName,
-      description: candidate.raw,
-      quantity: candidate.quantity,
-      unit: "Stück",
-      unitPrice: candidate.unitPrice,
-      totalPrice: roundMoney(candidate.quantity * candidate.unitPrice),
-      needsReview: false,
-      reviewReason: null,
-      sourceText: candidate.raw,
-      evidence: candidate.raw,
-      detectedCurrency: candidate.currency || null,
-    });
-  }
-
-  // Last step inside this guard: once every matching item has the same local
-  // evidence line attached, collapse duplicate KI split artifacts immediately.
-  // This is intentionally structural only: same evidence + same quantity + same
-  // unit price + same unit. It does not use service-word lists.
   return {
-    items: removeSameEvidenceQuantityPriceSplitArtifacts(completedItems),
+    items: removeSameEvidenceQuantityPriceSplitArtifacts(guardedItems),
     reviewReasons: unique(reviewReasons),
   };
 }
-
 
 function originalCustomerTextOnlyV17_79(value?: string | null): string {
   return String(value || "")
