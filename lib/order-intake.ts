@@ -15328,11 +15328,39 @@ export async function processIncomingMessage(
       intakeCurrency,
     );
   const unresolvedCanonicalCandidatesV17_90L246 =
-    buildCanonicalAiOrderItemsV17_90L88(
-      unresolvedRecognitionCandidatesV17_90L246,
-      translationText,
-      unresolvedRecognitionSourceV17_90L246,
-    );
+    unresolvedRecognitionCandidatesV17_90L246.map((candidate, index) => {
+      const evidence = compactText(
+        candidate.sourceText || candidate.evidence || candidate.description,
+      );
+      const isGenericUnresolved = String(candidate.reviewReason || "").startsWith(
+        "service_action_unclear:",
+      );
+
+      // V17.90L247: Do not send a generic unresolved row through unit inference.
+      // A short token such as "t" inside the evidence must never turn the open
+      // unit into "Tonne". Generic rows stay fully open until the user decides.
+      return {
+        serviceName: compactText(candidate.serviceName) || "Leistung prüfen",
+        description: evidence,
+        quantity: isGenericUnresolved ? 0 : Number(candidate.quantity || 0),
+        unit: isGenericUnresolved
+          ? "Einheit prüfen"
+          : compactText(candidate.unit) || "Einheit prüfen",
+        unitPrice: isGenericUnresolved ? 0 : Number(candidate.unitPrice || 0),
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason:
+          compactText(candidate.reviewReason) ||
+          `service_action_unclear:${compactText(candidate.serviceName) || "Leistung prüfen"}`,
+        sourceText: evidence,
+        evidence,
+        detectedCurrency: candidate.detectedCurrency || intakeCurrency,
+        canonicalOrder:
+          canonicalAiOrderItemsBaseV17_90L234.length + index,
+        confidence: "niedrig",
+        unitSource: "missing" as const,
+      } satisfies CanonicalAiOrderItemV17_90L88;
+    });
 
   const isCanonicalUnresolvedReviewV17_90L246 = (
     item: CanonicalAiOrderItemV17_90L88,
@@ -15374,6 +15402,7 @@ export async function processIncomingMessage(
       ...canonicalAiOrderItemsBaseV17_90L234,
       ...unresolvedRowsToAppendV17_90L246,
     ].map((item, canonicalOrder) => ({ ...item, canonicalOrder }));
+
     console.warn(
       `[${source}] ⚠️ Explicit unresolved work preserved as review rows: ${unresolvedRowsToAppendV17_90L246.length}`,
     );
@@ -15388,6 +15417,58 @@ export async function processIncomingMessage(
         ),
       },
     );
+  }
+
+  // V17.90L247: Generic unresolved review rows are always fully open. This
+  // normalizes both rescued rows and rows already returned by the first AI, so
+  // no inferred unit (for example "Tonne") can leak into the review editor.
+  canonicalAiOrderItemsBaseV17_90L234 = canonicalAiOrderItemsBaseV17_90L234.map(
+    (item, canonicalOrder) =>
+      isCanonicalUnresolvedReviewV17_90L246(item)
+        ? {
+            ...item,
+            quantity: 0,
+            unit: "Einheit prüfen",
+            unitPrice: 0,
+            totalPrice: 0,
+            needsReview: true,
+            canonicalOrder,
+            unitSource: "missing" as const,
+          }
+        : { ...item, canonicalOrder },
+  );
+
+  // V17.90L247: Whenever an unresolved statement exists as an actionable red
+  // review row, the same statement must not also remain as a passive
+  // Besonderheit. This also covers rows already supplied by the first AI.
+  const unresolvedReviewEvidenceV17_90L247 =
+    canonicalAiOrderItemsBaseV17_90L234
+      .filter(isCanonicalUnresolvedReviewV17_90L246)
+      .map((item) =>
+        compactText(item.sourceText || item.evidence || item.description),
+      )
+      .filter(Boolean);
+  if (finalSpecialNotes && unresolvedReviewEvidenceV17_90L247.length > 0) {
+    const parsedSpecialNotes = splitSpecialNotes(finalSpecialNotes);
+    const filteredJobHints = parsedSpecialNotes.jobHints.filter((hint) => {
+      const hintKey = canonicalEvidenceKeyV17_90L88(hint);
+      return !unresolvedReviewEvidenceV17_90L247.some((evidence) => {
+        const evidenceKey = canonicalEvidenceKeyV17_90L88(evidence);
+        return Boolean(
+          semanticRoleOverlapV17_90L87(hint, evidence) ||
+            (hintKey &&
+              evidenceKey &&
+              (hintKey === evidenceKey ||
+                (hintKey.length >= 12 && evidenceKey.includes(hintKey)) ||
+                (evidenceKey.length >= 12 && hintKey.includes(evidenceKey)))),
+        );
+      });
+    });
+    finalSpecialNotes = buildSpecialNotes({
+      safetyWarnings: parsedSpecialNotes.safetyWarnings,
+      jobHints: filteredJobHints,
+      preserveStructuredRoles: true,
+    });
   }
 
   // V17.90L234: The second checker remains read-only. It compares the full

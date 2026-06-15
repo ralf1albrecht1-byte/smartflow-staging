@@ -416,6 +416,10 @@ interface FormItem {
   manualCurrencyConfirmed?: boolean;
   manualUnitConfirmed?: boolean;
   manualReviewConfirmed?: boolean;
+  // V17.90L247: A red review row remains pending after the user fills the
+  // fields. Only the explicit Übernehmen/Verwerfen action may resolve it.
+  pendingManualReviewDecision?: boolean;
+  pendingReviewSourceServiceName?: string;
   sourceDescription?: string;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
@@ -431,6 +435,8 @@ const createEmptyItem = (): FormItem => ({
   manualCurrencyConfirmed: false,
   manualUnitConfirmed: false,
   manualReviewConfirmed: false,
+  pendingManualReviewDecision: false,
+  pendingReviewSourceServiceName: "",
   workSiteId: null,
 });
 
@@ -11756,6 +11762,38 @@ export default function AuftraegePage() {
           !hasItemCurrencyMismatch;
         const shouldRequireFreshManualPrice =
           !isManualCurrencyConfirmed && hasItemCurrencyMismatch;
+        const persistedHardReviewTextV17_90L247 = normalizeForMatch(
+          [item.reviewReason, item.description].filter(Boolean).join(" "),
+        );
+        const hasPendingManualReviewDecisionV17_90L247 = Boolean(
+          !isManualReviewConfirmed &&
+            (isInternalReviewServiceName(item.serviceName) ||
+              isUnitMissingReviewText(item.unit) ||
+              !hasValidQuantity ||
+              Number(item.unitPrice || 0) <= 0 ||
+              hasItemCurrencyMismatch ||
+              Boolean(
+                findUnitMissingInTextReviewForService(
+                  effectiveOrderReviewReasons,
+                  item.serviceName,
+                ),
+              ) ||
+              Boolean(
+                findCanonicalMutationReviewForServiceV17_90L241(
+                  effectiveOrderReviewReasons,
+                  item.serviceName,
+                ),
+              ) ||
+              Boolean(
+                findPriceContradictionReviewForServiceV17_90L234(
+                  effectiveOrderReviewReasons,
+                  item.serviceName,
+                ),
+              ) ||
+              /(?:service[_\s-]*action[_\s-]*unclear|price[_\s-]*(?:unclear|contradiction)|quantity[_\s-]*(?:review|unclear|missing)|unit[_\s-]*(?:review|unclear|missing)|currency[_\s-]*(?:review|conflict|mismatch)|canonical[_\s-]*mutation[_\s-]*blocked)/i.test(
+                persistedHardReviewTextV17_90L247,
+              )),
+        );
 
         return {
           key: Math.random().toString(36).slice(2),
@@ -11774,6 +11812,12 @@ export default function AuftraegePage() {
           manualCurrencyConfirmed: isManualCurrencyConfirmed,
           manualUnitConfirmed: isManualUnitConfirmed,
           manualReviewConfirmed: isManualReviewConfirmed,
+          pendingManualReviewDecision:
+            hasPendingManualReviewDecisionV17_90L247,
+          pendingReviewSourceServiceName:
+            hasPendingManualReviewDecisionV17_90L247
+              ? canonicalServiceNameForOrderItem(item.serviceName)
+              : "",
           sourceDescription: compactText(item.description),
           workSiteId: item.workSiteId || null,
         };
@@ -11874,6 +11918,9 @@ export default function AuftraegePage() {
             catalogReviewConfirmed: false,
             manualCurrencyConfirmed: false,
             manualUnitConfirmed: false,
+            manualReviewConfirmed: false,
+            pendingManualReviewDecision: true,
+            pendingReviewSourceServiceName: "Leistung prüfen",
             sourceDescription: foreign.evidence,
             workSiteId: null,
           });
@@ -12762,7 +12809,12 @@ export default function AuftraegePage() {
               previousUnitText.includes("prufen"));
 
           if (changedFromUnitReviewToConcreteUnit) {
-            nextItem.aiWarning = "";
+            // V17.90L247: Keep the review evidence and pending state until the
+            // user explicitly presses Übernehmen. Filling the last field alone
+            // must not turn the red row yellow or remove the decision buttons.
+            if (!item.pendingManualReviewDecision) {
+              nextItem.aiWarning = "";
+            }
             nextItem.manualUnitConfirmed = true;
           }
 
@@ -13632,6 +13684,8 @@ export default function AuftraegePage() {
   ) => {
     if (
       forceCurrencyConflict ||
+      (Boolean((item as FormItem).pendingManualReviewDecision) &&
+        !Boolean((item as FormItem).manualReviewConfirmed)) ||
       isFormItemBlockedByCurrencyReview(item as FormItem) ||
       isFormItemBlockedByPriceContradictionV17_90L234(item as FormItem)
     ) {
@@ -14833,6 +14887,11 @@ export default function AuftraegePage() {
     const allServicesInCatalog = validItems.every((item) =>
       isServiceInCatalog(item.serviceName),
     );
+    const hasPendingManualReviewDecisionV17_90L247 = validItems.some(
+      (item) =>
+        Boolean(item.pendingManualReviewDecision) &&
+        !Boolean(item.manualReviewConfirmed),
+    );
 
     const isAddressRoleReviewReasonV17_61 = (reason: string) =>
       reason === "address_role_uncertain" ||
@@ -14868,9 +14927,14 @@ export default function AuftraegePage() {
     const manuallyReviewConfirmedServiceNamesV17_90L241 = new Set(
       validItems
         .filter((item) => Boolean(item.manualReviewConfirmed))
-        .map((item) =>
+        .flatMap((item) => [
           normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
-        )
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(
+              item.pendingReviewSourceServiceName || "",
+            ),
+          ),
+        ])
         .filter(Boolean),
     );
 
@@ -14959,6 +15023,7 @@ export default function AuftraegePage() {
         "price_contradiction:",
         "item_currency_mismatch:",
         "currency_conflict_item:",
+        "service_action_unclear:",
       ];
       const prefix = supportedPrefixes.find((candidate) =>
         key.startsWith(candidate),
@@ -15032,7 +15097,44 @@ export default function AuftraegePage() {
       );
     };
 
-    const cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
+    let cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
+          // V17.90L247: If a still-pending generic review row was renamed in
+          // the editor, replace its old service key with a current-name key
+          // below. Otherwise the stale "Leistung prüfen" reason would survive
+          // a later explicit confirmation after reload.
+          const pendingReasonServiceKeyV17_90L247 =
+            reviewReasonServiceKeyV17_90L241(reason);
+          if (pendingReasonServiceKeyV17_90L247) {
+            const shouldRekeyPendingReasonV17_90L247 = validItems.some(
+              (item) => {
+                if (
+                  !item.pendingManualReviewDecision ||
+                  item.manualReviewConfirmed
+                ) {
+                  return false;
+                }
+                const sourceKey = normalizeForMatch(
+                  canonicalServiceNameForOrderItem(
+                    item.pendingReviewSourceServiceName || "",
+                  ),
+                );
+                const currentKey = normalizeForMatch(
+                  canonicalServiceNameForOrderItem(item.serviceName),
+                );
+                return Boolean(
+                  sourceKey &&
+                    currentKey &&
+                    sourceKey !== currentKey &&
+                    reviewServiceNamesMatchV17_90L241(
+                      pendingReasonServiceKeyV17_90L247,
+                      sourceKey,
+                    ),
+                );
+              },
+            );
+            if (shouldRekeyPendingReasonV17_90L247) return false;
+          }
+
           // V17.90L109: Role-checker findings are trace diagnostics only.
           if (String(reason || "").startsWith(
             "intake_risk:special_note_role_review:",
@@ -15147,6 +15249,36 @@ export default function AuftraegePage() {
           return true;
         });
 
+    // V17.90L247: A normal save must preserve every still-pending red row,
+    // even when the user has already replaced the generic service name and
+    // filled all fields. Add one current-name review key so reload keeps the
+    // row red until Übernehmen/Verwerfen is pressed.
+    validItems
+      .filter(
+        (item) =>
+          Boolean(item.pendingManualReviewDecision) &&
+          !Boolean(item.manualReviewConfirmed),
+      )
+      .forEach((item) => {
+        const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
+        if (!serviceName) return;
+        const serviceKey = normalizeForMatch(serviceName);
+        const alreadyCovered = cleanedReviewReasons.some((reason) => {
+          const reasonKey = reviewReasonServiceKeyV17_90L241(reason);
+          return Boolean(
+            reasonKey &&
+              serviceKey &&
+              reviewServiceNamesMatchV17_90L241(reasonKey, serviceKey),
+          );
+        });
+        if (!alreadyCovered) {
+          cleanedReviewReasons.push(
+            `canonical_mutation_blocked:${serviceName}`,
+          );
+        }
+      });
+    cleanedReviewReasons = Array.from(new Set(cleanedReviewReasons));
+
     const payload = {
       ...form,
       ...siteFieldsForPayload,
@@ -15159,13 +15291,15 @@ export default function AuftraegePage() {
       // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
       // ursprünglichen Kundentext und überschreiben die manuelle Korrektur.
       manualReviewResolved:
-        formHasResolvedCurrencyReview ||
-        hasExplicitManualItemConfirmation ||
-        (!editId && allItemsComplete && !hasCurrentEditCurrencyReview),
+        !hasPendingManualReviewDecisionV17_90L247 &&
+        (formHasResolvedCurrencyReview ||
+          hasExplicitManualItemConfirmation ||
+          (!editId && allItemsComplete && !hasCurrentEditCurrencyReview)),
       manualItemValuesConfirmed:
-        formHasResolvedCurrencyReview ||
-        hasExplicitManualItemConfirmation ||
-        (!editId && allItemsComplete && !hasCurrentEditCurrencyReview),
+        !hasPendingManualReviewDecisionV17_90L247 &&
+        (formHasResolvedCurrencyReview ||
+          hasExplicitManualItemConfirmation ||
+          (!editId && allItemsComplete && !hasCurrentEditCurrencyReview)),
       manualCurrencyReviewResolved: currencyReviewManuallyResolved,
       manualResidualCurrencyAcknowledged,
       reviewReasons: cleanedReviewReasons,
@@ -15195,7 +15329,9 @@ export default function AuftraegePage() {
           canonicalServiceNameForOrderItem(item.serviceName),
         );
         const hasPendingExplicitItemDecisionV17_90L245 = Boolean(
-          editId &&
+          (item.pendingManualReviewDecision &&
+            !item.manualReviewConfirmed) ||
+          (editId &&
             !item.manualReviewConfirmed &&
             currentEditReviewReasons.some((reason) => {
               const key = String(reason || "");
@@ -15218,7 +15354,7 @@ export default function AuftraegePage() {
                     itemServiceKeyV17_90L245,
                   ),
               );
-            }),
+            })),
         );
 
         return {
@@ -15303,6 +15439,12 @@ export default function AuftraegePage() {
             ...entry,
             aiWarning: "",
             manualReviewConfirmed: true,
+            pendingManualReviewDecision: false,
+            // Keep the original review service key for this save call so old
+            // generic reasons such as service_action_unclear:Leistung prüfen
+            // are removed together with the newly selected service name.
+            pendingReviewSourceServiceName:
+              entry.pendingReviewSourceServiceName || entry.serviceName,
             manualCurrencyConfirmed: Boolean(
               entry.manualCurrencyConfirmed ||
                 confirmsCurrencyOrPriceContradictionV17_90L243,
@@ -15346,7 +15488,11 @@ export default function AuftraegePage() {
     }
 
     const nextItems = formItems.filter((_, entryIndex) => entryIndex !== index);
-    const discardedServiceNames = new Set([item.serviceName]);
+    const discardedServiceNames = new Set(
+      [item.serviceName, item.pendingReviewSourceServiceName || ""].filter(
+        Boolean,
+      ),
+    );
     const acknowledgeResidualCurrency =
       isFormItemBlockedByCurrencyReview(item) ||
       isBlockingCurrencyReviewText(item.aiWarning);
@@ -19492,6 +19638,10 @@ export default function AuftraegePage() {
                           const manualReviewConfirmedV17_90L241 = Boolean(
                             item.manualReviewConfirmed,
                           );
+                          const hasPendingManualReviewDecisionV17_90L247 = Boolean(
+                            item.pendingManualReviewDecision &&
+                              !manualReviewConfirmedV17_90L241,
+                          );
                           const persistedOrderItemForReviewV17_90L243 =
                             curOrder?.items?.find((storedItem) => {
                               const sameService = reviewServiceNamesMatchV17_90L241(
@@ -19512,7 +19662,8 @@ export default function AuftraegePage() {
                           );
                           const hasPersistedBlockingItemReviewV17_90L243 = Boolean(
                             !manualReviewConfirmedV17_90L241 &&
-                              persistedOrderItemForReviewV17_90L243 &&
+                              (hasPendingManualReviewDecisionV17_90L247 ||
+                                (persistedOrderItemForReviewV17_90L243 &&
                               (isInternalReviewServiceName(
                                 persistedOrderItemForReviewV17_90L243.serviceName,
                               ) ||
@@ -19527,7 +19678,7 @@ export default function AuftraegePage() {
                                 ) <= 0 ||
                                 /(?:price|preis|quantity|menge|unit|einheit|currency|waehrung|wahrung|canonical|mutation).*(?:review|pruef|pruf|unclear|missing|blocked|widerspruch|conflict)/i.test(
                                   persistedReviewTextV17_90L243,
-                                )),
+                                )))),
                           );
                           const canonicalMutationReviewReasonV17_90L241 =
                             findCanonicalMutationReviewForServiceV17_90L241(
