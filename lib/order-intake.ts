@@ -202,6 +202,199 @@ const emptyFinalAiRoleReviewResultV17_90L216 = (): FinalAiRoleReviewResultV17_90
   additions: [],
 });
 
+type ReadOnlyWorkCoverageMissingFindingV17_90L251 = {
+  source: "original" | "translation";
+  quote: string;
+  reason: string;
+};
+
+type ReadOnlyWorkCoverageInvalidItemV17_90L251 = {
+  itemIndex: number;
+  reason: string;
+};
+
+type FinalAiWorkCoverageResultV17_90L251 = {
+  missingWork: ReadOnlyWorkCoverageMissingFindingV17_90L251[];
+  invalidItems: ReadOnlyWorkCoverageInvalidItemV17_90L251[];
+};
+
+const emptyFinalAiWorkCoverageResultV17_90L251 =
+  (): FinalAiWorkCoverageResultV17_90L251 => ({
+    missingWork: [],
+    invalidItems: [],
+  });
+
+function compactExactSourceTextV17_90L251(value: unknown): string {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function exactQuoteExistsInSourceV17_90L251(
+  sourceText: unknown,
+  quote: unknown,
+): boolean {
+  const source = compactExactSourceTextV17_90L251(sourceText);
+  const candidate = compactExactSourceTextV17_90L251(quote);
+  return Boolean(
+    source &&
+      candidate &&
+      source.toLocaleLowerCase("de-CH").includes(
+        candidate.toLocaleLowerCase("de-CH"),
+      ),
+  );
+}
+
+async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
+  originalText: string;
+  translatedText?: string | null;
+  customerName?: string | null;
+  executionSiteName?: string | null;
+  workItems: Array<{
+    index: number;
+    serviceName: string;
+    sourceText: string;
+    quantity: number | null;
+    unit: string;
+    unitPrice: number | null;
+  }>;
+  roleEntries: Array<{ role: string; text: string }>;
+}): Promise<FinalAiWorkCoverageResultV17_90L251> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return emptyFinalAiWorkCoverageResultV17_90L251();
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0,
+        max_tokens: 1800,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: [
+              "Du bist der letzte sprachunabhängige KI-Prüfer vor dem unveränderbaren Canonical Lock einer Auftragserfassung.",
+              "Arbeite rein semantisch. Verwende keine festen Wortlisten, keine sprachspezifischen Zuordnungen und keine firmenspezifischen Regeln.",
+              "Prüfe zwei Dinge:",
+              "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden, damit sie als rote Prüfposition gesperrt wird. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
+              "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück; die Position wird fail-closed zur manuellen Prüfung gesperrt.",
+              "Vergleiche Bedeutung und line-lokale Evidenz. Mengen, Einheiten, Preise und Währungen dürfen nicht auf andere Positionen übertragen werden.",
+              "missingWork.quote muss ein kurzes, exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Nicht umformulieren, nicht übersetzen und nichts erfinden.",
+              "Melde ausschließlich eindeutige Befunde mit confidence=high. Bei Unsicherheit nichts behaupten.",
+              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+            ].join("\n"),
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              originalText: String(args.originalText || "").slice(0, 6500),
+              translatedText: String(args.translatedText || "").slice(0, 6500),
+              customerName: String(args.customerName || "").slice(0, 220),
+              executionSiteName: String(args.executionSiteName || "").slice(0, 220),
+              workItems: args.workItems.slice(0, 40),
+              roleEntries: args.roleEntries.slice(0, 40),
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[WorkCoverageCheckerV17_90L251] API error ${response.status}; first AI result kept`,
+      );
+      return emptyFinalAiWorkCoverageResultV17_90L251();
+    }
+
+    const payload = await response.json();
+    const rawContent = String(
+      payload?.choices?.[0]?.message?.content || "",
+    ).trim();
+    const parsed = rawContent ? JSON.parse(rawContent) : null;
+
+    const missingWork: ReadOnlyWorkCoverageMissingFindingV17_90L251[] = [];
+    const seenMissing = new Set<string>();
+    for (const raw of Array.isArray(parsed?.missingWork)
+      ? parsed.missingWork.slice(0, 12)
+      : []) {
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const source = String(raw?.source || "").toLowerCase() as
+        | "original"
+        | "translation"
+        | "";
+      const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+      if (
+        confidence !== "high" ||
+        !["original", "translation"].includes(source) ||
+        quote.length < 8
+      ) {
+        continue;
+      }
+      const selectedSource =
+        source === "translation" ? args.translatedText : args.originalText;
+      if (!exactQuoteExistsInSourceV17_90L251(selectedSource, quote)) continue;
+
+      const evidenceAlreadyRepresented = args.workItems.some((item) => {
+        const existing = compactExactSourceTextV17_90L251(item.sourceText);
+        return Boolean(
+          existing &&
+            (existing.toLocaleLowerCase("de-CH").includes(
+              quote.toLocaleLowerCase("de-CH"),
+            ) ||
+              quote.toLocaleLowerCase("de-CH").includes(
+                existing.toLocaleLowerCase("de-CH"),
+              )),
+        );
+      });
+      if (evidenceAlreadyRepresented) continue;
+
+      const key = `${source}|${quote.toLocaleLowerCase("de-CH")}`;
+      if (seenMissing.has(key)) continue;
+      seenMissing.add(key);
+      missingWork.push({
+        source: source as "original" | "translation",
+        quote,
+        reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
+      });
+    }
+
+    const invalidItems: ReadOnlyWorkCoverageInvalidItemV17_90L251[] = [];
+    const seenInvalid = new Set<number>();
+    for (const raw of Array.isArray(parsed?.invalidItems)
+      ? parsed.invalidItems.slice(0, args.workItems.length + 6)
+      : []) {
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const itemIndex = Number(raw?.index);
+      if (
+        confidence !== "high" ||
+        !Number.isInteger(itemIndex) ||
+        itemIndex < 1 ||
+        itemIndex > args.workItems.length ||
+        seenInvalid.has(itemIndex)
+      ) {
+        continue;
+      }
+      seenInvalid.add(itemIndex);
+      invalidItems.push({
+        itemIndex,
+        reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
+      });
+    }
+
+    return { missingWork, invalidItems };
+  } catch (error: any) {
+    console.warn(
+      "[WorkCoverageCheckerV17_90L251] failed; first AI result kept",
+      error?.message || error,
+    );
+    return emptyFinalAiWorkCoverageResultV17_90L251();
+  }
+}
+
 const normalizeRoleReviewTextV17_90L106 = (value: unknown): string =>
   String(value || "")
     .toLowerCase()
@@ -13696,6 +13889,80 @@ export async function processIncomingMessage(
     ),
   });
 
+  // V17.90L251: A second semantic AI checks the complete first-AI business
+  // graph before the canonical lock. It does not rewrite services. It may only
+  // report a missing possible work statement or invalidate an unsupported
+  // service label. Both outcomes are persisted fail-closed as red review rows.
+  // This is language-independent and intentionally contains no service/name
+  // word lists.
+  const finalAiWorkCoverageV17_90L251 =
+    await runReadOnlyWorkCoverageCheckerV17_90L251({
+      originalText: messageText,
+      translatedText: translationText || null,
+      customerName: String(
+        (firstAiCustomerSnapshotV17_90L225 as any)?.name || "",
+      ),
+      executionSiteName: String(
+        (firstAiExecutionAddressSnapshotV17_90L225 as any)?.name ||
+          (firstAiExecutionAddressSnapshotV17_90L225 as any)?.siteName ||
+          "",
+      ),
+      workItems: (firstAiWorkItemsSnapshotV17_90L213 as readonly any[]).map(
+        (item, index) => {
+          const quantityValue = Number(item?.quantity ?? item?.menge);
+          const priceValue = Number(
+            item?.unitPrice ?? item?.unit_price ?? item?.price,
+          );
+          return {
+            index: index + 1,
+            serviceName: compactExactSourceTextV17_90L251(
+              item?.serviceName ??
+                item?.name ??
+                item?.action_name ??
+                item?.service_name ??
+                item?.matched_service_name,
+            ),
+            sourceText: compactExactSourceTextV17_90L251(
+              item?.sourceText ??
+                item?.source_text ??
+                item?.evidence ??
+                item?.raw ??
+                item?.description,
+            ),
+            quantity: Number.isFinite(quantityValue) ? quantityValue : null,
+            unit: compactExactSourceTextV17_90L251(
+              item?.unit ?? item?.einheit,
+            ),
+            unitPrice: Number.isFinite(priceValue) ? priceValue : null,
+          };
+        },
+      ),
+      roleEntries: (
+        Object.entries(firstAiRoleSnapshotV17_90L214) as Array<
+          [string, readonly string[]]
+        >
+      ).flatMap(([role, lines]) =>
+        lines.map((text) => ({ role, text: String(text || "") })),
+      ),
+    });
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03c0_work_coverage_review",
+    {
+      missingWork: finalAiWorkCoverageV17_90L251.missingWork.map((finding) => ({
+        source: finding.source,
+        quote: redactIntakeDiagnosticText(finding.quote, 420),
+        reason: redactIntakeDiagnosticText(finding.reason, 220),
+      })),
+      invalidItems: finalAiWorkCoverageV17_90L251.invalidItems.map((finding) => ({
+        itemIndex: finding.itemIndex,
+        reason: redactIntakeDiagnosticText(finding.reason, 220),
+      })),
+    },
+  );
+
   const firstAiDangerRoleLinesV17_90L106 = [
     ...firstAiRoleSnapshotV17_90L214.safety,
   ];
@@ -15279,8 +15546,43 @@ export async function processIncomingMessage(
       ? String(parsed.auftrag.beschreibung)
       : messageText;
 
-  const aiWorkItemsRaw: AiWorkItem[] =
-    firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[];
+  const invalidWorkItemIndexesV17_90L251 = new Set(
+    finalAiWorkCoverageV17_90L251.invalidItems.map(
+      (finding) => finding.itemIndex - 1,
+    ),
+  );
+  const aiWorkItemsRaw: AiWorkItem[] = (
+    firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[]
+  ).map((item, index) => {
+    if (!invalidWorkItemIndexesV17_90L251.has(index)) return item;
+
+    const itemRecord = item as any;
+    const sourceText = compactExactSourceTextV17_90L251(
+      itemRecord?.sourceText ??
+        itemRecord?.source_text ??
+        itemRecord?.evidence ??
+        itemRecord?.raw ??
+        itemRecord?.description,
+    );
+    return {
+      ...item,
+      serviceName: "Leistung prüfen",
+      name: "Leistung prüfen",
+      action_name: "Leistung prüfen",
+      service_name: "Leistung prüfen",
+      matched_service_name: null,
+      needsReview: true,
+      needs_review: true,
+      reviewReason: "service_action_unclear:Leistung prüfen",
+      review_reason: "service_action_unclear:Leistung prüfen",
+      sourceText,
+      source_text: sourceText,
+      evidence: sourceText,
+      raw: sourceText,
+      description: sourceText,
+      confidence: "niedrig",
+    } as AiWorkItem;
+  });
 
   const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
     const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
@@ -15322,11 +15624,41 @@ export async function processIncomingMessage(
   ]
     .filter((part) => String(part || "").trim())
     .join("\n");
-  const unresolvedRecognitionCandidatesV17_90L246 =
+  const deterministicUnresolvedRecognitionCandidatesV17_90L246 =
     extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
       unresolvedRecognitionSourceV17_90L246,
       intakeCurrency,
     );
+  const semanticUnresolvedRecognitionCandidatesV17_90L251 =
+    finalAiWorkCoverageV17_90L251.missingWork.map((finding) => ({
+      serviceName: "Leistung prüfen",
+      description: finding.quote,
+      quantity: 0,
+      unit: "Einheit prüfen",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: "service_action_unclear:Leistung prüfen",
+      sourceText: finding.quote,
+      evidence: finding.quote,
+      detectedCurrency: intakeCurrency,
+    }));
+  const unresolvedRecognitionCandidatesV17_90L246 = [
+    ...deterministicUnresolvedRecognitionCandidatesV17_90L246,
+    ...semanticUnresolvedRecognitionCandidatesV17_90L251,
+  ].filter((candidate, index, all) => {
+    const key = canonicalEvidenceKeyV17_90L88(
+      candidate.sourceText || candidate.evidence || candidate.description,
+    );
+    if (!key) return false;
+    return (
+      all.findIndex((other) =>
+        canonicalEvidenceKeyV17_90L88(
+          other.sourceText || other.evidence || other.description,
+        ) === key,
+      ) === index
+    );
+  });
   const unresolvedCanonicalCandidatesV17_90L246 =
     unresolvedRecognitionCandidatesV17_90L246.map((candidate, index) => {
       const evidence = compactText(
