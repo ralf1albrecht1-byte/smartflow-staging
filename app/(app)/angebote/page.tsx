@@ -8625,7 +8625,7 @@ export default function AngebotePage() {
                     </div>
                   </div>
 
-                  {!showNewCustomer && (
+                  <>
                     <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <Button
@@ -8675,7 +8675,7 @@ export default function AngebotePage() {
                         </div>
                       </div>
                     </div>
-                  )}
+                  </>
 
                   <div className="space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
                     <div>
