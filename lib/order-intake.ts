@@ -264,6 +264,276 @@ function exactQuoteExistsInSourceV17_90L251(
   );
 }
 
+// V17.90L261: Generic lexical guard for a contextual execution-site
+// refinement. It never changes a first-AI service. It only prevents a false
+// invalid-item control finding when the line-local source already refers to
+// the same place in a shorter or compound form and the immutable first AI used
+// the canonical execution-site wording. No service, customer or language word
+// list is used here.
+function coverageLexemesV17_90L261(value: unknown): string[] {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !/^\d+$/.test(token));
+}
+
+function coverageLexemeRelatedV17_90L261(
+  leftValue: string,
+  rightValue: string,
+): boolean {
+  const left = String(leftValue || "");
+  const right = String(rightValue || "");
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const removeInnerGe = (token: string) =>
+    token.replace(/^([a-z]{1,4})ge(?=[a-z]{3,})/i, "$1");
+  const leftBase = removeInnerGe(left);
+  const rightBase = removeInnerGe(right);
+  if (leftBase === rightBase) return true;
+
+  const shorter =
+    leftBase.length <= rightBase.length ? leftBase : rightBase;
+  const longer =
+    leftBase.length > rightBase.length ? leftBase : rightBase;
+  return (
+    shorter.length >= 4 &&
+    longer.length <= shorter.length * 3 &&
+    (longer.startsWith(shorter) ||
+      longer.endsWith(shorter) ||
+      longer.includes(shorter))
+  );
+}
+
+function isContextualExecutionSiteRefinementV17_90L261(args: {
+  serviceName: string;
+  sourceText: string;
+  executionSiteName?: string | null;
+}): boolean {
+  const serviceTokens = coverageLexemesV17_90L261(args.serviceName);
+  const sourceTokens = coverageLexemesV17_90L261(args.sourceText);
+  const siteTokens = coverageLexemesV17_90L261(args.executionSiteName);
+  if (
+    serviceTokens.length === 0 ||
+    sourceTokens.length === 0 ||
+    siteTokens.length === 0
+  ) {
+    return false;
+  }
+
+  const siteIsReferencedBySource = siteTokens.some((siteToken) =>
+    sourceTokens.some((sourceToken) =>
+      coverageLexemeRelatedV17_90L261(siteToken, sourceToken),
+    ),
+  );
+  if (!siteIsReferencedBySource) return false;
+
+  const serviceUsesExecutionSite = serviceTokens.some((serviceToken) =>
+    siteTokens.some((siteToken) =>
+      coverageLexemeRelatedV17_90L261(serviceToken, siteToken),
+    ),
+  );
+  if (!serviceUsesExecutionSite) return false;
+
+  // Suppress only when every material service token is supported either by
+  // the line-local source itself or by the same site identity already present
+  // there. Any unrelated appended entity keeps the red control finding.
+  return serviceTokens.every((serviceToken) => {
+    if (
+      sourceTokens.some((sourceToken) =>
+        coverageLexemeRelatedV17_90L261(serviceToken, sourceToken),
+      )
+    ) {
+      return true;
+    }
+
+    return siteTokens.some(
+      (siteToken) =>
+        coverageLexemeRelatedV17_90L261(serviceToken, siteToken) &&
+        sourceTokens.some((sourceToken) =>
+          coverageLexemeRelatedV17_90L261(siteToken, sourceToken),
+        ),
+    );
+  });
+}
+
+// V17.90L261: Narrow multilingual/dialect fallback for possible work that the
+// broad checker missed. It runs only for first-AI ordinary/other role lines
+// that are evidenced in the visible translation but not verbatim in the
+// original. The result is review-only: one red control finding at most per
+// source role. It cannot add, rename, remove or recalculate any service.
+async function runReadOnlyTranslatedPossibleWorkAuditV17_90L261(args: {
+  originalText: string;
+  translatedText?: string | null;
+  workItems: Array<{
+    index: number;
+    serviceName: string;
+    sourceText: string;
+    quantity: number | null;
+    unit: string;
+    unitPrice: number | null;
+  }>;
+  roleEntries: Array<{ role: string; text: string }>;
+  alreadyCoveredRoleTexts: string[];
+}): Promise<ReadOnlyWorkCoverageMissingFindingV17_90L251[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const translatedText = compactExactSourceTextV17_90L251(
+    args.translatedText,
+  );
+  if (!apiKey || !translatedText) return [];
+
+  const coveredRoleKeys = new Set(
+    args.alreadyCoveredRoleTexts
+      .map((text) => compactExactSourceTextV17_90L251(text).toLowerCase())
+      .filter(Boolean),
+  );
+  const candidateRoleEntries = args.roleEntries
+    .filter((entry) => ["ordinary", "other"].includes(String(entry.role)))
+    .map((entry) => ({
+      role: String(entry.role || ""),
+      text: compactExactSourceTextV17_90L251(entry.text),
+    }))
+    .filter((entry) => entry.text.length >= 8)
+    .filter((entry) => !coveredRoleKeys.has(entry.text.toLowerCase()))
+    .filter((entry) =>
+      exactQuoteExistsInSourceV17_90L251(translatedText, entry.text),
+    )
+    .filter(
+      (entry) =>
+        !exactQuoteExistsInSourceV17_90L251(args.originalText, entry.text),
+    );
+  if (candidateRoleEntries.length === 0) return [];
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0,
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: [
+              "Du bist ein enger, sprachunabhängiger Kontrollprüfer für bereits unveränderbar erkannte Auftragsdaten.",
+              "Die vorhandenen workItems sind unveränderbar. Du darfst keine Leistung erzeugen, umbenennen, löschen, ergänzen oder berechnen.",
+              "Bewerte jeden übergebenen roleEntry genau einmal.",
+              "Melde possible_work_missing nur dann, wenn der Text mit hoher Sicherheit eine mögliche oder verlangte auszuführende Arbeit beschreibt und keine vorhandene workItem dieselbe Arbeit bereits abdeckt.",
+              "Auch eine ausdrücklich nur mögliche Arbeit mit noch unbekannten Details ist possible_work_missing. Erfinde dabei keine Tätigkeit, Menge, Einheit oder keinen Preis.",
+              "Kontakt-, Zugangs-, Park-, Sicherheits-, Termin- und reine Verhaltenshinweise sind keine Arbeit, sofern sie nicht selbst ausdrücklich eine auszuführende Tätigkeit verlangen.",
+              "Nutze Original und Übersetzung gemeinsam zum Verständnis. Original und Übersetzung derselben Aussage sind nur ein Sachverhalt.",
+              "quote muss ein kurzes, exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Nicht umformulieren und nicht übersetzen.",
+              "roleText muss exakt einem übergebenen roleEntries.text entsprechen.",
+              "Gib ausschließlich JSON zurück: {\"assessments\":[{\"roleText\":\"exakt\",\"classification\":\"possible_work_missing|not_work|covered_work|uncertain\",\"source\":\"original|translation|\",\"quote\":\"exaktes Zitat oder leer\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}.",
+              "uncertain ist kein Befund. Nur possible_work_missing mit confidence=high darf später einen roten Kontrollhinweis erzeugen.",
+            ].join("\n"),
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              originalText: String(args.originalText || "").slice(0, 6500),
+              translatedText: translatedText.slice(0, 6500),
+              workItems: args.workItems.slice(0, 40),
+              roleEntries: candidateRoleEntries.slice(0, 30),
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[TranslatedPossibleWorkAuditV17_90L261] API error ${response.status}; no supplemental finding added`,
+      );
+      return [];
+    }
+
+    const payload = await response.json();
+    const rawContent = String(
+      payload?.choices?.[0]?.message?.content || "",
+    ).trim();
+    const parsed = rawContent ? JSON.parse(rawContent) : null;
+    const candidateRoleTextSet = new Set(
+      candidateRoleEntries.map((entry) => entry.text),
+    );
+    const findings: ReadOnlyWorkCoverageMissingFindingV17_90L251[] = [];
+    const seenRoleTexts = new Set<string>();
+
+    for (const raw of Array.isArray(parsed?.assessments)
+      ? parsed.assessments.slice(0, candidateRoleEntries.length + 6)
+      : []) {
+      const roleText = compactExactSourceTextV17_90L251(raw?.roleText).slice(
+        0,
+        520,
+      );
+      const classification = String(raw?.classification || "").toLowerCase();
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const source = String(raw?.source || "").toLowerCase() as
+        | "original"
+        | "translation"
+        | "";
+      const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+      if (
+        classification !== "possible_work_missing" ||
+        confidence !== "high" ||
+        !candidateRoleTextSet.has(roleText) ||
+        seenRoleTexts.has(roleText.toLowerCase()) ||
+        !["original", "translation"].includes(source) ||
+        quote.length < 8
+      ) {
+        continue;
+      }
+
+      const selectedSource =
+        source === "translation" ? translatedText : args.originalText;
+      if (!exactQuoteExistsInSourceV17_90L251(selectedSource, quote)) {
+        continue;
+      }
+
+      const evidenceAlreadyRepresented = args.workItems.some((item) => {
+        const existing = compactExactSourceTextV17_90L251(item.sourceText);
+        return Boolean(
+          existing &&
+            (existing.toLocaleLowerCase("de-CH").includes(
+              quote.toLocaleLowerCase("de-CH"),
+            ) ||
+              quote.toLocaleLowerCase("de-CH").includes(
+                existing.toLocaleLowerCase("de-CH"),
+              )),
+        );
+      });
+      if (evidenceAlreadyRepresented) continue;
+
+      seenRoleTexts.add(roleText.toLowerCase());
+      findings.push({
+        semanticId: deterministicReviewFindingIdV17_90L252(roleText || quote),
+        source: source as "original" | "translation",
+        quote,
+        relatedRoleText: roleText,
+        reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
+      });
+    }
+
+    return findings;
+  } catch (error: any) {
+    console.warn(
+      "[TranslatedPossibleWorkAuditV17_90L261] failed; no supplemental finding added",
+      error?.message || error,
+    );
+    return [];
+  }
+}
+
 async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
   originalText: string;
   translatedText?: string | null;
@@ -303,10 +573,11 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "Prüfe zwei Dinge:",
               "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
               "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück.",
-              "Prüfe JEDEN workItem genau einmal und gib dafür zusätzlich itemAssessments zurück. Vergleiche serviceName strikt mit der eigenen sourceText-Zeile sowie mit customerName und executionSiteName.",
-              "Wenn customerName oder executionSiteName ganz oder teilweise im serviceName auftaucht, aber in der eigenen sourceText-Zeile nicht als konkreter Arbeitsbereich genannt ist, ist das invalid_entity_contamination. Beispielprinzip: Steht in sourceText nur 'Boden reinigen, 38 Quadratmeter ...', darf ein separat angegebener Objektname nicht zu 'Boden [Objektname] reinigen' ergänzt werden.",
+              "Prüfe JEDEN workItem genau einmal und gib dafür zusätzlich itemAssessments zurück. Vergleiche serviceName mit der eigenen sourceText-Zeile sowie mit customerName und executionSiteName, ohne den unveränderbaren ersten KI-Wert umzuschreiben.",
+              "Wenn customerName oder executionSiteName ganz oder teilweise im serviceName auftaucht, aber in der eigenen sourceText-Zeile weder ausdrücklich noch semantisch als derselbe lokale Arbeitsbereich referenziert ist, ist das invalid_entity_contamination. Beispielprinzip: Steht in sourceText nur 'Boden reinigen, 38 Quadratmeter ...', darf ein separat angegebener Objektname nicht zu 'Boden [Objektname] reinigen' ergänzt werden.",
+              "Eine kontextuelle Präzisierung durch executionSiteName ist dagegen zulässig, wenn sourceText bereits denselben Ort in verkürzter, generischer, zusammengesetzter oder sprachlich abweichender Form nennt. Eine solche reine Präzisierung ist kein invalidItem. Entscheidend ist die semantische Identität des line-lokalen Arbeitsbereichs, nicht die wörtliche Gleichheit.",
               "Ein tatsächlich in derselben sourceText-Zeile genannter lokaler Teilbereich darf im Leistungsnamen bleiben. Verwechsle einen line-lokalen Arbeitsbereich niemals mit einem separat angegebenen Kunden-, Firmen-, Gebäude-, Objekt- oder Adressnamen.",
-              "Wenn serviceName zusätzliche fachliche Inhalte enthält, die die eigene sourceText-Zeile nicht belegt, ist das invalid_evidence_mismatch.",
+              "Wenn serviceName zusätzliche fachliche Inhalte enthält, die weder die eigene sourceText-Zeile noch eine semantisch identische lokale Referenz auf executionSiteName belegt, ist das invalid_evidence_mismatch.",
               "WICHTIG: Du bist ausschließlich Prüfer. Deine Befunde dürfen niemals workItems verändern oder neue workItems erzeugen.",
               "Bewerte jeden roleEntries-Eintrag ausdrücklich darauf, ob er semantisch eine mögliche/verlangte Arbeit beschreibt. Wenn ja und kein workItem dieselbe Arbeit abdeckt, muss genau ein missingWork-Befund entstehen.",
               "Original und Übersetzung derselben Aussage sind nur zwei Belege derselben Arbeit. Gib pro zugrunde liegender Arbeit genau einen Befund zurück, bevorzuge dafür das Originalzitat und verwende für beide Sprachvarianten dieselbe semanticId.",
@@ -485,6 +756,38 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       missingWork.push(finding);
     }
 
+    const supplementalTranslatedMissingWorkV17_90L261 =
+      await runReadOnlyTranslatedPossibleWorkAuditV17_90L261({
+        originalText: args.originalText,
+        translatedText: args.translatedText,
+        workItems: args.workItems,
+        roleEntries: args.roleEntries,
+        alreadyCoveredRoleTexts: missingWork
+          .map((finding) => finding.relatedRoleText || "")
+          .filter(Boolean),
+      });
+    for (const finding of supplementalTranslatedMissingWorkV17_90L261) {
+      const roleKey = compactExactSourceTextV17_90L251(
+        finding.relatedRoleText,
+      ).toLocaleLowerCase("de-CH");
+      if (roleKey && seenRoleTexts.has(roleKey)) continue;
+      if (
+        missingWork.some(
+          (existing) =>
+            existing.semanticId === finding.semanticId ||
+            (roleKey &&
+              compactExactSourceTextV17_90L251(
+                existing.relatedRoleText,
+              ).toLocaleLowerCase("de-CH") === roleKey),
+        )
+      ) {
+        continue;
+      }
+      semanticRoleById.set(finding.semanticId, roleKey);
+      if (roleKey) seenRoleTexts.add(roleKey);
+      missingWork.push(finding);
+    }
+
     const rawItemAssessmentInvalid = (
       Array.isArray(parsed?.itemAssessments)
         ? parsed.itemAssessments.slice(0, args.workItems.length + 6)
@@ -537,6 +840,22 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       ) {
         continue;
       }
+
+      const immutableFirstAiItem = args.workItems[itemIndex - 1];
+      if (
+        immutableFirstAiItem &&
+        isContextualExecutionSiteRefinementV17_90L261({
+          serviceName: immutableFirstAiItem.serviceName,
+          sourceText: immutableFirstAiItem.sourceText,
+          executionSiteName: args.executionSiteName,
+        })
+      ) {
+        console.log(
+          `[WorkCoverageCheckerV17_90L261] suppressed false invalid_item for contextual execution-site refinement index=${itemIndex}`,
+        );
+        continue;
+      }
+
       seenInvalid.add(itemIndex);
       invalidItems.push({
         itemIndex,
@@ -18118,17 +18437,17 @@ export async function processIncomingMessage(
     );
   }
 
-  // V17.90L260: A possible-work statement that already has an active red
+  // V17.90L261: A possible-work statement that already has an active red
   // recognition review must not be shown a second time under Besonderheiten.
-  // This is display-only suppression: the sealed canonical fact and the
-  // encoded review finding remain unchanged for audit and user resolution.
-  const recognitionReviewRoleTextKeysV17_90L260 = new Set(
-    finalAiWorkCoverageV17_90L251.missingWork
-      .map((finding) =>
-        canonicalRoleVariantKeyV17_90L201(finding.relatedRoleText || ""),
-      )
-      .filter(Boolean),
-  );
+  // Suppression is display-only and semantic across original/translation
+  // variants. The sealed canonical fact and encoded review finding remain
+  // unchanged for audit and explicit user resolution.
+  const recognitionReviewSuppressionTextsV17_90L261 =
+    finalAiWorkCoverageV17_90L251.missingWork.flatMap((finding) =>
+      [finding.relatedRoleText || "", finding.quote || ""]
+        .map((text) => compactExactSourceTextV17_90L251(text))
+        .filter(Boolean),
+    );
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
@@ -18138,10 +18457,12 @@ export async function processIncomingMessage(
         ...canonicalFactAssemblyV17_90L204.roles.parking,
         ...canonicalFactAssemblyV17_90L204.roles.other,
         ...canonicalFactAssemblyV17_90L204.roles.ordinary,
-      ].filter((text) => {
-        const key = canonicalRoleVariantKeyV17_90L201(text);
-        return !key || !recognitionReviewRoleTextKeysV17_90L260.has(key);
-      }),
+      ].filter(
+        (text) =>
+          !recognitionReviewSuppressionTextsV17_90L261.some((reviewText) =>
+            canonicalRoleLinesEquivalentV17_90L201(text, reviewText),
+          ),
+      ),
       translationText,
     );
   finalSpecialNotes =
