@@ -3958,91 +3958,8 @@ type AiAppointmentV17_90L86 = {
   announcement_channel?: string | null;
   tageszeit?: string | null;
   daypart?: string | null;
-  needs_review?: boolean | null;
-  needsReview?: boolean | null;
-  review_reason?: string | null;
-  reviewReason?: string | null;
   evidence?: string | null;
 };
-
-const APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257 =
-  "appointment_clarify:";
-
-function compactAppointmentReviewEvidenceV17_90L257(
-  value: unknown,
-): string {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 320);
-}
-
-function collectFirstAiAppointmentReviewReasonsV17_90L257(args: {
-  appointments: readonly AiAppointmentV17_90L86[];
-  systemNeedsReview: boolean;
-}): string[] {
-  const reasons: string[] = [];
-
-  for (const appointment of args.appointments || []) {
-    const record = appointment as AiAppointmentV17_90L86 &
-      Record<string, unknown>;
-    const kind = String(record.art ?? record.type ?? "")
-      .toLocaleLowerCase("de-CH")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-    if (kind && !/(?:ausfuehrung|execution|work|auftrag|termin)/.test(kind)) {
-      continue;
-    }
-
-    const evidence = compactAppointmentReviewEvidenceV17_90L257(
-      record.evidence,
-    );
-    if (!evidence) continue;
-
-    const hasCanonicalAppointmentValue = Boolean(
-      String(record.datum ?? record.date ?? "").trim() ||
-        String(record.von ?? record.start ?? "").trim() ||
-        String(record.bis ?? record.end ?? "").trim() ||
-        normalizeStructuredAppointmentDaypartV17_90L256(appointment),
-    );
-    const explicitlyMarkedForReview = Boolean(
-      record.needs_review === true ||
-        record.needsReview === true ||
-        String(record.review_reason ?? record.reviewReason ?? "").trim(),
-    );
-
-    // Compatibility for the already deployed first-AI contract: before L257,
-    // a vague execution-time statement was represented by an appointment with
-    // exact evidence, no canonical date/time/daypart and system.needs_review.
-    // This is not a later semantic guess; it only persists the first AI's own
-    // fail-closed decision as a concrete, UI-readable review finding.
-    const hasAnnouncementInstruction = Boolean(
-      Number(
-        record.ankuendigung_minuten ?? record.announcement_minutes ?? 0,
-      ) > 0 ||
-        String(
-          record.ankuendigung_kanal ?? record.announcement_channel ?? "",
-        ).trim(),
-    );
-    const structurallyMarkedByFirstAi = Boolean(
-      args.systemNeedsReview &&
-        !hasCanonicalAppointmentValue &&
-        !hasAnnouncementInstruction,
-    );
-
-    if (!explicitlyMarkedForReview && !structurallyMarkedByFirstAi) continue;
-
-    reasons.push(
-      `${APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257}${encodeURIComponent(
-        evidence,
-      )}`,
-    );
-  }
-
-  return Array.from(new Set(reasons));
-}
-
 
 function normalizePhoneDigits(value: string | null | undefined): string {
   return String(value || "").replace(/\D/g, "");
@@ -12799,16 +12716,15 @@ ZIELE
   kundenabgleich.reuse_requested = true und reuse_evidence = die konkrete lokale Textstelle.
 - In diesem Fall die vollständige, im Nachrichtentext genannte Firma mit bestehende_kunden vergleichen.
   Nur bei genau einem eindeutigen vollständigen Namen bestehende_kunden_id setzen; niemals Stammdaten aus der Liste in kunde kopieren.
-- termine enthält pro realem Ausführungstermin oder terminbezogenem Prüffall genau einen Eintrag mit:
-  art = "ausfuehrung", datum, von, bis, tageszeit, ankuendigung_minuten, ankuendigung_kanal, needs_review, review_reason, evidence.
-- needs_review ist pro Termin true, wenn genau dieser Termin wegen einer vagen, relativen, widersprüchlichen oder nicht sicher verstandenen Zeitangabe manuell geprüft werden muss; sonst false. review_reason ist dann kurz und fachlich, sonst null.
+- termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
+  art = "ausfuehrung", datum, von, bis, tageszeit, ankuendigung_minuten, ankuendigung_kanal, evidence.
 - tageszeit ist ausschließlich einer der deutschen kanonischen Werte "morgens", "vormittags", "mittags", "nachmittags", "abends", "nachts", "ganztägig" oder null. Nur eine im lokalen Originalsatz tatsächlich benannte, konventionelle Tageszeit darf einem dieser Werte zugeordnet werden.
-- Relative, vage oder offene Zeitangaben beschreiben keine feste Tageszeit. Formulierungen mit der Bedeutung "später", "irgendwann", "im Laufe des Tages", "gegen später" oder vergleichbar dürfen NICHT als morgens, vormittags, mittags, nachmittags, abends oder nachts ausgegeben werden. In solchen Fällen: tageszeit = null, needs_review = true, review_reason = "Tageszeit unklar" und system.needs_review = true. Die konkrete lokale Originalstelle bleibt vollständig in evidence. Diese Beispiele definieren eine semantische Kategorie und sind keine abschließende Wortliste.
+- Relative, vage oder offene Zeitangaben beschreiben keine feste Tageszeit. Formulierungen mit der Bedeutung "später", "irgendwann", "im Laufe des Tages", "gegen später" oder vergleichbar dürfen NICHT als morgens, vormittags, mittags, nachmittags, abends oder nachts ausgegeben werden. In solchen Fällen: tageszeit = null und system.needs_review = true. Diese Beispiele definieren eine semantische Kategorie und sind keine abschließende Wortliste.
 - Jede ausdrücklich und eindeutig benannte Tageszeit muss semantisch übersetzt und erhalten bleiben, auch bei Dialekt, Fremdsprache oder gemischtem Text. Sie darf nicht wegen einer Vorankündigung oder Kontaktangabe verloren gehen.
 - Für die Terminbedeutung ist immer der lokale Originalsatz maßgeblich. Eine normalisierte Arbeitsfassung ist nur eine Sprachhilfe und darf eine Tageszeit aus dem Original niemals überschreiben oder in ihr Gegenteil verkehren.
 - Verbindlicher interner Zweischritt vor der JSON-Ausgabe: (1) die lokale Original-Evidence als "explizit benannte Tageszeit" oder "relative/vage Zeitangabe" klassifizieren; (2) nur bei der ersten Kategorie tageszeit setzen. Die Klassifikation nicht als zusätzliches JSON-Feld ausgeben.
 - Vor der JSON-Ausgabe jeden Termin intern gegen seine eigene Original-Evidence prüfen: tageszeit muss semantisch exakt zu dieser Evidence passen. Nicht über Wortähnlichkeit, Wortbestandteile, Weltwissen oder die Übersetzung raten.
-- Wenn Original und Arbeitsfassung widersprechen, die Zeitformulierung relativ/vage ist oder die Tageszeit aus dem Original nicht sicher verstanden wird: tageszeit = null, needs_review = true, review_reason = "Tageszeit unklar" und system.needs_review = true. Niemals die scheinbar plausiblere Tageszeit auswählen.
+- Wenn Original und Arbeitsfassung widersprechen, die Zeitformulierung relativ/vage ist oder die Tageszeit aus dem Original nicht sicher verstanden wird: tageszeit = null und system.needs_review = true. Niemals die scheinbar plausiblere Tageszeit auswählen.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
 - zugangshinweise, parkhinweise und sonstige_hinweise müssen atomar sein: pro Array-Eintrag genau eine fachliche Aussage. Schlüssel und zugehöriger Code bleiben gemeinsam; Parkplatz, Lift/Ausrüstung und sonstige Hinweise sind getrennte Einträge.
 - Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
@@ -13620,7 +13536,7 @@ export async function processIncomingMessage(
       ? [
           `Nachricht Original:\n"${messageText}"`,
           `--- Semantisch normalisierte Arbeitsfassung (${hauptsprache}) ---\n${translationText}`,
-          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes, Strasse/PLZ/Ort und die semantische Bedeutung aller Terminangaben. Die Arbeitsfassung ist nur Sprachhilfe für professionelle ${hauptsprache}-Leistungsnamen und Hinweise; sie darf eine im Original genannte Tageszeit niemals überschreiben. Nur eine ausdrücklich benannte konventionelle Tageszeit darf als tageszeit gesetzt werden; relative oder vage Angaben dürfen nicht zu einer Tageszeit konkretisiert werden. Bei einem Widerspruch zwischen Original und Arbeitsfassung, einer relativen/vagen Zeitangabe oder unsicherer Originalbedeutung gilt: tageszeit=null, termine[].needs_review=true, termine[].review_reason="Tageszeit unklar" und system.needs_review=true. Für Ausführungsort-Namen gilt: echte Eigennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten; nur beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie eindeutig keine Eigennamen sind. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert. Arbeitsobjekte nicht verflachen: Fenster/Tische/Vitrinen im Raum bleiben Fenster/Tische/Vitrinen, nicht nur der Raum.`,
+          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes, Strasse/PLZ/Ort und die semantische Bedeutung aller Terminangaben. Die Arbeitsfassung ist nur Sprachhilfe für professionelle ${hauptsprache}-Leistungsnamen und Hinweise; sie darf eine im Original genannte Tageszeit niemals überschreiben. Nur eine ausdrücklich benannte konventionelle Tageszeit darf als tageszeit gesetzt werden; relative oder vage Angaben dürfen nicht zu einer Tageszeit konkretisiert werden. Bei einem Widerspruch zwischen Original und Arbeitsfassung, einer relativen/vagen Zeitangabe oder unsicherer Originalbedeutung gilt: tageszeit=null und system.needs_review=true. Für Ausführungsort-Namen gilt: echte Eigennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten; nur beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie eindeutig keine Eigennamen sind. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert. Arbeitsobjekte nicht verflachen: Fenster/Tische/Vitrinen im Raum bleiben Fenster/Tische/Vitrinen, nicht nur der Raum.`,
         ].join("\n\n")
       : `Nachricht:\n"${messageText}"`;
 
@@ -13977,12 +13893,6 @@ export async function processIncomingMessage(
         Object.freeze(cloneFirstAiStructuredValueV17_90L225(appointment)),
     ),
   );
-  const firstAiAppointmentReviewReasonsV17_90L257 =
-    collectFirstAiAppointmentReviewReasonsV17_90L257({
-      appointments:
-        firstAiAppointmentsSnapshotV17_90L225 as readonly AiAppointmentV17_90L86[],
-      systemNeedsReview: Boolean(parsed.system?.needs_review),
-    });
 
   // V17.90L213: Capture the first structured AI service rows immediately.
   // Every later validator/repair path works on separate data; it can no longer
@@ -17883,7 +17793,6 @@ export async function processIncomingMessage(
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
     ...customerGuardReviewReasons,
-    ...firstAiAppointmentReviewReasonsV17_90L257,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
@@ -17980,7 +17889,6 @@ export async function processIncomingMessage(
       reason.startsWith("item_currency_mismatch:") ||
       reason.startsWith("price_contradiction:") ||
       reason.startsWith("canonical_mutation_blocked:") ||
-      reason.startsWith(APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257) ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )
@@ -18365,7 +18273,6 @@ export async function processIncomingMessage(
       reason.startsWith("currency_") ||
       reason.startsWith("item_currency_mismatch:") ||
       reason.startsWith("canonical_mutation_blocked:") ||
-      reason.startsWith(APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257) ||
       reason.startsWith("intake_risk:") ||
       reason === "canonical_persistence_violation",
   )

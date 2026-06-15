@@ -801,25 +801,10 @@ const renderOrderAppointmentTooltipContentV17_90L169 = (
   }
 
   const parts = parseStructuredAppointmentTooltipV17_90L169(tooltip);
-  const isAppointmentReviewV17_90L257 =
-    badge.key === "appointment_clarify" ||
-    /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || "");
   return (
-    <span
-      className={`block rounded-xl border p-3 text-slate-950 dark:text-slate-50 ${
-        isAppointmentReviewV17_90L257
-          ? "border-red-300 bg-red-50 dark:border-red-800/70 dark:bg-red-950/35"
-          : "border-violet-300 bg-violet-50 dark:border-violet-800/70 dark:bg-violet-950/35"
-      }`}
-    >
+    <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
       <span className="flex items-start gap-2">
-        <CalendarDays
-          className={`mt-0.5 h-4 w-4 shrink-0 ${
-            isAppointmentReviewV17_90L257
-              ? "text-red-700 dark:text-red-300"
-              : "text-violet-700 dark:text-violet-300"
-          }`}
-        />
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
         <span className="min-w-0 flex-1">
           {parts.date ? (
             <span className="block text-lg font-extrabold leading-none tracking-tight">
@@ -827,7 +812,7 @@ const renderOrderAppointmentTooltipContentV17_90L169 = (
             </span>
           ) : (
             <span className="block text-sm font-extrabold leading-tight">
-              {isAppointmentReviewV17_90L257 ? "Termin prüfen" : "Termin"}
+              Termin
             </span>
           )}
           {parts.time && (
@@ -836,13 +821,7 @@ const renderOrderAppointmentTooltipContentV17_90L169 = (
             </span>
           )}
           {parts.note && (
-            <span
-              className={`mt-2 block border-t pt-2 text-[12px] font-medium leading-relaxed ${
-                isAppointmentReviewV17_90L257
-                  ? "border-red-200 dark:border-red-800/70"
-                  : "border-violet-200 dark:border-violet-800/70"
-              }`}
-            >
+            <span className="mt-2 block border-t border-violet-200 pt-2 text-[12px] font-medium leading-relaxed dark:border-violet-800/70">
               {parts.note}
             </span>
           )}
@@ -8135,37 +8114,6 @@ const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
   return !hasRealPhoneCallback;
 };
 
-const APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257 =
-  "appointment_clarify:";
-
-const getAppointmentReviewEvidenceV17_90L257 = (
-  reviewReasons?: string[] | null,
-): string[] =>
-  Array.from(
-    new Set(
-      (reviewReasons || [])
-        .filter((reason) =>
-          String(reason || "").startsWith(
-            APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257,
-          ),
-        )
-        .map((reason) =>
-          String(reason || "").slice(
-            APPOINTMENT_REVIEW_REASON_PREFIX_V17_90L257.length,
-          ),
-        )
-        .map((encoded) => {
-          try {
-            return decodeURIComponent(encoded);
-          } catch {
-            return encoded;
-          }
-        })
-        .map(compactText)
-        .filter(Boolean),
-    ),
-  );
-
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -8191,27 +8139,6 @@ const getBottomBadges = (
         label: appointment.label,
         className: "bg-violet-100 text-violet-700 border border-violet-300",
         tooltip: appointment.tooltip,
-      });
-    }
-
-    const appointmentReviewEvidenceV17_90L257 =
-      getAppointmentReviewEvidenceV17_90L257(order.reviewReasons);
-    if (appointmentReviewEvidenceV17_90L257.length > 0) {
-      pushUniqueBadge(badges, {
-        key: "appointment_clarify",
-        label:
-          appointmentReviewEvidenceV17_90L257.length > 1
-            ? `Termin prüfen · ${appointmentReviewEvidenceV17_90L257.length}`
-            : "Termin prüfen",
-        className: "bg-red-100 text-red-700 border border-red-400",
-        tooltip: [
-          "Termin prüfen",
-          ...appointmentReviewEvidenceV17_90L257.map(
-            (evidence) => `• ${evidence}`,
-          ),
-          "• Keine Tageszeit wurde geraten. Bitte Terminangabe manuell klären.",
-        ].join("\n"),
-        focusTarget: "specialNotes",
       });
     }
     return badges;
@@ -8367,7 +8294,7 @@ const getBottomBadges = (
       pushUniqueBadge(badges, {
         key: "appointment_clarify",
         label: "Termin klären",
-        className: "bg-red-100 text-red-700 border border-red-400",
+        className: "bg-amber-100 text-amber-800 border border-amber-300",
         tooltip: compactText(appointmentClarification).slice(0, 120),
         focusTarget: "specialNotes",
       });
@@ -17316,11 +17243,11 @@ export default function AuftraegePage() {
               "sms_request",
             ];
             const appointmentBadges = bottomBadges.filter((badge) =>
-              // V17.90L257: Konkrete Termine und rote Termin-Prüfbefunde
-              // bleiben gemeinsam rechts neben dem Betrag sichtbar.
+              // V17.90L177: Auch ein einzelner, nach einem Merge noch gültiger
+              // Termin muss außen sichtbar bleiben. Mehrere Termine werden
+              // weiterhin als gemeinsamer "Termine · n"-Chip dargestellt.
               badge.key === "appointment" ||
-              badge.key === "appointments_multiple" ||
-              badge.key === "appointment_clarify",
+              badge.key === "appointments_multiple",
             );
             const callbackBadges = hasMultipleMergedData
               ? []
@@ -17340,7 +17267,6 @@ export default function AuftraegePage() {
                 : ![
                     "appointment",
                     "appointments_multiple",
-                    "appointment_clarify",
                     "callback_request",
                     "sms_request",
                     "merged_data_review",
@@ -21481,7 +21407,7 @@ export default function AuftraegePage() {
                     </div>
                   </div>
 
-                  <>
+                  {!showNewCustomer && (
                     <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <Button
@@ -21535,7 +21461,7 @@ export default function AuftraegePage() {
                         </div>
                       </div>
                     </div>
-                  </>
+                  )}
 
                   {/* Besonderheiten — always visible, important warnings highlighted */}
                   <div
