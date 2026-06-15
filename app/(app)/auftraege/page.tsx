@@ -6483,9 +6483,11 @@ const renderStructuredRedReviewTooltipV17_90L73 = (
           key={`${keyPrefix}_section_${sectionIndex}`}
           className={`block ${sectionIndex > 0 ? "border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
         >
-          <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
-            {section.title}
-          </span>
+          {!(sections.length === 1 && section.title === "Prüfung") && (
+            <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </span>
+          )}
           <span className="block space-y-1">
             {section.rows.map((rawRow, rowIndex) => {
               const row = rawRow.replace(/^•\s*/, "").trim();
@@ -6509,6 +6511,71 @@ const renderStructuredRedReviewTooltipV17_90L73 = (
       ))}
     </span>
   );
+};
+
+const conciseRedReviewReasonV17_90L245 = (
+  badge: ReviewBadge,
+  detail: string,
+) => {
+  if (badge.key === "price_contradiction") return "Preiswiderspruch";
+  if (badge.key === "currency_review") return "Währung prüfen";
+  if (badge.key === "canonical_mutation") return "Erfassung prüfen";
+  if (badge.key === "recognition_review") return "Erkennung prüfen";
+  if (badge.key === "unit_conflict") return "Einheit prüfen";
+
+  const normalizedDetail = compactText(detail)
+    .replace(/\.$/, "")
+    .replace(/Preis oder Menge fehlt\/ist unsicher/i, "Preis oder Menge prüfen")
+    .replace(/Preis im Text unklar/i, "Preis prüfen");
+  return normalizedDetail || compactText(badge.label).replace(/\s*·\s*\d+\s*$/, "");
+};
+
+const consolidateRedReviewRowsV17_90L245 = (badges: ReviewBadge[]) => {
+  const rows = new Map<
+    string,
+    { serviceName: string; reasons: string[] }
+  >();
+  const orderLevelRows: string[] = [];
+
+  badges.forEach((badge) => {
+    const details = compactRedReviewDetailLinesV17_90L73(badge);
+    let foundServiceRow = false;
+
+    details.forEach((line) => {
+      const match = line.match(/^(.+?)\s+[—–-]\s+(.+)$/u);
+      if (!match?.[1]) return;
+
+      foundServiceRow = true;
+      const rawServiceName = match[1].replace(/^•\s*/, "").trim();
+      const serviceName =
+        canonicalServiceNameForOrderItem(rawServiceName) || rawServiceName;
+      const key = normalizeForMatch(serviceName);
+      if (!key) return;
+
+      const reason = conciseRedReviewReasonV17_90L245(
+        badge,
+        match[2] || "",
+      );
+      const existing = rows.get(key) || { serviceName, reasons: [] };
+      if (reason && !existing.reasons.includes(reason)) {
+        existing.reasons.push(reason);
+      }
+      rows.set(key, existing);
+    });
+
+    if (!foundServiceRow) {
+      const label = compactText(badge.label).replace(/\s*·\s*\d+\s*$/, "");
+      if (label && !orderLevelRows.includes(label)) orderLevelRows.push(label);
+    }
+  });
+
+  return [
+    ...Array.from(rows.values()).map(
+      (entry) =>
+        `${entry.serviceName} — ${entry.reasons.join(" · ") || "Prüfen"}`,
+    ),
+    ...orderLevelRows,
+  ];
 };
 
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
@@ -6535,18 +6602,10 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
 
   if (redBadges.length > 1) {
-    const concreteReviewCount =
-      concreteRedReviewPositionCountV17_90L242(redBadges);
-    const summarySections = redBadges.flatMap((badge, index) => {
-      const details = compactRedReviewDetailLinesV17_90L73(badge);
-      return [
-        badge.label,
-        ...(details.length > 0
-          ? details.map((line) => `• ${line}`)
-          : ["• Offenen Prüfpunkt kontrollieren."]),
-        ...(index < redBadges.length - 1 ? ["------"] : []),
-      ];
-    });
+    const consolidatedRows = consolidateRedReviewRowsV17_90L245(redBadges);
+    const concreteReviewCount = consolidatedRows.length > 0
+      ? consolidatedRows.length
+      : concreteRedReviewPositionCountV17_90L242(redBadges);
 
     return [
       {
@@ -6554,7 +6613,12 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
         label: `Auftrag prüfen · ${concreteReviewCount}`,
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
-        tooltip: ["Auftrag prüfen", ...summarySections].join("\n"),
+        tooltip: [
+          "Auftrag prüfen",
+          ...(consolidatedRows.length > 0
+            ? consolidatedRows.map((line) => `• ${line}`)
+            : ["• Offenen Prüfpunkt kontrollieren."]),
+        ].join("\n"),
         focusTarget: "items",
       },
       ...catalogBadges,
@@ -7423,6 +7487,19 @@ const getSystemBadges = (
     });
   }
 
+  const priceUnclearServiceKeysV17_90L245 = new Set(
+    (order.reviewReasons || [])
+      .filter((reason) => String(reason || "").startsWith("price_unclear:"))
+      .map((reason) =>
+        normalizeForMatch(
+          canonicalServiceNameForOrderItem(
+            String(reason || "").split(":").slice(1).join(":"),
+          ),
+        ),
+      )
+      .filter(Boolean),
+  );
+
   const priceContradictionServiceNamesV17_90L234 = Array.from(
     new Set(
       (order.reviewReasons || [])
@@ -7435,7 +7512,23 @@ const getSystemBadges = (
           ),
         )
         .map(compactText)
-        .filter(Boolean),
+        .filter((serviceName) => {
+          if (!serviceName) return false;
+          const serviceKey = normalizeForMatch(serviceName);
+          const matchingItem = (order.items || []).find(
+            (item) =>
+              normalizeForMatch(
+                canonicalServiceNameForOrderItem(item.serviceName),
+              ) === serviceKey,
+          );
+          // V17.90L245: Eine Position mit offenem Preis ist „Preis prüfen“ und
+          // darf nicht zusätzlich als Preiswiderspruch erscheinen. Das hält den
+          // roten Außenchip positionsgenau und verhindert doppelte Popover-Zeilen.
+          return !(
+            priceUnclearServiceKeysV17_90L245.has(serviceKey) ||
+            Number(matchingItem?.unitPrice || 0) <= 0
+          );
+        }),
     ),
   );
 
@@ -12590,9 +12683,25 @@ export default function AuftraegePage() {
               item.serviceName,
             ),
           );
+          const itemHadPriceUnclearReviewV17_90L245 = Boolean(
+            currentEditOrder?.reviewReasons?.some((reason) => {
+              if (!String(reason || "").startsWith("price_unclear:")) {
+                return false;
+              }
+              const reasonService = String(reason || "")
+                .split(":")
+                .slice(1)
+                .join(":");
+              return reviewServiceNamesMatchV17_90L241(
+                reasonService,
+                item.serviceName,
+              );
+            }),
+          );
           const itemHadCurrencyOrPriceReview =
             hasFormItemCurrencyMismatch(item) ||
             itemHadPriceContradictionV17_90L234 ||
+            itemHadPriceUnclearReviewV17_90L245 ||
             isBlockingCurrencyReviewText(item.aiWarning) ||
             Boolean(
               hasCurrentEditCurrencyReview &&
@@ -14983,6 +15092,7 @@ export default function AuftraegePage() {
           }
 
           if (
+            !editId &&
             allItemsComplete &&
             (reason.startsWith("price_unclear:") ||
               reason === "unit_price_review" ||
@@ -15055,6 +15165,35 @@ export default function AuftraegePage() {
         const resolvedCurrencyItem =
           !itemIsStillBlockedByCurrency &&
           (formHasResolvedCurrencyReview || itemCurrencyConfirmed);
+        const itemServiceKeyV17_90L245 = normalizeForMatch(
+          canonicalServiceNameForOrderItem(item.serviceName),
+        );
+        const hasPendingExplicitItemDecisionV17_90L245 = Boolean(
+          editId &&
+            !item.manualReviewConfirmed &&
+            currentEditReviewReasons.some((reason) => {
+              const key = String(reason || "");
+              if (
+                !key.startsWith("price_unclear:") &&
+                !key.startsWith("price_contradiction:") &&
+                !key.startsWith("unit_missing_in_text:") &&
+                !key.startsWith("canonical_mutation_blocked:") &&
+                !key.startsWith("item_currency_mismatch:") &&
+                !key.startsWith("currency_conflict_item:")
+              ) {
+                return false;
+              }
+              const reasonServiceKey = reviewReasonServiceKeyV17_90L241(key);
+              return Boolean(
+                reasonServiceKey &&
+                  itemServiceKeyV17_90L245 &&
+                  reviewServiceNamesMatchV17_90L241(
+                    reasonServiceKey,
+                    itemServiceKeyV17_90L245,
+                  ),
+              );
+            }),
+        );
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
@@ -15069,7 +15208,9 @@ export default function AuftraegePage() {
           unitPrice: itemIsStillBlockedByCurrency
             ? 0
             : Number(item.unitPrice || 0),
-          totalPrice: getSafeFormItemTotal(item),
+          totalPrice: hasPendingExplicitItemDecisionV17_90L245
+            ? 0
+            : getSafeFormItemTotal(item),
           workSiteId: item.workSiteId || null,
         };
       }),
@@ -19390,11 +19531,21 @@ export default function AuftraegePage() {
                               r.startsWith("price_unclear:"),
                             )
                             .find((r: string) => {
-                              const [, serviceName] = r.split(":");
-                              return (
-                                !serviceName ||
-                                normalizeForMatch(serviceName) ===
-                                  normalizeForMatch(item.serviceName)
+                              const reasonService = String(r || "")
+                                .split(":")
+                                .slice(1)
+                                .join(":");
+                              if (!reasonService) {
+                                return Boolean(
+                                  persistedOrderItemForReviewV17_90L243 &&
+                                    Number(
+                                      persistedOrderItemForReviewV17_90L243.unitPrice || 0,
+                                    ) <= 0,
+                                );
+                              }
+                              return reviewServiceNamesMatchV17_90L241(
+                                reasonService,
+                                item.serviceName,
                               );
                             });
                           const priceContradictionReasonV17_90L234 =
@@ -19402,9 +19553,14 @@ export default function AuftraegePage() {
                               curOrder?.reviewReasons,
                               item.serviceName,
                             );
+                          const hasPendingPriceUnclearReviewV17_90L245 = Boolean(
+                            priceUnclearReason &&
+                              !manualReviewConfirmedV17_90L241,
+                          );
                           const showPriceContradictionReviewV17_90L234 = Boolean(
                             priceContradictionReasonV17_90L234 &&
-                              !item.manualCurrencyConfirmed,
+                              !item.manualCurrencyConfirmed &&
+                              !hasPendingPriceUnclearReviewV17_90L245,
                           );
 
                           const catalogService = findCatalogServiceForName(
@@ -19502,6 +19658,7 @@ export default function AuftraegePage() {
                           const itemTotal =
                             hasPersistedBlockingItemReviewV17_90L243 ||
                             hasExplicitBlockingReviewV17_90L241 ||
+                            hasPendingPriceUnclearReviewV17_90L245 ||
                             (unitMissingInTextReason && !manualUnitConfirmed)
                               ? 0
                               : getSafeFormItemTotal(item);
@@ -19533,8 +19690,8 @@ export default function AuftraegePage() {
                                   ? "Einheit"
                                   : "",
                                 quantityInputReview ? "Menge" : "",
-                                priceInputReview &&
-                                itemPriceNumber <= 0 &&
+                                (priceInputReview ||
+                                  hasPendingPriceUnclearReviewV17_90L245) &&
                                 !unresolvedCurrencyItem
                                   ? "Preis"
                                   : "",
@@ -19615,6 +19772,7 @@ export default function AuftraegePage() {
                             showCurrencyConflictItemReview ||
                             hasPersistedBlockingItemReviewV17_90L243 ||
                             hasInternalHardReviewState ||
+                            hasPendingPriceUnclearReviewV17_90L245 ||
                             showPriceContradictionReviewV17_90L234 ||
                             (!unresolvedCurrencyItem &&
                               (showUnitConflict ||
@@ -19630,6 +19788,7 @@ export default function AuftraegePage() {
                             unresolvedCurrencyItem ||
                             hasPersistedBlockingItemReviewV17_90L243 ||
                             hasInternalHardReviewState ||
+                            hasPendingPriceUnclearReviewV17_90L245 ||
                             showPriceContradictionReviewV17_90L234 ||
                             hasMissingItemInput ||
                             hasExplicitBlockingReviewV17_90L241 ||
@@ -19645,6 +19804,10 @@ export default function AuftraegePage() {
                           const compactBlockingReviewMessageV17_90L242 =
                             unresolvedCurrencyItem
                               ? "Währung und Preis müssen bestätigt werden."
+                              : hasPendingPriceUnclearReviewV17_90L245
+                                ? itemPriceNumber > 0
+                                  ? `Preis ${formatCurrency(itemPriceNumber, currency)} muss bestätigt werden.`
+                                  : "Preis ist unklar."
                               : showPriceContradictionReviewV17_90L234
                                 ? "Gesamt-/Pauschalpreis und Preis je Einheit widersprechen sich."
                                 : compactBlockingFieldListV17_90L242
@@ -19720,6 +19883,8 @@ export default function AuftraegePage() {
                           const itemReviewReasonV17_90L134 =
                             (unresolvedCurrencyItem
                               ? "Währung prüfen"
+                              : hasPendingPriceUnclearReviewV17_90L245
+                                ? "Preis prüfen"
                               : showPriceContradictionReviewV17_90L234
                                 ? "Preiswiderspruch"
                                 : blockingReviewBadgeLabelV17_90L243 ||

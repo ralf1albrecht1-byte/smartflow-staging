@@ -283,6 +283,59 @@ function priceContradictionTokenOverlapV17_90L234(
   );
 }
 
+function priceContradictionLooseIdentityMatchV17_90L245(
+  segment: string,
+  tokens: string[],
+): boolean {
+  if (tokens.length === 0) return false;
+  const segmentTokens = normalizePriceContradictionTextV17_90L234(segment)
+    .split(/\s+/g)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter(Boolean);
+
+  return tokens.some((token) =>
+    segmentTokens.some(
+      (candidate) =>
+        candidate === token ||
+        (Math.min(candidate.length, token.length) >= 5 &&
+          (candidate.startsWith(token) || token.startsWith(candidate))),
+    ),
+  );
+}
+
+function priceContradictionStrongServiceMatchV17_90L245(
+  segment: string,
+  tokens: string[],
+): boolean {
+  const uniqueTokens = Array.from(new Set(tokens.filter(Boolean)));
+  if (uniqueTokens.length === 0) return false;
+
+  const segmentTokens = Array.from(
+    new Set(
+      normalizePriceContradictionTextV17_90L234(segment)
+        .split(/\s+/g)
+        .map((token) => token.replace(/[^a-z0-9]/g, ""))
+        .filter(Boolean),
+    ),
+  );
+  const matches = uniqueTokens.filter((token) =>
+    segmentTokens.some(
+      (candidate) =>
+        candidate === token ||
+        (Math.min(candidate.length, token.length) >= 6 &&
+          (candidate.startsWith(token) || token.startsWith(candidate))),
+    ),
+  ).length;
+
+  // Ein einzelner eindeutiger Identitätstoken (z. B. „Büroräume“) reicht.
+  // Bei zusammengesetzten Leistungsnamen müssen dagegen mindestens zwei
+  // Identitätstoken passen. So kann „Tische im Sitzungszimmer“ nicht den
+  // Preiswiderspruch von „Sitzungszimmer komplett reinigen“ erben, nur weil
+  // beide dieselbe Raumbezeichnung enthalten.
+  if (uniqueTokens.length === 1) return matches === 1;
+  return matches >= 2 && matches / uniqueTokens.length >= 0.5;
+}
+
 function extractPriceAmountsV17_90L234(value: unknown): number[] {
   const source = String(value || "");
   const matches = Array.from(
@@ -324,7 +377,7 @@ function inferPriceContradictionQuantityV17_90L234(
   fallbackQuantity?: number | null,
 ): number | null {
   for (const segment of segments) {
-    if (!priceContradictionTokenOverlapV17_90L234(segment, tokens)) continue;
+    if (!priceContradictionStrongServiceMatchV17_90L245(segment, tokens)) continue;
     const normalized = normalizePriceContradictionTextV17_90L234(segment);
     const numeric = normalized.match(/\b(\d{1,4}(?:[.,]\d+)?)\b/);
     if (numeric?.[1]) {
@@ -355,7 +408,7 @@ function totalPriceCandidateBelongsToItemV17_90L234(args: {
   itemTokens: string[];
 }): boolean {
   if (
-    priceContradictionTokenOverlapV17_90L234(
+    priceContradictionStrongServiceMatchV17_90L245(
       args.candidateSegment,
       args.itemTokens,
     )
@@ -382,7 +435,7 @@ function totalPriceCandidateBelongsToItemV17_90L234(args: {
   ) {
     const segment = args.segments[index];
     if (priceContradictionTokensV17_90L234(segment).length === 0) continue;
-    return priceContradictionTokenOverlapV17_90L234(
+    return priceContradictionStrongServiceMatchV17_90L245(
       segment,
       args.itemTokens,
     );
@@ -395,7 +448,7 @@ function totalPriceCandidateBelongsToItemV17_90L234(args: {
   ) {
     const segment = args.segments[index];
     if (priceContradictionTokensV17_90L234(segment).length === 0) continue;
-    return priceContradictionTokenOverlapV17_90L234(
+    return priceContradictionStrongServiceMatchV17_90L245(
       segment,
       args.itemTokens,
     );
@@ -442,7 +495,7 @@ export function detectReadOnlyPriceContradictionsV17_90L234(args: {
 
     const anchorIndexes = segments
       .map((segment, index) =>
-        priceContradictionTokenOverlapV17_90L234(segment, tokens)
+        priceContradictionStrongServiceMatchV17_90L245(segment, tokens)
           ? index
           : -1,
       )
@@ -477,10 +530,9 @@ export function detectReadOnlyPriceContradictionsV17_90L234(args: {
         index,
         amounts: extractPriceAmountsV17_90L234(segment),
         isPerUnit: hasPerUnitPriceMarkerV17_90L234(segment),
-        matchesService: priceContradictionTokenOverlapV17_90L234(
-          segment,
-          tokens,
-        ),
+        matchesService:
+          priceContradictionStrongServiceMatchV17_90L245(segment, tokens) ||
+          priceContradictionLooseIdentityMatchV17_90L245(segment, tokens),
       }))
       .filter(
         (candidate) =>
@@ -511,7 +563,7 @@ export function detectReadOnlyPriceContradictionsV17_90L234(args: {
     const perUnitAmount = pair.perCandidate.amounts[0];
     const quantity = inferPriceContradictionQuantityV17_90L234(
       segments.filter((segment) =>
-        priceContradictionTokenOverlapV17_90L234(segment, tokens),
+        priceContradictionStrongServiceMatchV17_90L245(segment, tokens),
       ),
       tokens,
       item.quantity,
