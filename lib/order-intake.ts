@@ -203,10 +203,15 @@ const emptyFinalAiRoleReviewResultV17_90L216 = (): FinalAiRoleReviewResultV17_90
 });
 
 type ReadOnlyWorkCoverageMissingFindingV17_90L251 = {
+  semanticId: string;
   source: "original" | "translation";
   quote: string;
+  relatedRoleText: string | null;
   reason: string;
 };
+
+const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252 =
+  "intake_risk:recognition_review:";
 
 type ReadOnlyWorkCoverageInvalidItemV17_90L251 = {
   itemIndex: number;
@@ -226,6 +231,22 @@ const emptyFinalAiWorkCoverageResultV17_90L251 =
 
 function compactExactSourceTextV17_90L251(value: unknown): string {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function deterministicReviewFindingIdV17_90L252(value: unknown): string {
+  const normalized = compactExactSourceTextV17_90L251(value)
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  let hash = 2166136261;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `work_${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function exactQuoteExistsInSourceV17_90L251(
@@ -280,12 +301,18 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "Du bist der letzte sprachunabhängige KI-Prüfer vor dem unveränderbaren Canonical Lock einer Auftragserfassung.",
               "Arbeite rein semantisch. Verwende keine festen Wortlisten, keine sprachspezifischen Zuordnungen und keine firmenspezifischen Regeln.",
               "Prüfe zwei Dinge:",
-              "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden, damit sie als rote Prüfposition gesperrt wird. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
-              "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück; die Position wird fail-closed zur manuellen Prüfung gesperrt.",
+              "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
+              "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück.",
+              "WICHTIG: Du bist ausschließlich Prüfer. Deine Befunde dürfen niemals workItems verändern oder neue workItems erzeugen.",
+              "Bewerte jeden roleEntries-Eintrag ausdrücklich darauf, ob er semantisch eine mögliche/verlangte Arbeit beschreibt. Wenn ja und kein workItem dieselbe Arbeit abdeckt, muss genau ein missingWork-Befund entstehen.",
+              "Original und Übersetzung derselben Aussage sind nur zwei Belege derselben Arbeit. Gib pro zugrunde liegender Arbeit genau einen Befund zurück, bevorzuge dafür das Originalzitat und verwende für beide Sprachvarianten dieselbe semanticId.",
+              "relatedRoleText muss, falls die Aussage bereits in roleEntries steht, exakt den vollständigen roleEntries.text-Wert enthalten. Sonst null.",
+              "Gib zusätzlich roleAssessments zurück und bewerte jeden übergebenen roleEntries-Eintrag genau einmal. classification ist possible_work_missing, possible_work_covered, not_work oder uncertain. Eine mögliche Arbeit mit unklaren Details ist possible_work_missing, wenn kein workItem sie abdeckt. uncertain ist ebenfalls ein Kontrollbefund, niemals eine automatische Leistung.",
               "Vergleiche Bedeutung und line-lokale Evidenz. Mengen, Einheiten, Preise und Währungen dürfen nicht auf andere Positionen übertragen werden.",
               "missingWork.quote muss ein kurzes, exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Nicht umformulieren, nicht übersetzen und nichts erfinden.",
-              "Melde ausschließlich eindeutige Befunde mit confidence=high. Bei Unsicherheit nichts behaupten.",
-              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+              "semanticId ist eine kurze, sprachunabhängige Identität derselben Arbeit, z. B. work_1. Sie dient nur zur Gruppierung und darf keine fachlichen Werte enthalten.",
+              "Melde nur Befunde mit confidence=high. classification=uncertain bedeutet: Du bist sicher, dass der Eintrag eine mögliche Arbeit beschreibt, aber seine fachlichen Details oder die Abdeckung sind unklar. Bei Unsicherheit darüber, ob überhaupt eine Arbeit gemeint ist, melde keinen Befund.",
+              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":\"exakter roleEntries.text-Wert oder null\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"roleAssessments\":[{\"roleText\":\"exakter roleEntries.text-Wert\",\"classification\":\"possible_work_missing|possible_work_covered|not_work|uncertain\",\"semanticId\":\"work_1 oder leer\",\"source\":\"original|translation oder leer\",\"quote\":\"exaktes Zitat oder leer\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
             ].join("\n"),
           },
           {
@@ -316,50 +343,142 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
     ).trim();
     const parsed = rawContent ? JSON.parse(rawContent) : null;
 
-    const missingWork: ReadOnlyWorkCoverageMissingFindingV17_90L251[] = [];
-    const seenMissing = new Set<string>();
-    for (const raw of Array.isArray(parsed?.missingWork)
-      ? parsed.missingWork.slice(0, 12)
-      : []) {
+    const rawRoleAssessmentMissingWork = (
+      Array.isArray(parsed?.roleAssessments)
+        ? parsed.roleAssessments.slice(0, args.roleEntries.length + 8)
+        : []
+    ).flatMap((raw: any) => {
       const confidence = String(raw?.confidence || "").toLowerCase();
-      const source = String(raw?.source || "").toLowerCase() as
-        | "original"
-        | "translation"
-        | "";
-      const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+      const classification = String(raw?.classification || "").toLowerCase();
+      const roleText = compactExactSourceTextV17_90L251(raw?.roleText).slice(
+        0,
+        520,
+      );
+      const roleExists = args.roleEntries.some(
+        (entry) =>
+          compactExactSourceTextV17_90L251(entry.text) === roleText,
+      );
       if (
         confidence !== "high" ||
-        !["original", "translation"].includes(source) ||
-        quote.length < 8
+        !roleExists ||
+        !["possible_work_missing", "uncertain"].includes(classification)
       ) {
-        continue;
+        return [];
       }
-      const selectedSource =
-        source === "translation" ? args.translatedText : args.originalText;
-      if (!exactQuoteExistsInSourceV17_90L251(selectedSource, quote)) continue;
+      return [
+        {
+          ...raw,
+          relatedRoleText: roleText,
+          reason:
+            compactExactSourceTextV17_90L251(raw?.reason) ||
+            (classification === "uncertain"
+              ? "mögliche Arbeit semantisch unklar"
+              : "mögliche Arbeit nicht in workItems vertreten"),
+        },
+      ];
+    });
 
-      const evidenceAlreadyRepresented = args.workItems.some((item) => {
-        const existing = compactExactSourceTextV17_90L251(item.sourceText);
-        return Boolean(
-          existing &&
-            (existing.toLocaleLowerCase("de-CH").includes(
-              quote.toLocaleLowerCase("de-CH"),
-            ) ||
-              quote.toLocaleLowerCase("de-CH").includes(
-                existing.toLocaleLowerCase("de-CH"),
-              )),
-        );
-      });
-      if (evidenceAlreadyRepresented) continue;
+    const rawMissingWork = [
+      ...(Array.isArray(parsed?.missingWork)
+        ? parsed.missingWork.slice(0, 12)
+        : []),
+      ...rawRoleAssessmentMissingWork,
+    ]
+      .map((raw: any) => {
+        const confidence = String(raw?.confidence || "").toLowerCase();
+        const source = String(raw?.source || "").toLowerCase() as
+          | "original"
+          | "translation"
+          | "";
+        const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+        const providedSemanticId = compactExactSourceTextV17_90L251(
+          raw?.semanticId,
+        )
+          .replace(/[^a-zA-Z0-9_-]+/g, "_")
+          .slice(0, 120);
+        const relatedRoleTextCandidate =
+          compactExactSourceTextV17_90L251(raw?.relatedRoleText).slice(0, 520);
+        const relatedRoleText =
+          relatedRoleTextCandidate &&
+          args.roleEntries.some(
+            (entry) =>
+              compactExactSourceTextV17_90L251(entry.text) ===
+              relatedRoleTextCandidate,
+          )
+            ? relatedRoleTextCandidate
+            : null;
+        const semanticId =
+          providedSemanticId ||
+          deterministicReviewFindingIdV17_90L252(
+            relatedRoleText || quote,
+          );
+        if (
+          confidence !== "high" ||
+          !["original", "translation"].includes(source) ||
+          quote.length < 8
+        ) {
+          return null;
+        }
+        const selectedSource =
+          source === "translation" ? args.translatedText : args.originalText;
+        if (!exactQuoteExistsInSourceV17_90L251(selectedSource, quote)) {
+          return null;
+        }
 
-      const key = `${source}|${quote.toLocaleLowerCase("de-CH")}`;
-      if (seenMissing.has(key)) continue;
-      seenMissing.add(key);
-      missingWork.push({
-        source: source as "original" | "translation",
-        quote,
-        reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
-      });
+        const evidenceAlreadyRepresented = args.workItems.some((item) => {
+          const existing = compactExactSourceTextV17_90L251(item.sourceText);
+          return Boolean(
+            existing &&
+              (existing.toLocaleLowerCase("de-CH").includes(
+                quote.toLocaleLowerCase("de-CH"),
+              ) ||
+                quote.toLocaleLowerCase("de-CH").includes(
+                  existing.toLocaleLowerCase("de-CH"),
+                )),
+          );
+        });
+        if (evidenceAlreadyRepresented) return null;
+
+        return {
+          semanticId,
+          source: source as "original" | "translation",
+          quote,
+          relatedRoleText,
+          reason: compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240),
+        } satisfies ReadOnlyWorkCoverageMissingFindingV17_90L251;
+      })
+      .filter(
+        (
+          finding: ReadOnlyWorkCoverageMissingFindingV17_90L251 | null,
+        ): finding is ReadOnlyWorkCoverageMissingFindingV17_90L251 =>
+          Boolean(finding),
+      )
+      .sort((left, right) =>
+        left.source === right.source ? 0 : left.source === "original" ? -1 : 1,
+      );
+
+    const missingWork: ReadOnlyWorkCoverageMissingFindingV17_90L251[] = [];
+    const semanticRoleById = new Map<string, string>();
+    const seenRoleTexts = new Set<string>();
+    for (const finding of rawMissingWork) {
+      const roleKey = finding.relatedRoleText
+        ? finding.relatedRoleText.toLocaleLowerCase("de-CH")
+        : "";
+      if (roleKey && seenRoleTexts.has(roleKey)) continue;
+
+      const priorRoleKey = semanticRoleById.get(finding.semanticId);
+      if (priorRoleKey !== undefined) {
+        // Same semantic id + same role (or no role on either side) is the same
+        // underlying work from original/translation. If the checker
+        // accidentally reused an id for two different role entries, preserve
+        // both findings with a deterministic suffix instead of losing work.
+        if (!roleKey || !priorRoleKey || roleKey === priorRoleKey) continue;
+        finding.semanticId = `${finding.semanticId}_${missingWork.length + 1}`;
+      }
+
+      semanticRoleById.set(finding.semanticId, roleKey);
+      if (roleKey) seenRoleTexts.add(roleKey);
+      missingWork.push(finding);
     }
 
     const invalidItems: ReadOnlyWorkCoverageInvalidItemV17_90L251[] = [];
@@ -9621,18 +9740,12 @@ function buildCanonicalAiOrderItemsV17_90L88(
 ): CanonicalAiOrderItemV17_90L88[] {
   if (!Array.isArray(rawItems)) return [];
 
-  const structurallyPreparedRawItemsV17_90L232 =
-    mergeSharedFlatPackageRowsV17_90L232(
-      rawItems,
-      _translatedText,
-      _contextText,
-    );
-
-  // V17.90L225: Hard first-AI service boundary.
-  // Every structured AI row is retained in its original order. Missing or
-  // uncertain business fields become visible review fields; they are never a
-  // reason to delete the row or rebuild it from the whole customer message.
-  return structurallyPreparedRawItemsV17_90L232.map((raw, canonicalOrder) => {
+  // V17.90L252: Hard first-AI-only writer boundary. Every persisted row is a
+  // direct normalization of exactly one structured first-AI workItem. No
+  // merge, rescue, source-text inference or cross-row repair may add, remove,
+  // rename or fill a business value here. Derived totals and review flags are
+  // allowed because they do not replace an AI-selected field.
+  return rawItems.map((raw, canonicalOrder) => {
     const sourceText = String(
       raw?.sourceText ??
         raw?.source_text ??
@@ -9657,75 +9770,29 @@ function buildCanonicalAiOrderItemsV17_90L88(
     )
       .replace(/\s+/g, " ")
       .trim();
-
     const serviceName = rawServiceName || "Leistung prüfen";
-    const aiQuantity = parsePositiveCanonicalNumberV17_90L89(
+
+    const quantity = parsePositiveCanonicalNumberV17_90L89(
       raw?.quantity ?? raw?.menge,
     );
-    const aiUnitPrice = parsePositiveCanonicalNumberV17_90L89(
+    const unitPrice = parsePositiveCanonicalNumberV17_90L89(
       raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
     );
-
     const rawUnit = String(raw?.unit ?? raw?.einheit ?? "")
       .replace(/\s+/g, " ")
       .trim();
     const rawUnitType = getServiceUnitType(rawUnit);
-    const evidenceStructureV17_90L226 =
-      analyzeCanonicalEvidenceStructureV17_90L226({
-        sourceText,
-        serviceName,
-      });
-
-    // A clear total/flat amount is one billable package even when the service
-    // description contains room/floor/object counts. A contradictory total vs.
-    // per-unit statement is never resolved automatically: retain the explicit
-    // count and block only the price.
-    const useExplicitFlatTotalV17_90L226 = Boolean(
-      evidenceStructureV17_90L226.explicitFlatTotal &&
-        !evidenceStructureV17_90L226.perUnitSignal &&
-        !evidenceStructureV17_90L226.priceConflict,
-    );
-    const quantity = useExplicitFlatTotalV17_90L226
-      ? 1
-      : aiQuantity > 0
-        ? aiQuantity
-        : evidenceStructureV17_90L226.inferredQuantity;
-    const unitPrice = evidenceStructureV17_90L226.priceConflict
-      ? 0
-      : evidenceStructureV17_90L226.consistentTotalAndPerUnit &&
-          evidenceStructureV17_90L226.inferredPerUnitPrice > 0
-        ? evidenceStructureV17_90L226.inferredPerUnitPrice
-        : aiUnitPrice > 0
-          ? aiUnitPrice
-          : useExplicitFlatTotalV17_90L226
-            ? evidenceStructureV17_90L226.inferredFlatPrice
-            : 0;
-
-    const unit = useExplicitFlatTotalV17_90L226
-      ? "Pauschal"
-      : rawUnitType !== "unknown"
-        ? unitTypeToDisplayUnit(rawUnitType)
-        : evidenceStructureV17_90L226.inferredUnit ||
-          rawUnit ||
-          "Einheit prüfen";
-    const unitSource: CanonicalUnitSourceV17_90L89 =
-      useExplicitFlatTotalV17_90L226
-        ? "structural_flat"
-        : rawUnit
-          ? "ai"
-          : evidenceStructureV17_90L226.inferredUnit
-            ? "structural_piece"
-            : "missing";
+    const unit = rawUnitType !== "unknown"
+      ? unitTypeToDisplayUnit(rawUnitType)
+      : rawUnit || "Einheit prüfen";
+    const unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
+      ? "ai"
+      : "missing";
 
     const explicitCurrency = String(raw?.currency || "")
       .trim()
       .toUpperCase();
-    const detectedCurrency =
-      explicitCurrency ||
-      String(detectCurrencyFromText(sourceText) || "")
-        .trim()
-        .toUpperCase() ||
-      null;
+    const detectedCurrency = explicitCurrency || null;
 
     const confidenceKey = normalizeUnitText(
       raw?.confidence ?? raw?.service_confidence ?? "",
@@ -9733,8 +9800,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
     const confidence =
       confidenceKey.includes("niedrig") || confidenceKey.includes("low")
         ? "niedrig"
-        : confidenceKey.includes("mittel") ||
-            confidenceKey.includes("medium")
+        : confidenceKey.includes("mittel") || confidenceKey.includes("medium")
           ? "mittel"
           : "hoch";
 
@@ -9754,29 +9820,27 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     const needsReview = Boolean(
       explicitNeedsReview ||
-        evidenceStructureV17_90L226.priceConflict ||
         missingServiceName ||
         missingEvidence ||
         missingPrice ||
         missingQuantity ||
         missingUnit,
     );
-    const reviewReason = evidenceStructureV17_90L226.priceConflict
-      ? `price_structure_conflict:${serviceName}`
-      : explicitReviewReason ||
-        (missingServiceName
-          ? "service_name_missing"
-          : missingEvidence
-            ? `source_evidence_missing:${serviceName}`
-            : missingPrice
-              ? `price_unclear:${serviceName}`
-              : missingQuantity
-                ? `quantity_review:${serviceName}`
-                : missingUnit
-                  ? `unit_missing_in_text:${serviceName}`
-                  : explicitNeedsReview
-                    ? `ai_review_required:${serviceName}`
-                    : null);
+    const reviewReason =
+      explicitReviewReason ||
+      (missingServiceName
+        ? "service_name_missing"
+        : missingEvidence
+          ? `source_evidence_missing:${serviceName}`
+          : missingPrice
+            ? `price_unclear:${serviceName}`
+            : missingQuantity
+              ? `quantity_review:${serviceName}`
+              : missingUnit
+                ? `unit_missing_in_text:${serviceName}`
+                : explicitNeedsReview
+                  ? `ai_review_required:${serviceName}`
+                  : null);
 
     return {
       serviceName,
@@ -9985,7 +10049,7 @@ function reconcileWithCanonicalAiItemsV17_90L88(
   finalCurrency: string,
   originalText: string,
 ): StructuredOrderItemSnapshotV17_90L76[] {
-  if (!canonicalItems.length) return currentItems;
+  if (!canonicalItems.length) return [];
 
   const remaining = [...currentItems];
   const result: StructuredOrderItemSnapshotV17_90L76[] = [];
@@ -10100,7 +10164,7 @@ function canonicalItemsStableAfterValidationV17_90L89(
   finalItems: StructuredOrderItemSnapshotV17_90L76[],
   finalCurrency: string,
 ): boolean {
-  if (canonicalItems.length === 0) return false;
+  if (canonicalItems.length === 0) return finalItems.length === 0;
   if (canonicalItems.length !== finalItems.length) return false;
 
   const orderedCanonical = [...canonicalItems].sort(
@@ -13891,8 +13955,10 @@ export async function processIncomingMessage(
 
   // V17.90L251: A second semantic AI checks the complete first-AI business
   // graph before the canonical lock. It does not rewrite services. It may only
-  // report a missing possible work statement or invalidate an unsupported
-  // service label. Both outcomes are persisted fail-closed as red review rows.
+  // report a missing possible work statement or flag an unsupported service
+  // label. Both outcomes are persisted only as separate red control findings.
+  // Neither outcome may create, rename, block in place or duplicate a canonical
+  // first-AI service row.
   // This is language-independent and intentionally contains no service/name
   // word lists.
   const finalAiWorkCoverageV17_90L251 =
@@ -14002,24 +14068,22 @@ export async function processIncomingMessage(
   ]
     .filter(Boolean)
     .join("\n");
-  const firstAiOnsiteContactHintV17_90L229 = extractOnsiteContactHint(
-    firstAiCanonicalEvidenceSourceV17_90L229,
-    (firstAiCustomerSnapshotV17_90L225 as any)?.telefon || null,
-    firstAiOnsiteContactSnapshotV17_90L225 || null,
-  );
+  const firstAiOnsiteContactHintV17_90L229 =
+    extractAiOnsiteContactHintV17_90L86(
+      firstAiCanonicalEvidenceSourceV17_90L229,
+      (firstAiCustomerSnapshotV17_90L225 as any)?.telefon || null,
+      firstAiOnsiteContactSnapshotV17_90L225 || null,
+    ) ||
+    buildOnsiteContactHintV17_90L86({
+      source: "",
+      candidateCustomerPhone:
+        (firstAiCustomerSnapshotV17_90L225 as any)?.telefon || null,
+    });
 
   const firstAiAppointmentHintsV17_90L216 =
     buildStructuredAppointmentHintsV17_90L86(
       firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
-      [
-        messageText,
-        translationText,
-        firstAiOnsiteContactSnapshotV17_90L225
-          ? JSON.stringify(firstAiOnsiteContactSnapshotV17_90L225)
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      JSON.stringify(firstAiAppointmentsSnapshotV17_90L225),
     );
   const finalAiRoleReviewV17_90L216 =
     await runReadOnlySpecialNoteRoleCheckerV17_90L106({
@@ -14037,156 +14101,17 @@ export async function processIncomingMessage(
   const readOnlySpecialNoteRoleFindingsV17_90L106 =
     finalAiRoleReviewV17_90L216.findings;
 
-  // V17.90L229: The second role checker is diagnostics-only. Persisted role
-  // facts start from the first structured AI buckets. Deterministic code may
-  // remove duplicates or attach a missing bounded access fact, but it may not
-  // move contact/appointment text into another business role.
-  const finalAiRoleBucketsV17_90L215: Record<
-    FinalAiStructuredRoleV17_90L215,
-    string[]
-  > = {
-    safety: [...firstAiRoleSnapshotV17_90L214.safety],
-    access: [...firstAiRoleSnapshotV17_90L214.access],
-    parking: [...firstAiRoleSnapshotV17_90L214.parking],
-    other: [...firstAiRoleSnapshotV17_90L214.other],
-    ordinary: [...firstAiRoleSnapshotV17_90L214.ordinary],
-  };
-
-  const firstAiSpecializedRoleLinesV17_90L229 = [
-    ...finalAiRoleBucketsV17_90L215.safety,
-    ...finalAiRoleBucketsV17_90L215.access,
-    ...finalAiRoleBucketsV17_90L215.parking,
-    ...finalAiRoleBucketsV17_90L215.other,
-  ];
-  finalAiRoleBucketsV17_90L215.ordinary =
-    finalAiRoleBucketsV17_90L215.ordinary.filter(
-      (line) =>
-        !firstAiSpecializedRoleLinesV17_90L229.some((specializedLine) =>
-          canonicalRoleLinesEquivalentV17_90L201(line, specializedLine),
-        ),
-    );
-
-  // V17.90L218: Before the immutable lock, correct only role placement for
-  // access evidence that the final AI already preserved in another bucket.
-  // No text is rewritten: the exact statement is moved as-is. This closes the
-  // generic case where an entrance/route is present but classified as other or
-  // ordinary while key/code facts are already correctly recognised.
-  for (const sourceRole of ["ordinary", "other"] as const) {
-    const sourceBucket = finalAiRoleBucketsV17_90L215[sourceRole];
-    for (let index = sourceBucket.length - 1; index >= 0; index -= 1) {
-      const exactText = sourceBucket[index];
-      if (accessEvidenceKindsV17_90L217(exactText).size === 0) continue;
-
-      sourceBucket.splice(index, 1);
-      if (
-        !finalAiRoleBucketsV17_90L215.access.some((line) =>
-          canonicalRoleLinesEquivalentV17_90L201(line, exactText),
-        )
-      ) {
-        finalAiRoleBucketsV17_90L215.access.push(exactText);
-      }
-    }
-  }
-
-  // V17.90L218: Complete only missing access fact classes from bounded, exact
-  // source evidence before the final lock. canonicalizeStructuredRoleLines
-  // isolates atomic access spans even when WhatsApp flattened all line breaks;
-  // the older sentence extractor remains as a secondary source. Candidates
-  // containing price/contact data are rejected and may only fill a still
-  // missing class (route, key, code or badge).
-  const representedAccessKindsV17_90L217 = new Set(
-    finalAiRoleBucketsV17_90L215.access.flatMap((line) =>
-      [...accessEvidenceKindsV17_90L217(line)],
-    ),
-  );
-  const exactAccessCandidatesV17_90L217 = dedupeTranslatedRoleVariantsV17_90L201(
-    [
-      ...canonicalizeStructuredRoleLinesV17_90L195(
-        [messageText, translationText],
-        "access",
-      ),
-      ...extractTranslatedRoleCandidatesV17_90L202(messageText, "access"),
-      ...extractTranslatedRoleCandidatesV17_90L202(translationText, "access"),
-    ],
-    translationText,
-  );
-  for (const candidate of exactAccessCandidatesV17_90L217) {
-    const compactCandidate = String(candidate || "").replace(/\s+/g, " ").trim();
-    if (
-      !compactCandidate ||
-      compactCandidate.length > 220 ||
-      /\b(?:CHF|EUR|USD|GBP)\b/i.test(compactCandidate) ||
-      /(?:@|https?:\/\/)/i.test(compactCandidate) ||
-      /\b(?:\+?\d[\d\s()./-]{7,}\d)\b/.test(compactCandidate)
-    ) {
-      continue;
-    }
-
-    const candidateKinds = accessEvidenceKindsV17_90L217(compactCandidate);
-    if (!isCompleteAccessCandidateV17_90L229(compactCandidate, candidateKinds)) {
-      continue;
-    }
-    const missingKinds = [...candidateKinds].filter(
-      (kind) => !representedAccessKindsV17_90L217.has(kind),
-    );
-    if (missingKinds.length === 0) continue;
-
-    const alreadyPresent = finalAiRoleBucketsV17_90L215.access.some((line) =>
-      canonicalRoleLinesEquivalentV17_90L201(line, compactCandidate),
-    );
-    if (alreadyPresent) continue;
-
-    finalAiRoleBucketsV17_90L215.access.push(compactCandidate);
-    missingKinds.forEach((kind) => representedAccessKindsV17_90L217.add(kind));
-  }
-
-  // V17.90L217: A structured appointment owns its pre-announcement. The same
-  // minutes/channel instruction must not survive as an additional ordinary
-  // hint, while independent contact prohibitions remain untouched.
-  finalAiRoleBucketsV17_90L215.ordinary =
-    finalAiRoleBucketsV17_90L215.ordinary.filter(
-      (line) =>
-        !firstAiAppointmentHintsV17_90L216.some((appointment) =>
-          ordinaryHintCoveredByAppointmentV17_90L217(line, appointment),
-        ) &&
-        !lineMatchesOnsiteContactIdentityV17_90L87(
-          line,
-          firstAiOnsiteContactHintV17_90L229,
-        ),
-    );
-
+  // V17.90L252: Hard first-AI-only role boundary. The second role checker is
+  // diagnostics-only. No downstream parser, role mover, source-text rescue or
+  // dedupe may add, remove, rename or re-role a canonical fact. The UI may
+  // suppress a duplicate display while an active review finding exists, but
+  // the sealed business graph remains exactly the first structured AI output.
   const finalAiRoleSnapshotV17_90L215 = Object.freeze({
-    safety: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.safety,
-        translationText,
-      ),
-    ),
-    access: Object.freeze(
-      dedupeTranslatedAccessRoleVariantsV17_90L230(
-        finalAiRoleBucketsV17_90L215.access,
-        translationText,
-        messageText,
-      ),
-    ),
-    parking: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.parking,
-        translationText,
-      ),
-    ),
-    other: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.other,
-        translationText,
-      ),
-    ),
-    ordinary: Object.freeze(
-      dedupeTranslatedRoleVariantsV17_90L201(
-        finalAiRoleBucketsV17_90L215.ordinary,
-        translationText,
-      ),
-    ),
+    safety: Object.freeze([...firstAiRoleSnapshotV17_90L214.safety]),
+    access: Object.freeze([...firstAiRoleSnapshotV17_90L214.access]),
+    parking: Object.freeze([...firstAiRoleSnapshotV17_90L214.parking]),
+    other: Object.freeze([...firstAiRoleSnapshotV17_90L214.other]),
+    ordinary: Object.freeze([...firstAiRoleSnapshotV17_90L214.ordinary]),
   });
 
   logIntakeDiagnosticTrace(
@@ -15284,15 +15209,7 @@ export async function processIncomingMessage(
   const structuredAppointmentHintsV17_90L86 =
     buildStructuredAppointmentHintsV17_90L86(
       firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
-      [
-        messageText,
-        translationText,
-        firstAiOnsiteContactSnapshotV17_90L225
-          ? JSON.stringify(firstAiOnsiteContactSnapshotV17_90L225)
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      JSON.stringify(firstAiAppointmentsSnapshotV17_90L225),
     );
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
@@ -15546,61 +15463,84 @@ export async function processIncomingMessage(
       ? String(parsed.auftrag.beschreibung)
       : messageText;
 
-  const invalidWorkItemIndexesV17_90L251 = new Set(
-    finalAiWorkCoverageV17_90L251.invalidItems.map(
-      (finding) => finding.itemIndex - 1,
-    ),
-  );
+  // V17.90L252: The second AI is review-only. It may flag an existing first-AI
+  // row, but it must never rename, replace or otherwise rewrite that row.
   const aiWorkItemsRaw: AiWorkItem[] = (
     firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[]
-  ).map((item, index) => {
-    if (!invalidWorkItemIndexesV17_90L251.has(index)) return item;
+  ).map((item) => ({ ...item }));
 
-    const itemRecord = item as any;
-    const sourceText = compactExactSourceTextV17_90L251(
-      itemRecord?.sourceText ??
-        itemRecord?.source_text ??
-        itemRecord?.evidence ??
-        itemRecord?.raw ??
-        itemRecord?.description,
-    );
-    return {
-      ...item,
-      serviceName: "Leistung prüfen",
-      name: "Leistung prüfen",
-      action_name: "Leistung prüfen",
-      service_name: "Leistung prüfen",
-      matched_service_name: null,
-      needsReview: true,
-      needs_review: true,
-      reviewReason: "service_action_unclear:Leistung prüfen",
-      review_reason: "service_action_unclear:Leistung prüfen",
-      sourceText,
-      source_text: sourceText,
-      evidence: sourceText,
-      raw: sourceText,
-      description: sourceText,
-      confidence: "niedrig",
-    } as AiWorkItem;
-  });
+  // No parser fallback may manufacture workItems when the first AI returned
+  // none. The separate recognition review finding is the only permitted
+  // fail-closed result until the user explicitly accepts it.
+  const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw;
 
-  const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
-    const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
+  // V17.90L252: The second AI and every rescue/validator after the first AI
+  // are strictly review-only. Missing work becomes an encoded red control
+  // finding in reviewReasons. It is NOT appended to the canonical item list.
+  // Only a later explicit user action in the editor may create a new item.
+  const semanticRecognitionReviewReasonsV17_90L252 =
+    finalAiWorkCoverageV17_90L251.missingWork.map((finding) => {
+      const payload = {
+        kind: "missing_work",
+        findingId: finding.semanticId,
+        serviceName: "Leistung prüfen",
+        quantity: 0,
+        unit: "Einheit prüfen",
+        unitPrice: 0,
+        sourceText: finding.quote,
+        relatedRoleText: finding.relatedRoleText,
+      };
+      return `${RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252}${encodeURIComponent(
+        JSON.stringify(payload),
+      )}`;
+    });
 
-    return {
-      name: cleanDetectedWorkName(segment),
-      menge: quantityMatch?.value ?? null,
-      einheit: quantityMatch?.unit
-        ? unitTypeToDisplayUnit(quantityMatch.unit)
-        : null,
-      raw: segment,
-      confidence: "mittel",
-    };
-  });
+  const invalidFirstAiItemReviewReasonsV17_90L252 =
+    finalAiWorkCoverageV17_90L251.invalidItems
+      .map((finding) => {
+        const rawItem = aiWorkItemsRaw[finding.itemIndex - 1] as any;
+        if (!rawItem) return null;
+        const serviceName = compactExactSourceTextV17_90L251(
+          rawItem?.serviceName ??
+            rawItem?.name ??
+            rawItem?.action_name ??
+            rawItem?.service_name ??
+            rawItem?.matched_service_name,
+        ) || "Leistung prüfen";
+        const quantityValue = Number(rawItem?.quantity ?? rawItem?.menge ?? 0);
+        const unitPriceValue = Number(
+          rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
+        );
+        const payload = {
+          kind: "invalid_item",
+          findingId: `invalid_item_${finding.itemIndex}`,
+          serviceName,
+          quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
+          unit: compactExactSourceTextV17_90L251(
+            rawItem?.unit ?? rawItem?.einheit,
+          ) || "Einheit prüfen",
+          unitPrice: Number.isFinite(unitPriceValue) ? unitPriceValue : 0,
+          sourceText: compactExactSourceTextV17_90L251(
+            rawItem?.sourceText ??
+              rawItem?.source_text ??
+              rawItem?.evidence ??
+              rawItem?.raw ??
+              rawItem?.description,
+          ),
+          relatedRoleText: null,
+          reason: finding.reason,
+        };
+        return `${RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252}${encodeURIComponent(
+          JSON.stringify(payload),
+        )}`;
+      })
+      .filter((reason): reason is string => Boolean(reason));
 
-  const aiWorkItems: AiWorkItem[] =
-    aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
-
+  const genericEmptyFirstAiReviewReasonV17_90L252 =
+    aiWorkItemsRaw.length === 0 &&
+    semanticRecognitionReviewReasonsV17_90L252.length === 0
+      ? ["intake_risk:priced_service_line_missing_or_mismatched"]
+      : [];
 
   let canonicalAiOrderItemsBaseV17_90L234 =
     buildCanonicalAiOrderItemsV17_90L88(
@@ -15611,201 +15551,9 @@ export async function processIncomingMessage(
         .join("\n"),
     );
 
-  // V17.90L246: An explicitly unresolved work statement must never disappear
-  // merely because the first AI classified it as a note in one run. Before the
-  // canonical lock, add only deterministic, evidence-bound red review rows.
-  // No service is inferred: the row remains "Leistung prüfen" with open unit,
-  // quantity and price until the user deliberately accepts or discards it.
-  const unresolvedRecognitionSourceV17_90L246 = [
-    messageText,
-    translationText
-      ? `--- Übersetzung (automatisch) ---\n${translationText}`
-      : "",
-  ]
-    .filter((part) => String(part || "").trim())
-    .join("\n");
-  const deterministicUnresolvedRecognitionCandidatesV17_90L246 =
-    extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
-      unresolvedRecognitionSourceV17_90L246,
-      intakeCurrency,
-    );
-  const semanticUnresolvedRecognitionCandidatesV17_90L251 =
-    finalAiWorkCoverageV17_90L251.missingWork.map((finding) => ({
-      serviceName: "Leistung prüfen",
-      description: finding.quote,
-      quantity: 0,
-      unit: "Einheit prüfen",
-      unitPrice: 0,
-      totalPrice: 0,
-      needsReview: true,
-      reviewReason: "service_action_unclear:Leistung prüfen",
-      sourceText: finding.quote,
-      evidence: finding.quote,
-      detectedCurrency: intakeCurrency,
-    }));
-  const unresolvedRecognitionCandidatesV17_90L246 = [
-    ...deterministicUnresolvedRecognitionCandidatesV17_90L246,
-    ...semanticUnresolvedRecognitionCandidatesV17_90L251,
-  ].filter((candidate, index, all) => {
-    const key = canonicalEvidenceKeyV17_90L88(
-      candidate.sourceText || candidate.evidence || candidate.description,
-    );
-    if (!key) return false;
-    return (
-      all.findIndex((other) =>
-        canonicalEvidenceKeyV17_90L88(
-          other.sourceText || other.evidence || other.description,
-        ) === key,
-      ) === index
-    );
-  });
-  const unresolvedCanonicalCandidatesV17_90L246 =
-    unresolvedRecognitionCandidatesV17_90L246.map((candidate, index) => {
-      const evidence = compactText(
-        candidate.sourceText || candidate.evidence || candidate.description,
-      );
-      const isGenericUnresolved = String(candidate.reviewReason || "").startsWith(
-        "service_action_unclear:",
-      );
-
-      // V17.90L247: Do not send a generic unresolved row through unit inference.
-      // A short token such as "t" inside the evidence must never turn the open
-      // unit into "Tonne". Generic rows stay fully open until the user decides.
-      return {
-        serviceName: compactText(candidate.serviceName) || "Leistung prüfen",
-        description: evidence,
-        quantity: isGenericUnresolved ? 0 : Number(candidate.quantity || 0),
-        unit: isGenericUnresolved
-          ? "Einheit prüfen"
-          : compactText(candidate.unit) || "Einheit prüfen",
-        unitPrice: isGenericUnresolved ? 0 : Number(candidate.unitPrice || 0),
-        totalPrice: 0,
-        needsReview: true,
-        reviewReason:
-          compactText(candidate.reviewReason) ||
-          `service_action_unclear:${compactText(candidate.serviceName) || "Leistung prüfen"}`,
-        sourceText: evidence,
-        evidence,
-        detectedCurrency: candidate.detectedCurrency || intakeCurrency,
-        canonicalOrder:
-          canonicalAiOrderItemsBaseV17_90L234.length + index,
-        confidence: "niedrig",
-        unitSource: "missing" as const,
-      } satisfies CanonicalAiOrderItemV17_90L88;
-    });
-
-  const isCanonicalUnresolvedReviewV17_90L246 = (
-    item: CanonicalAiOrderItemV17_90L88,
-  ) =>
-    isInternalReviewServiceNameV17_90L(item.serviceName) ||
-    String(item.reviewReason || "").startsWith("service_action_unclear:");
-  const existingUnresolvedReviewCountV17_90L246 =
-    canonicalAiOrderItemsBaseV17_90L234.filter(
-      isCanonicalUnresolvedReviewV17_90L246,
-    ).length;
-  const unresolvedCandidatesWithoutExactEvidenceV17_90L246 =
-    unresolvedCanonicalCandidatesV17_90L246.filter((candidate) => {
-      const candidateEvidenceKey = canonicalEvidenceKeyV17_90L88(
-        candidate.sourceText || candidate.evidence || candidate.description,
-      );
-      if (!candidateEvidenceKey) return false;
-
-      return !canonicalAiOrderItemsBaseV17_90L234.some((existing) => {
-        const existingEvidenceKey = canonicalEvidenceKeyV17_90L88(
-          existing.sourceText || existing.evidence || existing.description,
-        );
-        return Boolean(
-          existingEvidenceKey &&
-            (existingEvidenceKey === candidateEvidenceKey ||
-              (existingEvidenceKey.length >= 16 &&
-                candidateEvidenceKey.length >= 16 &&
-                (existingEvidenceKey.includes(candidateEvidenceKey) ||
-                  candidateEvidenceKey.includes(existingEvidenceKey)))),
-        );
-      });
-    });
-  const unresolvedRowsToAppendV17_90L246 =
-    unresolvedCandidatesWithoutExactEvidenceV17_90L246.slice(
-      existingUnresolvedReviewCountV17_90L246,
-    );
-
-  if (unresolvedRowsToAppendV17_90L246.length > 0) {
-    canonicalAiOrderItemsBaseV17_90L234 = [
-      ...canonicalAiOrderItemsBaseV17_90L234,
-      ...unresolvedRowsToAppendV17_90L246,
-    ].map((item, canonicalOrder) => ({ ...item, canonicalOrder }));
-
-    console.warn(
-      `[${source}] ⚠️ Explicit unresolved work preserved as review rows: ${unresolvedRowsToAppendV17_90L246.length}`,
-    );
-    logIntakeDiagnosticTrace(
-      intakeDiagnosticTraceEnabled,
-      intakeDiagnosticTraceId,
-      "03e0_explicit_unresolved_work_rescue",
-      {
-        appendedCount: unresolvedRowsToAppendV17_90L246.length,
-        items: summarizeIntakeDiagnosticItems(
-          unresolvedRowsToAppendV17_90L246,
-        ),
-      },
-    );
-  }
-
-  // V17.90L247: Generic unresolved review rows are always fully open. This
-  // normalizes both rescued rows and rows already returned by the first AI, so
-  // no inferred unit (for example "Tonne") can leak into the review editor.
-  canonicalAiOrderItemsBaseV17_90L234 = canonicalAiOrderItemsBaseV17_90L234.map(
-    (item, canonicalOrder) =>
-      isCanonicalUnresolvedReviewV17_90L246(item)
-        ? {
-            ...item,
-            quantity: 0,
-            unit: "Einheit prüfen",
-            unitPrice: 0,
-            totalPrice: 0,
-            needsReview: true,
-            canonicalOrder,
-            unitSource: "missing" as const,
-          }
-        : { ...item, canonicalOrder },
-  );
-
-  // V17.90L247: Whenever an unresolved statement exists as an actionable red
-  // review row, the same statement must not also remain as a passive
-  // Besonderheit. This also covers rows already supplied by the first AI.
-  const unresolvedReviewEvidenceV17_90L247 =
-    canonicalAiOrderItemsBaseV17_90L234
-      .filter(isCanonicalUnresolvedReviewV17_90L246)
-      .map((item) =>
-        compactText(item.sourceText || item.evidence || item.description),
-      )
-      .filter(Boolean);
-  if (finalSpecialNotes && unresolvedReviewEvidenceV17_90L247.length > 0) {
-    const parsedSpecialNotes = splitSpecialNotes(finalSpecialNotes);
-    const filteredJobHints = parsedSpecialNotes.jobHints.filter((hint) => {
-      const hintKey = canonicalEvidenceKeyV17_90L88(hint);
-      return !unresolvedReviewEvidenceV17_90L247.some((evidence) => {
-        const evidenceKey = canonicalEvidenceKeyV17_90L88(evidence);
-        return Boolean(
-          semanticRoleOverlapV17_90L87(hint, evidence) ||
-            (hintKey &&
-              evidenceKey &&
-              (hintKey === evidenceKey ||
-                (hintKey.length >= 12 && evidenceKey.includes(hintKey)) ||
-                (evidenceKey.length >= 12 && hintKey.includes(evidenceKey)))),
-        );
-      });
-    });
-    finalSpecialNotes = buildSpecialNotes({
-      safetyWarnings: parsedSpecialNotes.safetyWarnings,
-      jobHints: filteredJobHints,
-      preserveStructuredRoles: true,
-    });
-  }
-
-  // V17.90L234: The second checker remains read-only. It compares the full
-  // customer source with the hydrated first-AI rows and may only add a review
-  // flag when the same service contains an incompatible total/flat price and
+  // V17.90L234: The deterministic price checker remains read-only with
+  // respect to first-AI business fields. It compares the full customer source
+  // with the hydrated first-AI rows and may only add a review state when the
   // per-unit price. Names, quantity, unit, unit price, currency and evidence
   // remain untouched. Only the calculable line total is blocked until the user
   // confirms or corrects the detected price.
@@ -15826,16 +15574,22 @@ export async function processIncomingMessage(
     );
   }
 
-  let canonicalAiOrderItemsV17_90L88 = Object.freeze(
+  const canonicalAiOrderItemsV17_90L88 = Object.freeze(
     canonicalAiOrderItemsBaseV17_90L234.map((item, index) => {
-      const finding = priceContradictionByItemIndexV17_90L234.get(index);
-      if (!finding) return Object.freeze({ ...item });
+      const contradictionFinding =
+        priceContradictionByItemIndexV17_90L234.get(index);
+      if (!contradictionFinding) {
+        return Object.freeze({ ...item });
+      }
 
       return Object.freeze({
         ...item,
         totalPrice: 0,
         needsReview: true,
-        reviewReason: finding.reason,
+        reviewReason:
+          contradictionFinding.reason ||
+          item.reviewReason ||
+          `price_contradiction:${item.serviceName}`,
       });
     }),
   ) as unknown as CanonicalAiOrderItemV17_90L88[];
@@ -16712,39 +16466,14 @@ export async function processIncomingMessage(
     },
   );
 
-  // V17.90L217: If the first structured AI response contains no work rows,
-  // allow one evidence-bound rescue before the canonical lock. Only complete,
-  // non-review rows whose service, quantity and price are all supported by one
-  // exact source line may enter this fallback. Non-empty AI work rows are never
-  // replaced or supplemented by this path.
+  // V17.90L252: Empty first-AI workItems remain empty. No validator, parser
+  // or rescue path may create canonical rows. A separate red recognition
+  // review reason is persisted instead and only an explicit user action may
+  // turn that finding into a real item.
   if (canonicalAiOrderItemsV17_90L88.length === 0) {
-    const evidenceBoundRescueItemsV17_90L217 =
-      buildEvidenceBoundRescueCanonicalItemsV17_90L217(
-        shadowIntakeValidationV17_90L105.items,
-        messageText,
-        translationText,
-      );
-    if (evidenceBoundRescueItemsV17_90L217.length > 0) {
-      canonicalAiOrderItemsV17_90L88 = Object.freeze(
-        evidenceBoundRescueItemsV17_90L217.map((item) =>
-          Object.freeze({ ...item }),
-        ),
-      ) as unknown as CanonicalAiOrderItemV17_90L88[];
-      console.warn(
-        `[${source}] 🛡️ Evidence-bound empty-AI rescue activated: ${canonicalAiOrderItemsV17_90L88.length} canonical rows`,
-      );
-      logIntakeDiagnosticTrace(
-        intakeDiagnosticTraceEnabled,
-        intakeDiagnosticTraceId,
-        "05a_evidence_bound_empty_ai_rescue",
-        {
-          canonicalCount: canonicalAiOrderItemsV17_90L88.length,
-          items: summarizeIntakeDiagnosticItems(
-            canonicalAiOrderItemsV17_90L88,
-          ),
-        },
-      );
-    }
+    console.warn(
+      `[${source}] 🔒 First AI returned no workItems; canonical item list remains empty`,
+    );
   }
 
   const normalizeAuthoritativeCurrencyV17_90L105 = (
@@ -17313,15 +17042,10 @@ export async function processIncomingMessage(
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
-  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
-    detectedCurrencies: intakeValidation.detectedCurrencies,
-    finalCurrency: intakeValidation.finalCurrency,
-  });
-  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
-    finalOrderItems,
-    messageText,
-    intakeValidation.finalCurrency,
-  );
+  // V17.90L252: No mutating helper runs after the first-AI item graph is
+  // restored. Foreign-currency and missing-field blockers are already derived
+  // inside reconcileWithCanonicalAiItemsV17_90L88 without changing any first-AI
+  // business value. From here onward the graph is verification-only.
 
   // V17.90L98 / V17.90L235: Final source-of-truth invariant.
   // No step after the canonical lock may silently alter a first-AI row.
@@ -17349,15 +17073,6 @@ export async function processIncomingMessage(
       finalOrderItems,
       intakeValidation.finalCurrency,
       messageText,
-    );
-    finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
-      detectedCurrencies: intakeValidation.detectedCurrencies,
-      finalCurrency: intakeValidation.finalCurrency,
-    });
-    finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
-      finalOrderItems,
-      messageText,
-      intakeValidation.finalCurrency,
     );
     canonicalPersistenceViolationV17_90L98 =
       !canonicalItemsStableAfterValidationV17_90L89(
@@ -17555,8 +17270,7 @@ export async function processIncomingMessage(
   }
 
   const canonicalPostLockActiveV17_90L209 = Boolean(
-    canonicalAiOrderItemsV17_90L88.length > 0 &&
-      !canonicalPersistenceViolationV17_90L98 &&
+    !canonicalPersistenceViolationV17_90L98 &&
       canonicalItemsStableAfterValidationV17_90L89(
         canonicalAiOrderItemsV17_90L88,
         finalOrderItems,
@@ -17581,10 +17295,7 @@ export async function processIncomingMessage(
       `[${source}] canonical persistence invariant unresolved after safe recovery`,
     );
   }
-  if (
-    canonicalAiOrderItemsV17_90L88.length > 0 &&
-    !canonicalPostLockActiveV17_90L209
-  ) {
+  if (!canonicalPostLockActiveV17_90L209) {
     throw new Error(
       "CANONICAL_FIRST_AI_MUTATION_BLOCK:service_items",
     );
@@ -18101,6 +17812,9 @@ export async function processIncomingMessage(
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
     ...canonicalItemReviewReasonsV17_90L225,
+    ...semanticRecognitionReviewReasonsV17_90L252,
+    ...invalidFirstAiItemReviewReasonsV17_90L252,
+    ...genericEmptyFirstAiReviewReasonV17_90L252,
     ...canonicalMutationRecoveryReasonsV17_90L235,
     ...(canonicalPostLockActiveV17_90L209
       ? []
@@ -18159,7 +17873,9 @@ export async function processIncomingMessage(
   if (canonicalPostLockActiveV17_90L209) {
     const forbiddenPostCanonicalReasonsV17_90L209 = allReviewReasons.filter(
       (reason) =>
-        reason.startsWith("intake_risk:") ||
+        (reason.startsWith("intake_risk:") &&
+          !reason.startsWith(RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252) &&
+          reason !== "intake_risk:priced_service_line_missing_or_mismatched") ||
         reason.startsWith("unit_mismatch:") ||
         reason.startsWith("recognition_review:") ||
         reason === "recognition_review" ||
@@ -18321,50 +18037,10 @@ export async function processIncomingMessage(
     },
   });
 
-  // V17.90L250: If an explicit unresolved work statement is already present
-  // as an actionable red review row, the overlapping AI role line must not be
-  // persisted a second time as an ordinary/other fact. Never shorten, split or
-  // rewrite a sealed AI fact here: a partially retained sentence would create
-  // a new post-AI fact and violate the canonical source lock. Independent
-  // context is preserved only when the AI supplied it as its own separate role
-  // line; a combined line is suppressed as a whole.
-  const suppressRoleLineCoveredByUnresolvedReviewV17_90L250 = (
-    value: string,
-  ): string | null => {
-    const sourceLine = compactText(value);
-    if (!sourceLine || unresolvedReviewEvidenceV17_90L247.length === 0) {
-      return sourceLine || null;
-    }
-
-    const sourceKey = canonicalEvidenceKeyV17_90L88(sourceLine);
-    const overlapsUnresolvedEvidence = unresolvedReviewEvidenceV17_90L247.some(
-      (evidence) => {
-        const evidenceKey = canonicalEvidenceKeyV17_90L88(evidence);
-        return Boolean(
-          semanticRoleOverlapV17_90L87(sourceLine, evidence) ||
-            (sourceKey &&
-              evidenceKey &&
-              (sourceKey === evidenceKey ||
-                (sourceKey.length >= 12 && evidenceKey.includes(sourceKey)) ||
-                (evidenceKey.length >= 12 && sourceKey.includes(evidenceKey)))),
-        );
-      },
-    );
-
-    return overlapsUnresolvedEvidence ? null : sourceLine;
-  };
-
-  const canonicalAiRoleSnapshotV17_90L250 = {
-    safety: finalAiRoleSnapshotV17_90L215.safety,
-    access: finalAiRoleSnapshotV17_90L215.access,
-    parking: finalAiRoleSnapshotV17_90L215.parking,
-    other: finalAiRoleSnapshotV17_90L215.other
-      .map(suppressRoleLineCoveredByUnresolvedReviewV17_90L250)
-      .filter((line): line is string => Boolean(line)),
-    ordinary: finalAiRoleSnapshotV17_90L215.ordinary
-      .map(suppressRoleLineCoveredByUnresolvedReviewV17_90L250)
-      .filter((line): line is string => Boolean(line)),
-  };
+  // V17.90L252: Hard first-AI-only role boundary. The sealed role graph is
+  // exactly the first structured AI output. Review findings may affect UI
+  // visibility, but must never delete, split, rewrite or add canonical facts.
+  const canonicalAiRoleSnapshotV17_90L250 = finalAiRoleSnapshotV17_90L215;
 
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [

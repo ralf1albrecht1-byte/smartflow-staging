@@ -420,6 +420,7 @@ interface FormItem {
   // fields. Only the explicit Übernehmen/Verwerfen action may resolve it.
   pendingManualReviewDecision?: boolean;
   pendingReviewSourceServiceName?: string;
+  recognitionReviewKey?: string;
   sourceDescription?: string;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
@@ -437,6 +438,7 @@ const createEmptyItem = (): FormItem => ({
   manualReviewConfirmed: false,
   pendingManualReviewDecision: false,
   pendingReviewSourceServiceName: "",
+  recognitionReviewKey: "",
   workSiteId: null,
 });
 
@@ -3654,6 +3656,39 @@ const extractOrderOperationalContactLineV17_90L101 = (
   return `Kontakt vor Ort: ${parts.filter(Boolean).join(" · ")}`;
 };
 
+function activeRecognitionRelatedRoleTextsV17_90L252(order: {
+  reviewReasons?: string[] | null;
+}): Set<string> {
+  const result = new Set<string>();
+  for (const reason of order.reviewReasons || []) {
+    const value = String(reason || "");
+    if (!value.startsWith("intake_risk:recognition_review:")) continue;
+    try {
+      const payload = JSON.parse(
+        decodeURIComponent(value.slice("intake_risk:recognition_review:".length)),
+      ) as RecognitionReviewPayloadV17_90L69;
+      const related = compactText(payload.relatedRoleText);
+      if (related) result.add(normalizeForMatch(related));
+    } catch {}
+  }
+  return result;
+}
+
+function canonicalOrderInfoForOrderV17_90L252(
+  order: { reviewReasons?: string[] | null },
+  snapshot: NonNullable<ReturnType<typeof getCanonicalIntakeV2>>,
+): OrderInfoSummaryV17_65 {
+  const info = canonicalOrderInfoV2(snapshot);
+  const suppressed = activeRecognitionRelatedRoleTextsV17_90L252(order);
+  if (suppressed.size === 0) return info;
+  return {
+    ...info,
+    additional: info.additional.filter(
+      (line) => !suppressed.has(normalizeForMatch(line)),
+    ),
+  };
+}
+
 const buildOrderInfoSummaryV17_65 = (
   order: {
     specialNotes?: string | null;
@@ -3661,11 +3696,13 @@ const buildOrderInfoSummaryV17_65 = (
     audioTranscript?: string | null;
     intakeSchemaVersion?: string | null;
     intakeSnapshot?: unknown;
+    reviewReasons?: string[] | null;
   },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): OrderInfoSummaryV17_65 => {
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
-  if (canonicalSnapshotV2) return canonicalOrderInfoV2(canonicalSnapshotV2);
+  if (canonicalSnapshotV2)
+    return canonicalOrderInfoForOrderV17_90L252(order, canonicalSnapshotV2);
   if (isIntakeV2Order(order)) {
     return {
       safety: ["Kanonischer Intake beschädigt – Auftrag prüfen"],
@@ -4230,7 +4267,10 @@ const getOperationalBadges = (
   const badges: ReviewBadge[] = [];
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
-    const info = canonicalOrderInfoV2(canonicalSnapshotV2);
+    const info = canonicalOrderInfoForOrderV17_90L252(
+      order,
+      canonicalSnapshotV2,
+    );
     const summaryTooltip = [
       info.safety.length ? ["Gefahr / Achtung", ...info.safety].join("\n") : "",
       info.primary.length ? ["Wichtige Informationen", ...info.primary].join("\n") : "",
@@ -4288,10 +4328,17 @@ const getOperationalBadges = (
         focusTarget: "specialNotes",
       });
     }
+    const suppressedReviewRoleTextsV17_90L252 =
+      activeRecognitionRelatedRoleTextsV17_90L252(order);
     canonicalLinesV2([
       ...canonicalSnapshotV2.roles.other,
       ...canonicalSnapshotV2.roles.ordinary,
-    ]).forEach((line) => {
+    ])
+      .filter(
+        (line) =>
+          !suppressedReviewRoleTextsV17_90L252.has(normalizeForMatch(line)),
+      )
+      .forEach((line) => {
       const kind = getSemanticBadgeKind(line);
       const label = kind ? badgeLabelByKind[kind] : "";
       if (!kind || !label || kind === "warning" || kind === "appointment" || kind === "parking") return;
@@ -4554,11 +4601,14 @@ const normalizePriceUnitForCompare = (value?: string | null) => {
 
 type RecognitionReviewPayloadV17_90L69 = {
   kind?: string;
+  findingId?: string;
   serviceName?: string;
   quantity?: number;
   unit?: string;
   unitPrice?: number;
   sourceText?: string;
+  relatedRoleText?: string | null;
+  reason?: string | null;
 };
 
 const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69 =
@@ -4595,29 +4645,30 @@ const parseRecognitionReviewReasonV17_90L69 = (
 const getRecognitionReviewDetailsV17_90L69 = (order?:
   | Pick<Order, "reviewReasons" | "intakeSchemaVersion" | "intakeSnapshot">
   | null) => {
-  // V17.90L209: A valid sealed Intake V2 snapshot owns all unresolved item
-  // states. Legacy recognition proposals are post-canonical diagnostics and
-  // must never become a second red card/chip in the UI.
-  if (getCanonicalIntakeV2(order)) return [];
-
-  return Array.from(
-    new Map(
-      (order?.reviewReasons || [])
-        .map(parseRecognitionReviewReasonV17_90L69)
-        .filter((value): value is RecognitionReviewPayloadV17_90L69 =>
-          Boolean(value),
-        )
-        .map((detail) => [
-          [
-            normalizeForMatch(detail.serviceName),
-            Number(detail.quantity || 0).toFixed(4),
-            normalizePriceUnitForCompare(detail.unit),
-            Number(detail.unitPrice || 0).toFixed(4),
-          ].join("|"),
-          detail,
-        ] as const),
-    ).values(),
-  );
+  // V17.90L252: Intake V2 may contain separate read-only recognition findings.
+  // They are not canonical items and remain active only while the mutable
+  // reviewReason exists. This preserves the first-AI-only item boundary.
+  const byKey = new Map<string, RecognitionReviewPayloadV17_90L69>();
+  for (const detail of (order?.reviewReasons || [])
+    .map(parseRecognitionReviewReasonV17_90L69)
+    .filter(
+      (value): value is RecognitionReviewPayloadV17_90L69 => Boolean(value),
+    )) {
+    const key =
+      compactText(detail.findingId) ||
+      [
+        normalizeForMatch(detail.serviceName),
+        Number(detail.quantity || 0).toFixed(4),
+        normalizePriceUnitForCompare(detail.unit),
+        Number(detail.unitPrice || 0).toFixed(4),
+        normalizeForMatch(detail.sourceText),
+      ].join("|");
+    // The server orders original evidence before translated evidence. Keep the
+    // first occurrence defensively so a later duplicate can never replace the
+    // original source shown to the user.
+    if (!byKey.has(key)) byKey.set(key, detail);
+  }
+  return Array.from(byKey.values());
 };
 
 const hasRecognitionReviewV17_90L69 = (
@@ -4642,11 +4693,13 @@ const hasRecognitionReviewV17_90L69 = (
 const recognitionReviewDetailKeyV17_90L70 = (
   detail?: RecognitionReviewPayloadV17_90L69 | null,
 ) =>
+  compactText(detail?.findingId) ||
   [
     normalizeForMatch(detail?.serviceName),
     Number(detail?.quantity || 0).toFixed(4),
     normalizePriceUnitForCompare(detail?.unit),
     Number(detail?.unitPrice || 0).toFixed(4),
+    normalizeForMatch(detail?.sourceText),
   ].join("|");
 
 const recognitionReviewReasonKeyV17_90L70 = (reason?: string | null) => {
@@ -4670,11 +4723,13 @@ const formatRecognitionReviewLineV17_90L69 = (
   const unit = compactText(detail.unit);
   const unitPrice = Number(detail.unitPrice || 0);
   const amount =
-    detail.kind === "open_price"
-      ? "Preis offen"
-      : quantity > 0 && unitPrice > 0
-        ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
-        : "Werte unklar";
+    detail.kind === "invalid_item"
+      ? "Leistungszuordnung prüfen"
+      : detail.kind === "open_price"
+        ? "Preis offen"
+        : quantity > 0 && unitPrice > 0
+          ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
+          : "Werte unklar";
   return `• ${serviceName} — ${amount}`;
 };
 
@@ -4750,11 +4805,23 @@ const recognitionReviewDetailMatchesItemV17_90L69 = (
   const samePrice =
     Math.abs(Number(detail.unitPrice || 0) - Number(item.unitPrice || 0)) <
     0.01;
+  const expectedEvidence = normalizeForMatch(detail.sourceText);
+  const actualEvidence = normalizeForMatch(
+    [item.description, item.sourceDescription].filter(Boolean).join(" "),
+  );
+  const sameEvidence = Boolean(
+    expectedEvidence &&
+      actualEvidence &&
+      (expectedEvidence === actualEvidence ||
+        expectedEvidence.includes(actualEvidence) ||
+        actualEvidence.includes(expectedEvidence)),
+  );
   return (
     sameName &&
     (sameUnit || evidenceSupportsActualUnit) &&
     sameQuantity &&
-    samePrice
+    samePrice &&
+    (detail.kind !== "missing_work" || sameEvidence)
   );
 };
 
@@ -4764,12 +4831,14 @@ const getActiveRecognitionReviewDetailsV17_90L80 = (
     "reviewReasons" | "items" | "intakeSchemaVersion" | "intakeSnapshot"
   > | null,
 ) =>
-  getRecognitionReviewDetailsV17_90L69(order).filter(
-    (detail) =>
-      !(order?.items || []).some((item) =>
-        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
-      ),
-  );
+  getRecognitionReviewDetailsV17_90L69(order).filter((detail) => {
+    // V17.90L252: A finding about an existing first-AI row is a separate
+    // control record. The row itself must never auto-resolve that finding.
+    if (detail.kind && detail.kind !== "missing_work") return true;
+    return !(order?.items || []).some((item) =>
+      recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+    );
+  });
 
 const areRecognitionReviewDetailsResolvedV17_90L69 = (
   order: Pick<Order, "reviewReasons"> | null | undefined,
@@ -12934,8 +13003,11 @@ export default function AuftraegePage() {
     allCurrentRecognitionReviewDetailsV17_90L69.filter((detail) => {
       const key = recognitionReviewDetailKeyV17_90L70(detail);
       if (discardedRecognitionReviewKeys.includes(key)) return false;
-      return !formItems.some((item) =>
-        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      if (detail.kind && detail.kind !== "missing_work") return true;
+      return !formItems.some(
+        (item) =>
+          item.recognitionReviewKey === key ||
+          recognitionReviewDetailMatchesItemV17_90L69(detail, item),
       );
     });
   const hasGenericRecognitionReviewV17_90L70 =
@@ -12954,6 +13026,15 @@ export default function AuftraegePage() {
   const takeOverRecognitionReviewDetailV17_90L70 = (
     detail: RecognitionReviewPayloadV17_90L69,
   ) => {
+    if (detail.kind && detail.kind !== "missing_work") {
+      const key = recognitionReviewDetailKeyV17_90L70(detail);
+      setDiscardedRecognitionReviewKeys((previous) =>
+        previous.includes(key) ? previous : [...previous, key],
+      );
+      toast.success("Prüfung bestätigt. Bitte Auftrag speichern.");
+      return;
+    }
+
     if (
       formItems.some((item) =>
         recognitionReviewDetailMatchesItemV17_90L69(detail, item),
@@ -12995,6 +13076,11 @@ export default function AuftraegePage() {
         manualUnitConfirmed: Boolean(
           unit && !/(?:prüfen|pruefen|prufen)/i.test(unit),
         ),
+        manualReviewConfirmed: false,
+        pendingManualReviewDecision: true,
+        pendingReviewSourceServiceName: serviceName,
+        recognitionReviewKey: recognitionReviewDetailKeyV17_90L70(detail),
+        sourceDescription: compactText(detail.sourceText),
         workSiteId: defaultWorkSiteId,
       },
     ]);
@@ -15153,8 +15239,12 @@ export default function AuftraegePage() {
 
             const detail = parseRecognitionReviewReasonV17_90L69(reason);
             if (detail) {
-              return !validItems.some((item) =>
-                recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+              const detailKey = recognitionReviewDetailKeyV17_90L70(detail);
+              if (detail.kind && detail.kind !== "missing_work") return true;
+              return !validItems.some(
+                (item) =>
+                  item.recognitionReviewKey === detailKey ||
+                  recognitionReviewDetailMatchesItemV17_90L69(detail, item),
               );
             }
 
@@ -19538,6 +19628,11 @@ export default function AuftraegePage() {
                                   <div className="font-medium">
                                     {formatRecognitionReviewLineV17_90L69(detail).replace(/^•\s*/, "")}
                                   </div>
+                                  {compactText(detail.sourceText) && (
+                                    <div className="mt-1 text-[11px] leading-snug text-red-700 dark:text-red-200">
+                                      Quelle: {compactText(detail.sourceText)}
+                                    </div>
+                                  )}
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     <Button
                                       type="button"

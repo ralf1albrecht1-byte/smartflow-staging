@@ -364,21 +364,6 @@ function factsEquivalent(left: ParsedFact, right: ParsedFact): boolean {
   return intersection >= 2 && containment >= 0.72;
 }
 
-function chooseSourceLockedFact(
-  left: ParsedFact,
-  right: ParsedFact,
-): ParsedFact {
-  // Both alternatives originate in the same structured AI response. Keep an
-  // original AI wording and only resolve duplicate role placement. Never use
-  // raw text or a translated variant to replace the selected fact.
-  const winner =
-    roleRank[right.role] > roleRank[left.role] ? right : left;
-  return {
-    ...winner,
-    evidence: Array.from(new Set([...left.evidence, ...right.evidence])),
-  };
-}
-
 function choosePreferred(
   left: ParsedFact,
   right: ParsedFact,
@@ -584,9 +569,12 @@ export function assembleCanonicalFactsV2(args: {
   const parsed = [...args.candidates, ...negativeParkingCandidates]
     .map((candidate) => parseCandidate(candidate, sourceLocked))
     .filter((fact): fact is ParsedFact => Boolean(fact))
-    // Contact/appointment duplicates may be suppressed only against the
-    // already-structured context. This does not import anything from raw text.
-    .filter((fact) => !isCoveredByStructuredContext(fact, context))
+    // V17.90L252: Source-locked first-AI facts are never deleted because a
+    // separate structured contact/appointment happens to carry similar text.
+    // Legacy/shadow mode may still compact display-equivalent diagnostics.
+    .filter(
+      (fact) => sourceLocked || !isCoveredByStructuredContext(fact, context),
+    )
     // V17.90L207 applies only to the legacy/shadow path because it derives
     // additional facts from source text. Source-locked persistence never does.
     .filter(
@@ -599,25 +587,30 @@ export function assembleCanonicalFactsV2(args: {
     );
 
   const assembled: ParsedFact[] = [];
-  for (const candidate of parsed) {
-    const duplicateIndex = assembled.findIndex((existing) =>
-      factsEquivalent(existing, candidate),
-    );
-    if (duplicateIndex < 0) assembled.push(candidate);
-    else {
-      assembled[duplicateIndex] = sourceLocked
-        ? chooseSourceLockedFact(assembled[duplicateIndex], candidate)
-        : choosePreferred(
-            assembled[duplicateIndex],
-            candidate,
-            context.translationText,
-          );
+  if (sourceLocked) {
+    // V17.90L252: The structured first-AI fact list is immutable. A downstream
+    // assembler may not merge, delete, re-role or rewrite even semantically
+    // equivalent entries. Display layers may compact duplicates without
+    // changing the sealed canonical payload.
+    assembled.push(...parsed);
+  } else {
+    for (const candidate of parsed) {
+      const duplicateIndex = assembled.findIndex((existing) =>
+        factsEquivalent(existing, candidate),
+      );
+      if (duplicateIndex < 0) assembled.push(candidate);
+      else {
+        assembled[duplicateIndex] = choosePreferred(
+          assembled[duplicateIndex],
+          candidate,
+          context.translationText,
+        );
+      }
     }
   }
 
   // Legacy/shadow mode may compact a separate code fragment into a complete
-  // key-location statement. Source-locked mode keeps the AI-selected facts and
-  // performs no post-AI deletion beyond equivalent-fact deduplication above.
+  // key-location statement. Source-locked mode performs no post-AI deletion.
   const completeKeyCodes = new Set(
     assembled
       .filter((fact) => fact.kind === "key_location")
@@ -634,8 +627,10 @@ export function assembleCanonicalFactsV2(args: {
           ),
       );
 
-  const facts: CanonicalFactV2[] = compacted.map((fact) => ({
-    factId: `fact_${hash32(fact.semanticKey)}`,
+  const facts: CanonicalFactV2[] = compacted.map((fact, index) => ({
+    factId: sourceLocked
+      ? `fact_${hash32(`${fact.semanticKey}|${index}|${fact.normalized}`)}`
+      : `fact_${hash32(fact.semanticKey)}`,
     semanticKey: fact.semanticKey,
     role: fact.role,
     kind: fact.kind,
