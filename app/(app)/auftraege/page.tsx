@@ -4873,6 +4873,46 @@ const isInternalReviewServiceName = (value?: string | null) => {
   ]).has(key);
 };
 
+// V17.90L253: A read-only recognition finding may create a mutable review row
+// only after the user explicitly presses Übernehmen. Prefill that row from
+// the already stored finding evidence. No parser, validator or UI heuristic
+// invents, translates or rewrites a service name here.
+const recognitionReviewTakeoverTextV17_90L253 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) => {
+  const relatedRoleText = compactText(detail?.relatedRoleText);
+  if (relatedRoleText && !isInternalReviewServiceName(relatedRoleText)) {
+    return relatedRoleText;
+  }
+
+  const sourceText = compactText(detail?.sourceText);
+  if (sourceText && !isInternalReviewServiceName(sourceText)) {
+    return sourceText;
+  }
+
+  const explicitServiceName = compactText(detail?.serviceName);
+  if (
+    explicitServiceName &&
+    !isInternalReviewServiceName(explicitServiceName)
+  ) {
+    return explicitServiceName;
+  }
+
+  return "Zusätzliche Arbeit prüfen";
+};
+
+const recognitionReviewHasSeparateDisplayTextV17_90L253 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) => {
+  const displayText = recognitionReviewTakeoverTextV17_90L253(detail);
+  const sourceText = compactText(detail?.sourceText);
+  return Boolean(
+    displayText &&
+      sourceText &&
+      normalizeForMatch(displayText) !== normalizeForMatch(sourceText),
+  );
+};
+
 // V17.90j2: Top-level helper, weil der Editor denselben Prüfzustand braucht
 // wie die Karten-Badges. Das sind Smartflow-interne Review-Platzhalter,
 // keine Service-Wortliste und keine fachliche Service-Erkennung.
@@ -13044,16 +13084,17 @@ export default function AuftraegePage() {
       return;
     }
 
-    const serviceName =
-      canonicalServiceNameForOrderItem(detail.serviceName) ||
-      compactText(detail.serviceName) ||
-      "Leistung prüfen";
+    const serviceName = recognitionReviewTakeoverTextV17_90L253(detail);
     const unit = compactText(detail.unit) || "Einheit prüfen";
     const quantity = Number(detail.quantity || 0);
     const unitPrice = Number(detail.unitPrice || 0);
+    const originalSourceText = compactText(detail.sourceText);
+    const displayEvidenceText = compactText(detail.relatedRoleText);
+    const sourceDescription = originalSourceText || displayEvidenceText;
     const defaultWorkSiteId =
       activeWorkSiteId ||
       (formWorkSites.length === 1 ? formWorkSites[0]?.id || null : null);
+    const newItemKey = Math.random().toString(36).slice(2);
 
     setFormItems((previous) => [
       ...previous.filter(
@@ -13063,14 +13104,12 @@ export default function AuftraegePage() {
           item.quantity.trim(),
       ),
       {
-        key: Math.random().toString(36).slice(2),
+        key: newItemKey,
         serviceName,
         unit,
         unitPrice: unitPrice > 0 ? String(unitPrice) : "",
         quantity: quantity > 0 ? String(quantity) : "",
-        aiWarning: compactText(detail.sourceText)
-          ? `Text: ${compactText(detail.sourceText)}`
-          : "",
+        aiWarning: sourceDescription ? `Text: ${sourceDescription}` : "",
         catalogReviewConfirmed: false,
         manualCurrencyConfirmed: false,
         manualUnitConfirmed: Boolean(
@@ -13080,10 +13119,13 @@ export default function AuftraegePage() {
         pendingManualReviewDecision: true,
         pendingReviewSourceServiceName: serviceName,
         recognitionReviewKey: recognitionReviewDetailKeyV17_90L70(detail),
-        sourceDescription: compactText(detail.sourceText),
+        sourceDescription,
         workSiteId: defaultWorkSiteId,
       },
     ]);
+    setExpandedServiceItemKeys((current) =>
+      current.includes(newItemKey) ? current : [...current, newItemKey],
+    );
     toast.success("Leistung übernommen. Bitte prüfen und speichern.");
   };
 
@@ -19628,9 +19670,23 @@ export default function AuftraegePage() {
                                   <div className="font-medium">
                                     {formatRecognitionReviewLineV17_90L69(detail).replace(/^•\s*/, "")}
                                   </div>
+                                  {detail.kind === "missing_work" &&
+                                    recognitionReviewHasSeparateDisplayTextV17_90L253(
+                                      detail,
+                                    ) && (
+                                      <div className="mt-1 text-[11px] leading-snug text-red-800 dark:text-red-100">
+                                        Vorschlag: {recognitionReviewTakeoverTextV17_90L253(detail)}
+                                      </div>
+                                    )}
                                   {compactText(detail.sourceText) && (
                                     <div className="mt-1 text-[11px] leading-snug text-red-700 dark:text-red-200">
-                                      Quelle: {compactText(detail.sourceText)}
+                                      {detail.kind === "missing_work" &&
+                                      recognitionReviewHasSeparateDisplayTextV17_90L253(
+                                        detail,
+                                      )
+                                        ? "Originalquelle"
+                                        : "Quelle"}
+                                      : {compactText(detail.sourceText)}
                                     </div>
                                   )}
                                   <div className="mt-2 flex flex-wrap gap-2">
