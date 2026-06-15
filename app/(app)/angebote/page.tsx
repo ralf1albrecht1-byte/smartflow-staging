@@ -37,10 +37,6 @@ import {
   type CommunicationData,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
-import {
-  collectMergedAppointmentEntries,
-  formatMergedAppointmentTooltip,
-} from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {
@@ -686,8 +682,11 @@ function extractOfferAppointmentLabel(value?: string | null): string {
 function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): string {
   const entries = (Array.isArray(orders) ? orders : [])
     .map((order, index) => {
+      // V17.90L264: order.date is the administrative order date, never an
+      // execution appointment. Appointment display is allowed only when the
+      // customer/manual source contains explicit appointment evidence.
       const label = extractOfferAppointmentLabel(
-        [order?.date, order?.specialNotes, order?.notes, order?.description]
+        [order?.specialNotes, order?.notes, order?.description, order?.audioTranscript]
           .filter(Boolean)
           .join("\n"),
       );
@@ -1080,10 +1079,52 @@ function extractOfferAccessLinesV17_90L237(
 
   const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
   for (const order of orders || []) {
-    for (const source of [order?.specialNotes, order?.notes, order?.audioTranscript]) {
+    // V17.90L264: first-AI canonical role text is the authoritative display
+    // source. Raw/original text is fallback-only, preventing the same access
+    // instruction from appearing in two languages.
+    const canonicalLines = splitOfferSourceLinesV17_90L237(order?.specialNotes)
+      .filter((line) => accessPattern.test(normalizeOfferHint(line)));
+    if (canonicalLines.length > 0) {
+      canonicalLines.forEach(add);
+      continue;
+    }
+    for (const source of [order?.notes, order?.audioTranscript]) {
       for (const line of splitOfferSourceLinesV17_90L237(source)) {
         if (accessPattern.test(normalizeOfferHint(line))) add(line);
       }
+    }
+  }
+  return result;
+}
+
+function extractOfferParkingLinesV17_90L264(orders: any[]): string[] {
+  const result: string[] = [];
+  const add = (value: string) => {
+    const clean = cleanOfferInfoLineV17_66(value);
+    const key = normalizeOfferHint(clean);
+    if (!clean || !key) return;
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeOfferHint(entry);
+      return existing === key || existing.includes(key) || key.includes(existing);
+    });
+    if (existingIndex >= 0) {
+      if (clean.length > result[existingIndex].length) result[existingIndex] = clean;
+      return;
+    }
+    result.push(clean);
+  };
+
+  for (const order of orders || []) {
+    const canonicalLines = splitOfferSourceLinesV17_90L237(order?.specialNotes)
+      .filter(isOfferParkingLineV17_90L101);
+    if (canonicalLines.length > 0) {
+      canonicalLines.forEach(add);
+      continue;
+    }
+    for (const source of [order?.notes, order?.audioTranscript]) {
+      splitOfferSourceLinesV17_90L237(source)
+        .filter(isOfferParkingLineV17_90L101)
+        .forEach(add);
     }
   }
   return result;
@@ -1093,14 +1134,16 @@ function resolveOfferAppointmentLabelV17_90L237(
   orders: any[],
   fallbackData?: CommunicationData | null,
 ): string {
+  // V17.90L264: Never derive a customer appointment from order.date,
+  // createdAt or document timestamps. Only explicit source text is eligible.
   const candidates = [
-    formatMergedAppointmentTooltip(collectMergedAppointmentEntries((orders || []) as any)),
-    ...(orders || []).flatMap((order: any) => [
-      extractOfferAppointmentLabel(order?.specialNotes),
-      extractOfferAppointmentLabel(order?.date),
-      extractOfferAppointmentLabel(order?.notes),
-      extractOfferAppointmentLabel(order?.description),
-    ]),
+    ...(orders || []).map((order: any) =>
+      extractOfferAppointmentLabel(
+        [order?.specialNotes, order?.notes, order?.description, order?.audioTranscript]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+    ),
     extractOfferAppointmentLabel(
       [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
         .filter(Boolean)
@@ -1149,7 +1192,11 @@ function buildOfferInfoSummary(
   sourceOrders: any[] = [],
   serviceNames: string[] = [],
 ): OfferInfoSummary {
-  const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
+  // V17.90L264: The canonical first-AI role snapshot is preferred for
+  // internal display. Raw/original customer text is fallback-only so the same
+  // hint is not shown again in another language.
+  const canonicalSource = String(data.specialNotes || "").trim();
+  const source = canonicalSource || [data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const serviceEvidence = collectOfferServiceEvidenceLinesV17_90L237(sourceOrders);
   const accessLines = extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames);
   const hasConcreteAppointment = /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(appointmentLabel);
@@ -4013,7 +4060,10 @@ export default function AngebotePage() {
   );
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
-  const linkedJobHints = linkedInfoSummary.additional;
+  const linkedJobHints = uniqueOfferInfoLinesV17_66([
+    ...linkedInfoSummary.additional,
+    ...extractOfferParkingLinesV17_90L264(linkedEditorOrdersV17_90L237),
+  ]);
 
   const updateExecutionSite = (
     index: number,
@@ -5615,15 +5665,10 @@ export default function AngebotePage() {
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );
-                  const offerAppointmentEntries =
-                    collectMergedAppointmentEntries((off.orders || []) as any);
-                  const appointmentLabel =
-                    formatMergedAppointmentTooltip(offerAppointmentEntries) ||
-                    extractOfferAppointmentLabel(
-                      [orderCtx.specialNotes, orderCtx.notes]
-                        .filter(Boolean)
-                        .join("\n"),
-                    );
+                  const appointmentLabel = resolveOfferAppointmentLabelV17_90L237(
+                    (off.orders || []) as any[],
+                    orderCtx,
+                  );
                   const appointmentDisplayLabel = appointmentLabel;
                   const appointmentChipLabels =
                     buildAdaptiveAppointmentLabels(appointmentDisplayLabel);
@@ -7397,7 +7442,7 @@ export default function AngebotePage() {
                                 ? "Historischer Kundenstand"
                                 : "Kunde bearbeiten"
                             }
-                            className={`rounded-xl border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-600 dark:bg-slate-900/30 ${
+                            className={`rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-700 dark:bg-slate-900/30 ${
                               historicalOfferCustomerLocked
                                 ? "cursor-default"
                                 : "cursor-pointer hover:bg-slate-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
@@ -7532,7 +7577,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-600 dark:bg-slate-900/30">
+                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-700 dark:bg-slate-900/30">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -7628,7 +7673,7 @@ export default function AngebotePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-slate-50/70 dark:bg-slate-900/30 border-slate-300 dark:border-slate-600 min-w-0"
+                    className="rounded-xl border p-2 sm:p-3 space-y-2 bg-slate-50/70 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -7742,7 +7787,7 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20"
+                    className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                   >
                     <div
                       role={executionSites.length > 0 ? "button" : undefined}
@@ -7976,7 +8021,7 @@ export default function AngebotePage() {
                   <div
                     ref={serviceItemsRef}
                     tabIndex={-1}
-                    className="scroll-mt-24 space-y-2 rounded-xl border-2 border-slate-300 bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3 dark:border-slate-600"
+                    className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
                   >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -8073,7 +8118,7 @@ export default function AngebotePage() {
                           <div
                             key={idx}
                             data-service-item-index={idx}
-                            className={`relative overflow-visible rounded-xl border-2 transition-colors ${
+                            className={`relative overflow-visible rounded-xl border transition-colors ${
                               hasCriticalReview
                                 ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
                                 : itemNeedsReview

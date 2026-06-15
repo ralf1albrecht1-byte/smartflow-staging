@@ -662,20 +662,27 @@ function extractInvoiceAccessLinesV17_90L237(
   const serviceKeys = (serviceNames || []).map(normalizeInvoiceServiceName).filter(Boolean);
   const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
   const candidates: string[] = [];
-  for (const order of invoice?.orders || []) {
-    for (const source of [order?.specialNotes, order?.notes, order?.audioTranscript]) {
-      for (const line of splitInvoiceSourceLinesV17_90L237(source)) {
-        const key = normalizeInvoiceServiceName(line);
-        if (!key || !accessPattern.test(key)) continue;
-        if (
-          serviceKeys.some((serviceKey) =>
-            serviceKey.length >= 8 &&
-            (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
-          )
-        ) continue;
-        candidates.push(line);
-      }
+  const addSource = (source: unknown) => {
+    for (const line of splitInvoiceSourceLinesV17_90L237(source)) {
+      const key = normalizeInvoiceServiceName(line);
+      if (!key || !accessPattern.test(key)) continue;
+      if (
+        serviceKeys.some((serviceKey) =>
+          serviceKey.length >= 8 &&
+          (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
+        )
+      ) continue;
+      candidates.push(line);
     }
+  };
+  for (const order of invoice?.orders || []) {
+    // V17.90L264: Prefer canonical normalized role text. Raw language is used
+    // only when no canonical access instruction exists for this source order.
+    const before = candidates.length;
+    addSource(order?.specialNotes);
+    if (candidates.length > before) continue;
+    addSource(order?.notes);
+    addSource(order?.audioTranscript);
   }
   return uniquePreferredInvoiceInfoLinesV17_90L237(candidates);
 }
@@ -1373,7 +1380,7 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
     entries.push(entry);
   };
 
-  for (const [orderIndex, order] of (invoice.orders || []).entries()) {
+  for (const order of invoice.orders || []) {
     const combinedSource = [
       order?.specialNotes,
       order?.notes,
@@ -1396,37 +1403,8 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
       }
     });
 
-    const directRaw = compactInvoiceValue(order?.date);
-    if (directRaw) {
-      let directLabel = "";
-      const directDate = new Date(directRaw);
-      if (!Number.isNaN(directDate.getTime())) {
-        const day = String(directDate.getDate()).padStart(2, "0");
-        const month = String(directDate.getMonth() + 1).padStart(2, "0");
-        const year = directDate.getFullYear();
-        const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(directRaw);
-        const time = hasTime
-          ? directDate.toLocaleTimeString("de-CH", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "";
-        directLabel = `Termin ${day}.${month}.${year}${time ? ` · ${time}` : ""}`;
-      } else {
-        directLabel = parseInvoiceAppointmentLineV17_90L177R(directRaw);
-      }
-      if (directLabel) {
-        addEntry({
-          site: resolveInvoiceAppointmentSiteV17_90L177R(
-            order,
-            combinedSource,
-            orderIndex,
-          ),
-          label: directLabel,
-          source: directRaw,
-        });
-      }
-    }
+    // V17.90L264: order.date is the administrative order date. It is
+    // intentionally not interpreted as an execution appointment.
   }
 
   return entries;
@@ -4680,13 +4658,8 @@ export default function RechnungenPage() {
                     : visibleItems.slice(0, 6);
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentEntries =
-                    compactInvoiceAppointmentEntriesForDisplay(
-                      collectMergedAppointmentEntries(
-                        (inv.orders || []) as any,
-                      ),
-                    );
+                    collectInvoiceAppointmentEntriesV17_90L177R(inv);
                   const invoiceAppointmentLabel =
-                    formatMergedAppointmentTooltip(invoiceAppointmentEntries) ||
                     formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel;
@@ -5750,7 +5723,7 @@ export default function RechnungenPage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="rounded-lg border-2 border-slate-300 p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-slate-600"
+                            className="border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                           >
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-sm font-semibold">
@@ -5868,7 +5841,7 @@ export default function RechnungenPage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-lg border-2 border-slate-300 p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 dark:border-slate-600">
+                              <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="text-sm font-semibold">
                                     👤 {cust.customerNumber || ""}
@@ -5955,7 +5928,7 @@ export default function RechnungenPage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-700 min-w-0"
+                    className="border rounded-lg p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -6054,7 +6027,7 @@ export default function RechnungenPage() {
                 )}
               </div>
               {!dupCheckOpen && !editingInvoice && (
-                <div className="scroll-mt-20 rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20">
+                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                   <div
                     role={newInvoiceExecutionSite ? "button" : undefined}
                     tabIndex={newInvoiceExecutionSite ? 0 : -1}
@@ -6291,7 +6264,7 @@ export default function RechnungenPage() {
                   })[0];
                   if (!executionSite) return null;
                   return (
-                    <div className="rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20">
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                       <div
                         role="button"
                         tabIndex={0}
@@ -6490,7 +6463,7 @@ export default function RechnungenPage() {
                 <>
                   <div
                     ref={serviceItemsRef}
-                    className="scroll-mt-24 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4 dark:border-slate-600"
+                    className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4"
                   >
                     <div className="space-y-2">
                       {(() => {
@@ -6607,7 +6580,7 @@ export default function RechnungenPage() {
                               <div
                                 key={idx}
                                 data-service-item-index={idx}
-                                className={`relative overflow-visible rounded-xl border-2 transition-colors ${
+                                className={`relative overflow-visible rounded-xl border transition-colors ${
                                   hasMissingValues
                                     ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
                                     : itemNeedsReview
