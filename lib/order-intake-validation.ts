@@ -1287,10 +1287,23 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
       // is intentionally structural and language-generic: it does not infer a
       // service. It only preserves the customer's unresolved work statement as
       // one red review position instead of silently demoting it to a note.
+      // V17.90L248: A customer may express the same uncertainty without the
+      // word "genau", for example "wir wissen nicht was, wie viel, welche
+      // Einheit und was es kostet". Treat that as a structural knowledge gap
+      // only when the same local window also names at least two unresolved
+      // work facets below. This prevents nearby quantities such as "zwei
+      // Tonnen alte Ware" from swallowing the actual unresolved work row.
+      const hasExplicitKnowledgeGapV17_90L248 =
+        /\b(?:wissen|weiss|weisst|know|savons|sappiamo|sabemos)\b.{0,60}\b(?:nicht|not|pas|non|no)\b.{0,90}\b(?:was|welche|wie\s+viel|what|which|how\s+much|quoi|quel(?:le|s)?|combien|cosa|quale|quanto|que|cual|cuanto)\b/i.test(
+          key,
+        ) ||
+        /\b(?:nicht|not|pas|non|no)\b.{0,40}\b(?:wissen|know|savons|sappiamo|sabemos)\b.{0,90}\b(?:was|welche|wie\s+viel|what|which|how\s+much|quoi|quel(?:le|s)?|combien|cosa|quale|quanto|que|cual|cuanto)\b/i.test(
+          key,
+        );
       const hasGenericUncertaintySignal =
         /\b(?:unklar|nicht\s+klar|noch\s+nicht\s+(?:klar|bekannt|festgelegt)|(?:wissen|weiss|weisst|know)\b.{0,40}\b(?:nicht|not)\b.{0,20}\bgenau|do\s+not\s+know\s+exactly|don['’]?t\s+know\s+exactly|ne\s+savons\s+pas\s+exactement|non\s+sappiamo\s+esattamente|no\s+sabemos\s+exactamente|unbekannt|offen|unclear|not\s+(?:clear|known|defined)|unknown|incertain|pas\s+clair|non\s+chiaro|no\s+esta\s+claro)\b/i.test(
           key,
-        );
+        ) || hasExplicitKnowledgeGapV17_90L248;
       const hasProspectiveWorkSignal =
         /\b(?:soll|sollte|muss|muesste|musste|eventuell|vielleicht|moeglicherweise|noch\s+etwas|etwas\s+gemacht|arbeit|arbeiten|work|something|travail|travaux|lavoro|lavori|trabajo|trabajos)\b/i.test(
           windowKey,
