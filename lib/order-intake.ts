@@ -15300,7 +15300,7 @@ export async function processIncomingMessage(
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
 
-  const canonicalAiOrderItemsBaseV17_90L234 =
+  let canonicalAiOrderItemsBaseV17_90L234 =
     buildCanonicalAiOrderItemsV17_90L88(
       aiWorkItemsRaw,
       translationText,
@@ -15308,6 +15308,87 @@ export async function processIncomingMessage(
         .filter(Boolean)
         .join("\n"),
     );
+
+  // V17.90L246: An explicitly unresolved work statement must never disappear
+  // merely because the first AI classified it as a note in one run. Before the
+  // canonical lock, add only deterministic, evidence-bound red review rows.
+  // No service is inferred: the row remains "Leistung prüfen" with open unit,
+  // quantity and price until the user deliberately accepts or discards it.
+  const unresolvedRecognitionSourceV17_90L246 = [
+    messageText,
+    translationText
+      ? `--- Übersetzung (automatisch) ---\n${translationText}`
+      : "",
+  ]
+    .filter((part) => String(part || "").trim())
+    .join("\n");
+  const unresolvedRecognitionCandidatesV17_90L246 =
+    extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
+      unresolvedRecognitionSourceV17_90L246,
+      intakeCurrency,
+    );
+  const unresolvedCanonicalCandidatesV17_90L246 =
+    buildCanonicalAiOrderItemsV17_90L88(
+      unresolvedRecognitionCandidatesV17_90L246,
+      translationText,
+      unresolvedRecognitionSourceV17_90L246,
+    );
+
+  const isCanonicalUnresolvedReviewV17_90L246 = (
+    item: CanonicalAiOrderItemV17_90L88,
+  ) =>
+    isInternalReviewServiceNameV17_90L(item.serviceName) ||
+    String(item.reviewReason || "").startsWith("service_action_unclear:");
+  const existingUnresolvedReviewCountV17_90L246 =
+    canonicalAiOrderItemsBaseV17_90L234.filter(
+      isCanonicalUnresolvedReviewV17_90L246,
+    ).length;
+  const unresolvedCandidatesWithoutExactEvidenceV17_90L246 =
+    unresolvedCanonicalCandidatesV17_90L246.filter((candidate) => {
+      const candidateEvidenceKey = canonicalEvidenceKeyV17_90L88(
+        candidate.sourceText || candidate.evidence || candidate.description,
+      );
+      if (!candidateEvidenceKey) return false;
+
+      return !canonicalAiOrderItemsBaseV17_90L234.some((existing) => {
+        const existingEvidenceKey = canonicalEvidenceKeyV17_90L88(
+          existing.sourceText || existing.evidence || existing.description,
+        );
+        return Boolean(
+          existingEvidenceKey &&
+            (existingEvidenceKey === candidateEvidenceKey ||
+              (existingEvidenceKey.length >= 16 &&
+                candidateEvidenceKey.length >= 16 &&
+                (existingEvidenceKey.includes(candidateEvidenceKey) ||
+                  candidateEvidenceKey.includes(existingEvidenceKey)))),
+        );
+      });
+    });
+  const unresolvedRowsToAppendV17_90L246 =
+    unresolvedCandidatesWithoutExactEvidenceV17_90L246.slice(
+      existingUnresolvedReviewCountV17_90L246,
+    );
+
+  if (unresolvedRowsToAppendV17_90L246.length > 0) {
+    canonicalAiOrderItemsBaseV17_90L234 = [
+      ...canonicalAiOrderItemsBaseV17_90L234,
+      ...unresolvedRowsToAppendV17_90L246,
+    ].map((item, canonicalOrder) => ({ ...item, canonicalOrder }));
+    console.warn(
+      `[${source}] ⚠️ Explicit unresolved work preserved as review rows: ${unresolvedRowsToAppendV17_90L246.length}`,
+    );
+    logIntakeDiagnosticTrace(
+      intakeDiagnosticTraceEnabled,
+      intakeDiagnosticTraceId,
+      "03e0_explicit_unresolved_work_rescue",
+      {
+        appendedCount: unresolvedRowsToAppendV17_90L246.length,
+        items: summarizeIntakeDiagnosticItems(
+          unresolvedRowsToAppendV17_90L246,
+        ),
+      },
+    );
+  }
 
   // V17.90L234: The second checker remains read-only. It compares the full
   // customer source with the hydrated first-AI rows and may only add a review

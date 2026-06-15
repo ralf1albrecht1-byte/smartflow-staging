@@ -6425,8 +6425,33 @@ const concreteRedReviewPositionCountV17_90L242 = (
 
 const compactSingleRedReviewTooltipV17_90L73 = (badge: ReviewBadge) => {
   const details = compactRedReviewDetailLinesV17_90L73(badge);
+  const cleanLabel = compactText(badge.label).replace(/\s*·\s*\d+\s*$/, "");
+
+  // V17.90L246: A single red chip represents one affected position. Do not
+  // render an additional generic heading such as "Widersprüchliche
+  // Preisangaben" as if it were a second problem. Keep the same compact,
+  // position-first structure used by "Betrag prüfen".
+  if (badge.key === "price_contradiction") {
+    const serviceRows = details
+      .map((line) => line.match(/^(.+?)\s+[—–-]\s+(.+)$/u))
+      .filter((match): match is RegExpMatchArray => Boolean(match?.[1]))
+      .map((match) => {
+        const rawServiceName = match[1].replace(/^•\s*/, "").trim();
+        const serviceName =
+          canonicalServiceNameForOrderItem(rawServiceName) || rawServiceName;
+        return `• ${serviceName} — Preiswiderspruch`;
+      });
+
+    return [
+      cleanLabel || "Preiswiderspruch",
+      ...(serviceRows.length > 0
+        ? Array.from(new Set(serviceRows))
+        : ["• Preisangaben kontrollieren."]),
+    ].join("\n");
+  }
+
   return [
-    badge.label,
+    cleanLabel || badge.label,
     ...(details.length > 0
       ? details.map((line) => `• ${line}`)
       : ["• Offenen Prüfpunkt kontrollieren."]),
@@ -6441,6 +6466,7 @@ const RED_REVIEW_SECTION_TITLES_V17_90L73 = new Set([
   "preis oder menge pruefen",
   "preis menge oder einheit ergaenzen",
   "einheit pruefen",
+  "preiswiderspruch",
 ]);
 
 const isRedReviewSectionTitleV17_90L73 = (value?: string | null) =>

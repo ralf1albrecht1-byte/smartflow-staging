@@ -1275,25 +1275,72 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
     for (let index = 0; index < sentences.length; index += 1) {
       const sentence = sentences[index];
       const key = normalizeCompare(sentence);
+      const windowLines = sentences.slice(
+        Math.max(0, index - 2),
+        Math.min(sentences.length, index + 4),
+      );
+      const windowText = windowLines.join(" ");
+      const windowKey = normalizeCompare(windowText);
+
+      // V17.90L246: Deterministic fail-closed rescue for explicitly mentioned
+      // work whose action, quantity, unit and/or price are still unknown. This
+      // is intentionally structural and language-generic: it does not infer a
+      // service. It only preserves the customer's unresolved work statement as
+      // one red review position instead of silently demoting it to a note.
+      const hasGenericUncertaintySignal =
+        /\b(?:unklar|nicht\s+klar|noch\s+nicht\s+(?:klar|bekannt|festgelegt)|(?:wissen|weiss|weisst|know)\b.{0,40}\b(?:nicht|not)\b.{0,20}\bgenau|do\s+not\s+know\s+exactly|don['’]?t\s+know\s+exactly|ne\s+savons\s+pas\s+exactement|non\s+sappiamo\s+esattamente|no\s+sabemos\s+exactamente|unbekannt|offen|unclear|not\s+(?:clear|known|defined)|unknown|incertain|pas\s+clair|non\s+chiaro|no\s+esta\s+claro)\b/i.test(
+          key,
+        );
+      const hasProspectiveWorkSignal =
+        /\b(?:soll|sollte|muss|muesste|musste|eventuell|vielleicht|moeglicherweise|noch\s+etwas|etwas\s+gemacht|arbeit|arbeiten|work|something|travail|travaux|lavoro|lavori|trabajo|trabajos)\b/i.test(
+          windowKey,
+        );
+      const unknownFacetCount = [
+        /\b(?:was\s+genau|welche\s+arbeit|welche\s+leistung|what\s+exactly|which\s+work|quel\s+travail|quale\s+lavoro|que\s+trabajo)\b/i,
+        /\b(?:wie\s+viel|menge|quantity|quantities|combien|quantita|cantidad)\b/i,
+        /\b(?:einheit|einheiten|unit|units|unite|unita|unidad)\b/i,
+        /\b(?:preis|preise|kostet|kosten|price|prices|cost|costs|prix|cout|costo|precio)\b/i,
+      ].filter((pattern) => pattern.test(windowKey)).length;
+      const explicitlyGenericUnresolved = Boolean(
+        hasGenericUncertaintySignal &&
+          hasProspectiveWorkSignal &&
+          unknownFacetCount >= 2,
+      );
+
       const hasUnresolvedScope =
+        explicitlyGenericUnresolved ||
         /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,180}\b(?:ob|whether|si|se)\b/i.test(key) ||
         /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,140}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(key);
       if (!hasUnresolvedScope) continue;
 
-      const windowLines = sentences.slice(Math.max(0, index - 2), Math.min(sentences.length, index + 4));
-      const windowText = windowLines.join(" ");
-      const windowKey = normalizeCompare(windowText);
       const hasInspectionFirst =
         /\b(?:muss|must|doit|deve)\b.{0,140}\b(?:zuerst|first|d'abord|prima)\b.{0,120}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b/i.test(windowKey);
       const hasUnknownValues =
         /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,160}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(windowKey);
       const explicitlyNotConfirmed =
         /\b(?:nicht|do\s+not|don['’]?t|ne\s+pas|non)\b.{0,160}\b(?:als\s+bestaetigte|als\s+bestätigte|confirmed|confirmee|confermata)\b/i.test(windowKey);
-      if (!(hasInspectionFirst || hasUnknownValues || explicitlyNotConfirmed)) continue;
-
-      const subject = extractSubject(sentences, index);
-      if (!subject || subject.length < 4 || subject.length > 120) continue;
       if (
+        !(
+          explicitlyGenericUnresolved ||
+          hasInspectionFirst ||
+          hasUnknownValues ||
+          explicitlyNotConfirmed
+        )
+      ) {
+        continue;
+      }
+
+      const subject = explicitlyGenericUnresolved
+        ? ""
+        : extractSubject(sentences, index);
+      if (
+        !explicitlyGenericUnresolved &&
+        (!subject || subject.length < 4 || subject.length > 120)
+      ) {
+        continue;
+      }
+      if (
+        subject &&
         /\b(?:techniker|fachperson|technician|specialist|telefon|phone|email|e-mail|adresse|address|termin|appointment)\b/i.test(
           subject,
         )
@@ -1301,27 +1348,47 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
         continue;
       }
 
-      const evidence = windowText.slice(0, 240).trim();
+      const previousSentence = sentences[index - 1] || "";
+      const genericEvidenceLines = [
+        /\b(?:soll|sollte|muss|muesste|musste|eventuell|vielleicht|moeglicherweise|noch\s+etwas|etwas\s+gemacht|arbeit|arbeiten|work|something|travail|travaux|lavoro|lavori|trabajo|trabajos)\b/i.test(
+          normalizeCompare(previousSentence),
+        )
+          ? previousSentence
+          : "",
+        sentence,
+      ].filter(Boolean);
+      const evidence = (
+        explicitlyGenericUnresolved
+          ? genericEvidenceLines.join(" ")
+          : windowText
+      )
+        .slice(0, 240)
+        .trim();
       if (!evidence) continue;
       if (
-        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(subject) ||
-        /\+?\d[\d\s()./-]{6,}\d/.test(subject)
+        subject &&
+        (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(subject) ||
+          /\+?\d[\d\s()./-]{6,}\d/.test(subject))
       ) {
         continue;
       }
 
-      const serviceName = /\b(?:pruefen|prüfen|inspect|check|kontrollieren)\b/i.test(subject)
-        ? subject
-        : `${subject} prüfen`;
+      const serviceName = explicitlyGenericUnresolved
+        ? "Leistung prüfen"
+        : /\b(?:pruefen|prüfen|inspect|check|kontrollieren)\b/i.test(subject)
+          ? subject
+          : `${subject} prüfen`;
       candidates.push({
         serviceName,
         description: evidence,
-        quantity: 1,
-        unit: "Pauschal",
+        quantity: explicitlyGenericUnresolved ? 0 : 1,
+        unit: explicitlyGenericUnresolved ? "Einheit prüfen" : "Pauschal",
         unitPrice: 0,
         totalPrice: 0,
         needsReview: true,
-        reviewReason: `price_unclear:${serviceName}`,
+        reviewReason: explicitlyGenericUnresolved
+          ? `service_action_unclear:${serviceName}`
+          : `price_unclear:${serviceName}`,
         sourceText: evidence,
         evidence,
         detectedCurrency: fallbackCurrency,
@@ -1334,7 +1401,13 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
 
   const bySubject = new Map<string, ParsedOrderItemForValidation>();
   candidates.forEach((candidate) => {
-    const key = normalizeCompare(candidate.serviceName);
+    const serviceKey = normalizeCompare(candidate.serviceName);
+    const evidenceKey = normalizeCompare(
+      candidate.sourceText || candidate.evidence || candidate.description,
+    );
+    const key = serviceKey === normalizeCompare("Leistung prüfen")
+      ? `${serviceKey}|${evidenceKey.slice(0, 160)}`
+      : serviceKey;
     if (!bySubject.has(key)) bySubject.set(key, candidate);
   });
   return Array.from(bySubject.values()).slice(0, 4);
