@@ -264,6 +264,62 @@ function exactQuoteExistsInSourceV17_90L251(
   );
 }
 
+type WorkCoverageSentenceCandidateV17_90L266 = {
+  id: string;
+  source: "original" | "translation";
+  text: string;
+};
+
+function splitWorkCoverageSentenceCandidatesV17_90L266(
+  value: unknown,
+  source: "original" | "translation",
+): WorkCoverageSentenceCandidateV17_90L266[] {
+  const prefix = source === "original" ? "O" : "T";
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 8 && line.length <= 700)
+    .slice(0, 80)
+    .map((text, index) => ({
+      id: `${prefix}${index + 1}`,
+      source,
+      text,
+    }));
+}
+
+function matchRoleEntryForSentenceV17_90L266(
+  sentence: string,
+  roleEntries: Array<{ role: string; text: string }>,
+): { role: string; text: string } | null {
+  const sentenceKey = compactExactSourceTextV17_90L251(sentence)
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!sentenceKey) return null;
+  return (
+    roleEntries.find((entry) => {
+      const roleKey = compactExactSourceTextV17_90L251(entry.text)
+        .toLocaleLowerCase("de-CH")
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      return Boolean(
+        roleKey &&
+          (roleKey === sentenceKey ||
+            (roleKey.length >= 18 && sentenceKey.includes(roleKey)) ||
+            (sentenceKey.length >= 18 && roleKey.includes(sentenceKey))),
+      );
+    }) || null
+  );
+}
+
 async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
   originalText: string;
   translatedText?: string | null;
@@ -439,6 +495,238 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
         console.warn(
           "[WorkCoverageCheckerV17_90L265] narrow retry failed; broad result kept",
           retryError?.message || retryError,
+        );
+      }
+    }
+
+    // V17.90L266: If both previous read-only passes still found no missing
+    // work, run one final sentence-accountability audit inside the same second
+    // checker. Every sentence must be classified. This prevents mixed-language
+    // or deliberately vague work statements from being silently skipped while
+    // remaining conservative: only high-confidence possible work creates a red
+    // finding, never a service row.
+    const missingAfterRetryCountV17_90L266 = Array.isArray(parsed?.missingWork)
+      ? parsed.missingWork.length
+      : 0;
+    if (missingAfterRetryCountV17_90L266 === 0) {
+      const sentenceCandidatesV17_90L266 = [
+        ...splitWorkCoverageSentenceCandidatesV17_90L266(
+          args.originalText,
+          "original",
+        ),
+        ...splitWorkCoverageSentenceCandidatesV17_90L266(
+          args.translatedText,
+          "translation",
+        ),
+      ];
+      if (sentenceCandidatesV17_90L266.length > 0) {
+        try {
+          const sentenceAuditResponse = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model: "gpt-4.1-mini",
+                temperature: 0,
+                max_tokens: 1200,
+                response_format: { type: "json_object" },
+                messages: [
+                  {
+                    role: "system",
+                    content: [
+                      "Du bist der verpflichtende Satz-für-Satz-Schlussaudit des zweiten, rein lesenden Auftragsprüfers.",
+                      "Die erste KI, workItems und alle kanonischen Werte sind unveränderbar. Du darfst nur rote Kontrollbefunde melden.",
+                      "Bewerte JEDEN übergebenen Satz genau einmal.",
+                      "possible_work_missing bedeutet: Der Satz sagt ausdrücklich, dass an einem Ort möglicherweise, zusätzlich oder noch ungeklärt eine Kundenarbeit ausgeführt werden soll, aber kein workItem deckt diese Arbeit ab.",
+                      "possible_work_covered bedeutet: Die Arbeit ist bereits durch ein workItem abgedeckt.",
+                      "not_work bedeutet insbesondere: Verbot/Nicht-Ausführen, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit oder rein organisatorische Bedingung.",
+                      "uncertain nur verwenden, wenn unklar ist, ob überhaupt eine Arbeit gemeint ist. uncertain erzeugt keinen Befund.",
+                      "Fehlende Tätigkeit, Menge, Einheit oder Preis sind kein Ausschlussgrund, wenn der Satz eindeutig mögliche Arbeit ankündigt.",
+                      "Original und Übersetzung derselben Aussage erhalten dieselbe semanticId. Erfinde keine Tätigkeit und gib keinen Reparaturvorschlag aus.",
+                      `Gib ausschließlich JSON zurück: {"sentenceAssessments":[{"id":"O1","classification":"possible_work_missing|possible_work_covered|not_work|uncertain","semanticId":"work_1 oder leer","confidence":"high|medium|low","reason":"kurz"}]}.`,
+                    ].join("\n"),
+                  },
+                  {
+                    role: "user",
+                    content: JSON.stringify({
+                      sentences: sentenceCandidatesV17_90L266,
+                      workItems: args.workItems.slice(0, 40),
+                      roleEntries: args.roleEntries.slice(0, 40),
+                    }),
+                  },
+                ],
+              }),
+            },
+          );
+          if (sentenceAuditResponse.ok) {
+            const sentenceAuditPayload = await sentenceAuditResponse.json();
+            const sentenceAuditContent = String(
+              sentenceAuditPayload?.choices?.[0]?.message?.content || "",
+            ).trim();
+            const sentenceAuditParsed = sentenceAuditContent
+              ? JSON.parse(sentenceAuditContent)
+              : null;
+            const candidateById = new Map(
+              sentenceCandidatesV17_90L266.map((entry) => [entry.id, entry]),
+            );
+            const strictFindings = (
+              Array.isArray(sentenceAuditParsed?.sentenceAssessments)
+                ? sentenceAuditParsed.sentenceAssessments
+                : []
+            )
+              .map((assessment: any) => {
+                if (
+                  String(assessment?.classification || "").toLowerCase() !==
+                    "possible_work_missing" ||
+                  String(assessment?.confidence || "").toLowerCase() !== "high"
+                ) {
+                  return null;
+                }
+                const candidate = candidateById.get(String(assessment?.id || ""));
+                if (!candidate) return null;
+                const matchedRole = matchRoleEntryForSentenceV17_90L266(
+                  candidate.text,
+                  args.roleEntries,
+                );
+                if (
+                  ["safety", "access", "parking"].includes(
+                    String(matchedRole?.role || "").toLowerCase(),
+                  )
+                ) {
+                  return null;
+                }
+                return {
+                  semanticId:
+                    compactExactSourceTextV17_90L251(assessment?.semanticId)
+                      .replace(/[^a-zA-Z0-9_-]+/g, "_")
+                      .slice(0, 120) ||
+                    deterministicReviewFindingIdV17_90L252(candidate.text),
+                  source: candidate.source,
+                  quote: candidate.text,
+                  relatedRoleText: matchedRole?.text || null,
+                  confidence: "high",
+                  reason:
+                    compactExactSourceTextV17_90L251(assessment?.reason).slice(
+                      0,
+                      240,
+                    ) || "mögliche Arbeit fachlich noch unklar",
+                };
+              })
+              .filter(Boolean);
+            if (strictFindings.length > 0) {
+              parsed = {
+                ...(parsed || {}),
+                missingWork: [
+                  ...(Array.isArray(parsed?.missingWork)
+                    ? parsed.missingWork
+                    : []),
+                  ...strictFindings,
+                ],
+              };
+            }
+          }
+        } catch (sentenceAuditError: any) {
+          console.warn(
+            "[WorkCoverageCheckerV17_90L266] sentence audit failed; previous result kept",
+            sentenceAuditError?.message || sentenceAuditError,
+          );
+        }
+      }
+    }
+
+    // V17.90L266: For translated/dialect input, run a separate conservative
+    // item-evidence audit when the broad checker found no invalid item. The
+    // original line-local sourceText is authoritative; a faulty translation
+    // must not legitimize a different object or activity. The audit may only
+    // flag the existing row and never rename it.
+    const broadInvalidCountV17_90L266 =
+      (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
+      (Array.isArray(parsed?.itemAssessments)
+        ? parsed.itemAssessments.filter((entry: any) =>
+            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
+              String(entry?.classification || "").toLowerCase(),
+            ),
+          ).length
+        : 0);
+    if (
+      broadInvalidCountV17_90L266 === 0 &&
+      compactExactSourceTextV17_90L251(args.translatedText) &&
+      args.workItems.length > 0
+    ) {
+      try {
+        const itemAuditResponse = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4.1-mini",
+              temperature: 0,
+              max_tokens: 1000,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "Du bist der line-lokale Schlussaudit des zweiten, rein lesenden Auftragsprüfers.",
+                    "Bewerte JEDEN workItem genau einmal gegen seine eigene sourceText-Zeile.",
+                    "Die originale sourceText-Zeile ist die höchste Evidenz. Eine automatische Übersetzung kann falsch sein und darf einen Bedeutungswiderspruch nicht überdecken.",
+                    "invalid_evidence_mismatch nur bei hoher Sicherheit: serviceName bezeichnet ein anderes Arbeitsobjekt oder eine andere Tätigkeit als sourceText.",
+                    "Normale Übersetzung, Flexion, Singular/Plural, Wortstellung und gleichbedeutende Formulierungen sind valid.",
+                    "Wenn die Bedeutung des Dialekts oder der Fremdsprache nicht sicher ist, classification=uncertain statt invalid.",
+                    "Du darfst keinen neuen Namen vorschlagen, nichts korrigieren und keine Werte verändern.",
+                    `Gib ausschließlich JSON zurück: {"itemAssessments":[{"index":1,"classification":"valid|invalid_evidence_mismatch|uncertain","confidence":"high|medium|low","reason":"kurz"}]}.`,
+                  ].join("\n"),
+                },
+                {
+                  role: "user",
+                  content: JSON.stringify({
+                    originalText: String(args.originalText || "").slice(0, 6500),
+                    translatedText: String(args.translatedText || "").slice(
+                      0,
+                      6500,
+                    ),
+                    workItems: args.workItems.slice(0, 40),
+                  }),
+                },
+              ],
+            }),
+          },
+        );
+        if (itemAuditResponse.ok) {
+          const itemAuditPayload = await itemAuditResponse.json();
+          const itemAuditContent = String(
+            itemAuditPayload?.choices?.[0]?.message?.content || "",
+          ).trim();
+          const itemAuditParsed = itemAuditContent
+            ? JSON.parse(itemAuditContent)
+            : null;
+          if (Array.isArray(itemAuditParsed?.itemAssessments)) {
+            parsed = {
+              ...(parsed || {}),
+              itemAssessments: [
+                ...(Array.isArray(parsed?.itemAssessments)
+                  ? parsed.itemAssessments
+                  : []),
+                ...itemAuditParsed.itemAssessments.slice(
+                  0,
+                  args.workItems.length + 4,
+                ),
+              ],
+            };
+          }
+        }
+      } catch (itemAuditError: any) {
+        console.warn(
+          "[WorkCoverageCheckerV17_90L266] item evidence audit failed; broad result kept",
+          itemAuditError?.message || itemAuditError,
         );
       }
     }
@@ -18211,6 +18499,16 @@ export async function processIncomingMessage(
   // visibility, but must never delete, split, rewrite or add canonical facts.
   const canonicalAiRoleSnapshotV17_90L250 = finalAiRoleSnapshotV17_90L215;
 
+  // V17.90L266: A channel-only instruction originates in the first AI's
+  // structured onsiteContact evidence. It is therefore first-AI canonical
+  // evidence even when no person or new phone is named. Persist the exact
+  // source-backed instruction as an ordinary operational fact so later
+  // documents do not reconstruct or invert SMS/WhatsApp/call semantics.
+  const firstAiCanonicalCommunicationFactsV17_90L266 =
+    firstAiCommunicationInstructionHintV17_90L265
+      ? [firstAiCommunicationInstructionHintV17_90L265]
+      : [];
+
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [
       ...canonicalAiRoleSnapshotV17_90L250.safety.map((text) => ({
@@ -18238,6 +18536,11 @@ export async function processIncomingMessage(
         text,
         evidenceSource: "ai_structured" as const,
       })),
+      ...firstAiCanonicalCommunicationFactsV17_90L266.map((text) => ({
+        role: "ordinary" as const,
+        text,
+        evidenceSource: "ai_structured" as const,
+      })),
     ],
     context: {
       onsiteContact: onsiteContactHint.hint
@@ -18260,6 +18563,9 @@ export async function processIncomingMessage(
       ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ["parking", text] as const),
       ...finalAiRoleSnapshotV17_90L215.other.map((text) => ["other", text] as const),
       ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ["ordinary", text] as const),
+      ...firstAiCanonicalCommunicationFactsV17_90L266.map(
+        (text) => ["ordinary", text] as const,
+      ),
     ].map(
       ([role, text]) =>
         `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
@@ -18317,6 +18623,7 @@ export async function processIncomingMessage(
     dedupeTranslatedRoleVariantsV17_90L201(
       [
         onsiteContactHint.hint || "",
+        firstAiCommunicationInstructionHintV17_90L265 || "",
         ...structuredAppointmentHintsV17_90L86,
         ...canonicalFactAssemblyV17_90L204.roles.access,
         ...canonicalFactAssemblyV17_90L204.roles.parking,

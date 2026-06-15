@@ -705,6 +705,10 @@ function isInvoiceLowInformationHintV17_90L265(
     "parkplatz nr",
     "parkplatz nummer",
     "parking pruefen",
+    "whatsapp bevorzugt",
+    "sms bevorzugt",
+    "keine telefonische rueckfrage",
+    "nicht anrufen",
   ].includes(key);
 }
 
@@ -726,6 +730,27 @@ function extractInvoiceParkingLinesV17_90L265(
   );
 }
 
+function isInvoiceAppointmentCommunicationLineV17_90L266(
+  value?: string | null,
+): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  if (!key) return false;
+  const hasAppointmentMarker =
+    /\b(?:termin|appointment|ausfuehrungstermin|zeitfenster)\b/.test(key);
+  const hasConcreteDateOrTime =
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(key) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(key);
+  return hasAppointmentMarker && hasConcreteDateOrTime;
+}
+
+function isInvoiceCommunicationLikeLineV17_90L266(
+  value?: string | null,
+): boolean {
+  return /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i.test(
+    String(value || ""),
+  );
+}
+
 function extractInvoiceCommunicationLinesV17_90L265(
   invoice: Invoice | null,
 ): string[] {
@@ -734,7 +759,8 @@ function extractInvoiceCommunicationLinesV17_90L265(
   return extractInvoiceCanonicalRoleLinesV17_90L265(invoice).filter(
     (line) =>
       pattern.test(normalizeInvoiceServiceName(line)) &&
-      !isInvoiceLowInformationHintV17_90L265(line),
+      !isInvoiceLowInformationHintV17_90L265(line) &&
+      !isInvoiceAppointmentCommunicationLineV17_90L266(line),
   );
 }
 
@@ -7535,7 +7561,8 @@ export default function RechnungenPage() {
                         }
                         if (
                           communicationHintsV17_90L265.length > 0 &&
-                          isInvoiceLowInformationHintV17_90L265(line)
+                          (isInvoiceLowInformationHintV17_90L265(line) ||
+                            isInvoiceCommunicationLikeLineV17_90L266(line))
                         ) {
                           return false;
                         }
@@ -7564,7 +7591,9 @@ export default function RechnungenPage() {
                           !(
                             (parkingHintsV17_90L265.length > 0 ||
                               communicationHintsV17_90L265.length > 0) &&
-                            isInvoiceLowInformationHintV17_90L265(line)
+                            (isInvoiceLowInformationHintV17_90L265(line) ||
+                              (communicationHintsV17_90L265.length > 0 &&
+                                isInvoiceCommunicationLikeLineV17_90L266(line)))
                           ),
                       );
                       const primaryHints = allHints.filter(

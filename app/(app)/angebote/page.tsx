@@ -1140,7 +1140,34 @@ function isOfferLowInformationHintV17_90L265(value?: string | null): boolean {
     "parkplatz nr",
     "parkplatz nummer",
     "parking pruefen",
+    "whatsapp bevorzugt",
+    "sms bevorzugt",
+    "keine telefonische rueckfrage",
+    "nicht anrufen",
   ].includes(key);
+}
+
+function isOfferAppointmentCommunicationLineV17_90L266(
+  value?: string | null,
+): boolean {
+  const key = normalizeOfferHint(value || "");
+  if (!key) return false;
+  const hasAppointmentMarker =
+    /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/.test(
+      key,
+    );
+  const hasConcreteDateOrTime =
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(key) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(key);
+  return hasAppointmentMarker && hasConcreteDateOrTime;
+}
+
+function isOfferCommunicationLikeLineV17_90L266(
+  value?: string | null,
+): boolean {
+  return /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i.test(
+    String(value || ""),
+  );
 }
 
 function extractOfferCommunicationInstructionLinesV17_90L265(
@@ -1165,7 +1192,11 @@ function extractOfferCommunicationInstructionLinesV17_90L265(
     /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i;
   for (const order of orders || []) {
     splitOfferSourceLinesV17_90L237(order?.specialNotes)
-      .filter((line) => communicationPattern.test(normalizeOfferHint(line)))
+      .filter(
+        (line) =>
+          communicationPattern.test(normalizeOfferHint(line)) &&
+          !isOfferAppointmentCommunicationLineV17_90L266(line),
+      )
       .forEach(add);
   }
   return result;
@@ -1295,7 +1326,11 @@ function buildOfferInfoSummary(
     (line) =>
       !offerHintMatchesServiceEvidenceV17_90L237(line, serviceEvidence) &&
       !(parkingLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
-      !(communicationLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
+      !(
+        communicationLines.length > 0 &&
+        (isOfferLowInformationHintV17_90L265(line) ||
+          isOfferCommunicationLikeLineV17_90L266(line))
+      ) &&
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
@@ -1690,10 +1725,31 @@ function offerContactChannelFromLine(
   const text = normalizeOfferHint(value);
   if (!text) return null;
 
-  if (/\bwhatsapp\b/.test(text)) return "whatsapp";
-  if (/\bsms\b/.test(text)) return "sms";
+  const negation =
+    String.raw`(?:nicht|kein|keine|keinen|ohne|nie|no|not|never|n[oö]d|noed|nod|ned|nid|nit)`;
+  const tokenNegated = (tokenPattern: string) =>
+    new RegExp(
+      String.raw`\b${negation}\b\s+(?:(?:per|via)\s+)?\b(?:${tokenPattern})\b`,
+      "i",
+    ).test(text);
+
+  const hasWhatsApp = /\bwhatsapp\b/.test(text);
+  const hasSms = /\bsms\b/.test(text);
+  const whatsappNegated = hasWhatsApp && tokenNegated("whatsapp");
+  const smsNegated = hasSms && tokenNegated("sms");
+
+  // Positive channel evidence outranks a merely mentioned but explicitly
+  // forbidden channel. Example: "nur per SMS, kein WhatsApp" must stay SMS.
+  if (hasSms && !smsNegated && (!hasWhatsApp || whatsappNegated)) return "sms";
+  if (hasWhatsApp && !whatsappNegated && (!hasSms || smsNegated)) {
+    return "whatsapp";
+  }
+  if (hasSms && !smsNegated) return "sms";
+  if (hasWhatsApp && !whatsappNegated) return "whatsapp";
+
   if (
     /\b(?:e mail|email|mail|courriel)\b/.test(text) &&
+    !tokenNegated("e mail|email|mail|courriel") &&
     /\b(?:nur|only|per|via|an|senden|schicken|melden|kontaktieren|reicht|bevorzugt)\b/.test(
       text,
     )
@@ -1701,13 +1757,9 @@ function offerContactChannelFromLine(
     return "mail";
   }
 
-  const negativeCall =
-    /\b(?:nicht|kein|keine|keinen|ohne|nie|no|not|never|noed|nod|ned|nid|nit)\b.{0,35}\b(?:anrufen|anrufe|rueckruf|rueckrufen|zurueckrufen|telefon|telefonisch|alute|aluete)\b/.test(
-      text,
-    ) ||
-    /\b(?:anrufen|anrufe|rueckruf|rueckrufen|zurueckrufen|telefon|telefonisch|alute|aluete)\b.{0,35}\b(?:nicht|kein|keine|ohne|unerwuenscht)\b/.test(
-      text,
-    );
+  const negativeCall = tokenNegated(
+    "anrufen|anrufe|rueckruf|rueckrufen|zurueckrufen|telefon|telefonisch|alute|aluete",
+  );
   const positiveCall =
     /\b(?:anrufen|rueckruf|rueckrufen|zurueckrufen|telefonisch\s+melden|alute|aluete)\b/.test(
       text,
