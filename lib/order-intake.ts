@@ -334,6 +334,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
     unitPrice: number | null;
   }>;
   roleEntries: Array<{ role: string; text: string }>;
+  structuredNonWorkEvidence?: Array<{ role: string; text: string }>;
 }): Promise<FinalAiWorkCoverageResultV17_90L251> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return emptyFinalAiWorkCoverageResultV17_90L251();
@@ -731,37 +732,251 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       }
     }
 
-    // V17.90L267: Final stronger read-only forensic audit. This pass runs
-    // only when the previous reviewers still returned no missing-work finding
-    // and/or no invalid-item finding for translated/dialect input. It uses the
-    // stronger model to independently interpret every original source line.
-    // It may only append review findings; it never mutates, renames, creates or
-    // deletes canonical workItems.
-    const forensicMissingCountV17_90L267 = Array.isArray(parsed?.missingWork)
-      ? parsed.missingWork.length
-      : 0;
-    const forensicInvalidCountV17_90L267 =
-      (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
-      (Array.isArray(parsed?.itemAssessments)
-        ? parsed.itemAssessments.filter((entry: any) =>
-            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
-              String(entry?.classification || "").toLowerCase(),
-            ),
-          ).length
-        : 0);
-    const forensicNeedsMissingAuditV17_90L267 =
-      forensicMissingCountV17_90L267 === 0;
-    const forensicNeedsItemAuditV17_90L267 =
-      forensicInvalidCountV17_90L267 === 0 &&
-      Boolean(compactExactSourceTextV17_90L251(args.translatedText)) &&
-      args.workItems.length > 0;
+    // V17.90L268: Balanced two-stage missing-work review.
+    // Earlier reviewers are intentionally used only as broad candidate finders.
+    // Every candidate, including findings from L251/L265/L266/L267-style passes,
+    // must now pass deterministic structured-role exclusion and an independent
+    // high-precision confirmer before it can become a red review finding.
+    // The first AI, translation, canonical workItems and all business values stay
+    // immutable. No service vocabulary or customer-specific rule is used.
+    const normalizeCoverageEvidenceV17_90L268 = (value: unknown): string =>
+      compactExactSourceTextV17_90L251(value)
+        .toLocaleLowerCase("de-CH")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
-    if (
-      forensicNeedsMissingAuditV17_90L267 ||
-      forensicNeedsItemAuditV17_90L267
-    ) {
+    const coverageTokensV17_90L268 = (value: unknown): string[] =>
+      normalizeCoverageEvidenceV17_90L268(value)
+        .split(/\s+/g)
+        .filter((token) => token.length >= 2);
+
+    const stronglyCoveredByStructuredEvidenceV17_90L268 = (
+      candidateText: string,
+      evidenceText: string,
+    ): boolean => {
+      const candidateKey = normalizeCoverageEvidenceV17_90L268(candidateText);
+      const evidenceKey = normalizeCoverageEvidenceV17_90L268(evidenceText);
+      if (!candidateKey || !evidenceKey) return false;
+      if (candidateKey === evidenceKey) return true;
+
+      if (
+        candidateKey.includes(evidenceKey) &&
+        evidenceKey.length / Math.max(candidateKey.length, 1) >= 0.62
+      ) {
+        return true;
+      }
+      if (
+        evidenceKey.includes(candidateKey) &&
+        candidateKey.length / Math.max(evidenceKey.length, 1) >= 0.48
+      ) {
+        return true;
+      }
+
+      const candidateTokens = coverageTokensV17_90L268(candidateText);
+      const evidenceTokens = coverageTokensV17_90L268(evidenceText);
+      if (candidateTokens.length < 3 || evidenceTokens.length < 3) return false;
+      const candidateSet = new Set(candidateTokens);
+      const evidenceSet = new Set(evidenceTokens);
+      const candidateCovered = candidateTokens.filter((token) =>
+        evidenceSet.has(token),
+      ).length;
+      const evidenceCovered = evidenceTokens.filter((token) =>
+        candidateSet.has(token),
+      ).length;
+      return (
+        candidateCovered / candidateTokens.length >= 0.86 ||
+        evidenceCovered / evidenceTokens.length >= 0.86
+      );
+    };
+
+    const structuredNonWorkEvidenceV17_90L268 = [
+      ...(Array.isArray(args.structuredNonWorkEvidence)
+        ? args.structuredNonWorkEvidence
+        : []),
+      ...args.roleEntries
+        .filter((entry) =>
+          ["safety", "access", "parking"].includes(
+            String(entry.role || "").toLowerCase(),
+          ),
+        )
+        .map((entry) => ({ role: entry.role, text: entry.text })),
+    ]
+      .map((entry) => ({
+        role: compactExactSourceTextV17_90L251(entry?.role).toLowerCase(),
+        text: compactExactSourceTextV17_90L251(entry?.text),
+      }))
+      .filter((entry) => entry.role && entry.text.length >= 4)
+      .slice(0, 80);
+
+    type MissingWorkCandidateV17_90L268 = {
+      candidateId: string;
+      source: "original" | "translation";
+      quote: string;
+      reason: string;
+      origins: string[];
+    };
+
+    const missingCandidateMapV17_90L268 = new Map<
+      string,
+      MissingWorkCandidateV17_90L268
+    >();
+    const addMissingCandidateV17_90L268 = (raw: any, origin: string): void => {
+      const source = String(raw?.source || "").toLowerCase() as
+        | "original"
+        | "translation"
+        | "";
+      const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 620);
+      if (!(["original", "translation"] as string[]).includes(source)) return;
+      if (quote.length < 8) return;
+      const sourceText =
+        source === "translation" ? args.translatedText : args.originalText;
+      if (!exactQuoteExistsInSourceV17_90L251(sourceText, quote)) return;
+      const key = `${source}|${normalizeCoverageEvidenceV17_90L268(quote)}`;
+      if (!key) return;
+      const existing = missingCandidateMapV17_90L268.get(key);
+      if (existing) {
+        if (!existing.origins.includes(origin)) existing.origins.push(origin);
+        return;
+      }
+      missingCandidateMapV17_90L268.set(key, {
+        candidateId: deterministicReviewFindingIdV17_90L252(
+          `${source}|${quote}`,
+        ),
+        source: source as "original" | "translation",
+        quote,
+        reason:
+          compactExactSourceTextV17_90L251(raw?.reason).slice(0, 240) ||
+          "mögliche Arbeit fachlich noch unklar",
+        origins: [origin],
+      });
+    };
+
+    for (const finding of Array.isArray(parsed?.missingWork)
+      ? parsed.missingWork.slice(0, 20)
+      : []) {
+      addMissingCandidateV17_90L268(finding, "previous_missing_work");
+    }
+    for (const assessment of Array.isArray(parsed?.roleAssessments)
+      ? parsed.roleAssessments.slice(0, args.roleEntries.length + 12)
+      : []) {
+      const classification = String(
+        assessment?.classification || "",
+      ).toLowerCase();
+      const confidence = String(assessment?.confidence || "").toLowerCase();
+      if (
+        ["possible_work_missing", "uncertain"].includes(classification) &&
+        ["high", "medium"].includes(confidence)
+      ) {
+        addMissingCandidateV17_90L268(assessment, "previous_role_assessment");
+      }
+    }
+
+    // High-recall discovery: it may nominate candidates, but it cannot create a
+    // finding. The independent confirmation below is mandatory.
+    try {
+      const discoveryResponseV17_90L268 = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1",
+            temperature: 0,
+            max_tokens: 1800,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: [
+                  "Du bist ausschließlich der breit suchende Kandidatenfinder eines read-only Auftragsprüfers.",
+                  "Die erste KI und workItems sind unveränderbar. Du darfst keine Leistung erzeugen, korrigieren oder umbenennen.",
+                  "Zerlege Original und Übersetzung intern in atomare Aussagen, auch bei Einzeilern, Dialekt und Mischsprache.",
+                  "Nominiere jede Aussage, die möglicherweise eine zusätzliche, verlangte oder noch unklare Kundenarbeit beschreibt und nicht offensichtlich durch ein workItem abgedeckt ist.",
+                  "Die genaue Tätigkeit, Menge, Einheit oder der Preis dürfen unbekannt sein; das ist kein Ausschlussgrund.",
+                  "Nominiere keine ausdrückliche Nicht-Arbeit, kein Verbot, keinen Termin, keine Kommunikation, keinen Zugang/Schlüssel, keinen Parkplatz, keine Sicherheit und keine reine Kunden-/Adress-/Objektangabe.",
+                  "Sei bei der Suche eher vollständig als streng. Ein separater Prüfer bestätigt später. Erfinde niemals eine Tätigkeit.",
+                  "quote muss ein kurzes, exakt zusammenhängendes Zitat aus Original oder Übersetzung sein. Bevorzuge Original.",
+                  'Gib ausschließlich JSON zurück: {"candidates":[{"candidateId":"c1","source":"original|translation","quote":"exaktes Zitat","confidence":"high|medium|low","reason":"kurz"}]}.',
+                ].join("\n"),
+              },
+              {
+                role: "user",
+                content: JSON.stringify({
+                  originalText: String(args.originalText || "").slice(0, 8500),
+                  translatedText: String(args.translatedText || "").slice(
+                    0,
+                    8500,
+                  ),
+                  workItems: args.workItems.slice(0, 40),
+                  structuredNonWorkEvidence:
+                    structuredNonWorkEvidenceV17_90L268,
+                }),
+              },
+            ],
+          }),
+        },
+      );
+      if (discoveryResponseV17_90L268.ok) {
+        const discoveryPayloadV17_90L268 =
+          await discoveryResponseV17_90L268.json();
+        const discoveryContentV17_90L268 = String(
+          discoveryPayloadV17_90L268?.choices?.[0]?.message?.content || "",
+        ).trim();
+        const discoveryParsedV17_90L268 = discoveryContentV17_90L268
+          ? JSON.parse(discoveryContentV17_90L268)
+          : null;
+        for (const candidate of Array.isArray(
+          discoveryParsedV17_90L268?.candidates,
+        )
+          ? discoveryParsedV17_90L268.candidates.slice(0, 20)
+          : []) {
+          const confidence = String(candidate?.confidence || "").toLowerCase();
+          if (!["high", "medium"].includes(confidence)) continue;
+          addMissingCandidateV17_90L268(candidate, "broad_discovery");
+        }
+      } else {
+        console.warn(
+          `[WorkCoverageCheckerV17_90L268] discovery API error ${discoveryResponseV17_90L268.status}`,
+        );
+      }
+    } catch (discoveryErrorV17_90L268: any) {
+      console.warn(
+        "[WorkCoverageCheckerV17_90L268] discovery failed",
+        discoveryErrorV17_90L268?.message || discoveryErrorV17_90L268,
+      );
+    }
+
+    const prefilteredCandidatesV17_90L268 = [
+      ...missingCandidateMapV17_90L268.values(),
+    ].filter((candidate) => {
+      const coveredByCanonicalItem = args.workItems.some((item) =>
+        stronglyCoveredByStructuredEvidenceV17_90L268(
+          candidate.quote,
+          item.sourceText,
+        ),
+      );
+      if (coveredByCanonicalItem) return false;
+
+      const coveredByStructuredNonWork =
+        structuredNonWorkEvidenceV17_90L268.some((entry) =>
+          stronglyCoveredByStructuredEvidenceV17_90L268(
+            candidate.quote,
+            entry.text,
+          ),
+        );
+      return !coveredByStructuredNonWork;
+    });
+
+    let confirmedMissingWorkV17_90L268: any[] = [];
+    if (prefilteredCandidatesV17_90L268.length > 0) {
       try {
-        const forensicAuditResponseV17_90L267 = await fetch(
+        const confirmResponseV17_90L268 = await fetch(
           "https://api.openai.com/v1/chat/completions",
           {
             method: "POST",
@@ -772,109 +987,207 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
             body: JSON.stringify({
               model: "gpt-4.1",
               temperature: 0,
-              max_tokens: 2200,
+              max_tokens: 1800,
               response_format: { type: "json_object" },
               messages: [
                 {
                   role: "system",
                   content: [
-                    "Du bist der verbindliche forensische Schlussprüfer einer Auftragserfassung. Du arbeitest ausschließlich read-only.",
-                    "Die erste KI und alle workItems sind unveränderbar. Du darfst nichts korrigieren, umbenennen, ergänzen, löschen oder als neue Leistung erzeugen. Du darfst ausschließlich rote Review-Befunde melden.",
-                    "Arbeite sprachunabhängig und ohne feste Service-Wortlisten. Interpretiere Dialekt und Fremdsprache selbstständig aus dem ORIGINAL; vertraue weder einer vorhandenen Übersetzung noch dem aktuellen serviceName blind.",
-                    "AUFGABE A – Vollständigkeitsprüfung: Zerlege Original und Übersetzung intern vollständig in atomare Aussagen. Überspringe keine Aussage, auch wenn der Eingangstext ohne Satzzeichen oder als langer Einzeiler vorliegt. Prüfe für jede Aussage, ob eine mögliche, zusätzliche, verlangte oder noch unklare Kundenarbeit erwähnt wird, die kein workItem abdeckt.",
-                    "Eine ausdrücklich mögliche Arbeit bleibt missingWork, auch wenn Tätigkeit, Menge, Einheit oder Preis noch unbekannt sind. Genau diese Unsicherheit erfordert den roten Befund.",
-                    "Ausdrückliche Nicht-Arbeit, Verbote, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit und organisatorische Bedingungen sind keine fehlenden Leistungen.",
-                    "AUFGABE B – Belegprüfung: Prüfe JEDEN workItem separat gegen seine eigene ORIGINAL-sourceText-Zeile. Ermittle die Bedeutung dieser Zeile unabhängig neu. Wenn serviceName mit hoher Sicherheit ein anderes Arbeitsobjekt oder eine andere Tätigkeit bezeichnet als sourceText, melde invalid_evidence_mismatch.",
-                    "Normale Übersetzung, Flexion, Singular/Plural, Wortstellung und echte Synonyme sind valid. Wenn du die Originalbedeutung nicht sicher verstehst, melde uncertain und keinen invalid-Befund.",
-                    "Beispielprinzip ohne feste Zuordnung: Wenn ein Dialektwort in sourceText semantisch Objekt A bezeichnet, serviceName aber Objekt B, ist das invalid_evidence_mismatch. Gib niemals einen korrigierten Namen zurück.",
-                    "Original und Übersetzung derselben fehlenden Arbeit sind ein einziger Befund. Bevorzuge ein kurzes, exakt zusammenhängendes Originalzitat. Falls nur die Übersetzung ein exakt zitierbares Segment enthält, source=translation.",
-                    "Melde ausschließlich confidence=high. relatedRoleText muss exakt einem roleEntries.text entsprechen oder null sein.",
-                    "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":null,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"itemAssessments\":[{\"index\":1,\"classification\":\"valid|invalid_evidence_mismatch|uncertain\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+                    "Du bist der unabhängige, hochpräzise Bestätiger eines read-only Auftragsprüfers.",
+                    "Bewerte jeden Kandidaten genau einmal. Ein roter Befund ist nur bei classification=confirmed_missing_work und confidence=high erlaubt.",
+                    "confirmed_missing_work: Das exakte Zitat sagt eindeutig, dass eine zusätzliche oder mögliche Kundenarbeit ausgeführt werden soll, und kein workItem deckt sie ab. Die konkrete Tätigkeit darf noch unbekannt sein.",
+                    "covered: Ein workItem deckt dieselbe Arbeit bereits ab.",
+                    "non_work: Kunden-/Adress-/Objektangabe, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit, organisatorische Bedingung, ausdrückliche Nicht-Arbeit oder Verbot.",
+                    "abstain: Es ist nicht sicher, ob überhaupt eine Arbeit gemeint ist.",
+                    "Die structuredNonWorkEvidence stammt aus bereits kanonisch erkannten Nicht-Leistungsrollen und ist verbindliche Gegen-Evidenz. Ein Satz darf nur dann trotzdem bestätigt werden, wenn das Zitat zusätzlich eindeutig eine eigenständige Kundenarbeit enthält.",
+                    "Arbeite sprachunabhängig, ohne Service-Wortlisten und ohne Reparaturvorschläge. Erfinde keine Tätigkeit.",
+                    'Gib ausschließlich JSON zurück: {"decisions":[{"candidateId":"c1","classification":"confirmed_missing_work|covered|non_work|abstain","confidence":"high|medium|low","reason":"kurz"}]}.',
                   ].join("\n"),
                 },
                 {
                   role: "user",
                   content: JSON.stringify({
-                    auditMissingWork:
-                      forensicNeedsMissingAuditV17_90L267,
-                    auditItemEvidence:
-                      forensicNeedsItemAuditV17_90L267,
-                    originalText: String(args.originalText || "").slice(0, 8500),
-                    translatedText: String(args.translatedText || "").slice(
-                      0,
-                      8500,
-                    ),
+                    candidates: prefilteredCandidatesV17_90L268,
                     workItems: args.workItems.slice(0, 40),
-                    roleEntries: args.roleEntries.slice(0, 40),
+                    customerName: String(args.customerName || "").slice(0, 220),
+                    executionSiteName: String(args.executionSiteName || "").slice(
+                      0,
+                      220,
+                    ),
+                    structuredNonWorkEvidence:
+                      structuredNonWorkEvidenceV17_90L268,
                   }),
                 },
               ],
             }),
           },
         );
-
-        if (forensicAuditResponseV17_90L267.ok) {
-          const forensicPayloadV17_90L267 =
-            await forensicAuditResponseV17_90L267.json();
-          const forensicContentV17_90L267 = String(
-            forensicPayloadV17_90L267?.choices?.[0]?.message?.content || "",
+        if (confirmResponseV17_90L268.ok) {
+          const confirmPayloadV17_90L268 =
+            await confirmResponseV17_90L268.json();
+          const confirmContentV17_90L268 = String(
+            confirmPayloadV17_90L268?.choices?.[0]?.message?.content || "",
           ).trim();
-          const forensicParsedV17_90L267 = forensicContentV17_90L267
-            ? JSON.parse(forensicContentV17_90L267)
+          const confirmParsedV17_90L268 = confirmContentV17_90L268
+            ? JSON.parse(confirmContentV17_90L268)
             : null;
-
-          parsed = {
-            ...(parsed || {}),
-            ...(forensicNeedsMissingAuditV17_90L267 &&
-            Array.isArray(forensicParsedV17_90L267?.missingWork)
-              ? {
-                  missingWork: [
-                    ...(Array.isArray(parsed?.missingWork)
-                      ? parsed.missingWork
-                      : []),
-                    ...forensicParsedV17_90L267.missingWork.slice(0, 8),
-                  ],
-                }
-              : {}),
-            ...(forensicNeedsItemAuditV17_90L267 &&
-            Array.isArray(forensicParsedV17_90L267?.itemAssessments)
-              ? {
-                  itemAssessments: [
-                    ...(Array.isArray(parsed?.itemAssessments)
-                      ? parsed.itemAssessments
-                      : []),
-                    ...forensicParsedV17_90L267.itemAssessments.slice(
-                      0,
-                      args.workItems.length + 4,
-                    ),
-                  ],
-                }
-              : {}),
-            ...(forensicNeedsItemAuditV17_90L267 &&
-            Array.isArray(forensicParsedV17_90L267?.invalidItems)
-              ? {
-                  invalidItems: [
-                    ...(Array.isArray(parsed?.invalidItems)
-                      ? parsed.invalidItems
-                      : []),
-                    ...forensicParsedV17_90L267.invalidItems.slice(
-                      0,
-                      args.workItems.length + 4,
-                    ),
-                  ],
-                }
-              : {}),
-          };
+          const decisionByIdV17_90L268 = new Map<string, any>(
+            (Array.isArray(confirmParsedV17_90L268?.decisions)
+              ? confirmParsedV17_90L268.decisions
+              : []
+            ).map((decision: any) => [
+              compactExactSourceTextV17_90L251(decision?.candidateId),
+              decision,
+            ]),
+          );
+          confirmedMissingWorkV17_90L268 =
+            prefilteredCandidatesV17_90L268.flatMap((candidate) => {
+              const decision = decisionByIdV17_90L268.get(
+                candidate.candidateId,
+              );
+              if (
+                String(decision?.classification || "").toLowerCase() !==
+                  "confirmed_missing_work" ||
+                String(decision?.confidence || "").toLowerCase() !== "high"
+              ) {
+                return [];
+              }
+              return [
+                {
+                  semanticId: deterministicReviewFindingIdV17_90L252(
+                    candidate.quote,
+                  ),
+                  source: candidate.source,
+                  quote: candidate.quote,
+                  relatedRoleText: null,
+                  confidence: "high",
+                  reason:
+                    compactExactSourceTextV17_90L251(
+                      decision?.reason || candidate.reason,
+                    ).slice(0, 240) ||
+                    "mögliche Arbeit fachlich noch unklar",
+                },
+              ];
+            });
         } else {
           console.warn(
-            `[WorkCoverageCheckerV17_90L267] API error ${forensicAuditResponseV17_90L267.status}; previous review result kept`,
+            `[WorkCoverageCheckerV17_90L268] confirmation API error ${confirmResponseV17_90L268.status}; no unconfirmed missing-work finding kept`,
           );
         }
-      } catch (forensicAuditErrorV17_90L267: any) {
+      } catch (confirmErrorV17_90L268: any) {
         console.warn(
-          "[WorkCoverageCheckerV17_90L267] forensic audit failed; previous review result kept",
-          forensicAuditErrorV17_90L267?.message ||
-            forensicAuditErrorV17_90L267,
+          "[WorkCoverageCheckerV17_90L268] confirmation failed; no unconfirmed missing-work finding kept",
+          confirmErrorV17_90L268?.message || confirmErrorV17_90L268,
+        );
+      }
+    }
+
+    parsed = {
+      ...(parsed || {}),
+      missingWork: confirmedMissingWorkV17_90L268,
+      // All candidate-like role assessments were already included in the
+      // two-stage confirmation. Clearing them prevents a rejected candidate
+      // from being re-added below without confirmation.
+      roleAssessments: [],
+    };
+
+    console.log(
+      `[WorkCoverageCheckerV17_90L268] candidates=${missingCandidateMapV17_90L268.size} prefiltered=${prefilteredCandidatesV17_90L268.length} confirmed=${confirmedMissingWorkV17_90L268.length}`,
+    );
+
+    // V17.90L268: Item-evidence mismatches remain a separate read-only audit.
+    // This avoids coupling missing-work recall with service-name contradiction
+    // detection. The original sourceText is authoritative; no correction is
+    // returned or applied.
+    const existingInvalidCountV17_90L268 =
+      (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
+      (Array.isArray(parsed?.itemAssessments)
+        ? parsed.itemAssessments.filter((entry: any) =>
+            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
+              String(entry?.classification || "").toLowerCase(),
+            ),
+          ).length
+        : 0);
+    if (
+      existingInvalidCountV17_90L268 === 0 &&
+      Boolean(compactExactSourceTextV17_90L251(args.translatedText)) &&
+      args.workItems.length > 0
+    ) {
+      try {
+        const itemAuditResponseV17_90L268 = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4.1",
+              temperature: 0,
+              max_tokens: 1300,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "Du bist ausschließlich der unabhängige line-lokale Belegprüfer vorhandener workItems.",
+                    "Prüfe jeden serviceName gegen seine eigene ORIGINAL-sourceText-Zeile. Vertraue der Übersetzung nicht blind.",
+                    "invalid_evidence_mismatch nur bei hoher Sicherheit, wenn Arbeitsobjekt oder Tätigkeit semantisch anders sind.",
+                    "invalid_entity_contamination nur bei hoher Sicherheit, wenn Kunden-/Objekt-/Adressinhalt ohne line-lokalen Beleg in den serviceName übernommen wurde.",
+                    "Normale Übersetzung, Flexion, Wortstellung, Singular/Plural und echte Synonyme sind valid. Bei Unsicherheit uncertain.",
+                    "Du darfst nichts korrigieren, umbenennen oder ergänzen.",
+                    'Gib ausschließlich JSON zurück: {"itemAssessments":[{"index":1,"classification":"valid|invalid_entity_contamination|invalid_evidence_mismatch|uncertain","confidence":"high|medium|low","reason":"kurz"}]}.',
+                  ].join("\n"),
+                },
+                {
+                  role: "user",
+                  content: JSON.stringify({
+                    originalText: String(args.originalText || "").slice(0, 8500),
+                    translatedText: String(args.translatedText || "").slice(
+                      0,
+                      8500,
+                    ),
+                    customerName: String(args.customerName || "").slice(0, 220),
+                    executionSiteName: String(args.executionSiteName || "").slice(
+                      0,
+                      220,
+                    ),
+                    workItems: args.workItems.slice(0, 40),
+                  }),
+                },
+              ],
+            }),
+          },
+        );
+        if (itemAuditResponseV17_90L268.ok) {
+          const itemAuditPayloadV17_90L268 =
+            await itemAuditResponseV17_90L268.json();
+          const itemAuditContentV17_90L268 = String(
+            itemAuditPayloadV17_90L268?.choices?.[0]?.message?.content || "",
+          ).trim();
+          const itemAuditParsedV17_90L268 = itemAuditContentV17_90L268
+            ? JSON.parse(itemAuditContentV17_90L268)
+            : null;
+          if (Array.isArray(itemAuditParsedV17_90L268?.itemAssessments)) {
+            parsed = {
+              ...(parsed || {}),
+              itemAssessments: [
+                ...(Array.isArray(parsed?.itemAssessments)
+                  ? parsed.itemAssessments
+                  : []),
+                ...itemAuditParsedV17_90L268.itemAssessments.slice(
+                  0,
+                  args.workItems.length + 4,
+                ),
+              ],
+            };
+          }
+        }
+      } catch (itemAuditErrorV17_90L268: any) {
+        console.warn(
+          "[WorkCoverageCheckerV17_90L268] item audit failed; previous item review kept",
+          itemAuditErrorV17_90L268?.message || itemAuditErrorV17_90L268,
         );
       }
     }
@@ -14603,6 +14916,64 @@ export async function processIncomingMessage(
       ).flatMap(([role, lines]) =>
         lines.map((text) => ({ role, text: String(text || "") })),
       ),
+      // V17.90L268: Canonically structured non-work evidence is passed to the
+      // second checker as hard counter-evidence. This is role/evidence based,
+      // not a service-word list. It prevents customer/address/appointment/contact
+      // statements from becoming missing-work findings while ordinary hints stay
+      // eligible for semantic review.
+      structuredNonWorkEvidence: [
+        {
+          role: "customer",
+          text: compactExactSourceTextV17_90L251(
+            (firstAiCustomerSnapshotV17_90L225 as any)?.evidence,
+          ),
+        },
+        {
+          role: "customer",
+          text: [
+            (firstAiCustomerSnapshotV17_90L225 as any)?.name,
+            (firstAiCustomerSnapshotV17_90L225 as any)?.strasse,
+            (firstAiCustomerSnapshotV17_90L225 as any)?.hausnummer,
+            (firstAiCustomerSnapshotV17_90L225 as any)?.plz,
+            (firstAiCustomerSnapshotV17_90L225 as any)?.ort,
+          ]
+            .map((value) => compactExactSourceTextV17_90L251(value))
+            .filter(Boolean)
+            .join(" "),
+        },
+        {
+          role: "execution_address",
+          text: compactExactSourceTextV17_90L251(
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.evidence,
+          ),
+        },
+        {
+          role: "execution_address",
+          text: [
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.name,
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.siteName,
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.strasse,
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.hausnummer,
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.plz,
+            (firstAiExecutionAddressSnapshotV17_90L225 as any)?.ort,
+          ]
+            .map((value) => compactExactSourceTextV17_90L251(value))
+            .filter(Boolean)
+            .join(" "),
+        },
+        ...firstAiAppointmentsSnapshotV17_90L225.map((appointment: any) => ({
+          role: "appointment",
+          text: compactExactSourceTextV17_90L251(
+            appointment?.evidence || appointment?.raw || JSON.stringify(appointment),
+          ),
+        })),
+        {
+          role: "onsite_contact",
+          text: compactExactSourceTextV17_90L251(
+            (firstAiOnsiteContactSnapshotV17_90L225 as any)?.evidence,
+          ),
+        },
+      ].filter((entry) => entry.text),
     });
 
   logIntakeDiagnosticTrace(
