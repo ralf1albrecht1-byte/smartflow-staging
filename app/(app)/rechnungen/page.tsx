@@ -687,6 +687,82 @@ function extractInvoiceAccessLinesV17_90L237(
   return uniquePreferredInvoiceInfoLinesV17_90L237(candidates);
 }
 
+function isInvoiceParkingLineV17_90L265(value?: string | null): boolean {
+  return /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
+    normalizeInvoiceServiceName(value || ""),
+  );
+}
+
+function isInvoiceLowInformationHintV17_90L265(
+  value?: string | null,
+): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  return [
+    "anruf",
+    "rueckruf",
+    "rueckruf vor arbeitsbeginn",
+    "parkplatz pruefen",
+    "parkplatz nr",
+    "parkplatz nummer",
+    "parking pruefen",
+  ].includes(key);
+}
+
+function extractInvoiceCanonicalRoleLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  return uniquePreferredInvoiceInfoLinesV17_90L237(
+    (invoice?.orders || []).flatMap((order) =>
+      splitInvoiceSourceLinesV17_90L237(order?.specialNotes),
+    ),
+  );
+}
+
+function extractInvoiceParkingLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  return extractInvoiceCanonicalRoleLinesV17_90L265(invoice).filter(
+    isInvoiceParkingLineV17_90L265,
+  );
+}
+
+function extractInvoiceCommunicationLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  const pattern =
+    /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i;
+  return extractInvoiceCanonicalRoleLinesV17_90L265(invoice).filter(
+    (line) =>
+      pattern.test(normalizeInvoiceServiceName(line)) &&
+      !isInvoiceLowInformationHintV17_90L265(line),
+  );
+}
+
+function invoiceAppointmentSignatureV17_90L265(value?: string | null): string {
+  const source = compactInvoiceValue(value);
+  if (!source) return "";
+  const date =
+    source.match(/\b(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)\b/)?.[1] ||
+    "";
+  const times = Array.from(source.matchAll(/\b(\d{1,2}[:.]\d{2})\b/g))
+    .map((match) => match[1].replace(".", ":"))
+    .join("-");
+  return date || times ? `${date}|${times}` : "";
+}
+
+function invoiceHintCombinesCanonicalFactsV17_90L265(
+  value: string,
+  canonicalLines: string[],
+): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  const contained = canonicalLines.filter((line) => {
+    const candidate = normalizeInvoiceServiceName(line);
+    return candidate.length >= 8 && key.includes(candidate);
+  });
+  return contained.length >= 2;
+}
+
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
   invoice: Invoice | null,
   fallback?: string | null,
@@ -7419,14 +7495,61 @@ export default function RechnungenPage() {
                         editingInvoice,
                         items.map((item) => String(item?.description || "")),
                       );
+                      const canonicalRoleLinesV17_90L265 =
+                        extractInvoiceCanonicalRoleLinesV17_90L265(
+                          editingInvoice,
+                        );
+                      const parkingHintsV17_90L265 =
+                        extractInvoiceParkingLinesV17_90L265(editingInvoice);
+                      const communicationHintsV17_90L265 =
+                        extractInvoiceCommunicationLinesV17_90L265(
+                          editingInvoice,
+                        );
+                      const appointmentSignaturesV17_90L265 = new Set(
+                        appointmentHintsV17_90L237
+                          .map(invoiceAppointmentSignatureV17_90L265)
+                          .filter(Boolean),
+                      );
                       const serviceEvidenceV17_90L237 =
                         collectInvoiceServiceEvidenceLinesV17_90L237(
                           editingInvoice,
                         );
+                      const filteredParsedJobHintsV17_90L265 = (
+                        parsed.jobHints || []
+                      ).filter((line) => {
+                        const appointmentSignature =
+                          invoiceAppointmentSignatureV17_90L265(line);
+                        if (
+                          appointmentSignature &&
+                          appointmentSignaturesV17_90L265.has(
+                            appointmentSignature,
+                          )
+                        ) {
+                          return false;
+                        }
+                        if (
+                          parkingHintsV17_90L265.length > 0 &&
+                          isInvoiceLowInformationHintV17_90L265(line)
+                        ) {
+                          return false;
+                        }
+                        if (
+                          communicationHintsV17_90L265.length > 0 &&
+                          isInvoiceLowInformationHintV17_90L265(line)
+                        ) {
+                          return false;
+                        }
+                        return !invoiceHintCombinesCanonicalFactsV17_90L265(
+                          line,
+                          canonicalRoleLinesV17_90L265,
+                        );
+                      });
                       const allHints = uniquePreferredInvoiceInfoLinesV17_90L237([
                         ...accessHintsV17_90L237,
+                        ...communicationHintsV17_90L265,
                         ...appointmentHintsV17_90L237,
-                        ...(parsed.jobHints || []),
+                        ...parkingHintsV17_90L265,
+                        ...filteredParsedJobHintsV17_90L265,
                         ...communicationHazards,
                       ]).filter(
                         (line) =>
@@ -7437,6 +7560,11 @@ export default function RechnungenPage() {
                           !(
                             hasConcreteAppointmentV17_90L237 &&
                             /termin\s+klären|termin\s+klaeren/i.test(line)
+                          ) &&
+                          !(
+                            (parkingHintsV17_90L265.length > 0 ||
+                              communicationHintsV17_90L265.length > 0) &&
+                            isInvoiceLowInformationHintV17_90L265(line)
                           ),
                       );
                       const primaryHints = allHints.filter(

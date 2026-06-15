@@ -1130,6 +1130,47 @@ function extractOfferParkingLinesV17_90L264(orders: any[]): string[] {
   return result;
 }
 
+function isOfferLowInformationHintV17_90L265(value?: string | null): boolean {
+  const key = normalizeOfferHint(value || "");
+  return [
+    "anruf",
+    "rueckruf",
+    "rueckruf vor arbeitsbeginn",
+    "parkplatz pruefen",
+    "parkplatz nr",
+    "parkplatz nummer",
+    "parking pruefen",
+  ].includes(key);
+}
+
+function extractOfferCommunicationInstructionLinesV17_90L265(
+  orders: any[],
+): string[] {
+  const result: string[] = [];
+  const add = (value: string) => {
+    const clean = cleanOfferInfoLineV17_66(value);
+    const key = normalizeOfferHint(clean);
+    if (!clean || !key || isOfferLowInformationHintV17_90L265(clean)) return;
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeOfferHint(entry);
+      return existing === key || existing.includes(key) || key.includes(existing);
+    });
+    if (existingIndex >= 0) {
+      if (clean.length > result[existingIndex].length) result[existingIndex] = clean;
+      return;
+    }
+    result.push(clean);
+  };
+  const communicationPattern =
+    /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i;
+  for (const order of orders || []) {
+    splitOfferSourceLinesV17_90L237(order?.specialNotes)
+      .filter((line) => communicationPattern.test(normalizeOfferHint(line)))
+      .forEach(add);
+  }
+  return result;
+}
+
 function resolveOfferAppointmentLabelV17_90L237(
   orders: any[],
   fallbackData?: CommunicationData | null,
@@ -1161,6 +1202,7 @@ function compactOfferPrimaryInfoLinesV17_90L124(
   values: string[],
   appointmentLabel: string,
   contactAction?: OfferContactAction | null,
+  exactCommunicationLines: string[] = [],
 ): string[] {
   const retained = values.filter((line) => {
     const text = normalizeOfferHint(line);
@@ -1177,10 +1219,13 @@ function compactOfferPrimaryInfoLinesV17_90L124(
     return !isAppointment && !isContact;
   });
 
+  const contactTitle =
+    exactCommunicationLines.length > 0 ? "" : contactAction?.title || "";
   return uniqueOfferInfoLinesV17_66([
     ...retained,
+    ...exactCommunicationLines,
     appointmentLabel,
-    contactAction?.title || "",
+    contactTitle,
   ]);
 }
 
@@ -1199,6 +1244,9 @@ function buildOfferInfoSummary(
   const source = canonicalSource || [data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const serviceEvidence = collectOfferServiceEvidenceLinesV17_90L237(sourceOrders);
   const accessLines = extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames);
+  const parkingLines = extractOfferParkingLinesV17_90L264(sourceOrders);
+  const communicationLines =
+    extractOfferCommunicationInstructionLinesV17_90L265(sourceOrders);
   const hasConcreteAppointment = /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(appointmentLabel);
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
   const safety = uniqueOfferInfoLinesV17_66([
@@ -1209,6 +1257,7 @@ function buildOfferInfoSummary(
   const appointmentLines = extractOfferAppointmentSnippets(source);
   const primary = uniqueOfferInfoLinesV17_66([
     ...accessLines,
+    ...communicationLines,
     ...(parsedNotes.jobHints || [])
       .filter(isOfferPrimaryInfoHint)
       .filter((line) => !isOfferParkingLineV17_90L101(line))
@@ -1219,14 +1268,18 @@ function buildOfferInfoSummary(
   ]).filter(
     (line) =>
       !offerHintMatchesServiceEvidenceV17_90L237(line, serviceEvidence) &&
+      !(communicationLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
+      !(parkingLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
   );
   const compactPrimary = compactOfferPrimaryInfoLinesV17_90L124(
     primary,
     appointmentLabel,
     contactAction,
+    communicationLines,
   );
   const additional = uniqueOfferInfoLinesV17_66([
+    ...parkingLines,
     ...(parsedNotes.jobHints || []).filter(
       (line) =>
         !isOfferDogHint(line) &&
@@ -1241,6 +1294,8 @@ function buildOfferInfoSummary(
   ]).filter(
     (line) =>
       !offerHintMatchesServiceEvidenceV17_90L237(line, serviceEvidence) &&
+      !(parkingLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
+      !(communicationLines.length > 0 && isOfferLowInformationHintV17_90L265(line)) &&
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
@@ -6196,7 +6251,7 @@ export default function AngebotePage() {
                       transition={{ delay: i * 0.015 }}
                     >
                       <Card
-                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-all tap-safe rounded-xl active:scale-[0.998]"
+                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-all tap-safe rounded-xl active:scale-[0.998] overflow-visible"
                         aria-expanded={offerCardExpanded}
                         onClick={(event) => {
                           if (
@@ -6210,8 +6265,8 @@ export default function AngebotePage() {
                           toggleOfferCard(off.id);
                         }}
                       >
-                        <CardContent className="px-3 py-2">
-                          <div className="flex items-start gap-2">
+                        <CardContent className="px-3 py-2 overflow-visible">
+                          <div className="flex items-start gap-2 overflow-visible">
                             {/* Left: 3-dot menu */}
                             <details
                               data-offer-action-menu
@@ -6225,7 +6280,7 @@ export default function AngebotePage() {
                               >
                                 <MoreVertical className="w-3.5 h-3.5" />
                               </summary>
-                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

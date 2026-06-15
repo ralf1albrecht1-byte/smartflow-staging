@@ -469,10 +469,10 @@ export async function GET() {
         },
       },
     });
-    // V17.90L193: Ein Angebot, das bereits als aktive Rechnung weitergeführt
-    // wurde, gehört nicht mehr in die normale Angebotsliste. Es bleibt als
-    // Quelldokument bestehen und erscheint automatisch wieder, sobald die
-    // verknüpfte Rechnung zurückgeführt oder gelöscht wurde.
+    // V17.90L265: Auch eine gelöschte Folge-Rechnung hält das Quelldokument
+    // im abgeschlossenen Workflow. Rechnung löschen verschiebt nur die Rechnung
+    // in den Papierkorb und darf das bereits weitergeleitete Angebot nicht wieder
+    // in der normalen Angebotsliste sichtbar machen.
     const offerIds = offers.map((offer: any) => String(offer.id));
     const linkedInvoices =
       offerIds.length > 0
@@ -481,7 +481,6 @@ export async function GET() {
               sourceOfferId: { in: offerIds },
               userId,
               dataScope,
-              deletedAt: null,
             },
             select: { sourceOfferId: true },
           })

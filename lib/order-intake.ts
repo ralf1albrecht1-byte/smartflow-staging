@@ -301,7 +301,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "Du bist der letzte sprachunabhängige KI-Prüfer vor dem unveränderbaren Canonical Lock einer Auftragserfassung.",
               "Arbeite rein semantisch. Verwende keine festen Wortlisten, keine sprachspezifischen Zuordnungen und keine firmenspezifischen Regeln.",
               "Prüfe zwei Dinge:",
-              "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
+              "1. Prüfe Original und Übersetzung Satz für Satz: Fehlt eine ausdrücklich erwähnte mögliche, zusätzliche, noch zu klärende oder verlangte Kundenarbeit, die in workItems nicht vertreten ist? Das Fehlen von Menge, Einheit, Preis oder genauer Tätigkeitsart ist gerade der Grund für einen roten Kontrollbefund und darf nicht zum Weglassen führen. Auch Formulierungen wie eine noch nicht entschiedene Arbeit in einem Raum müssen als missingWork gemeldet werden, sofern eindeutig gesagt wird, dass dort möglicherweise Arbeit ausgeführt werden soll. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
               "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück.",
               "Prüfe JEDEN workItem genau einmal und gib dafür zusätzlich itemAssessments zurück. Vergleiche serviceName strikt mit der eigenen sourceText-Zeile sowie mit customerName und executionSiteName.",
               "Wenn customerName oder executionSiteName ganz oder teilweise im serviceName auftaucht, aber in der eigenen sourceText-Zeile nicht als konkreter Arbeitsbereich genannt ist, ist das invalid_entity_contamination. Beispielprinzip: Steht in sourceText nur 'Boden reinigen, 38 Quadratmeter ...', darf ein separat angegebener Objektname nicht zu 'Boden [Objektname] reinigen' ergänzt werden.",
@@ -345,7 +345,103 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
     const rawContent = String(
       payload?.choices?.[0]?.message?.content || "",
     ).trim();
-    const parsed = rawContent ? JSON.parse(rawContent) : null;
+    let parsed = rawContent ? JSON.parse(rawContent) : null;
+
+    // V17.90L265: A narrow second pass of the same read-only checker runs only
+    // when the broad coverage pass reported no missing work. It scans every
+    // sentence for explicitly possible customer work whose exact task is still
+    // undecided. This does not touch the first AI or canonical workItems and it
+    // cannot create a service row; it may only contribute an exact-quote red
+    // control finding. No service vocabulary or language-specific word list is
+    // used.
+    const broadMissingCount =
+      (Array.isArray(parsed?.missingWork) ? parsed.missingWork.length : 0) +
+      (Array.isArray(parsed?.roleAssessments)
+        ? parsed.roleAssessments.filter((entry: any) => {
+            if (
+              !["possible_work_missing", "uncertain"].includes(
+                String(entry?.classification || "").toLowerCase(),
+              )
+            ) {
+              return false;
+            }
+            const roleText = compactExactSourceTextV17_90L251(
+              entry?.roleText,
+            );
+            const matchedRole = args.roleEntries.find(
+              (candidate) =>
+                compactExactSourceTextV17_90L251(candidate.text) === roleText,
+            );
+            return !["safety", "access", "parking"].includes(
+              String(matchedRole?.role || "").toLowerCase(),
+            );
+          }).length
+        : 0);
+    if (broadMissingCount === 0) {
+      try {
+        const retryResponse = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4.1-mini",
+              temperature: 0,
+              max_tokens: 700,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "Du bist der enge zweite Durchgang eines rein lesenden Auftragsprüfers.",
+                    "Die erste KI und workItems sind unveränderbar. Du darfst ausschließlich fehlende rote Kontrollbefunde melden.",
+                    "Prüfe Original und Übersetzung Satz für Satz auf ausdrücklich erwähnte mögliche oder zusätzliche Kundenarbeit, deren genaue Tätigkeit noch offen, unentschieden oder nicht bekannt ist und die von keinem workItem abgedeckt wird.",
+                    "Eine solche Aussage muss auch ohne Menge, Einheit oder Preis gemeldet werden. Die Unklarheit ist der Prüfgrund, nicht ein Ausschlussgrund.",
+                    "Nicht melden: Verbote oder negative Anweisungen, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit sowie rein organisatorische Bedingungen. Die übergebenen roleEntries mit safety, access oder parking sind verbindlich keine Leistung.",
+                    "Melde nur, wenn du mit hoher Sicherheit erkennst, dass an einem Ort möglicherweise eine auszuführende Kundenarbeit gemeint ist. Erfinde niemals die konkrete Tätigkeit.",
+                    "quote muss ein kurzes exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Bevorzuge das Original. Pro zugrunde liegender Aussage genau ein Befund.",
+                    "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":null,\"confidence\":\"high\",\"reason\":\"mögliche Arbeit fachlich noch unklar\"}]}",
+                  ].join("\n"),
+                },
+                {
+                  role: "user",
+                  content: JSON.stringify({
+                    originalText: String(args.originalText || "").slice(0, 6500),
+                    translatedText: String(args.translatedText || "").slice(0, 6500),
+                    workItems: args.workItems.slice(0, 40),
+                    roleEntries: args.roleEntries.slice(0, 40),
+                  }),
+                },
+              ],
+            }),
+          },
+        );
+        if (retryResponse.ok) {
+          const retryPayload = await retryResponse.json();
+          const retryContent = String(
+            retryPayload?.choices?.[0]?.message?.content || "",
+          ).trim();
+          const retryParsed = retryContent ? JSON.parse(retryContent) : null;
+          if (Array.isArray(retryParsed?.missingWork)) {
+            parsed = {
+              ...(parsed || {}),
+              missingWork: [
+                ...(Array.isArray(parsed?.missingWork) ? parsed.missingWork : []),
+                ...retryParsed.missingWork.slice(0, 6),
+              ],
+            };
+          }
+        }
+      } catch (retryError: any) {
+        console.warn(
+          "[WorkCoverageCheckerV17_90L265] narrow retry failed; broad result kept",
+          retryError?.message || retryError,
+        );
+      }
+    }
 
     const rawRoleAssessmentMissingWork = (
       Array.isArray(parsed?.roleAssessments)
@@ -4699,6 +4795,38 @@ function extractAiOnsiteContactHintV17_90L86(
     preferredChannel,
     noPhoneCall,
   });
+}
+
+// V17.90L265: A source-backed channel instruction is a canonical operational
+// hint even when no new person or phone is named. Keep the first AI's exact
+// evidence so stored customer contact data can remain a fallback target later.
+// This deliberately does not create an on-site contact identity.
+function extractAiCommunicationInstructionHintV17_90L265(
+  rawText: string,
+  aiContact?: AiOnsiteContactV17_90L86 | null,
+): string | null {
+  const normalizedContact = normalizeAiOnsiteContactValueV17_90L229(aiContact);
+  if (!normalizedContact || normalizedContact.vorhanden === false) return null;
+
+  const evidence = normalizeStructuredTextBlock(normalizedContact.evidence);
+  if (
+    !evidence ||
+    !structuredEvidenceMatchesOriginalText(evidence, rawText)
+  ) {
+    return null;
+  }
+
+  const preferredChannel = normalizeAiContactChannelV17_90L86(
+    normalizedContact.kanal || normalizedContact.channel,
+  );
+  const noPhoneCall = Boolean(
+    normalizedContact.nicht_anrufen ??
+      normalizedContact.no_phone_call ??
+      false,
+  );
+  if (!preferredChannel && !noPhoneCall) return null;
+
+  return evidence.replace(/\s+/g, " ").trim() || null;
 }
 
 function extractOnsiteContactHint(
@@ -14108,6 +14236,11 @@ export async function processIncomingMessage(
       candidateCustomerPhone:
         (firstAiCustomerSnapshotV17_90L225 as any)?.telefon || null,
     });
+  const firstAiCommunicationInstructionHintV17_90L265 =
+    extractAiCommunicationInstructionHintV17_90L265(
+      firstAiCanonicalEvidenceSourceV17_90L229,
+      firstAiOnsiteContactSnapshotV17_90L225 || null,
+    );
 
   const firstAiAppointmentHintsV17_90L216 =
     buildStructuredAppointmentHintsV17_90L86(
@@ -15268,7 +15401,8 @@ export async function processIncomingMessage(
     rawBesonderheitenItems.length > 0 ||
     structuredRoleHintsV17_90L86.length > 0 ||
     structuredAppointmentHintsV17_90L86.length > 0 ||
-    Boolean(onsiteContactHint.hint);
+    Boolean(onsiteContactHint.hint) ||
+    Boolean(firstAiCommunicationInstructionHintV17_90L265);
   const hasProtectedStructuredRolesV17_90L103 =
     hasStructuredSafetyRoles || hasStructuredOrdinaryRoles;
 
@@ -15303,11 +15437,13 @@ export async function processIncomingMessage(
       ...structuredRoleHintsV17_90L86,
       ...structuredAppointmentHintsV17_90L86,
       ...protectedBaseHinweisItemsV17_90L104,
+      firstAiCommunicationInstructionHintV17_90L265 || "",
       onsiteContactHint.hint || "",
     ]).filter((line) => !dangerKeys.has(normalizeSemanticText(line)));
   } else {
     const structuredNonDangerRoleHintsV17_90L87 = dedupeSpecialNoteLines([
       ...structuredRoleHintsV17_90L86,
+      firstAiCommunicationInstructionHintV17_90L265 || "",
       onsiteContactHint.hint || "",
     ]).filter(Boolean);
 
@@ -15335,6 +15471,7 @@ export async function processIncomingMessage(
           ...structuredAppointmentHintsV17_90L86,
           ...baseHinweisItems,
           ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
+          firstAiCommunicationInstructionHintV17_90L265 || "",
           onsiteContactHint.hint || "",
         ]
           .map(canonicalizeSpecialNoteLine)
