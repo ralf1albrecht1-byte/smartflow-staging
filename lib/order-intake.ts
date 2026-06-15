@@ -303,6 +303,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "Prüfe zwei Dinge:",
               "1. Fehlt im Original oder in der Übersetzung eine ausdrücklich mögliche oder verlangte Arbeitsleistung, die in workItems nicht vertreten ist? Auch eine unsichere mögliche Arbeit muss als missingWork gemeldet werden. Aussagen, die ausdrücklich nicht zum Auftrag gehören oder nicht ausgeführt werden sollen, sind keine Arbeit.",
               "2. Ist ein serviceName keine sauber belegte Tätigkeit, weil Kundenname, Firmenname, Objektname, Adresse oder ein anderer fremder Entitätsteil angehängt wurde oder weil der Name semantisch nicht zur eigenen Quellzeile passt? Dann melde den betroffenen workItem-Index als invalidItem. Gib keinen reparierten Leistungsnamen zurück.",
+              "Prüfe JEDEN workItem genau einmal und gib dafür zusätzlich itemAssessments zurück. Vergleiche serviceName strikt mit der eigenen sourceText-Zeile sowie mit customerName und executionSiteName.",
+              "Wenn customerName oder executionSiteName ganz oder teilweise im serviceName auftaucht, aber in der eigenen sourceText-Zeile nicht als konkreter Arbeitsbereich genannt ist, ist das invalid_entity_contamination. Beispielprinzip: Steht in sourceText nur 'Boden reinigen, 38 Quadratmeter ...', darf ein separat angegebener Objektname nicht zu 'Boden [Objektname] reinigen' ergänzt werden.",
+              "Ein tatsächlich in derselben sourceText-Zeile genannter lokaler Teilbereich darf im Leistungsnamen bleiben. Verwechsle einen line-lokalen Arbeitsbereich niemals mit einem separat angegebenen Kunden-, Firmen-, Gebäude-, Objekt- oder Adressnamen.",
+              "Wenn serviceName zusätzliche fachliche Inhalte enthält, die die eigene sourceText-Zeile nicht belegt, ist das invalid_evidence_mismatch.",
               "WICHTIG: Du bist ausschließlich Prüfer. Deine Befunde dürfen niemals workItems verändern oder neue workItems erzeugen.",
               "Bewerte jeden roleEntries-Eintrag ausdrücklich darauf, ob er semantisch eine mögliche/verlangte Arbeit beschreibt. Wenn ja und kein workItem dieselbe Arbeit abdeckt, muss genau ein missingWork-Befund entstehen.",
               "Original und Übersetzung derselben Aussage sind nur zwei Belege derselben Arbeit. Gib pro zugrunde liegender Arbeit genau einen Befund zurück, bevorzuge dafür das Originalzitat und verwende für beide Sprachvarianten dieselbe semanticId.",
@@ -312,7 +316,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "missingWork.quote muss ein kurzes, exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Nicht umformulieren, nicht übersetzen und nichts erfinden.",
               "semanticId ist eine kurze, sprachunabhängige Identität derselben Arbeit, z. B. work_1. Sie dient nur zur Gruppierung und darf keine fachlichen Werte enthalten.",
               "Melde nur Befunde mit confidence=high. classification=uncertain bedeutet: Du bist sicher, dass der Eintrag eine mögliche Arbeit beschreibt, aber seine fachlichen Details oder die Abdeckung sind unklar. Bei Unsicherheit darüber, ob überhaupt eine Arbeit gemeint ist, melde keinen Befund.",
-              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":\"exakter roleEntries.text-Wert oder null\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"roleAssessments\":[{\"roleText\":\"exakter roleEntries.text-Wert\",\"classification\":\"possible_work_missing|possible_work_covered|not_work|uncertain\",\"semanticId\":\"work_1 oder leer\",\"source\":\"original|translation oder leer\",\"quote\":\"exaktes Zitat oder leer\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":\"exakter roleEntries.text-Wert oder null\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"roleAssessments\":[{\"roleText\":\"exakter roleEntries.text-Wert\",\"classification\":\"possible_work_missing|possible_work_covered|not_work|uncertain\",\"semanticId\":\"work_1 oder leer\",\"source\":\"original|translation oder leer\",\"quote\":\"exaktes Zitat oder leer\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"itemAssessments\":[{\"index\":1,\"classification\":\"valid|invalid_entity_contamination|invalid_evidence_mismatch|uncertain\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
             ].join("\n"),
           },
           {
@@ -481,11 +485,47 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       missingWork.push(finding);
     }
 
+    const rawItemAssessmentInvalid = (
+      Array.isArray(parsed?.itemAssessments)
+        ? parsed.itemAssessments.slice(0, args.workItems.length + 6)
+        : []
+    ).flatMap((raw: any) => {
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      const classification = String(raw?.classification || "").toLowerCase();
+      const itemIndex = Number(raw?.index);
+      if (
+        confidence !== "high" ||
+        !["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
+          classification,
+        ) ||
+        !Number.isInteger(itemIndex) ||
+        itemIndex < 1 ||
+        itemIndex > args.workItems.length
+      ) {
+        return [];
+      }
+      return [
+        {
+          index: itemIndex,
+          confidence: "high",
+          reason:
+            compactExactSourceTextV17_90L251(raw?.reason) ||
+            (classification === "invalid_entity_contamination"
+              ? "Leistungsname enthält eine nicht line-lokal belegte Entität"
+              : "Leistungsname ist durch die eigene Quellzeile nicht belegt"),
+        },
+      ];
+    });
+
     const invalidItems: ReadOnlyWorkCoverageInvalidItemV17_90L251[] = [];
     const seenInvalid = new Set<number>();
-    for (const raw of Array.isArray(parsed?.invalidItems)
-      ? parsed.invalidItems.slice(0, args.workItems.length + 6)
-      : []) {
+    const rawInvalidItems = [
+      ...(Array.isArray(parsed?.invalidItems)
+        ? parsed.invalidItems.slice(0, args.workItems.length + 6)
+        : []),
+      ...rawItemAssessmentInvalid,
+    ];
+    for (const raw of rawInvalidItems) {
       const confidence = String(raw?.confidence || "").toLowerCase();
       const itemIndex = Number(raw?.index);
       if (
@@ -12858,6 +12898,9 @@ LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
 - Der Originaltext gehört nur in raw/evidence/sourceText, nicht als sichtbarer Leistungsname.
 - Termin-, Kontakt-, Zugangs-, Adress- und Hinweis-Sätze dürfen NIEMALS in service_name/name/action_name stehen. Beispiele für verbotene sichtbare Leistungsnamen: "Bitte morgen Vormittag Boden reinigen", "vorher WhatsApp schreiben", "Torcode danach rechts", "Menge: ...", "pro m²". Wenn nur so ein Satz als Name möglich wäre: service_name/name/action_name = null und confidence = "niedrig".
 - Leistungsnamen müssen aus der konkreten Preis-/Mengen-Leistungszeile entstehen. Gesamtbeschreibung, Terminwunsch und Besonderheiten bleiben nur in raw/evidence/sourceText/besonderheiten.
+- Kundenname, Firmenname, separat angegebener Ausführungsort, Gebäude-/Objektname und Adresse sind eigenständige Entitäten. Kopiere oder ergänze sie NIEMALS automatisch in service_name/name/action_name.
+- Ein Raum-/Bereichsbezug darf nur dann Teil des Leistungsnamens sein, wenn genau die eigene evidence/sourceText-Zeile diesen Bereich als Ort der konkreten Arbeit nennt. Ein separat im Adressblock genannter Objektname ist keine line-lokale Leistungsevidence.
+- Beispielprinzip ohne feste Fachwortliste: Steht in der Leistungszeile nur „Boden reinigen, 38 Quadratmeter …“ und an anderer Stelle ein Objektname, lautet die Leistung „Boden reinigen“ und nicht „Boden [Objektname] reinigen“. Wenn du diese Trennung nicht sicher beherrschst, setze name/action_name auf null und confidence = „niedrig“.
 - Arbeitsobjekt und Ort/Kontext dürfen nicht vertauscht werden. Wenn der Text z.B. Fenster, Tische, Vitrinen, Geländer oder Haken IN einem Raum/Bereich nennt, bleibt dieses Objekt Teil des sichtbaren Leistungsnamens. Der Name darf nicht zu einem allgemeinen Bereich verflachen.
 - Beispiele semantisch: "Fenêtres couloir intérieur" = Fenster im Gang innen reinigen, nicht Gangbereich reinigen. "Tische im Sitzungszimmer reinigen" = Tische im Sitzungszimmer reinigen, nicht Besprechungsbereich reinigen.
 
