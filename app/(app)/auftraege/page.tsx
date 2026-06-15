@@ -4915,7 +4915,7 @@ const recognitionReviewHasSeparateDisplayTextV17_90L253 = (
 
 const compactRecognitionReviewSourceV17_90L262 = (
   value?: string | null,
-  maxLength = 160,
+  maxLength = 96,
 ) => {
   const text = compactText(value);
   if (text.length <= maxLength) return text;
@@ -18780,7 +18780,7 @@ export default function AuftraegePage() {
                               }}
                               title="Kunde bearbeiten"
                               aria-label="Kunde bearbeiten"
-                              className="rounded-lg border border-slate-200 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-700 dark:bg-slate-900/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
+                              className="rounded-lg border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-600 dark:bg-slate-900/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
                             >
                               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
@@ -18952,7 +18952,7 @@ export default function AuftraegePage() {
                               ? compactText(canonicalCustomerV2?.email)
                               : cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                             return (
-                              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-700 dark:bg-slate-900/30 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-lg border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-600 dark:bg-slate-900/30 space-y-1.5 min-w-0">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="min-w-0">
                                     {/* ISSUE 4 — Neutral display for fallback customers */}
@@ -19069,7 +19069,7 @@ export default function AuftraegePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2 dark:border-slate-700 dark:bg-slate-900/30"
+                    className="rounded-lg border-2 border-slate-300 bg-slate-50/70 p-3 space-y-2 dark:border-slate-600 dark:bg-slate-900/30"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -19204,7 +19204,7 @@ export default function AuftraegePage() {
                 <div
                   ref={executionAddressRef}
                   tabIndex={-1}
-                  className="rounded-lg border border-red-200 bg-red-50/80 p-3 space-y-3 outline-none ring-red-300 focus:ring-2 dark:border-red-900/60 dark:bg-red-950/20"
+                  className="rounded-lg border-2 border-red-300 bg-red-50/80 p-3 space-y-3 outline-none ring-red-300 focus:ring-2 dark:border-red-800 dark:bg-red-950/20"
                 >
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
@@ -19320,7 +19320,7 @@ export default function AuftraegePage() {
                 <div
                   ref={!shouldShowAddressRoleReviewBoxV17_62 ? executionAddressRef : undefined}
                   tabIndex={-1}
-                  className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 space-y-2.5 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-900/60 dark:bg-cyan-950/20"
+                  className="rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 space-y-2.5 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-800 dark:bg-cyan-950/20"
                 >
                   <div
                     role={form.siteAddressDifferent ? "button" : undefined}
@@ -19652,7 +19652,7 @@ export default function AuftraegePage() {
                   <div
                     ref={serviceItemsRef}
                     tabIndex={-1}
-                    className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                    className="scroll-mt-24 rounded-xl border-2 border-slate-300 bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60 dark:border-slate-600"
                   >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -19735,24 +19735,21 @@ export default function AuftraegePage() {
                                     recognitionReviewHasSeparateDisplayTextV17_90L253(
                                       detail,
                                     ) && (
-                                      <div className="mt-1 text-[11px] font-semibold leading-snug text-red-900 dark:text-red-100">
-                                        {recognitionReviewTakeoverTextV17_90L253(detail)}
+                                      <div className="mt-1 text-[11px] font-bold leading-snug text-red-900 dark:text-red-100">
+                                        {compactRecognitionReviewSourceV17_90L262(
+                                          recognitionReviewTakeoverTextV17_90L253(detail),
+                                          108,
+                                        )}
                                       </div>
                                     )}
                                   {compactText(detail.sourceText) && (
-                                    <div className="mt-1 text-[11px] font-medium leading-snug text-red-800 dark:text-red-100">
-                                      <span className="font-semibold">
-                                        {detail.kind === "missing_work" &&
-                                        recognitionReviewHasSeparateDisplayTextV17_90L253(
-                                          detail,
-                                        )
-                                          ? "Originalquelle"
-                                          : "Quelle"}
-                                        :
-                                      </span>{" "}
-                                      {compactRecognitionReviewSourceV17_90L262(
-                                        detail.sourceText,
-                                      )}
+                                    <div className="mt-1 text-[11px] font-semibold leading-snug text-red-800 dark:text-red-100">
+                                      <span className="font-bold">Quelle:</span>{" "}
+                                      <span className="font-bold">
+                                        {compactRecognitionReviewSourceV17_90L262(
+                                          detail.sourceText,
+                                        )}
+                                      </span>
                                     </div>
                                   )}
                                   <div className="mt-2 flex flex-wrap gap-2">

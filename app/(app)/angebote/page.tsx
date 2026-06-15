@@ -7397,7 +7397,7 @@ export default function AngebotePage() {
                                 ? "Historischer Kundenstand"
                                 : "Kunde bearbeiten"
                             }
-                            className={`rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-700 dark:bg-slate-900/30 ${
+                            className={`rounded-xl border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-600 dark:bg-slate-900/30 ${
                               historicalOfferCustomerLocked
                                 ? "cursor-default"
                                 : "cursor-pointer hover:bg-slate-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
@@ -7532,7 +7532,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-700 dark:bg-slate-900/30">
+                              <div className="mt-2 rounded-xl border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-600 dark:bg-slate-900/30">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -7628,7 +7628,7 @@ export default function AngebotePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="rounded-xl border p-2 sm:p-3 space-y-2 bg-slate-50/70 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700 min-w-0"
+                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-slate-50/70 dark:bg-slate-900/30 border-slate-300 dark:border-slate-600 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -7742,7 +7742,7 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"
+                    className="scroll-mt-20 rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20"
                   >
                     <div
                       role={executionSites.length > 0 ? "button" : undefined}
@@ -7976,7 +7976,7 @@ export default function AngebotePage() {
                   <div
                     ref={serviceItemsRef}
                     tabIndex={-1}
-                    className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
+                    className="scroll-mt-24 space-y-2 rounded-xl border-2 border-slate-300 bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3 dark:border-slate-600"
                   >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -8073,7 +8073,7 @@ export default function AngebotePage() {
                           <div
                             key={idx}
                             data-service-item-index={idx}
-                            className={`relative overflow-visible rounded-xl border transition-colors ${
+                            className={`relative overflow-visible rounded-xl border-2 transition-colors ${
                               hasCriticalReview
                                 ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
                                 : itemNeedsReview

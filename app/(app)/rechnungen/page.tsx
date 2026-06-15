@@ -5750,7 +5750,7 @@ export default function RechnungenPage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            className="rounded-lg border-2 border-slate-300 p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-slate-600"
                           >
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-sm font-semibold">
@@ -5868,7 +5868,7 @@ export default function RechnungenPage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-lg border-2 border-slate-300 p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 dark:border-slate-600">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="text-sm font-semibold">
                                     👤 {cust.customerNumber || ""}
@@ -5955,7 +5955,7 @@ export default function RechnungenPage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="border rounded-lg p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 min-w-0"
+                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-700 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -6054,7 +6054,7 @@ export default function RechnungenPage() {
                 )}
               </div>
               {!dupCheckOpen && !editingInvoice && (
-                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                <div className="scroll-mt-20 rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20">
                   <div
                     role={newInvoiceExecutionSite ? "button" : undefined}
                     tabIndex={newInvoiceExecutionSite ? 0 : -1}
@@ -6291,7 +6291,7 @@ export default function RechnungenPage() {
                   })[0];
                   if (!executionSite) return null;
                   return (
-                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                    <div className="rounded-xl border-2 border-cyan-300 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-800 dark:bg-cyan-950/20">
                       <div
                         role="button"
                         tabIndex={0}
@@ -6490,7 +6490,7 @@ export default function RechnungenPage() {
                 <>
                   <div
                     ref={serviceItemsRef}
-                    className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4"
+                    className="scroll-mt-24 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4 dark:border-slate-600"
                   >
                     <div className="space-y-2">
                       {(() => {
@@ -6607,7 +6607,7 @@ export default function RechnungenPage() {
                               <div
                                 key={idx}
                                 data-service-item-index={idx}
-                                className={`relative overflow-visible rounded-xl border transition-colors ${
+                                className={`relative overflow-visible rounded-xl border-2 transition-colors ${
                                   hasMissingValues
                                     ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
                                     : itemNeedsReview
