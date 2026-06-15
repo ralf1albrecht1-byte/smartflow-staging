@@ -17989,29 +17989,94 @@ export async function processIncomingMessage(
     },
   });
 
+  // V17.90L249: If an explicit unresolved work statement is already present
+  // as an actionable red review row, it must not survive a second time as an
+  // ordinary/other canonical fact. Remove only the overlapping sentence or
+  // clause and preserve independent context from the same note (for example an
+  // inventory fact before the unresolved work statement). This is semantic and
+  // evidence-bound; no service vocabulary is hard-coded.
+  const subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249 = (
+    value: string,
+  ): string | null => {
+    const sourceLine = compactText(value);
+    if (!sourceLine || unresolvedReviewEvidenceV17_90L247.length === 0) {
+      return sourceLine || null;
+    }
+
+    const overlapsUnresolvedEvidence = (candidate: string) => {
+      const candidateKey = canonicalEvidenceKeyV17_90L88(candidate);
+      return unresolvedReviewEvidenceV17_90L247.some((evidence) => {
+        const evidenceKey = canonicalEvidenceKeyV17_90L88(evidence);
+        return Boolean(
+          semanticRoleOverlapV17_90L87(candidate, evidence) ||
+            (candidateKey &&
+              evidenceKey &&
+              (candidateKey === evidenceKey ||
+                (candidateKey.length >= 12 &&
+                  evidenceKey.includes(candidateKey)) ||
+                (evidenceKey.length >= 12 &&
+                  candidateKey.includes(evidenceKey)))),
+        );
+      });
+    };
+
+    const segments = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+|(?<=[.!?])\s+|;\s+/g)
+      .map((segment) => segment.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    if (segments.length <= 1) {
+      return overlapsUnresolvedEvidence(sourceLine) ? null : sourceLine;
+    }
+
+    const retainedSegments = segments.filter(
+      (segment) => !overlapsUnresolvedEvidence(segment),
+    );
+    if (retainedSegments.length === segments.length) {
+      return overlapsUnresolvedEvidence(sourceLine) ? null : sourceLine;
+    }
+
+    const retained = retainedSegments.join(" ").replace(/\s+/g, " ").trim();
+    return retained || null;
+  };
+
+  const canonicalAiRoleSnapshotV17_90L249 = {
+    safety: finalAiRoleSnapshotV17_90L215.safety,
+    access: finalAiRoleSnapshotV17_90L215.access,
+    parking: finalAiRoleSnapshotV17_90L215.parking,
+    other: finalAiRoleSnapshotV17_90L215.other
+      .map(subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249)
+      .filter((line): line is string => Boolean(line)),
+    ordinary: finalAiRoleSnapshotV17_90L215.ordinary
+      .map(subtractUnresolvedReviewEvidenceFromRoleLineV17_90L249)
+      .filter((line): line is string => Boolean(line)),
+  };
+
   const canonicalFactAssemblyV17_90L204 = assembleCanonicalFactsV2({
     candidates: [
-      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L249.safety.map((text) => ({
         role: "safety" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L249.access.map((text) => ({
         role: "access" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L249.parking.map((text) => ({
         role: "parking" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L249.other.map((text) => ({
         role: "other" as const,
         text,
         evidenceSource: "ai_structured" as const,
       })),
-      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ({
+      ...canonicalAiRoleSnapshotV17_90L249.ordinary.map((text) => ({
         role: "ordinary" as const,
         text,
         evidenceSource: "ai_structured" as const,
