@@ -8,7 +8,7 @@ import { logAuditAsync } from '@/lib/audit';
 /**
  * POST /api/invoices/[id]/revert
  * Moves an invoice back to offer stage:
- * 1. If sourceOfferId exists, reactivate that offer (status → 'Gesendet')
+ * 1. If sourceOfferId exists, reactivate that offer without changing its status
  * 2. Unlink orders from this invoice (invoiceId = null)
  * 3. Soft-delete the invoice
  * No duplicate records — true stage transition.
@@ -42,10 +42,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
         if (offer) {
           await tx.offer.update({
             where: { id: offer.id },
-            data: {
-              status: 'Gesendet',
-              deletedAt: null,
-            },
+            // V17.90L277: Reactivation must not invent a workflow status.
+            // The exact pre-conversion status was preserved during invoice creation.
+            data: { deletedAt: null },
           });
           reactivatedOffer = true;
         }

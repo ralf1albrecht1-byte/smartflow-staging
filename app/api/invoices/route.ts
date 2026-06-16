@@ -599,24 +599,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Angebot gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
       }
 
-      // Duplicate guard: if an invoice already exists for this sourceOfferId, return it
+      // Duplicate guard: if an invoice already exists for this sourceOfferId, return it.
+      // V17.90L277: The source offer keeps its exact pre-conversion status while
+      // hidden by the active invoice link. Never rewrite the offer status here.
       const existing = await prisma.invoice.findFirst({
         where: { sourceOfferId: data.sourceOfferId, userId, dataScope, deletedAt: null },
         include: { customer: true, items: true },
       });
       if (existing) {
-        // V17.90L193: Auch bei einem bereits vorhandenen Folgedokument bleibt
-        // der Quellstatus konsistent. Die Angebotsliste blendet das Angebot
-        // anhand der aktiven sourceOfferId-Verknüpfung aus.
-        await prisma.offer.updateMany({
-          where: {
-            id: data.sourceOfferId,
-            userId,
-            dataScope,
-            deletedAt: null,
-          },
-          data: { status: "Angenommen" },
-        });
         const responseExisting = withDocumentCustomerSnapshot(
           existing,
           "invoice",
@@ -685,17 +675,9 @@ export async function POST(request: Request) {
             });
           }
 
-          if (data?.sourceOfferId) {
-            await tx.offer.updateMany({
-              where: {
-                id: data.sourceOfferId,
-                userId,
-                dataScope,
-                deletedAt: null,
-              },
-              data: { status: "Angenommen" },
-            });
-          }
+          // V17.90L277: Do not mutate the source offer status when moving
+          // forward to an invoice. The active sourceOfferId link hides the offer,
+          // and its original status remains available for an exact rollback.
 
           return createdInvoice;
         });
