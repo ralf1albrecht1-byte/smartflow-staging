@@ -4850,6 +4850,12 @@ type AiAppointmentV17_90L86 = {
   announcement_channel?: string | null;
   tageszeit?: string | null;
   daypart?: string | null;
+  // V17.90L270: The first AI stores the customer's compact appointment phrase
+  // verbatim. Downstream code may display it, but must never reinterpret it.
+  zeitangabe_text?: string | null;
+  time_phrase?: string | null;
+  zeitangabe_status?: string | null;
+  time_phrase_status?: string | null;
   evidence?: string | null;
 };
 
@@ -5777,6 +5783,71 @@ function normalizeStructuredAppointmentDaypartV17_90L256(
   return CANONICAL_APPOINTMENT_DAYPARTS_V17_90L256.get(raw) || null;
 }
 
+type AppointmentPhraseStatusV17_90L270 =
+  | "klar"
+  | "vage"
+  | "unklar"
+  | null;
+
+function normalizeAppointmentPhraseStatusV17_90L270(
+  appointment: AiAppointmentV17_90L86,
+): AppointmentPhraseStatusV17_90L270 {
+  const record = appointment as AiAppointmentV17_90L86 &
+    Record<string, unknown>;
+  const raw = String(
+    record.zeitangabe_status ?? record.time_phrase_status ?? "",
+  )
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z]+/g, "")
+    .trim();
+  if (["klar", "explicit", "clear"].includes(raw)) return "klar";
+  if (["vage", "vague", "relative", "open"].includes(raw)) return "vage";
+  if (["unklar", "unclear", "unknown", "missing"].includes(raw))
+    return "unklar";
+  return null;
+}
+
+function compactAppointmentPhraseV17_90L270(
+  appointment: AiAppointmentV17_90L86,
+): string {
+  const record = appointment as AiAppointmentV17_90L86 &
+    Record<string, unknown>;
+  return String(record.zeitangabe_text ?? record.time_phrase ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/^\s*(?:termin|appointment|rendez[-\s]?vous)\s*:\s*/i, "")
+    .trim()
+    .slice(0, 180);
+}
+
+function hasExplicitVagueAppointmentEvidenceV17_90L270(
+  value: unknown,
+): boolean {
+  const text = String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return false;
+  return [
+    /\b(?:eher\s+)?spaeter(?:\s+am\s+tag)?\b/,
+    /\birgendwann\b|\bim\s+laufe\s+des\s+tages\b|\bgegen\s+spaeter\b/,
+    /\bgenaue?\s+(?:uhr)?zeit\b.{0,55}\b(?:nicht|noch\s+nicht|unklar|offen)\b/,
+    /\b(?:later|sometime|during\s+the\s+day)\b/,
+    /\b(?:exact\s+time|time)\b.{0,55}\b(?:not\s+fixed|unknown|not\s+set)\b/,
+    /\b(?:plus\s+tard|dans\s+la\s+journee)\b/,
+    /\b(?:heure|horaire)\b.{0,55}\b(?:pas\s+fixe|inconnu|a\s+definir)\b/,
+    /\b(?:piu\s+tardi|nel\s+corso\s+della\s+giornata)\b/,
+    /\b(?:orario|ora)\b.{0,55}\b(?:non\s+fissat|da\s+definire)\b/,
+    /\b(?:mas\s+tarde|durante\s+el\s+dia)\b/,
+    /\b(?:hora)\b.{0,55}\b(?:no\s+fijad|por\s+definir)\b/,
+    /\b(?:mais\s+tarde|ao\s+longo\s+do\s+dia)\b/,
+    /\b(?:horario|hora)\b.{0,55}\b(?:nao\s+definid|por\s+definir)\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
 function sourceSupportsAppointmentPartV17_90L86(
   source: string,
   value?: string | null,
@@ -5883,11 +5954,22 @@ function buildStructuredAppointmentHintsV17_90L86(
     }
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
-    const daypart = normalizeStructuredAppointmentDaypartV17_90L256(
+    const phrase = compactAppointmentPhraseV17_90L270(appointment);
+    const phraseStatus = normalizeAppointmentPhraseStatusV17_90L270(
       appointment,
     );
+    const evidenceText = [phrase, appointment?.evidence]
+      .filter(Boolean)
+      .join(" ");
+    const vagueEvidence =
+      phraseStatus === "vage" ||
+      hasExplicitVagueAppointmentEvidenceV17_90L270(evidenceText);
+    const daypart = vagueEvidence
+      ? null
+      : normalizeStructuredAppointmentDaypartV17_90L256(appointment);
 
-    if (!date && !start && !daypart) continue;
+    if (!date && !start && !daypart && !phrase && phraseStatus !== "unklar")
+      continue;
     // V17.90L103: The first-AI appointment is preserved. Evidence checks may
     // create a review warning, but must not silently remove the appointment
     // from the order or its Important information section.
@@ -5932,8 +6014,24 @@ function buildStructuredAppointmentHintsV17_90L86(
                 : " melden"
         }`
       : "";
-    const timeRange = start && end ? `${start}–${end}` : start || "";
-    const timeDescriptor = timeRange || daypart || "";
+    const effectiveStart = vagueEvidence ? null : start;
+    const effectiveEnd = vagueEvidence ? null : end;
+    const timeRange =
+      effectiveStart && effectiveEnd
+        ? `${effectiveStart}–${effectiveEnd}`
+        : effectiveStart || "";
+    // V17.90L270: Display the first AI's exact customer phrase when the time
+    // is vague/unclear or when no normalized clock/daypart exists. Never turn
+    // "später am Tag" into "nachmittags" after the first-AI boundary.
+    const exactPhraseDescriptor =
+      phrase && (vagueEvidence || phraseStatus === "unklar" || (!timeRange && !daypart))
+        ? phrase
+        : "";
+    const timeDescriptor =
+      timeRange ||
+      daypart ||
+      exactPhraseDescriptor ||
+      (phraseStatus === "unklar" ? "Termin klären" : "");
     const line = `Termin: ${[date, timeDescriptor, notice].filter(Boolean).join(" · ")}`;
     if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
       result.push(line);
@@ -13641,12 +13739,15 @@ ZIELE
 - In diesem Fall die vollständige, im Nachrichtentext genannte Firma mit bestehende_kunden vergleichen.
   Nur bei genau einem eindeutigen vollständigen Namen bestehende_kunden_id setzen; niemals Stammdaten aus der Liste in kunde kopieren.
 - termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
-  art = "ausfuehrung", datum, von, bis, tageszeit, ankuendigung_minuten, ankuendigung_kanal, evidence.
+  art = "ausfuehrung", datum, von, bis, tageszeit, zeitangabe_text, zeitangabe_status, ankuendigung_minuten, ankuendigung_kanal, evidence.
+- zeitangabe_text ist ein kurzes, exakt zusammenhängendes Zitat aus dem ORIGINALTEXT, das nur die Termin-/Zeitformulierung enthält, z.B. "nächsten Freitag eher später am Tag", "Friday afternoon" oder "Mittwoch um 13:30". Nicht übersetzen, nicht umformulieren und keine Kontaktanweisung anhängen.
+- zeitangabe_status ist ausschließlich "klar", "vage" oder "unklar": "klar" bei eindeutigem Datum/Uhrzeit/konventioneller Tageszeit, "vage" bei relativer oder offener Formulierung, "unklar" wenn ein Termin gemeint ist, aber keine brauchbare Zeitformulierung sicher erhalten werden kann.
+- evidence enthält die vollständige lokale Originalstelle zum Termin einschließlich einer eventuell direkt zugehörigen Vorankündigung.
 - tageszeit ist ausschließlich einer der deutschen kanonischen Werte "morgens", "vormittags", "mittags", "nachmittags", "abends", "nachts", "ganztägig" oder null. Nur eine im lokalen Originalsatz tatsächlich benannte, konventionelle Tageszeit darf einem dieser Werte zugeordnet werden.
 - Relative, vage oder offene Zeitangaben beschreiben keine feste Tageszeit. Formulierungen mit der Bedeutung "später", "irgendwann", "im Laufe des Tages", "gegen später" oder vergleichbar dürfen NICHT als morgens, vormittags, mittags, nachmittags, abends oder nachts ausgegeben werden. In solchen Fällen: tageszeit = null und system.needs_review = true. Diese Beispiele definieren eine semantische Kategorie und sind keine abschließende Wortliste.
 - Jede ausdrücklich und eindeutig benannte Tageszeit muss semantisch übersetzt und erhalten bleiben, auch bei Dialekt, Fremdsprache oder gemischtem Text. Sie darf nicht wegen einer Vorankündigung oder Kontaktangabe verloren gehen.
 - Für die Terminbedeutung ist immer der lokale Originalsatz maßgeblich. Eine normalisierte Arbeitsfassung ist nur eine Sprachhilfe und darf eine Tageszeit aus dem Original niemals überschreiben oder in ihr Gegenteil verkehren.
-- Verbindlicher interner Zweischritt vor der JSON-Ausgabe: (1) die lokale Original-Evidence als "explizit benannte Tageszeit" oder "relative/vage Zeitangabe" klassifizieren; (2) nur bei der ersten Kategorie tageszeit setzen. Die Klassifikation nicht als zusätzliches JSON-Feld ausgeben.
+- Verbindlicher Zweischritt vor der JSON-Ausgabe: (1) die lokale Originalstelle als "klar", "vage" oder "unklar" klassifizieren und in zeitangabe_status ausgeben; (2) nur bei "klar" eine kanonische tageszeit setzen. zeitangabe_text bleibt immer das exakte Originalzitat.
 - Vor der JSON-Ausgabe jeden Termin intern gegen seine eigene Original-Evidence prüfen: tageszeit muss semantisch exakt zu dieser Evidence passen. Nicht über Wortähnlichkeit, Wortbestandteile, Weltwissen oder die Übersetzung raten.
 - Wenn Original und Arbeitsfassung widersprechen, die Zeitformulierung relativ/vage ist oder die Tageszeit aus dem Original nicht sicher verstanden wird: tageszeit = null und system.needs_review = true. Niemals die scheinbar plausiblere Tageszeit auswählen.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
@@ -14059,6 +14160,7 @@ sonst → ""
 - Wichtig: Jede tatsächlich erwähnte Hundaussage kommt genau einmal in gefahren, ausschließlich wegen des roten Hund-Chips. Inhalt und Zustand des Hundes originalgetreu wiedergeben; niemals bewerten oder umdeuten.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
+- TERMINE: Jeder Termin-Eintrag enthält zusätzlich zeitangabe_text und zeitangabe_status. zeitangabe_text ist ein kurzes exaktes Originalzitat nur der Termin-/Zeitformulierung; zeitangabe_status ist ausschließlich "klar", "vage" oder "unklar". Relative/offene Aussagen wie "später am Tag" bleiben als exakter Text erhalten und dürfen niemals zu "nachmittags" oder einer anderen Tageszeit umgedeutet werden. Bei "vage" oder "unklar" gilt tageszeit = null.
 - Keine Doppelung: Eine Information darf genau einmal und nur in ihrer fachlich richtigen strukturierten Rolle stehen. Zugangscodes/PINs ausschließlich in zugangshinweise, Parkinformationen ausschließlich in parkhinweise, sonstige Ablaufhinweise ausschließlich in sonstige_hinweise. Kontakt und Vorankündigung ausschließlich in kontakt_vor_ort beziehungsweise termine. besonderheiten bleibt immer []. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
 - Jede Rollen-Aussage muss ihren Inhalt erhalten. Nicht umformulieren, verschärfen, abschwächen oder mit einer anderen Aussage zusammenführen.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
