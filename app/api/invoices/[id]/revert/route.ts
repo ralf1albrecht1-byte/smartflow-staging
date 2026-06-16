@@ -25,37 +25,46 @@ export async function POST(request: Request, { params }: { params: { id: string 
     });
     if (!invoice) return NextResponse.json({ error: 'Rechnung nicht gefunden' }, { status: 404 });
 
-    // 1. Reactivate source offer if exists
-    let reactivatedOffer = false;
-    if (invoice.sourceOfferId) {
-      const offer = await prisma.offer.findFirst({
-        where: { id: invoice.sourceOfferId, userId, dataScope },
-      });
-      if (offer) {
-        await prisma.offer.update({
-          where: { id: offer.id },
-          data: {
-            status: 'Gesendet',
-            deletedAt: null, // un-delete if it was soft-deleted
-          },
-        });
-        reactivatedOffer = true;
-      }
-    }
-
-    // 2. Unlink orders from this invoice
+    const sourceOfferId = invoice.sourceOfferId;
     const orderIds = invoice.orders.map((o: any) => o.id);
-    if (orderIds.length > 0) {
-      await prisma.order.updateMany({
-        where: { id: { in: orderIds }, userId, dataScope },
-        data: { invoiceId: null },
-      });
-    }
+    let reactivatedOffer = false;
 
-    // 3. Soft-delete the invoice
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: { deletedAt: new Date() },
+    // V17.90L275: One atomic stage rollback. The existing source document is
+    // reactivated without recreating or rewriting any customer, item or note
+    // data. A reverted invoice is detached from the offer so the normal offer
+    // list no longer treats that historical, soft-deleted invoice as active.
+    await prisma.$transaction(async (tx) => {
+      if (sourceOfferId) {
+        const offer = await tx.offer.findFirst({
+          where: { id: sourceOfferId, userId, dataScope },
+          select: { id: true },
+        });
+        if (offer) {
+          await tx.offer.update({
+            where: { id: offer.id },
+            data: {
+              status: 'Gesendet',
+              deletedAt: null,
+            },
+          });
+          reactivatedOffer = true;
+        }
+      }
+
+      if (orderIds.length > 0) {
+        await tx.order.updateMany({
+          where: { id: { in: orderIds }, userId, dataScope },
+          data: { invoiceId: null },
+        });
+      }
+
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          deletedAt: new Date(),
+          ...(reactivatedOffer ? { sourceOfferId: null } : {}),
+        },
+      });
     });
 
     const sessionUser = await getSessionUser();
@@ -63,7 +72,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       userId, action: 'INVOICE_REVERT_TO_OFFER', area: 'INVOICES',
       targetType: 'Invoice', targetId: invoice.id, success: true,
       userEmail: sessionUser?.email, userRole: sessionUser?.role,
-      details: { invoiceNumber: invoice.invoiceNumber, sourceOfferId: invoice.sourceOfferId, reactivatedOffer, revertedOrderIds: orderIds },
+      details: { invoiceNumber: invoice.invoiceNumber, sourceOfferId, reactivatedOffer, revertedOrderIds: orderIds },
     });
 
     return NextResponse.json({ success: true, reactivatedOffer, revertedOrders: orderIds.length });

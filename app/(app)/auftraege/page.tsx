@@ -15626,35 +15626,9 @@ export default function AuftraegePage() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      let saved = await res.json();
-
-      // V17.90L109: The legacy order PUT route still performs broad note
-      // normalization when items are saved. Immediately persist the exact
-      // marker-protected role snapshot from the editor through the dedicated
-      // role-safe endpoint. This changes no service, price, customer or layout.
-      if (saved?.id && editId && payload.specialNotes !== undefined) {
-        const notesResponse = await fetch(
-          `/api/orders/${saved.id}/special-notes`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ specialNotes: payload.specialNotes }),
-          },
-        );
-
-        if (notesResponse.ok) {
-          saved = await notesResponse.json();
-        } else {
-          // The normal order PUT above already persisted specialNotes. The
-          // dedicated role-safe endpoint is an additional precision pass and
-          // must not turn a successful order save into a failed save.
-          console.warn(
-            "Dedicated special-notes save failed; using the successfully saved order response.",
-          );
-        }
-      }
-
-      return saved;
+      // V17.90L275: The normal order PUT now preserves the exact canonical
+      // `specialNotes`. Do not run a second save or a second interpretation.
+      return await res.json();
     }
     toast.error("Fehler beim Speichern");
     return null;

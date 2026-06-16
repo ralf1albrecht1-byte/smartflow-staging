@@ -1661,36 +1661,12 @@ export async function PUT(
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
     const data = await request.json();
-    const shouldNormalizeSpecialNotes =
-      data?.specialNotes !== undefined ||
-      data?.notes !== undefined ||
-      data?.audioTranscript !== undefined ||
-      data?.description !== undefined ||
-      data?.serviceName !== undefined ||
-      data?.items !== undefined;
-    const normalizedSpecialNotes = shouldNormalizeSpecialNotes
-      ? normalizeOrderSpecialNotes({
-          ...existing,
-          ...data,
-          specialNotes:
-            data?.specialNotes !== undefined
-              ? data.specialNotes
-              : existing?.specialNotes,
-          notes: data?.notes !== undefined ? data.notes : existing?.notes,
-          audioTranscript:
-            data?.audioTranscript !== undefined
-              ? data.audioTranscript
-              : existing?.audioTranscript,
-          description:
-            data?.description !== undefined
-              ? data.description
-              : existing?.description,
-          serviceName:
-            data?.serviceName !== undefined
-              ? normalizeServiceNameForDisplay(data.serviceName)
-              : existing?.serviceName,
-        })
-      : undefined;
+    // V17.90L275: `specialNotes` is already the canonical, role-marked
+    // source of truth. Saving items, prices, descriptions or customer data must
+    // never re-read and reclassify it. Only an explicitly supplied value may
+    // update the field, and that value is persisted byte-for-byte.
+    const normalizedSpecialNotes =
+      data?.specialNotes !== undefined ? data.specialNotes : undefined;
     const requestedCurrency =
       data?.currency === "EUR" ? "EUR" : data?.currency === "CHF" ? "CHF" : undefined;
     const currency = requestedCurrency || inferExplicitCurrencyFromPayload(data);
