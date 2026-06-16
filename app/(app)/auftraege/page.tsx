@@ -16578,7 +16578,10 @@ export default function AuftraegePage() {
 
   // Display items summary for list
 
-  const isBlockedOrderItemForTotal = (item: OrderItem) => {
+  const isBlockedOrderItemForTotal = (
+    item: OrderItem,
+    reviewReasons?: string[] | null,
+  ) => {
     const unitReviewValue = normalizeForMatch(item.unit || "");
     const serviceReviewValue = normalizeForMatch(item.serviceName || "");
     const reviewText = normalizeForMatch(
@@ -16628,6 +16631,26 @@ export default function AuftraegePage() {
       reviewText.includes("item currency mismatch") ||
       reviewText.includes("currency_conflict_item");
 
+    // V17.90L278: An unresolved line-local price contradiction is always a
+    // hard total blocker, even when an older/stale item payload still carries
+    // a positive totalPrice. The editor already shows CHF 0.00; the outer card
+    // must use the same effective value and must never recalculate the line.
+    const hasActivePriceContradiction = Boolean(
+      (reviewReasons || []).some((reason) => {
+        const key = String(reason || "");
+        if (!key.startsWith("price_contradiction:")) return false;
+        const reasonService = key.slice("price_contradiction:".length);
+        return reviewServiceNamesMatchV17_90L241(
+          reasonService,
+          item.serviceName,
+        );
+      }) ||
+        (item.needsReview &&
+          (reviewText.includes("preiswiderspruch") ||
+            reviewText.includes("price_contradiction") ||
+            reviewText.includes("price contradiction"))),
+    );
+
     // V17.90L10: yellow evidence text like "Einheit prüfen: Maschinenpodest"
     // or "Preis im Text unklar" must not remove a complete line from the card
     // total when service, unit, quantity and price are line-local and numeric.
@@ -16636,6 +16659,7 @@ export default function AuftraegePage() {
       serviceIsOpen ||
       unitIsOpen ||
       hasHardCurrencyBlock ||
+      hasActivePriceContradiction ||
       (totalPrice <= 0 && quantity > 0 && unitPrice > 0) ||
       reviewText.includes("leistung oder einheit ist noch unklar") ||
       reviewText.includes("leistung unklar") ||
@@ -16668,7 +16692,7 @@ export default function AuftraegePage() {
     // totalPrice 0 oder werden durch isBlockedOrderItemForTotal ausgeschlossen.
     if (o.items && o.items.length > 0) {
       const itemNetTotal = o.items.reduce((sum, item) => {
-        if (isBlockedOrderItemForTotal(item)) return sum;
+        if (isBlockedOrderItemForTotal(item, o.reviewReasons)) return sum;
         if (
           hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)
         ) {
@@ -17263,8 +17287,11 @@ export default function AuftraegePage() {
                   const storedTotal = Number(item.totalPrice);
                   const calculatedTotal = quantity * unitPrice;
                   const blocked = Boolean(
-                    item.needsReview &&
-                      (!Number.isFinite(storedTotal) || storedTotal <= 0),
+                    isBlockedOrderItemForTotal(item, o.reviewReasons) ||
+                      hasCurrencyMismatchReviewForService(
+                        o.reviewReasons,
+                        item.serviceName,
+                      ),
                   );
                   const amount =
                     Number.isFinite(storedTotal) && storedTotal > 0
