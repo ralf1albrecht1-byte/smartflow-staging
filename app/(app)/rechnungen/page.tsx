@@ -789,6 +789,108 @@ function invoiceHintCombinesCanonicalFactsV17_90L265(
   return contained.length >= 2;
 }
 
+
+type InvoiceCanonicalWorkflowSummaryV17_90L273 = {
+  hazards: string[];
+  primaryHints: string[];
+  otherHints: string[];
+};
+
+type InvoiceCanonicalWorkflowRecordV17_90L273 = {
+  role: "safety" | "hint";
+  text: string;
+};
+
+function parseInvoiceCanonicalWorkflowRecordsV17_90L273(
+  value: unknown,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const markerPattern =
+    /\[(GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/gi;
+  const matches = Array.from(source.matchAll(markerPattern));
+  if (matches.length === 0) return [];
+
+  const records: InvoiceCanonicalWorkflowRecordV17_90L273[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const start = Number(match.index || 0) + match[0].length;
+    const end =
+      index + 1 < matches.length
+        ? Number(matches[index + 1].index || source.length)
+        : source.length;
+    const text = compactInvoiceValue(
+      source.slice(start, end).replace(/^\s*[-•*]+\s*/g, ""),
+    );
+    if (!text) continue;
+    records.push({
+      role: /^(?:GEFAHR|WARNUNG|WARNHINWEIS)$/i.test(String(match[1] || ""))
+        ? "safety"
+        : "hint",
+      text,
+    });
+  }
+  return records;
+}
+
+function isInvoiceCanonicalDogLineV17_90L273(value: string): boolean {
+  return /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)\b/i.test(
+    normalizeInvoiceServiceName(value),
+  );
+}
+
+function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  return /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
+    key,
+  );
+}
+
+function buildInvoiceCanonicalWorkflowSummaryV17_90L273(
+  invoice: Invoice | null,
+): InvoiceCanonicalWorkflowSummaryV17_90L273 | null {
+  const records = (invoice?.orders || []).flatMap((order) =>
+    parseInvoiceCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
+  );
+  if (records.length === 0) return null;
+
+  const hazards: string[] = [];
+  const primaryHints: string[] = [];
+  const otherHints: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (target: string[], raw: string) => {
+    const text = compactInvoiceValue(raw);
+    const key = normalizeInvoiceServiceName(text);
+    if (!text || !key || seen.has(key)) return;
+    seen.add(key);
+    target.push(text);
+  };
+
+  for (const record of records) {
+    if (record.role === "safety" || isInvoiceCanonicalDogLineV17_90L273(record.text)) {
+      add(hazards, record.text);
+      continue;
+    }
+    if (isInvoiceParkingLineV17_90L265(record.text)) {
+      add(otherHints, record.text);
+      continue;
+    }
+    if (isInvoiceCanonicalPrimaryLineV17_90L273(record.text)) {
+      add(primaryHints, record.text);
+      continue;
+    }
+    add(otherHints, record.text);
+  }
+
+  return { hazards, primaryHints, otherHints };
+}
+
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
   invoice: Invoice | null,
   fallback?: string | null,
@@ -7488,6 +7590,13 @@ export default function RechnungenPage() {
 
                   {editOrderCtx &&
                     (() => {
+                      const canonicalWorkflowSummaryV17_90L273 =
+                        buildInvoiceCanonicalWorkflowSummaryV17_90L273(
+                          editingInvoice,
+                        );
+                      const { hazards, primaryHints, otherHints } =
+                        canonicalWorkflowSummaryV17_90L273 ||
+                        (() => {
                       const canonicalSpecialNotesV17_90L237 =
                         collectInvoiceCanonicalSpecialNotesV17_90L237(
                           editingInvoice,
@@ -7608,6 +7717,8 @@ export default function RechnungenPage() {
                         (line) =>
                           !primaryKeys.has(normalizeInvoiceServiceName(line)),
                       );
+                      return { hazards, primaryHints, otherHints };
+                        })();
                       const customerMessageBlocks = (
                         editingInvoice?.orders || []
                       )

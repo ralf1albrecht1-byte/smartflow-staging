@@ -1260,6 +1260,117 @@ function compactOfferPrimaryInfoLinesV17_90L124(
   ]);
 }
 
+
+type OfferCanonicalWorkflowSummaryV17_90L273 = OfferInfoSummary & {
+  hasCanonicalMarkers: true;
+};
+
+type OfferCanonicalWorkflowRecordV17_90L273 = {
+  role: "safety" | "hint";
+  text: string;
+};
+
+function parseOfferCanonicalWorkflowRecordsV17_90L273(
+  value: unknown,
+): OfferCanonicalWorkflowRecordV17_90L273[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const markerPattern =
+    /\[(GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/gi;
+  const matches = Array.from(source.matchAll(markerPattern));
+  if (matches.length === 0) return [];
+
+  const records: OfferCanonicalWorkflowRecordV17_90L273[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const start = Number(match.index || 0) + match[0].length;
+    const end =
+      index + 1 < matches.length
+        ? Number(matches[index + 1].index || source.length)
+        : source.length;
+    const text = source
+      .slice(start, end)
+      .replace(/^\s*[-•*]+\s*/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) continue;
+    records.push({
+      role: /^(?:GEFAHR|WARNUNG|WARNHINWEIS)$/i.test(String(match[1] || ""))
+        ? "safety"
+        : "hint",
+      text,
+    });
+  }
+  return records;
+}
+
+function isOfferCanonicalPrimaryLineV17_90L273(value: string): boolean {
+  const key = normalizeOfferHint(value);
+  if (!key) return false;
+  return /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
+    key,
+  );
+}
+
+function buildOfferCanonicalWorkflowSummaryV17_90L273(
+  sourceOrders: any[],
+  appointmentLabel = "",
+): OfferCanonicalWorkflowSummaryV17_90L273 | null {
+  const records = (sourceOrders || []).flatMap((order) =>
+    parseOfferCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
+  );
+  if (records.length === 0) return null;
+
+  const safety: string[] = [];
+  const primary: string[] = [];
+  const additional: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (target: string[], raw: string) => {
+    const text = cleanOfferInfoLineV17_66(raw);
+    const key = normalizeOfferHint(text);
+    if (!text || !key || seen.has(key)) return;
+    seen.add(key);
+    target.push(text);
+  };
+
+  for (const record of records) {
+    if (record.role === "safety" || isOfferDogHint(record.text)) {
+      add(safety, record.text);
+      continue;
+    }
+    if (isOfferParkingLineV17_90L101(record.text)) {
+      add(additional, record.text);
+      continue;
+    }
+    if (isOfferCanonicalPrimaryLineV17_90L273(record.text)) {
+      add(primary, record.text);
+      continue;
+    }
+    add(additional, record.text);
+  }
+
+  const hasAppointment = primary.some((line) =>
+    /\b(?:termin|datum|uhr|zeitfenster)\b|\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b|\b\d{1,2}:\d{2}\b/i.test(
+      line,
+    ),
+  );
+  if (!hasAppointment && String(appointmentLabel || "").trim()) {
+    add(primary, `Termin: ${String(appointmentLabel).trim()}`);
+  }
+
+  return {
+    safety,
+    primary,
+    additional,
+    hasCanonicalMarkers: true,
+  };
+}
+
 function buildOfferInfoSummary(
   data: CommunicationData,
   parsedNotes = splitSpecialNotes(data.specialNotes),
@@ -1267,7 +1378,20 @@ function buildOfferInfoSummary(
   contactAction?: OfferContactAction | null,
   sourceOrders: any[] = [],
   serviceNames: string[] = [],
+  preferCanonicalWorkflowV17_90L273 = false,
 ): OfferInfoSummary {
+  const canonicalWorkflowSummaryV17_90L273 =
+    buildOfferCanonicalWorkflowSummaryV17_90L273(
+      sourceOrders,
+      appointmentLabel,
+    );
+  if (
+    preferCanonicalWorkflowV17_90L273 &&
+    canonicalWorkflowSummaryV17_90L273
+  ) {
+    return canonicalWorkflowSummaryV17_90L273;
+  }
+
   // V17.90L264: The canonical first-AI role snapshot is preferred for
   // internal display. Raw/original customer text is fallback-only so the same
   // hint is not shown again in another language.
@@ -4164,12 +4288,16 @@ export default function AngebotePage() {
     linkedContactAction,
     linkedEditorOrdersV17_90L237,
     items.map((item) => String(item?.description || "")),
+    true,
   );
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
   const linkedJobHints = uniqueOfferInfoLinesV17_66([
     ...linkedInfoSummary.additional,
-    ...extractOfferParkingLinesV17_90L264(linkedEditorOrdersV17_90L237),
+    ...((linkedInfoSummary as OfferCanonicalWorkflowSummaryV17_90L273)
+      .hasCanonicalMarkers
+      ? []
+      : extractOfferParkingLinesV17_90L264(linkedEditorOrdersV17_90L237)),
   ]);
 
   const updateExecutionSite = (
