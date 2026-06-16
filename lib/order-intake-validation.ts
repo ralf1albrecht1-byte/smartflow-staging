@@ -457,122 +457,161 @@ function totalPriceCandidateBelongsToItemV17_90L234(args: {
   return false;
 }
 
+type LineLocalPriceMarkerV17_90L269 = {
+  amount: number;
+  amountIndex: number;
+  evidence: string;
+};
+
+function markerSpanDistanceV17_90L269(
+  markerStart: number,
+  markerEnd: number,
+  amountStart: number,
+  amountEnd: number,
+): number {
+  if (markerEnd < amountStart) return amountStart - markerEnd;
+  if (amountEnd < markerStart) return markerStart - amountEnd;
+  return 0;
+}
+
+function collectMarkerSpansV17_90L269(
+  source: string,
+  pattern: RegExp,
+): Array<{ start: number; end: number }> {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const regex = new RegExp(pattern.source, flags);
+  return Array.from(source.matchAll(regex)).map((match) => ({
+    start: match.index || 0,
+    end: (match.index || 0) + match[0].length,
+  }));
+}
+
+function extractLineLocalPriceMarkersV17_90L269(sourceText: string): {
+  totals: LineLocalPriceMarkerV17_90L269[];
+  perUnits: LineLocalPriceMarkerV17_90L269[];
+} {
+  const source = String(sourceText || "").replace(/\s+/g, " ").trim();
+  if (!source) return { totals: [], perUnits: [] };
+
+  const totalMarkerSpans = collectMarkerSpansV17_90L269(
+    source,
+    /\b(?:gesamtpreis|gesamtbetrag|totalpreis|total\s+amount|total\s+price|prix\s+total|prezzo\s+totale|precio\s+total|preco\s+total|forfait|lump\s+sum|fixed\s+price|fixpreis|festpreis|pauschal(?:preis)?)\b/giu,
+  );
+  const perUnitMarkerSpans = collectMarkerSpansV17_90L269(
+    source,
+    /\b(?:je|pro|per|each|par|por)\b|(?:^|\s)à(?=\s|$)/giu,
+  );
+
+  const amountMatches = Array.from(
+    source.matchAll(
+      /(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\b|\b([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\s*(?:chf|eur|euro|sfr|fr)\.?\b)/giu,
+    ),
+  );
+
+  const totals: LineLocalPriceMarkerV17_90L269[] = [];
+  const perUnits: LineLocalPriceMarkerV17_90L269[] = [];
+
+  for (const match of amountMatches) {
+    const rawAmount = match[1] || match[2] || "";
+    const amount = Number(
+      String(rawAmount).replace(/['’]/g, "").replace(",", "."),
+    );
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+
+    const amountStart = match.index || 0;
+    const amountEnd = amountStart + match[0].length;
+    const nearestTotal = totalMarkerSpans
+      .map((span) => ({
+        ...span,
+        distance: markerSpanDistanceV17_90L269(
+          span.start,
+          span.end,
+          amountStart,
+          amountEnd,
+        ),
+      }))
+      .sort((left, right) => left.distance - right.distance)[0];
+    const nearestPerUnit = perUnitMarkerSpans
+      .map((span) => ({
+        ...span,
+        distance: markerSpanDistanceV17_90L269(
+          span.start,
+          span.end,
+          amountStart,
+          amountEnd,
+        ),
+      }))
+      .sort((left, right) => left.distance - right.distance)[0];
+
+    const totalDistance = nearestTotal?.distance ?? Number.POSITIVE_INFINITY;
+    const perUnitDistance = nearestPerUnit?.distance ?? Number.POSITIVE_INFINITY;
+    const contextStart = Math.max(0, amountStart - 90);
+    const contextEnd = Math.min(source.length, amountEnd + 90);
+    const evidence = source.slice(contextStart, contextEnd).trim();
+
+    // The amount is assigned only to its nearest explicit price-structure
+    // marker. Ambiguous or distant amounts are ignored instead of guessed.
+    if (totalDistance <= 55 && totalDistance < perUnitDistance) {
+      totals.push({ amount, amountIndex: amountStart, evidence });
+    } else if (perUnitDistance <= 55 && perUnitDistance < totalDistance) {
+      perUnits.push({ amount, amountIndex: amountStart, evidence });
+    }
+  }
+
+  return { totals, perUnits };
+}
+
 export function detectReadOnlyPriceContradictionsV17_90L234(args: {
   originalText: string;
   translatedText?: string | null;
   items: ReadOnlyPriceContradictionItemV17_90L234[];
 }): ReadOnlyPriceContradictionFindingV17_90L234[] {
-  const segments = splitPriceContradictionSegmentsV17_90L234(
-    [args.originalText, args.translatedText].filter(Boolean).join("\n"),
-  );
-  if (segments.length === 0 || !Array.isArray(args.items)) return [];
+  if (!Array.isArray(args.items)) return [];
 
   const findings: ReadOnlyPriceContradictionFindingV17_90L234[] = [];
 
   args.items.forEach((item, itemIndex) => {
     const serviceName = String(item.serviceName || "").trim();
-    if (!serviceName) return;
+    const sourceText = String(item.sourceText || "").replace(/\s+/g, " ").trim();
+    const quantity = Number(item.quantity || 0);
 
-    // V17.90L244: Service identity must come from the normalized service name.
-    // Broad evidence text often contains generic action words or neighbouring
-    // services and can otherwise make a clear line inherit another line's
-    // total-price contradiction. Only fall back to line-local evidence when
-    // the normalized service name yields no usable identity token.
-    const serviceIdentityTokens = priceContradictionTokensV17_90L234(
-      serviceName,
-    );
-    const lineLocalEvidenceTokens = priceContradictionTokensV17_90L234(
-      [item.sourceText, item.evidence].filter(Boolean).join(" "),
-    );
-    const tokens = Array.from(
-      new Set(
-        serviceIdentityTokens.length > 0
-          ? serviceIdentityTokens
-          : lineLocalEvidenceTokens,
-      ),
-    );
-    if (tokens.length === 0) return;
+    // V17.90L269: Price evidence is strictly position-local. The complete
+    // customer message, translations, neighbouring services, addresses and
+    // dates are deliberately unavailable to this checker. If the first AI did
+    // not provide an own sourceText line or a reliable quantity, the checker
+    // abstains instead of borrowing evidence.
+    if (!serviceName || !sourceText) return;
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
 
-    const anchorIndexes = segments
-      .map((segment, index) =>
-        priceContradictionStrongServiceMatchV17_90L245(segment, tokens)
-          ? index
-          : -1,
-      )
-      .filter((index) => index >= 0);
-    if (anchorIndexes.length === 0) return;
+    const localMarkers = extractLineLocalPriceMarkersV17_90L269(sourceText);
+    if (localMarkers.totals.length === 0 || localMarkers.perUnits.length === 0) {
+      return;
+    }
 
-    const totalCandidates = segments
-      .map((segment, index) => ({
-        segment,
-        index,
-        amounts: extractPriceAmountsV17_90L234(segment),
-        isTotal: hasTotalPriceMarkerV17_90L234(segment),
-      }))
-      .filter(
-        (candidate) =>
-          candidate.isTotal &&
-          candidate.amounts.length > 0 &&
-          totalPriceCandidateBelongsToItemV17_90L234({
-            segments,
-            candidateIndex: candidate.index,
-            candidateSegment: candidate.segment,
-            itemTokens: tokens,
-          }) &&
-          anchorIndexes.some(
-            (anchorIndex) => Math.abs(candidate.index - anchorIndex) <= 2,
-          ),
-      );
-
-    const perUnitCandidates = segments
-      .map((segment, index) => ({
-        segment,
-        index,
-        amounts: extractPriceAmountsV17_90L234(segment),
-        isPerUnit: hasPerUnitPriceMarkerV17_90L234(segment),
-        matchesService:
-          priceContradictionStrongServiceMatchV17_90L245(segment, tokens) ||
-          priceContradictionLooseIdentityMatchV17_90L245(segment, tokens),
-      }))
-      .filter(
-        (candidate) =>
-          candidate.isPerUnit &&
-          candidate.amounts.length > 0 &&
-          candidate.matchesService &&
-          anchorIndexes.some(
-            (anchorIndex) => Math.abs(candidate.index - anchorIndex) <= 2,
-          ),
-      );
-
-    if (totalCandidates.length === 0 || perUnitCandidates.length === 0) return;
-
-    const pairs = totalCandidates
+    const candidatePairs = localMarkers.totals
       .flatMap((totalCandidate) =>
-        perUnitCandidates.map((perCandidate) => ({
+        localMarkers.perUnits.map((perUnitCandidate) => ({
           totalCandidate,
-          perCandidate,
-          distance: Math.abs(totalCandidate.index - perCandidate.index),
+          perUnitCandidate,
+          distance: Math.abs(
+            totalCandidate.amountIndex - perUnitCandidate.amountIndex,
+          ),
         })),
       )
-      .filter((pair) => pair.distance <= 2)
+      .filter(
+        (pair) =>
+          pair.totalCandidate.amountIndex !== pair.perUnitCandidate.amountIndex,
+      )
       .sort((left, right) => left.distance - right.distance);
-    const pair = pairs[0];
+
+    const pair = candidatePairs[0];
     if (!pair) return;
 
-    const totalAmount = pair.totalCandidate.amounts[0];
-    const perUnitAmount = pair.perCandidate.amounts[0];
-    const quantity = inferPriceContradictionQuantityV17_90L234(
-      segments.filter((segment) =>
-        priceContradictionStrongServiceMatchV17_90L245(segment, tokens),
-      ),
-      tokens,
-      item.quantity,
-    );
-
+    const totalAmount = pair.totalCandidate.amount;
+    const perUnitAmount = pair.perUnitCandidate.amount;
     const tolerance = 0.02;
-    const inconsistent = quantity
-      ? Math.abs(totalAmount - quantity * perUnitAmount) > tolerance
-      : Math.abs(totalAmount - perUnitAmount) > tolerance;
+    const inconsistent =
+      Math.abs(totalAmount - quantity * perUnitAmount) > tolerance;
     if (!inconsistent) return;
 
     findings.push({
@@ -581,8 +620,8 @@ export function detectReadOnlyPriceContradictionsV17_90L234(args: {
       totalAmount,
       perUnitAmount,
       inferredQuantity: quantity,
-      totalEvidence: pair.totalCandidate.segment,
-      perUnitEvidence: pair.perCandidate.segment,
+      totalEvidence: pair.totalCandidate.evidence,
+      perUnitEvidence: pair.perUnitCandidate.evidence,
       reason: `price_contradiction:${serviceName}`,
     });
   });

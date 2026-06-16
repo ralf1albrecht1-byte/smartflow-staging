@@ -16527,47 +16527,28 @@ export async function processIncomingMessage(
         .join("\n"),
     );
 
-  // V17.90L234: The deterministic price checker remains read-only with
-  // respect to first-AI business fields. It compares the full customer source
-  // with the hydrated first-AI rows and may only add a review state when the
-  // per-unit price. Names, quantity, unit, unit price, currency and evidence
-  // remain untouched. Only the calculable line total is blocked until the user
-  // confirms or corrects the detected price.
+  // V17.90L269: The price checker is strictly read-only and receives only
+  // each item's own first-AI sourceText through the item object. It may create
+  // separate review metadata, but it must never change the canonical service,
+  // quantity, unit, price, currency, evidence, line total or item review state.
   const priceContradictionFindingsV17_90L234 =
     detectReadOnlyPriceContradictionsV17_90L234({
-      originalText: messageText,
-      translatedText: translationText,
+      originalText: "",
+      translatedText: null,
       items: canonicalAiOrderItemsBaseV17_90L234,
     });
-  const priceContradictionByItemIndexV17_90L234 = new Map<
-    number,
-    (typeof priceContradictionFindingsV17_90L234)[number]
-  >();
-  for (const finding of priceContradictionFindingsV17_90L234) {
-    priceContradictionByItemIndexV17_90L234.set(
-      finding.itemIndex,
-      finding,
-    );
-  }
+  const priceContradictionReviewReasonsV17_90L269 = Array.from(
+    new Set(
+      priceContradictionFindingsV17_90L234
+        .map((finding) => String(finding.reason || "").trim())
+        .filter(Boolean),
+    ),
+  );
 
   const canonicalAiOrderItemsV17_90L88 = Object.freeze(
-    canonicalAiOrderItemsBaseV17_90L234.map((item, index) => {
-      const contradictionFinding =
-        priceContradictionByItemIndexV17_90L234.get(index);
-      if (!contradictionFinding) {
-        return Object.freeze({ ...item });
-      }
-
-      return Object.freeze({
-        ...item,
-        totalPrice: 0,
-        needsReview: true,
-        reviewReason:
-          contradictionFinding.reason ||
-          item.reviewReason ||
-          `price_contradiction:${item.serviceName}`,
-      });
-    }),
+    canonicalAiOrderItemsBaseV17_90L234.map((item) =>
+      Object.freeze({ ...item }),
+    ),
   ) as unknown as CanonicalAiOrderItemV17_90L88[];
 
   if (priceContradictionFindingsV17_90L234.length > 0) {
@@ -18788,6 +18769,7 @@ export async function processIncomingMessage(
     ...unitMismatchReasons,
     ...filteredValidationReviewReasonsV17_90L89,
     ...canonicalItemReviewReasonsV17_90L225,
+    ...priceContradictionReviewReasonsV17_90L269,
     ...semanticRecognitionReviewReasonsV17_90L252,
     ...invalidFirstAiItemReviewReasonsV17_90L252,
     ...genericEmptyFirstAiReviewReasonV17_90L252,
