@@ -64,6 +64,10 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { MwStControl } from "@/components/mwst-control";
 import { formatCurrency } from "@/lib/currency";
 import { splitSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  canonicalAppointmentBadgeV2,
+  getCanonicalIntakeV2,
+} from "@/lib/intake-v2/view";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { INVOICE_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -111,6 +115,8 @@ interface Invoice {
     audioTranscriptionStatus?: string | null;
     notes?: string | null;
     specialNotes?: string | null;
+    intakeSchemaVersion?: string | null;
+    intakeSnapshot?: unknown;
     needsReview?: boolean;
     hinweisLevel?: string;
     description?: string | null;
@@ -862,25 +868,47 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const records = sources.flatMap((value) =>
     parseInvoiceCanonicalWorkflowRecordsV17_90L273(value),
   );
+  const canonicalAppointmentLinesV17_90L276 = (invoice?.orders || [])
+    .map((order) => {
+      const snapshot = getCanonicalIntakeV2(order);
+      const appointment = snapshot
+        ? canonicalAppointmentBadgeV2(snapshot)
+        : null;
+      const raw = String(appointment?.tooltip || appointment?.label || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^Termin\s*:?\s*/i, "");
+      return raw ? `Termin: ${raw}` : "";
+    })
+    .filter(Boolean);
 
   const hazards: string[] = [];
   const primaryHints: string[] = [];
   const otherHints: string[] = [];
   const seen = new Set<string>();
 
-  // V17.90L274: Interne Rechnungsinformationen kommen ausschließlich aus den
-  // bereits gespeicherten, markierten specialNotes der verknüpften Quelle.
-  // Kundennachricht, Beschreibung und Kommunikations-Fallbacks werden hier
-  // nicht erneut interpretiert.
+  // V17.90L276: Operative Hinweise bleiben ausschließlich specialNotes.
+  // Der Termin kommt ausschließlich aus dem versiegelten kanonischen
+  // Intake-Snapshot des verknüpften Auftrags. Keine Rohtext-Auswertung.
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
-    const key = normalizeInvoiceServiceName(text);
+    const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
     if (!text || !key || seen.has(key)) return;
     seen.add(key);
     target.push(text);
   };
 
+  canonicalAppointmentLinesV17_90L276.forEach((line) =>
+    add(primaryHints, line),
+  );
+
   for (const record of records) {
+    const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
+      record.text,
+    );
+    if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
+      continue;
+    }
     if (record.role === "safety" || isInvoiceCanonicalDogLineV17_90L273(record.text)) {
       add(hazards, record.text);
       continue;

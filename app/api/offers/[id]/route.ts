@@ -73,6 +73,8 @@ const offerOrderSelect = {
   date: true,
   notes: true,
   specialNotes: true,
+  intakeSchemaVersion: true,
+  intakeSnapshot: true,
   needsReview: true,
   hinweisLevel: true,
   mediaUrl: true,

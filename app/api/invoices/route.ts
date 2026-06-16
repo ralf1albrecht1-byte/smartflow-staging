@@ -428,6 +428,8 @@ export async function GET(request: Request) {
             audioTranscriptionStatus: true,
             notes: true,
             specialNotes: true,
+            intakeSchemaVersion: true,
+            intakeSnapshot: true,
             needsReview: true,
             hinweisLevel: true,
             description: true,

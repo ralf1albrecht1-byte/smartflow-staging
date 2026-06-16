@@ -63,6 +63,10 @@ import {
 import { MwStControl } from "@/components/mwst-control";
 import { formatCurrency } from "@/lib/currency";
 import { splitSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  canonicalAppointmentBadgeV2,
+  getCanonicalIntakeV2,
+} from "@/lib/intake-v2/view";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { OFFER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -130,6 +134,8 @@ interface Offer {
     description?: string | null;
     notes?: string | null;
     specialNotes?: string | null;
+    intakeSchemaVersion?: string | null;
+    intakeSnapshot?: unknown;
     needsReview?: boolean;
     hinweisLevel?: string;
     mediaUrl?: string | null;
@@ -1322,25 +1328,46 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   const records = (sourceOrders || []).flatMap((order) =>
     parseOfferCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
   );
+  const canonicalAppointmentLinesV17_90L276 = (sourceOrders || [])
+    .map((order) => {
+      const snapshot = getCanonicalIntakeV2(order);
+      const appointment = snapshot
+        ? canonicalAppointmentBadgeV2(snapshot)
+        : null;
+      const raw = String(appointment?.tooltip || appointment?.label || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^Termin\s*:?\s*/i, "");
+      return raw ? `Termin: ${raw}` : "";
+    })
+    .filter(Boolean);
 
   const safety: string[] = [];
   const primary: string[] = [];
   const additional: string[] = [];
   const seen = new Set<string>();
 
-  // V17.90L274: Interne Angebotsinformationen werden ausschließlich aus den
-  // bereits gespeicherten, markierten specialNotes des Auftrags angezeigt.
-  // Kein erneutes Lesen der Kundennachricht, keine Umformulierung und kein
-  // ergänzter Termin-/Kontakt-Fallback.
+  // V17.90L276: specialNotes bleiben die alleinige Quelle für operative
+  // Hinweise. Der Termin wird zusätzlich ausschließlich aus dem bereits
+  // versiegelten kanonischen Intake-Snapshot des verknüpften Auftrags gelesen.
+  // Kundennachricht, Beschreibung und Legacy-Parser bleiben ausgeschlossen.
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
-    const key = normalizeOfferHint(text);
+    const key = normalizeOfferHint(text).replace(/^termin\s+/, "");
     if (!text || !key || seen.has(key)) return;
     seen.add(key);
     target.push(text);
   };
 
+  canonicalAppointmentLinesV17_90L276.forEach((line) => add(primary, line));
+
   for (const record of records) {
+    const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
+      record.text,
+    );
+    if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
+      continue;
+    }
     if (record.role === "safety" || isOfferDogHint(record.text)) {
       add(safety, record.text);
       continue;
