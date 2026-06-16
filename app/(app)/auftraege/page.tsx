@@ -737,9 +737,19 @@ const parseStructuredAppointmentTooltipV17_90L169 = (
         dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
       }`
     : "";
-  const clockMatches = Array.from(
-    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
-  ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
+  const sourceWithoutDate = dateMatch
+    ? source.replace(dateMatch[0], " ")
+    : source;
+  const clockMatches = [
+    ...Array.from(
+      sourceWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
+    ),
+    ...Array.from(
+      sourceWithoutDate.matchAll(
+        /\b([01]?\d|2[0-3])\.([0-5]\d)\s*(?:Uhr|h)\b/gi,
+      ),
+    ),
+  ].map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
   const uniqueTimes = Array.from(new Set(clockMatches));
   const time =
     uniqueTimes.length >= 2
@@ -751,7 +761,8 @@ const parseStructuredAppointmentTooltipV17_90L169 = (
   let note = source;
   if (dateMatch) note = note.replace(dateMatch[0], " ");
   note = note
-    .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
+    .replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g, " ")
+    .replace(/\b([01]?\d|2[0-3])\.([0-5]\d)\s*(?:Uhr|h)\b/gi, " ")
     .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Uhr)\b/gi, " ")
     .replace(/[·•|]+/g, " ")
     .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
@@ -2524,6 +2535,10 @@ const extractAppointmentBadge = (
     /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(
       text,
     );
+  const hasExplicitNextOccurrence =
+    /\b(naechsten|nächsten|naechste|nächste|next|prochain|prochaine|prossimo|prossima|proximo|proxima)\b/i.test(
+      text,
+    );
   const hasToday = /\b(heute|today|aujourd'hui|hoy|oggi)\b/i.test(text);
   const hasTomorrow =
     /\b(morgen|tomorrow|demain|mañana|manana|domani)\b/i.test(text) &&
@@ -2560,13 +2575,37 @@ const extractAppointmentBadge = (
         )
       : null;
 
+  const weekdayCandidateDate =
+    !dateMatch && weekdayIndex
+      ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
+      : null;
+  const weekdayCandidateDeltaDays = weekdayCandidateDate
+    ? Math.round(
+        (new Date(
+          weekdayCandidateDate.getFullYear(),
+          weekdayCandidateDate.getMonth(),
+          weekdayCandidateDate.getDate(),
+        ).getTime() -
+          new Date(
+            baseDate.getFullYear(),
+            baseDate.getMonth(),
+            baseDate.getDate(),
+          ).getTime()) /
+          86400000,
+      )
+    : null;
+  const ambiguousImmediateNextWeekday = Boolean(
+    weekdayCandidateDate &&
+      hasExplicitNextOccurrence &&
+      !hasNextWeek &&
+      weekdayCandidateDeltaDays === 1,
+  );
+
   const computedAppointmentDate =
     explicitDateObject ||
     (hasToday ? baseDate : null) ||
     (hasTomorrow ? addDays(baseDate, 1) : null) ||
-    (!dateMatch && weekdayIndex
-      ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
-      : null);
+    (!ambiguousImmediateNextWeekday ? weekdayCandidateDate : null);
 
   const isAmbiguousSameWeekdayAppointment =
     computedAppointmentDate !== null &&
@@ -2590,6 +2629,13 @@ const extractAppointmentBadge = (
         time,
         dayPart,
       ));
+
+  if (ambiguousImmediateNextWeekday) {
+    return {
+      label: "Termin klären",
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
+    };
+  }
 
   if (shouldShowGenericAppointmentOnly) {
     return {

@@ -5386,6 +5386,129 @@ function sourceContainsPhoneV17_90L86(
   );
 }
 
+type SourceCommunicationResolutionV17_90L272 = {
+  preferredChannel: OnsiteContactChannel;
+  noSms: boolean;
+  noWhatsapp: boolean;
+  noCall: boolean;
+  hasExplicitRule: boolean;
+};
+
+function resolveSourceCommunicationV17_90L272(
+  value: unknown,
+  fallbackChannel: OnsiteContactChannel = null,
+): SourceCommunicationResolutionV17_90L272 {
+  const text = normalizeContactEvidenceV17_90L86(String(value || ""));
+  if (!text) {
+    return {
+      preferredChannel: fallbackChannel,
+      noSms: false,
+      noWhatsapp: false,
+      noCall: false,
+      hasExplicitRule: false,
+    };
+  }
+
+  const noSms = /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) sms\b/.test(
+    text,
+  );
+  const noWhatsapp = /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) whats ?app\b/.test(
+    text,
+  );
+  const noCall = /\b(?:nicht|kein(?:e)?|keine|ohne|no|do not|dont|without|ne pas|non|sin|nao|sem|nod|ned|nid)\b.{0,24}\b(?:anrufen|telefonieren|anruf|calls?|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
+    text,
+  );
+
+  const exclusiveSms = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bsms\b/.test(
+    text,
+  );
+  const exclusiveWhatsapp = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bwhats ?app\b/.test(
+    text,
+  );
+  const exclusiveCall = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,24}\b(?:anrufen|telefonieren|anruf|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
+    text,
+  );
+
+  const positiveSms =
+    !noSms &&
+    (exclusiveSms ||
+      /\b(?:per|via|mit|durch|bitte|please|par|por|tramite)?\s*sms\b/.test(
+        text,
+      ));
+  const positiveWhatsapp =
+    !noWhatsapp &&
+    (exclusiveWhatsapp ||
+      /\b(?:per|via|mit|durch|bitte|please|par|por|tramite)?\s*whats ?app\b/.test(
+        text,
+      ));
+  const positiveCall =
+    !noCall &&
+    (exclusiveCall ||
+      /\b(?:bitte|please|vorher|telefonisch|per telefon|par telephone|por telefone)?\s*(?:anrufen|telefonieren|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
+        text,
+      ));
+
+  let preferredChannel: OnsiteContactChannel = null;
+  if (exclusiveSms && !noSms) preferredChannel = "sms";
+  else if (exclusiveWhatsapp && !noWhatsapp) preferredChannel = "whatsapp";
+  else if (exclusiveCall && !noCall) preferredChannel = "call";
+  else {
+    const positives: OnsiteContactChannel[] = [];
+    if (positiveSms) positives.push("sms");
+    if (positiveWhatsapp) positives.push("whatsapp");
+    if (positiveCall) positives.push("call");
+    if (positives.length === 1) preferredChannel = positives[0];
+    else if (
+      fallbackChannel &&
+      ((fallbackChannel === "sms" && !noSms) ||
+        (fallbackChannel === "whatsapp" && !noWhatsapp) ||
+        (fallbackChannel === "call" && !noCall))
+    ) {
+      preferredChannel = fallbackChannel;
+    }
+  }
+
+  return {
+    preferredChannel,
+    noSms,
+    noWhatsapp,
+    noCall,
+    hasExplicitRule:
+      noSms ||
+      noWhatsapp ||
+      noCall ||
+      positiveSms ||
+      positiveWhatsapp ||
+      positiveCall,
+  };
+}
+
+function sourceExplicitlyRejectsContactNameV17_90L272(
+  source: string,
+  name?: string | null,
+): boolean {
+  const normalizedSource = normalizeContactEvidenceV17_90L86(source);
+  const normalizedName = normalizeContactEvidenceV17_90L86(name);
+  if (!normalizedSource || !normalizedName) return false;
+
+  const nameIndex = normalizedSource.indexOf(normalizedName);
+  if (nameIndex < 0) return false;
+  const local = normalizedSource.slice(
+    Math.max(0, nameIndex - 100),
+    Math.min(normalizedSource.length, nameIndex + normalizedName.length + 140),
+  );
+  const contactRole =
+    "(?:kontaktperson|kontakt vor ort|ansprechperson|ansprechpartner|on site contact|onsite contact|contact person|contact sur place|contatto sul posto|contacto en sitio)";
+  return (
+    new RegExp(
+      `${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.{0,90}(?:nicht|kein(?:e)?|keine|not|no|pas|non|nao).{0,30}${contactRole}`,
+    ).test(local) ||
+    new RegExp(
+      `(?:nicht|kein(?:e)?|keine|not|no|pas|non|nao).{0,30}${contactRole}.{0,90}${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    ).test(local)
+  );
+}
+
 function sourceSupportsContactNameV17_90L86(
   source: string,
   name?: string | null,
@@ -5393,11 +5516,49 @@ function sourceSupportsContactNameV17_90L86(
   const normalizedName = normalizeContactEvidenceV17_90L86(name);
   if (!normalizedName) return false;
   const normalizedSource = normalizeContactEvidenceV17_90L86(source);
-  if (normalizedSource.includes(normalizedName)) return true;
+  if (!normalizedSource || sourceExplicitlyRejectsContactNameV17_90L272(source, name)) {
+    return false;
+  }
+
   const tokens = normalizedName
     .split(/\s+/g)
     .filter((token) => token.length >= 2 && !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token));
-  return tokens.length >= 1 && tokens.every((token) => normalizedSource.includes(token));
+  const namePresent =
+    normalizedSource.includes(normalizedName) ||
+    (tokens.length >= 1 && tokens.every((token) => normalizedSource.includes(token)));
+  if (!namePresent) return false;
+
+  const clauses = String(source || "")
+    .split(/[.!?;\n]+/g)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .filter((clause) => {
+      const normalizedClause = normalizeContactEvidenceV17_90L86(clause);
+      return (
+        normalizedClause.includes(normalizedName) ||
+        (tokens.length >= 1 && tokens.every((token) => normalizedClause.includes(token)))
+      );
+    });
+
+  return clauses.some((clause) => {
+    const normalizedClause = normalizeContactEvidenceV17_90L86(clause);
+    if (
+      /\b(?:kontaktperson|kontakt vor ort|ansprechperson|ansprechpartner|on site contact|onsite contact|contact person|contact sur place|contatto sul posto|contacto en sitio)\b/.test(
+        normalizedClause,
+      )
+    ) {
+      return true;
+    }
+    if (/\+?\d[\d\s()./-]{6,}\d/.test(clause)) return true;
+
+    const escapedName = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const communication =
+      "(?:anrufen|telefonieren|melden|kontaktieren|sms|whats ?app|call|phone|appeler|chiamare|llamar|ligar|erreichbar|reachable)";
+    return (
+      new RegExp(`${escapedName}.{0,55}${communication}`).test(normalizedClause) ||
+      new RegExp(`${communication}.{0,55}${escapedName}`).test(normalizedClause)
+    );
+  });
 }
 
 function cleanLikelyContactNameV17_90L86(value?: string | null): string | null {
@@ -5532,12 +5693,17 @@ function extractAiOnsiteContactHintV17_90L86(
     evidenceScope && sourceSupportsContactNameV17_90L86(evidenceScope, rawName)
       ? rawName
       : null;
-  const preferredChannel = normalizeAiContactChannelV17_90L86(
+  const aiPreferredChannel = normalizeAiContactChannelV17_90L86(
     aiContact.kanal || aiContact.channel,
   );
-  const noPhoneCall = Boolean(
-    aiContact.nicht_anrufen ?? aiContact.no_phone_call ?? false,
+  const sourceCommunicationV17_90L272 = resolveSourceCommunicationV17_90L272(
+    evidenceScope,
+    aiPreferredChannel,
   );
+  const preferredChannel = sourceCommunicationV17_90L272.preferredChannel;
+  const noPhoneCall = sourceCommunicationV17_90L272.hasExplicitRule
+    ? sourceCommunicationV17_90L272.noCall
+    : Boolean(aiContact.nicht_anrufen ?? aiContact.no_phone_call ?? false);
 
   // A channel instruction without a local person/phone belongs to the
   // appointment/communication hints, not to an invented on-site contact.
@@ -5571,30 +5737,29 @@ function extractAiCommunicationInstructionHintV17_90L265(
     return null;
   }
 
-  const preferredChannel = normalizeAiContactChannelV17_90L86(
+  const aiPreferredChannel = normalizeAiContactChannelV17_90L86(
     normalizedContact.kanal || normalizedContact.channel,
   );
-  const noPhoneCall = Boolean(
-    normalizedContact.nicht_anrufen ??
-      normalizedContact.no_phone_call ??
-      false,
+  const sourceCommunicationV17_90L272 = resolveSourceCommunicationV17_90L272(
+    evidence,
+    aiPreferredChannel,
   );
-  if (!preferredChannel && !noPhoneCall) return null;
+  const preferredChannel = sourceCommunicationV17_90L272.preferredChannel;
+  const noPhoneCall = sourceCommunicationV17_90L272.hasExplicitRule
+    ? sourceCommunicationV17_90L272.noCall
+    : Boolean(
+        normalizedContact.nicht_anrufen ??
+          normalizedContact.no_phone_call ??
+          false,
+      );
+  if (!sourceCommunicationV17_90L272.hasExplicitRule && !noPhoneCall) return null;
 
   const normalizedEvidence = normalizeAppointmentResolverTextV17_90L271(
     evidence,
   );
-  const noSms = /\b(?:keine? sms|kein sms|no sms|without sms|sans sms|pas de sms|niente sms|senza sms|sin sms|sem sms)\b/.test(
-    normalizedEvidence,
-  );
-  const noWhatsapp = /\b(?:kein whatsapp|keine whatsapp|no whatsapp|without whatsapp|sans whatsapp|pas de whatsapp|niente whatsapp|senza whatsapp|sin whatsapp|sem whatsapp)\b/.test(
-    normalizedEvidence,
-  );
-  const explicitNoCall =
-    noPhoneCall ||
-    /\b(?:nicht anrufen|nicht telefonieren|kein anruf|keine anrufe|no call|no calls|do not call|dont call|without calls|pas d appel|ne pas appeler|non chiamare|sin llamadas|no llamar|nao ligar|sem chamadas)\b/.test(
-      normalizedEvidence,
-    );
+  const noSms = sourceCommunicationV17_90L272.noSms;
+  const noWhatsapp = sourceCommunicationV17_90L272.noWhatsapp;
+  const explicitNoCall = noPhoneCall;
   const hasTimedArrivalNotice =
     /\b\d{1,3}\s*(?:min|minute|minuten|minutes|minuti|minutos)\b/.test(
       normalizedEvidence,
@@ -5925,6 +6090,11 @@ function resolveRelativeAppointmentDateV17_90L271(args: {
       if (!explicitNextOccurrence) return null;
       delta = 7;
     }
+    // V17.90L272: In natural German, "nächsten Mittwoch" sent on Tuesday
+    // can mean tomorrow or the following week's Wednesday. A one-day jump is
+    // therefore not deterministic unless the customer explicitly says
+    // "nächste Woche". Fail closed instead of writing a possibly wrong date.
+    if (explicitNextOccurrence && delta === 1) return null;
   }
   if (delta <= 0 || delta > 14) return null;
   return addReferenceDaysV17_90L271(args.reference, delta);
@@ -6005,6 +6175,22 @@ function compactAppointmentPhraseV17_90L270(
     .replace(/^\s*(?:termin|appointment|rendez[-\s]?vous)\s*:\s*/i, "")
     .trim()
     .slice(0, 180);
+}
+
+function stripResolvedRelativeDatePhraseV17_90L272(value: string): string {
+  const weekday =
+    "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|lunes|martes|miercoles|jueves|viernes|sabado|domingo)";
+  return String(value || "")
+    .replace(/^\s*(?:am|an|auf|fuer|für)?\s*(?:heute|morgen|uebermorgen|übermorgen|today|tomorrow|day after tomorrow|aujourd hui|demain|apres demain)\b[,:;\s-]*/i, "")
+    .replace(
+      new RegExp(
+        `^\\s*(?:am|an|auf|fuer|für)?\\s*(?:(?:naechste|nächste|kommende|next|prochaine|prossima)\\s+woche\\s+)?(?:(?:naechsten|nächsten|naechste|nächste|kommenden|kommende|next|prochain|prochaine|prossimo|prossima)\\s+)?${weekday}\\b[,:;\\s-]*`,
+        "i",
+      ),
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function hasExplicitVagueAppointmentEvidenceV17_90L270(
@@ -6104,10 +6290,14 @@ function inferAppointmentNoticeV17_90L203(
   }
   if (!minutes) return { minutes: 0, channel: null };
 
-  const channel =
-    normalizeAiContactChannelV17_90L86(matched) ||
-    normalizeAiContactChannelV17_90L86(source);
-  return { minutes, channel };
+  const sourceCommunicationV17_90L272 = resolveSourceCommunicationV17_90L272(
+    matched || source,
+    null,
+  );
+  return {
+    minutes,
+    channel: sourceCommunicationV17_90L272.preferredChannel,
+  };
 }
 
 function buildStructuredAppointmentHintsV17_90L86(
@@ -6194,6 +6384,15 @@ function buildStructuredAppointmentHintsV17_90L86(
     let announcementChannel = normalizeAiContactChannelV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
+    const appointmentCommunicationEvidenceV17_90L272 =
+      normalizeStructuredTextBlock(appointment?.evidence) || rawText;
+    const sourceCommunicationV17_90L272 = resolveSourceCommunicationV17_90L272(
+      appointmentCommunicationEvidenceV17_90L272,
+      announcementChannel,
+    );
+    if (sourceCommunicationV17_90L272.hasExplicitRule) {
+      announcementChannel = sourceCommunicationV17_90L272.preferredChannel;
+    }
 
     // V17.90L203: Contact and appointment structures are checked together.
     // If the structured appointment omitted an explicit notice that is present
@@ -6224,9 +6423,13 @@ function buildStructuredAppointmentHintsV17_90L86(
     // V17.90L270: Display the first AI's exact customer phrase when the time
     // is vague/unclear or when no normalized clock/daypart exists. Never turn
     // "später am Tag" into "nachmittags" after the first-AI boundary.
+    const visiblePhraseV17_90L272 = resolvedRelativeDateV17_90L271
+      ? stripResolvedRelativeDatePhraseV17_90L272(phrase)
+      : phrase;
     const exactPhraseDescriptor =
-      phrase && (vagueEvidence || phraseStatus === "unklar" || (!timeRange && !daypart))
-        ? phrase
+      visiblePhraseV17_90L272 &&
+      (vagueEvidence || phraseStatus === "unklar" || (!timeRange && !daypart))
+        ? visiblePhraseV17_90L272
         : "";
     const timeDescriptor =
       timeRange ||
@@ -13934,9 +14137,12 @@ ZIELE
   (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in die passenden deutschen strukturierten Rollen übersetzt werden.)
 
 2a. Strukturierte Rollen – verbindlich und sprachunabhängig:
-- kontakt_vor_ort ist ausschließlich die Person, die für DIESEN Auftrag vor Ort kontaktiert werden soll.
-- kontakt_vor_ort.name, telefon, kanal und evidence müssen aus derselben lokalen Textstelle stammen.
-- kanal ist nur: "sms", "whatsapp", "anruf" oder null.
+- kontakt_vor_ort ist ausschließlich die Person, die für DIESEN Auftrag ausdrücklich kontaktiert werden soll.
+- Eine Person, die nur bei Schlüssel, Empfang, Badge, Zugang oder Parkplatz erwähnt wird, ist dadurch KEINE Kontaktperson.
+- Steht ausdrücklich "nicht Kontaktperson", "keine Kontaktperson" oder sinngleich, muss kontakt_vor_ort.vorhanden = false, name = null und telefon = null sein. Eine separate Kommunikationsanweisung bleibt ausschließlich im Termin-/Kommunikationsfeld erhalten.
+- Eine reine Ausschlussaussage wie "X ist nicht die Kontaktperson" ist nur eine Negativregel für die Extraktion und darf nicht zusätzlich in gefahren, zugangshinweise, parkhinweise oder sonstige_hinweise ausgegeben werden.
+- kontakt_vor_ort.name, telefon, kanal und evidence müssen aus derselben lokalen Textstelle stammen. Der Name braucht in dieser lokalen Stelle einen ausdrücklichen Kontaktbezug, eine direkt zugeordnete Telefonnummer oder eine direkte Anweisung wie "X anrufen / X per SMS / X per WhatsApp kontaktieren".
+- kanal ist nur: "sms", "whatsapp", "anruf" oder null. Ein ausdrücklich verbotener Kanal darf niemals als ankuendigung_kanal oder kontakt_vor_ort.kanal ausgegeben werden. Bei "nur anrufen, keine SMS, kein WhatsApp" ist der Kanal zwingend "anruf".
 - Wenn der Text ausdrücklich eine neue Vor-Ort-Nummer nennt, hat sie für diesen Auftrag Vorrang vor der gespeicherten Firmennummer. Die Kundentelefonnummer wird dadurch nicht geändert.
 - Eine Aussage wie "nicht die normale Firmennummer anrufen, sondern Herr X unter 079..." bedeutet: Herr X / 079... ist der Auftragskontakt; nicht_anrufen = false, kanal = "anruf".
 - Eine Aussage wie "nur SMS, nicht anrufen" bedeutet: kanal = "sms", nicht_anrufen = true.
