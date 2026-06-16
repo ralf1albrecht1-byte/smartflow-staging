@@ -658,24 +658,28 @@ const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
 
-// V17.90L270: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
-// Der Terminchip zeigt die gespeicherte Terminformulierung kompakt und unverändert.
+// V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
+// Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
 type AdaptiveAppointmentLabels = {
   full: string;
-  chip: string;
+  dateOnly: string | null;
 };
 
 const buildAdaptiveAppointmentLabels = (value?: string | null): AdaptiveAppointmentLabels => {
   const full = compactText(value) || "Termin klären";
-  // V17.90L270: The card chip displays the saved appointment wording instead
-  // of hiding everything except a date. This allows exact phrases such as
-  // "später am Tag" to remain visible without being reinterpreted.
-  const visible = full
-    .replace(/^\s*Termin\s*:\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim() || "Termin klären";
-  const chip = visible.length > 42 ? `${visible.slice(0, 41).trim()}…` : visible;
-  return { full, chip };
+  // V17.90L234: Show the concrete calendar day even when the canonical badge
+  // also contains a time, day-part or pre-arrival instruction. The full
+  // appointment remains available in the tooltip; the card chip stays compact.
+  const dateMatch = full.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
+  if (!dateMatch) return { full, dateOnly: null };
+  const day = dateMatch[1].padStart(2, "0");
+  const month = dateMatch[2].padStart(2, "0");
+  return {
+    full,
+    dateOnly: `${day}.${month}.`,
+  };
 };
 
 const serializeOrderExecutionAddressForEdit = (source: {
@@ -17780,12 +17784,14 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-8 min-w-8 max-w-[210px] shrink-0 items-center justify-center rounded-full px-2.5 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${appointmentLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"} ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                  <span className="ml-1.5 max-w-[170px] truncate whitespace-nowrap">
-                    {appointmentLabels.chip}
-                  </span>
+                  {appointmentLabels.dateOnly && (
+                    <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                      {appointmentLabels.dateOnly}
+                    </span>
+                  )}
                   <span className="sr-only">{appointmentLabels.full}</span>
                   {renderMobileChipTooltip(badge, slot, align)}
                 </button>

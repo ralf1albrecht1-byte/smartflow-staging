@@ -4850,8 +4850,8 @@ type AiAppointmentV17_90L86 = {
   announcement_channel?: string | null;
   tageszeit?: string | null;
   daypart?: string | null;
-  // V17.90L270: The first AI stores the customer's compact appointment phrase
-  // verbatim. Downstream code may display it, but must never reinterpret it.
+  // V17.90L271: The first AI stores the compact appointment phrase in the
+  // configured working language. Evidence retains the exact original wording.
   zeitangabe_text?: string | null;
   time_phrase?: string | null;
   zeitangabe_status?: string | null;
@@ -5552,10 +5552,10 @@ function extractAiOnsiteContactHintV17_90L86(
   });
 }
 
-// V17.90L265: A source-backed channel instruction is a canonical operational
-// hint even when no new person or phone is named. Keep the first AI's exact
-// evidence so stored customer contact data can remain a fallback target later.
-// This deliberately does not create an on-site contact identity.
+// V17.90L265/L271: A source-backed channel instruction is a canonical
+// operational hint even when no new person or phone is named. Persist only a
+// concise German restriction summary; the original evidence remains in the
+// customer message/audit. This does not create an on-site contact identity.
 function extractAiCommunicationInstructionHintV17_90L265(
   rawText: string,
   aiContact?: AiOnsiteContactV17_90L86 | null,
@@ -5581,7 +5581,42 @@ function extractAiCommunicationInstructionHintV17_90L265(
   );
   if (!preferredChannel && !noPhoneCall) return null;
 
-  return evidence.replace(/\s+/g, " ").trim() || null;
+  const normalizedEvidence = normalizeAppointmentResolverTextV17_90L271(
+    evidence,
+  );
+  const noSms = /\b(?:keine? sms|kein sms|no sms|without sms|sans sms|pas de sms|niente sms|senza sms|sin sms|sem sms)\b/.test(
+    normalizedEvidence,
+  );
+  const noWhatsapp = /\b(?:kein whatsapp|keine whatsapp|no whatsapp|without whatsapp|sans whatsapp|pas de whatsapp|niente whatsapp|senza whatsapp|sin whatsapp|sem whatsapp)\b/.test(
+    normalizedEvidence,
+  );
+  const explicitNoCall =
+    noPhoneCall ||
+    /\b(?:nicht anrufen|nicht telefonieren|kein anruf|keine anrufe|no call|no calls|do not call|dont call|without calls|pas d appel|ne pas appeler|non chiamare|sin llamadas|no llamar|nao ligar|sem chamadas)\b/.test(
+      normalizedEvidence,
+    );
+  const hasTimedArrivalNotice =
+    /\b\d{1,3}\s*(?:min|minute|minuten|minutes|minuti|minutos)\b/.test(
+      normalizedEvidence,
+    );
+
+  const parts: string[] = [];
+  if (!hasTimedArrivalNotice && preferredChannel === "sms") {
+    parts.push("Kontakt per SMS");
+  } else if (!hasTimedArrivalNotice && preferredChannel === "whatsapp") {
+    parts.push("Kontakt per WhatsApp");
+  } else if (!hasTimedArrivalNotice && preferredChannel === "call") {
+    parts.push("Telefonisch melden");
+  }
+  if (noSms && preferredChannel !== "sms") parts.push("Keine SMS");
+  if (noWhatsapp && preferredChannel !== "whatsapp") {
+    parts.push("Kein WhatsApp");
+  }
+  if (explicitNoCall && preferredChannel !== "call") {
+    parts.push("Nicht anrufen");
+  }
+
+  return Array.from(new Set(parts)).join(" · ") || null;
 }
 
 function extractOnsiteContactHint(
@@ -5742,6 +5777,157 @@ function normalizeStructuredAppointmentDateV17_90L86(
       : local[3]
     : "";
   return `${String(local[1]).padStart(2, "0")}.${String(local[2]).padStart(2, "0")}${year ? `.${year}` : "."}`;
+}
+
+
+type IntakeAppointmentReferenceV17_90L271 = {
+  year: number;
+  month: number;
+  day: number;
+  weekday: number;
+  isoDate: string;
+  displayDate: string;
+  displayDateTime: string;
+};
+
+function buildIntakeAppointmentReferenceV17_90L271(
+  value: Date,
+): IntakeAppointmentReferenceV17_90L271 {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Zurich",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value || "";
+  const year = Number(read("year"));
+  const month = Number(read("month"));
+  const day = Number(read("day"));
+  const hour = read("hour").padStart(2, "0");
+  const minute = read("minute").padStart(2, "0");
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const isoDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const displayDate = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${String(year).padStart(4, "0")}`;
+  const weekdayName = new Intl.DateTimeFormat("de-CH", {
+    timeZone: "Europe/Zurich",
+    weekday: "long",
+  }).format(value);
+  return {
+    year,
+    month,
+    day,
+    weekday,
+    isoDate,
+    displayDate,
+    displayDateTime: `${weekdayName}, ${displayDate}, ${hour}:${minute} Uhr`,
+  };
+}
+
+function normalizeAppointmentResolverTextV17_90L271(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, " ")
+    .replace(/[^a-z0-9.\/-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const APPOINTMENT_WEEKDAY_ALIASES_V17_90L271: Array<{
+  weekday: number;
+  aliases: string[];
+}> = [
+  { weekday: 1, aliases: ["montag", "monday", "lundi", "lunedi", "lunes", "segunda feira"] },
+  { weekday: 2, aliases: ["dienstag", "tuesday", "mardi", "martedi", "martes", "terca feira"] },
+  { weekday: 3, aliases: ["mittwoch", "wednesday", "mercredi", "mercoledi", "miercoles", "quarta feira"] },
+  { weekday: 4, aliases: ["donnerstag", "thursday", "jeudi", "giovedi", "jueves", "quinta feira"] },
+  { weekday: 5, aliases: ["freitag", "friday", "vendredi", "venerdi", "viernes", "sexta feira"] },
+  { weekday: 6, aliases: ["samstag", "sonnabend", "saturday", "samedi", "sabato", "sabado"] },
+  { weekday: 0, aliases: ["sonntag", "sunday", "dimanche", "domenica", "domingo"] },
+];
+
+function addReferenceDaysV17_90L271(
+  reference: IntakeAppointmentReferenceV17_90L271,
+  days: number,
+): { isoDate: string; displayDate: string } {
+  const date = new Date(
+    Date.UTC(reference.year, reference.month - 1, reference.day + days),
+  );
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return {
+    isoDate: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    displayDate: `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${String(year).padStart(4, "0")}`,
+  };
+}
+
+function resolveRelativeAppointmentDateV17_90L271(args: {
+  appointment: AiAppointmentV17_90L86;
+  reference: IntakeAppointmentReferenceV17_90L271;
+}): { isoDate: string; displayDate: string } | null {
+  const phraseStatus = normalizeAppointmentPhraseStatusV17_90L270(
+    args.appointment,
+  );
+  if (phraseStatus === "unklar") return null;
+
+  const phrase = compactAppointmentPhraseV17_90L270(args.appointment);
+  const evidence = String(args.appointment?.evidence || "");
+  const text = normalizeAppointmentResolverTextV17_90L271(
+    [phrase, evidence].filter(Boolean).join(" "),
+  );
+  if (!text) return null;
+
+  if (/\b(?:ubermorgen|day after tomorrow|apres demain|dopodomani|pasado manana|depois de amanha)\b/.test(text)) {
+    return addReferenceDaysV17_90L271(args.reference, 2);
+  }
+  if (/\b(?:heute|today|aujourd hui|oggi|hoy|hoje)\b/.test(text)) {
+    return addReferenceDaysV17_90L271(args.reference, 0);
+  }
+  if (/\b(?:morgen|tomorrow|demain|domani|manana|amanha)\b/.test(text)) {
+    return addReferenceDaysV17_90L271(args.reference, 1);
+  }
+
+  const weekdayMatches = APPOINTMENT_WEEKDAY_ALIASES_V17_90L271.filter(
+    (entry) =>
+      entry.aliases.some((alias) =>
+        new RegExp(`(?:^|\\s)${alias.replace(/\s+/g, "\\s+")}(?:$|\\s)`, "i").test(
+          text,
+        ),
+      ),
+  );
+  const uniqueWeekdays = Array.from(
+    new Set(weekdayMatches.map((entry) => entry.weekday)),
+  );
+  if (uniqueWeekdays.length !== 1) return null;
+  const targetWeekday = uniqueWeekdays[0];
+
+  const explicitlyNextWeek = /\b(?:nachste woche|naechste woche|next week|semaine prochaine|prochaine semaine|settimana prossima|proxima semana)\b/.test(
+    text,
+  );
+  const explicitNextOccurrence = /\b(?:nachsten|naechsten|nachste|naechste|next|prochain|prochaine|prossimo|prossima|proximo|proxima)\b/.test(
+    text,
+  );
+
+  let delta: number;
+  if (explicitlyNextWeek) {
+    const daysUntilNextMonday = ((8 - args.reference.weekday) % 7) || 7;
+    const mondayBasedOffset = targetWeekday === 0 ? 6 : targetWeekday - 1;
+    delta = daysUntilNextMonday + mondayBasedOffset;
+  } else {
+    delta = (targetWeekday - args.reference.weekday + 7) % 7;
+    if (delta === 0) {
+      if (!explicitNextOccurrence) return null;
+      delta = 7;
+    }
+  }
+  if (delta <= 0 || delta > 14) return null;
+  return addReferenceDaysV17_90L271(args.reference, delta);
 }
 
 function normalizeStructuredAppointmentTimeV17_90L86(
@@ -5927,6 +6113,7 @@ function inferAppointmentNoticeV17_90L203(
 function buildStructuredAppointmentHintsV17_90L86(
   appointments: AiAppointmentV17_90L86[] | null | undefined,
   rawText: string,
+  reference: IntakeAppointmentReferenceV17_90L271,
 ): string[] {
   if (!Array.isArray(appointments)) return [];
   const result: string[] = [];
@@ -5943,11 +6130,25 @@ function buildStructuredAppointmentHintsV17_90L86(
     const rawStart = appointment?.von || appointment?.start || null;
     const rawEnd = appointment?.bis || appointment?.end || null;
     let date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
-    if (date && /\.\d{4}$/.test(date)) {
+    const sourceBackedExplicitDate = Boolean(
+      date && sourceSupportsAppointmentPartV17_90L86(rawText, rawDate),
+    );
+    const resolvedRelativeDateV17_90L271 =
+      resolveRelativeAppointmentDateV17_90L271({
+        appointment,
+        reference,
+      });
+    if (resolvedRelativeDateV17_90L271) {
+      date = resolvedRelativeDateV17_90L271.displayDate;
+    } else if (!sourceBackedExplicitDate) {
+      // A date that is neither explicitly present nor deterministically
+      // resolvable from the message-entry date is unsafe and stays empty.
+      date = null;
+    } else if (date && /\.\d{4}$/.test(date)) {
       const dayMonth = date.match(/^(\d{2})\.(\d{2})\./);
       const sourceHasYear = dayMonth
         ? new RegExp(
-            `(?:^|\\D)0?${Number(dayMonth[1])}[.\\/-]0?${Number(dayMonth[2])}[.\\/-]\\d{2,4}(?:$|\\D)`,
+            `(?:^|\D)0?${Number(dayMonth[1])}[.\/-]0?${Number(dayMonth[2])}[.\/-]\d{2,4}(?:$|\D)`,
           ).test(rawText)
         : false;
       if (!sourceHasYear) date = date.replace(/\.\d{4}$/, ".");
@@ -13634,6 +13835,7 @@ function buildSystemPrompt(
   senderName: string,
   branche: string = "Gartenbau",
   hauptsprache: string = "Deutsch",
+  appointmentReferenceText: string = "",
 ): string {
   return `WICHTIG – ABSOLUT KRITISCH:
 
@@ -13666,6 +13868,11 @@ WICHTIGER KONTEXT
 - Es geht in der Regel um Endkunde (B) – alle Daten aus dem Nachrichtentext extrahieren
 - KEINE Daten erfinden
 
+REFERENZZEIT FÜR RELATIVE TERMINE:
+${appointmentReferenceText || "Nicht verfügbar – relative Termine ohne sichere Referenz nicht in ein Datum umrechnen."}
+- Diese Referenz ist der Eingang der Kundennachricht in der Zeitzone Europe/Zurich.
+- Eindeutige relative Datumsangaben wie „Donnerstag“, „nächsten Donnerstag“, „morgen“ oder „nächste Woche Montag“ dürfen anhand dieser Referenz in datum (YYYY-MM-DD) umgerechnet werden.
+- Ist die Zuordnung mehrdeutig, insbesondere bei einem bloßen Wochentag, der auf denselben Kalendertag wie der Nachrichteneingang fällt, datum = null und zeitangabe_status = "unklar". Niemals ein Datum raten.
 
 - WICHTIG: kunde.name MUSS aus dem eingehenden Nachrichtentext / Audio-Transkript / Bildinhalt extrahiert werden, wenn dort ein Personen- oder Firmenname eindeutig genannt wird.
 - Das gilt für Selbstvorstellungen, Anreden, Weiterleitungen und normale Auftragstexte.
@@ -13740,14 +13947,15 @@ ZIELE
   Nur bei genau einem eindeutigen vollständigen Namen bestehende_kunden_id setzen; niemals Stammdaten aus der Liste in kunde kopieren.
 - termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
   art = "ausfuehrung", datum, von, bis, tageszeit, zeitangabe_text, zeitangabe_status, ankuendigung_minuten, ankuendigung_kanal, evidence.
-- zeitangabe_text ist ein kurzes, exakt zusammenhängendes Zitat aus dem ORIGINALTEXT, das nur die Termin-/Zeitformulierung enthält, z.B. "nächsten Freitag eher später am Tag", "Friday afternoon" oder "Mittwoch um 13:30". Nicht übersetzen, nicht umformulieren und keine Kontaktanweisung anhängen.
+- zeitangabe_text ist die kurze, inhaltlich originalgetreue Termin-/Zeitformulierung in ${hauptsprache}. Fremdsprachige oder mundartliche Formulierungen semantisch sauber übersetzen, aber nicht präzisieren: "Thursday late in the day" → "Donnerstag später am Tag"; aus "später am Tag" niemals "nachmittags" oder "abends" machen. Keine Kontaktanweisung anhängen.
 - zeitangabe_status ist ausschließlich "klar", "vage" oder "unklar": "klar" bei eindeutigem Datum/Uhrzeit/konventioneller Tageszeit, "vage" bei relativer oder offener Formulierung, "unklar" wenn ein Termin gemeint ist, aber keine brauchbare Zeitformulierung sicher erhalten werden kann.
-- evidence enthält die vollständige lokale Originalstelle zum Termin einschließlich einer eventuell direkt zugehörigen Vorankündigung.
+- datum ist YYYY-MM-DD. Eindeutige relative Wochentage anhand der oben genannten Referenzzeit umrechnen. Bei Mehrdeutigkeit datum = null; niemals raten.
+- evidence enthält die vollständige lokale ORIGINALSTELLE zum Termin einschließlich einer eventuell direkt zugehörigen Vorankündigung.
 - tageszeit ist ausschließlich einer der deutschen kanonischen Werte "morgens", "vormittags", "mittags", "nachmittags", "abends", "nachts", "ganztägig" oder null. Nur eine im lokalen Originalsatz tatsächlich benannte, konventionelle Tageszeit darf einem dieser Werte zugeordnet werden.
 - Relative, vage oder offene Zeitangaben beschreiben keine feste Tageszeit. Formulierungen mit der Bedeutung "später", "irgendwann", "im Laufe des Tages", "gegen später" oder vergleichbar dürfen NICHT als morgens, vormittags, mittags, nachmittags, abends oder nachts ausgegeben werden. In solchen Fällen: tageszeit = null und system.needs_review = true. Diese Beispiele definieren eine semantische Kategorie und sind keine abschließende Wortliste.
 - Jede ausdrücklich und eindeutig benannte Tageszeit muss semantisch übersetzt und erhalten bleiben, auch bei Dialekt, Fremdsprache oder gemischtem Text. Sie darf nicht wegen einer Vorankündigung oder Kontaktangabe verloren gehen.
 - Für die Terminbedeutung ist immer der lokale Originalsatz maßgeblich. Eine normalisierte Arbeitsfassung ist nur eine Sprachhilfe und darf eine Tageszeit aus dem Original niemals überschreiben oder in ihr Gegenteil verkehren.
-- Verbindlicher Zweischritt vor der JSON-Ausgabe: (1) die lokale Originalstelle als "klar", "vage" oder "unklar" klassifizieren und in zeitangabe_status ausgeben; (2) nur bei "klar" eine kanonische tageszeit setzen. zeitangabe_text bleibt immer das exakte Originalzitat.
+- Verbindlicher Dreischritt vor der JSON-Ausgabe: (1) die lokale Originalstelle als "klar", "vage" oder "unklar" klassifizieren; (2) zeitangabe_text in ${hauptsprache} inhaltlich originalgetreu ausgeben; (3) nur bei "klar" eine kanonische tageszeit setzen. Relative/offene Zeitangaben bleiben vage und tageszeit = null.
 - Vor der JSON-Ausgabe jeden Termin intern gegen seine eigene Original-Evidence prüfen: tageszeit muss semantisch exakt zu dieser Evidence passen. Nicht über Wortähnlichkeit, Wortbestandteile, Weltwissen oder die Übersetzung raten.
 - Wenn Original und Arbeitsfassung widersprechen, die Zeitformulierung relativ/vage ist oder die Tageszeit aus dem Original nicht sicher verstanden wird: tageszeit = null und system.needs_review = true. Niemals die scheinbar plausiblere Tageszeit auswählen.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
@@ -14160,7 +14368,7 @@ sonst → ""
 - Wichtig: Jede tatsächlich erwähnte Hundaussage kommt genau einmal in gefahren, ausschließlich wegen des roten Hund-Chips. Inhalt und Zustand des Hundes originalgetreu wiedergeben; niemals bewerten oder umdeuten.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
-- TERMINE: Jeder Termin-Eintrag enthält zusätzlich zeitangabe_text und zeitangabe_status. zeitangabe_text ist ein kurzes exaktes Originalzitat nur der Termin-/Zeitformulierung; zeitangabe_status ist ausschließlich "klar", "vage" oder "unklar". Relative/offene Aussagen wie "später am Tag" bleiben als exakter Text erhalten und dürfen niemals zu "nachmittags" oder einer anderen Tageszeit umgedeutet werden. Bei "vage" oder "unklar" gilt tageszeit = null.
+- TERMINE: Jeder Termin-Eintrag enthält zusätzlich zeitangabe_text und zeitangabe_status. zeitangabe_text ist die kurze, inhaltlich originalgetreue Termin-/Zeitformulierung in ${hauptsprache}; evidence bleibt die exakte Originalstelle. Relative/offene Aussagen wie "später am Tag" bleiben inhaltlich unverändert und dürfen niemals zu "nachmittags" oder einer anderen Tageszeit umgedeutet werden. Bei "vage" oder "unklar" gilt tageszeit = null. Eindeutige relative Wochentage werden anhand der Referenzzeit in datum umgerechnet; bei Unsicherheit datum = null.
 - Keine Doppelung: Eine Information darf genau einmal und nur in ihrer fachlich richtigen strukturierten Rolle stehen. Zugangscodes/PINs ausschließlich in zugangshinweise, Parkinformationen ausschließlich in parkhinweise, sonstige Ablaufhinweise ausschließlich in sonstige_hinweise. Kontakt und Vorankündigung ausschließlich in kontakt_vor_ort beziehungsweise termine. besonderheiten bleibt immer []. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
 - Jede Rollen-Aussage muss ihren Inhalt erhalten. Nicht umformulieren, verschärfen, abschwächen oder mit einer anderen Aussage zusammenführen.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
@@ -14436,6 +14644,10 @@ export async function processIncomingMessage(
   const intakeDiagnosticTraceEnabled = dataScope === "TEST";
   const intakeDiagnosticTraceId = createIntakeDiagnosticTraceId();
   const _intakeStartTime = Date.now();
+  const intakeAppointmentReferenceV17_90L271 =
+    buildIntakeAppointmentReferenceV17_90L271(
+      new Date(_intakeStartTime),
+    );
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
@@ -14549,6 +14761,7 @@ export async function processIncomingMessage(
     senderName,
     branche,
     hauptsprache,
+    `Nachrichteneingang: ${intakeAppointmentReferenceV17_90L271.displayDateTime} (Europe/Zurich; ISO-Datum ${intakeAppointmentReferenceV17_90L271.isoDate})`,
   );
 
   // Build user content (supports multi-image)
@@ -15154,7 +15367,8 @@ export async function processIncomingMessage(
   const firstAiAppointmentHintsV17_90L216 =
     buildStructuredAppointmentHintsV17_90L86(
       firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
-      JSON.stringify(firstAiAppointmentsSnapshotV17_90L225),
+      messageText,
+      intakeAppointmentReferenceV17_90L271,
     );
   const finalAiRoleReviewV17_90L216 =
     await runReadOnlySpecialNoteRoleCheckerV17_90L106({
@@ -16283,7 +16497,8 @@ export async function processIncomingMessage(
   const structuredAppointmentHintsV17_90L86 =
     buildStructuredAppointmentHintsV17_90L86(
       firstAiAppointmentsSnapshotV17_90L225 as AiAppointmentV17_90L86[],
-      JSON.stringify(firstAiAppointmentsSnapshotV17_90L225),
+      messageText,
+      intakeAppointmentReferenceV17_90L271,
     );
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
@@ -19102,11 +19317,10 @@ export async function processIncomingMessage(
   // visibility, but must never delete, split, rewrite or add canonical facts.
   const canonicalAiRoleSnapshotV17_90L250 = finalAiRoleSnapshotV17_90L215;
 
-  // V17.90L266: A channel-only instruction originates in the first AI's
-  // structured onsiteContact evidence. It is therefore first-AI canonical
-  // evidence even when no person or new phone is named. Persist the exact
-  // source-backed instruction as an ordinary operational fact so later
-  // documents do not reconstruct or invert SMS/WhatsApp/call semantics.
+  // V17.90L266/L271: A channel-only instruction originates in the first AI's
+  // structured onsiteContact evidence. Persist the concise German canonical
+  // restriction summary so later documents do not reconstruct or invert
+  // SMS/WhatsApp/call semantics.
   const firstAiCanonicalCommunicationFactsV17_90L266 =
     firstAiCommunicationInstructionHintV17_90L265
       ? [firstAiCommunicationInstructionHintV17_90L265]
@@ -19215,13 +19429,37 @@ export async function processIncomingMessage(
   // recognition review must not be shown a second time under Besonderheiten.
   // This is display-only suppression: the sealed canonical fact and the
   // encoded review finding remain unchanged for audit and user resolution.
-  const recognitionReviewRoleTextKeysV17_90L260 = new Set(
+  const originalAppointmentReviewSentencesV17_90L271 =
+    splitWorkCoverageSentenceCandidatesV17_90L266(messageText, "original");
+  const translatedAppointmentReviewSentencesV17_90L271 =
+    splitWorkCoverageSentenceCandidatesV17_90L266(
+      translationText,
+      "translation",
+    );
+  const recognitionReviewDisplayTextsV17_90L271 =
     finalAiWorkCoverageV17_90L251.missingWork
-      .map((finding) =>
-        canonicalRoleVariantKeyV17_90L201(finding.relatedRoleText || ""),
-      )
-      .filter(Boolean),
-  );
+      .flatMap((finding) => {
+        const direct = [finding.relatedRoleText || "", finding.quote || ""];
+        const sourceSentences =
+          finding.source === "translation"
+            ? translatedAppointmentReviewSentencesV17_90L271
+            : originalAppointmentReviewSentencesV17_90L271;
+        const counterpartSentences =
+          finding.source === "translation"
+            ? originalAppointmentReviewSentencesV17_90L271
+            : translatedAppointmentReviewSentencesV17_90L271;
+        const sourceIndex = sourceSentences.findIndex((sentence) =>
+          exactQuoteExistsInSourceV17_90L251(
+            sentence.text,
+            finding.quote,
+          ),
+        );
+        const counterpart =
+          sourceIndex >= 0 ? counterpartSentences[sourceIndex]?.text || "" : "";
+        return [...direct, counterpart];
+      })
+      .map((text) => compactExactSourceTextV17_90L251(text))
+      .filter(Boolean);
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
@@ -19233,8 +19471,33 @@ export async function processIncomingMessage(
         ...canonicalFactAssemblyV17_90L204.roles.other,
         ...canonicalFactAssemblyV17_90L204.roles.ordinary,
       ].filter((text) => {
-        const key = canonicalRoleVariantKeyV17_90L201(text);
-        return !key || !recognitionReviewRoleTextKeysV17_90L260.has(key);
+        const compact = compactExactSourceTextV17_90L251(text);
+        if (!compact) return false;
+        if (
+          recognitionReviewDisplayTextsV17_90L271.some((reviewText) =>
+            semanticRoleOverlapV17_90L87(compact, reviewText),
+          )
+        ) {
+          return false;
+        }
+        if (
+          structuredAppointmentHintsV17_90L86.some((appointment) =>
+            ordinaryHintCoveredByAppointmentV17_90L217(compact, appointment),
+          )
+        ) {
+          return false;
+        }
+        if (
+          firstAiCommunicationInstructionHintV17_90L265 &&
+          compact !== firstAiCommunicationInstructionHintV17_90L265 &&
+          semanticRoleOverlapV17_90L87(
+            compact,
+            firstAiCommunicationInstructionHintV17_90L265,
+          )
+        ) {
+          return false;
+        }
+        return true;
       }),
       translationText,
     );
