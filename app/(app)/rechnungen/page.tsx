@@ -851,21 +851,29 @@ function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
   );
 }
 
-function buildInvoiceCanonicalWorkflowSummaryV17_90L273(
+function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
-): InvoiceCanonicalWorkflowSummaryV17_90L273 | null {
-  const records = (invoice?.orders || []).flatMap((order) =>
-    parseInvoiceCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
+  fallbackSpecialNotes?: string | null,
+): InvoiceCanonicalWorkflowSummaryV17_90L273 {
+  const sources = [
+    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    fallbackSpecialNotes,
+  ].filter(Boolean);
+  const records = sources.flatMap((value) =>
+    parseInvoiceCanonicalWorkflowRecordsV17_90L273(value),
   );
-  if (records.length === 0) return null;
 
   const hazards: string[] = [];
   const primaryHints: string[] = [];
   const otherHints: string[] = [];
   const seen = new Set<string>();
 
+  // V17.90L274: Interne Rechnungsinformationen kommen ausschließlich aus den
+  // bereits gespeicherten, markierten specialNotes der verknüpften Quelle.
+  // Kundennachricht, Beschreibung und Kommunikations-Fallbacks werden hier
+  // nicht erneut interpretiert.
   const add = (target: string[], raw: string) => {
-    const text = compactInvoiceValue(raw);
+    const text = String(raw || "").replace(/\s+/g, " ").trim();
     const key = normalizeInvoiceServiceName(text);
     if (!text || !key || seen.has(key)) return;
     seen.add(key);
@@ -7590,135 +7598,11 @@ export default function RechnungenPage() {
 
                   {editOrderCtx &&
                     (() => {
-                      const canonicalWorkflowSummaryV17_90L273 =
-                        buildInvoiceCanonicalWorkflowSummaryV17_90L273(
-                          editingInvoice,
-                        );
                       const { hazards, primaryHints, otherHints } =
-                        canonicalWorkflowSummaryV17_90L273 ||
-                        (() => {
-                      const canonicalSpecialNotesV17_90L237 =
-                        collectInvoiceCanonicalSpecialNotesV17_90L237(
+                        buildInvoiceCanonicalWorkflowSummaryV17_90L274(
                           editingInvoice,
                           editOrderCtx.specialNotes,
                         );
-                      const parsed = splitSpecialNotes(
-                        canonicalSpecialNotesV17_90L237,
-                      );
-                      const rawHazards = uniqueInvoiceLines(
-                        parsed.safetyWarnings || [],
-                      );
-                      const isContactInstruction = (line: string) =>
-                        /\b(?:whatsapp|sms|e-?mail|mail|telefon|anruf|anrufen|rueckruf|rückruf|kontakt|melden|keine\s+anrufe?|nicht\s+anrufen)\b/i.test(
-                          line,
-                        );
-                      const communicationHazards =
-                        rawHazards.filter(isContactInstruction);
-                      const hazards = rawHazards.filter(
-                        (line) => !isContactInstruction(line),
-                      );
-                      const appointmentHintsV17_90L237 = editingInvoice
-                        ? collectInvoiceAppointmentEntriesV17_90L177R(
-                            editingInvoice,
-                          ).map((entry) => entry.label)
-                        : [];
-                      const hasConcreteAppointmentV17_90L237 =
-                        appointmentHintsV17_90L237.some((line) =>
-                          /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line),
-                        );
-                      const accessHintsV17_90L237 = extractInvoiceAccessLinesV17_90L237(
-                        editingInvoice,
-                        items.map((item) => String(item?.description || "")),
-                      );
-                      const canonicalRoleLinesV17_90L265 =
-                        extractInvoiceCanonicalRoleLinesV17_90L265(
-                          editingInvoice,
-                        );
-                      const parkingHintsV17_90L265 =
-                        extractInvoiceParkingLinesV17_90L265(editingInvoice);
-                      const communicationHintsV17_90L265 =
-                        extractInvoiceCommunicationLinesV17_90L265(
-                          editingInvoice,
-                        );
-                      const appointmentSignaturesV17_90L265 = new Set(
-                        appointmentHintsV17_90L237
-                          .map(invoiceAppointmentSignatureV17_90L265)
-                          .filter(Boolean),
-                      );
-                      const serviceEvidenceV17_90L237 =
-                        collectInvoiceServiceEvidenceLinesV17_90L237(
-                          editingInvoice,
-                        );
-                      const filteredParsedJobHintsV17_90L265 = (
-                        parsed.jobHints || []
-                      ).filter((line) => {
-                        const appointmentSignature =
-                          invoiceAppointmentSignatureV17_90L265(line);
-                        if (
-                          appointmentSignature &&
-                          appointmentSignaturesV17_90L265.has(
-                            appointmentSignature,
-                          )
-                        ) {
-                          return false;
-                        }
-                        if (
-                          parkingHintsV17_90L265.length > 0 &&
-                          isInvoiceLowInformationHintV17_90L265(line)
-                        ) {
-                          return false;
-                        }
-                        if (
-                          communicationHintsV17_90L265.length > 0 &&
-                          (isInvoiceLowInformationHintV17_90L265(line) ||
-                            isInvoiceCommunicationLikeLineV17_90L266(line))
-                        ) {
-                          return false;
-                        }
-                        return !invoiceHintCombinesCanonicalFactsV17_90L265(
-                          line,
-                          canonicalRoleLinesV17_90L265,
-                        );
-                      });
-                      const allHints = uniquePreferredInvoiceInfoLinesV17_90L237([
-                        ...accessHintsV17_90L237,
-                        ...communicationHintsV17_90L265,
-                        ...appointmentHintsV17_90L237,
-                        ...parkingHintsV17_90L265,
-                        ...filteredParsedJobHintsV17_90L265,
-                        ...communicationHazards,
-                      ]).filter(
-                        (line) =>
-                          !invoiceHintMatchesServiceEvidenceV17_90L237(
-                            line,
-                            serviceEvidenceV17_90L237,
-                          ) &&
-                          !(
-                            hasConcreteAppointmentV17_90L237 &&
-                            /termin\s+klären|termin\s+klaeren/i.test(line)
-                          ) &&
-                          !(
-                            (parkingHintsV17_90L265.length > 0 ||
-                              communicationHintsV17_90L265.length > 0) &&
-                            (isInvoiceLowInformationHintV17_90L265(line) ||
-                              (communicationHintsV17_90L265.length > 0 &&
-                                isInvoiceCommunicationLikeLineV17_90L266(line)))
-                          ),
-                      );
-                      const primaryHints = allHints.filter(
-                        isPrimaryInvoiceInformationLine,
-                      );
-                      const primaryKeys = new Set(
-                        primaryHints.map((line) =>
-                          normalizeInvoiceServiceName(line),
-                        ),
-                      );
-                      const otherHints = allHints.filter(
-                        (line) =>
-                          !primaryKeys.has(normalizeInvoiceServiceName(line)),
-                      );
-                      return { hazards, primaryHints, otherHints };
-                        })();
                       const customerMessageBlocks = (
                         editingInvoice?.orders || []
                       )

@@ -1316,22 +1316,24 @@ function isOfferCanonicalPrimaryLineV17_90L273(value: string): boolean {
   );
 }
 
-function buildOfferCanonicalWorkflowSummaryV17_90L273(
+function buildOfferCanonicalWorkflowSummaryV17_90L274(
   sourceOrders: any[],
-  appointmentLabel = "",
-): OfferCanonicalWorkflowSummaryV17_90L273 | null {
+): OfferCanonicalWorkflowSummaryV17_90L273 {
   const records = (sourceOrders || []).flatMap((order) =>
     parseOfferCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
   );
-  if (records.length === 0) return null;
 
   const safety: string[] = [];
   const primary: string[] = [];
   const additional: string[] = [];
   const seen = new Set<string>();
 
+  // V17.90L274: Interne Angebotsinformationen werden ausschließlich aus den
+  // bereits gespeicherten, markierten specialNotes des Auftrags angezeigt.
+  // Kein erneutes Lesen der Kundennachricht, keine Umformulierung und kein
+  // ergänzter Termin-/Kontakt-Fallback.
   const add = (target: string[], raw: string) => {
-    const text = cleanOfferInfoLineV17_66(raw);
+    const text = String(raw || "").replace(/\s+/g, " ").trim();
     const key = normalizeOfferHint(text);
     if (!text || !key || seen.has(key)) return;
     seen.add(key);
@@ -1354,15 +1356,6 @@ function buildOfferCanonicalWorkflowSummaryV17_90L273(
     add(additional, record.text);
   }
 
-  const hasAppointment = primary.some((line) =>
-    /\b(?:termin|datum|uhr|zeitfenster)\b|\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b|\b\d{1,2}:\d{2}\b/i.test(
-      line,
-    ),
-  );
-  if (!hasAppointment && String(appointmentLabel || "").trim()) {
-    add(primary, `Termin: ${String(appointmentLabel).trim()}`);
-  }
-
   return {
     safety,
     primary,
@@ -1380,16 +1373,10 @@ function buildOfferInfoSummary(
   serviceNames: string[] = [],
   preferCanonicalWorkflowV17_90L273 = false,
 ): OfferInfoSummary {
-  const canonicalWorkflowSummaryV17_90L273 =
-    buildOfferCanonicalWorkflowSummaryV17_90L273(
-      sourceOrders,
-      appointmentLabel,
-    );
-  if (
-    preferCanonicalWorkflowV17_90L273 &&
-    canonicalWorkflowSummaryV17_90L273
-  ) {
-    return canonicalWorkflowSummaryV17_90L273;
+  const canonicalWorkflowSummaryV17_90L274 =
+    buildOfferCanonicalWorkflowSummaryV17_90L274(sourceOrders);
+  if (preferCanonicalWorkflowV17_90L273) {
+    return canonicalWorkflowSummaryV17_90L274;
   }
 
   // V17.90L264: The canonical first-AI role snapshot is preferred for
