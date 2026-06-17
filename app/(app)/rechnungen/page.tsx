@@ -6857,7 +6857,8 @@ export default function RechnungenPage() {
                                 <Input
                                   value={executionSite.siteName || ""}
                                   onChange={(event: any) =>
-                                    updateInvoiceExecutionSite(
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
                                       "siteName",
                                       event?.target?.value ?? "",
                                     )
@@ -6869,7 +6870,8 @@ export default function RechnungenPage() {
                                 <Input
                                   value={executionSite.siteAddress || ""}
                                   onChange={(event: any) =>
-                                    updateInvoiceExecutionSite(
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
                                       "siteAddress",
                                       event?.target?.value ?? "",
                                     )
@@ -6881,7 +6883,8 @@ export default function RechnungenPage() {
                                 <Input
                                   value={executionSite.sitePlz || ""}
                                   onChange={(event: any) =>
-                                    updateInvoiceExecutionSite(
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
                                       "sitePlz",
                                       event?.target?.value ?? "",
                                     )
@@ -6893,7 +6896,8 @@ export default function RechnungenPage() {
                                 <Input
                                   value={executionSite.siteCity || ""}
                                   onChange={(event: any) =>
-                                    updateInvoiceExecutionSite(
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
                                       "siteCity",
                                       event?.target?.value ?? "",
                                     )
