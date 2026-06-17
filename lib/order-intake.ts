@@ -289,72 +289,6 @@ function splitWorkCoverageSentenceCandidatesV17_90L266(
     }));
 }
 
-// V17.90L280: Display-only localization from the already stored automatic
-// translation. Canonical facts remain exactly as selected by the first AI.
-// A translated sentence is used only when it is position-aligned with the
-// original source sentence and preserves numbers/codes and logical polarity.
-function alignedTranslatedRoleDisplayVariantV17_90L280(args: {
-  line: unknown;
-  originalText?: string | null;
-  translationText?: string | null;
-}): string {
-  const line = compactExactSourceTextV17_90L251(args.line);
-  if (!line || !compactExactSourceTextV17_90L251(args.translationText)) {
-    return line;
-  }
-
-  const originalSentences = splitWorkCoverageSentenceCandidatesV17_90L266(
-    args.originalText,
-    "original",
-  );
-  const translatedSentences = splitWorkCoverageSentenceCandidatesV17_90L266(
-    args.translationText,
-    "translation",
-  );
-
-  // The first AI may already have returned the German translation.
-  if (
-    translatedSentences.some((sentence) =>
-      exactQuoteExistsInSourceV17_90L251(sentence.text, line),
-    )
-  ) {
-    return line;
-  }
-
-  const originalIndex = originalSentences.findIndex(
-    (sentence) =>
-      exactQuoteExistsInSourceV17_90L251(sentence.text, line) ||
-      exactQuoteExistsInSourceV17_90L251(line, sentence.text),
-  );
-  if (originalIndex < 0) return line;
-
-  const candidateIndexes = [originalIndex, originalIndex - 1, originalIndex + 1]
-    .filter((index, position, all) =>
-      index >= 0 && index < translatedSentences.length && all.indexOf(index) === position,
-    );
-  const lineInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
-  const lineNegated = hasCanonicalRoleNegationV17_90L201(line);
-
-  for (const index of candidateIndexes) {
-    const candidate = compactExactSourceTextV17_90L251(
-      translatedSentences[index]?.text,
-    );
-    if (!candidate || candidate.length > 700) continue;
-    if (
-      canonicalRoleInvariantTokensV17_90L201(candidate).join("|") !==
-      lineInvariants
-    ) {
-      continue;
-    }
-    if (hasCanonicalRoleNegationV17_90L201(candidate) !== lineNegated) {
-      continue;
-    }
-    return candidate;
-  }
-
-  return line;
-}
-
 function matchRoleEntryForSentenceV17_90L266(
   sentence: string,
   roleEntries: Array<{ role: string; text: string }>,
@@ -3633,7 +3567,7 @@ function hasSameAddressInstructionV17_90L28(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
+  return /\b(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausfuehrungsadresse|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausführungsadresse|billing(?:\s+address)?\s*(?:(?:-|\/)\s*)*(?:and\s+)?execution\s+address|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
 }
 
 function sameAddressWorkAreaDescriptorV17_66(
@@ -14540,6 +14474,7 @@ Regeln:
   kunde komplett leer lassen und nur auftrag.ausfuehrungsadresse setzen.
 - Wenn Rechnungsadresse und Arbeitsort gleich sind:
   auftrag.ausfuehrungsadresse.ist_abweichend = false.
+- Eine gemeinsame Überschrift wie „Rechnungs- und Ausführungsadresse“, „Rechnungs-/Ausführungsadresse“ oder sinngleich bezeichnet genau EINEN gemeinsamen Adressblock. Schreibe Name/Firma, Straße, PLZ und Ort vollständig in kunde und setze auftrag.ausfuehrungsadresse.ist_abweichend = false. Behandle diesen Block niemals nur als Ausführungsadresse und erzeuge dafür keine Ausführungsadress-Prüfung.
 - Wenn Rechnungsadresse und Arbeitsort unterschiedlich sind:
   auftrag.ausfuehrungsadresse.ist_abweichend = true und vollständige Arbeitsadresse setzen.
 - Wenn ein Text getrennte Blöcke für Rechnung/Kunde und Arbeitsort/Baustelle/Work Site/Job Site enthält, ist die Rollenverteilung klar:
@@ -16214,16 +16149,83 @@ export async function processIncomingMessage(
     evidenceSource: billingEvidence.source || null,
   });
 
+  // V17.90L281: Automatic customer reuse is allowed only for one complete,
+  // exact billing identity: name + street + PLZ + city. Name-only, phone-only,
+  // email-only and near-exact completion paths remain review/create paths.
+  const normalizeStrictCustomerIdentityV17_90L281 = (value: unknown): string =>
+    normalizeUnitText(value)
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const hasCompleteStrictBillingIdentityV17_90L281 = Boolean(
+    canonicalBillingCustomerV2.name &&
+      canonicalBillingCustomerV2.street &&
+      canonicalBillingCustomerV2.plz &&
+      canonicalBillingCustomerV2.city,
+  );
+  const strictCustomerIdentityMatchesV17_90L281 = (candidate: {
+    name?: string | null;
+    address?: string | null;
+    plz?: string | null;
+    city?: string | null;
+  } | null | undefined): boolean => {
+    if (!hasCompleteStrictBillingIdentityV17_90L281 || !candidate) return false;
+    if (
+      !candidate.name ||
+      !candidate.address ||
+      !candidate.plz ||
+      !candidate.city
+    ) {
+      return false;
+    }
+    return (
+      normalizeStrictCustomerIdentityV17_90L281(candidate.name) ===
+        normalizeStrictCustomerIdentityV17_90L281(
+          canonicalBillingCustomerV2.name,
+        ) &&
+      normalizeStrictCustomerIdentityV17_90L281(candidate.address) ===
+        normalizeStrictCustomerIdentityV17_90L281(
+          canonicalBillingCustomerV2.street,
+        ) &&
+      String(candidate.plz).trim() ===
+        String(canonicalBillingCustomerV2.plz).trim() &&
+      normalizeStrictCustomerIdentityV17_90L281(candidate.city) ===
+        normalizeStrictCustomerIdentityV17_90L281(
+          canonicalBillingCustomerV2.city,
+        )
+    );
+  };
+
+  // A model-proposed id is only eligible when it already matches all four
+  // protected billing identity fields. Otherwise the later exact matcher or
+  // new-customer path decides; the name alone must never bind a customer.
+  if (matchId) {
+    const proposedStrictCandidateV17_90L281 = allCustomers.find(
+      (customer: any) => String(customer?.id || "") === String(matchId),
+    );
+    if (
+      !strictCustomerIdentityMatchesV17_90L281(
+        proposedStrictCandidateV17_90L281,
+      )
+    ) {
+      console.log(
+        `[${source}] 🔒 strict customer identity rejected proposed match ${matchId}; exact name+street+PLZ+city required`,
+      );
+      matchId = "";
+      abgleichStatus = hasCompleteStrictBillingIdentityV17_90L281
+        ? "kein_treffer"
+        : "moeglicher_treffer";
+    }
+  }
+
   let customerId: string | null = null;
   let duplicateWarning = "";
   let customerWasNewlyCreated = false;
   const autoReuseTags: string[] = [];
 
-  // V17.90L91: An explicit request to reuse a stored customer is part of the
-  // protected AI identity result. A valid exact-name candidate may not later
-  // fall back to "kein_treffer". When duplicate name records exist, only a
-  // clearly better complete master record wins; ambiguous equal-quality
-  // records remain review-only.
+  // V17.90L91/L281: Explicit reuse intent is only a candidate signal. It may
+  // never bind a customer without the complete exact billing identity required
+  // by L281. The later exact matcher remains the authoritative auto-reuse path.
   const explicitReuseRequestedV17_90L91 =
     abgleichStatus === "reuse_requested" ||
     hasExplicitStoredCustomerReuseIntentV17_90L87(
@@ -16239,17 +16241,15 @@ export async function processIncomingMessage(
         kundeData.name,
         allCustomers,
       );
-    if (preferredCustomerV17_90L91) {
-      customerId = preferredCustomerV17_90L91.id;
+    if (
+      preferredCustomerV17_90L91 &&
+      strictCustomerIdentityMatchesV17_90L281(preferredCustomerV17_90L91)
+    ) {
       matchId = preferredCustomerV17_90L91.id;
       abgleichStatus = "gleicher_kunde";
-      duplicateWarning = "";
-      autoReuseTags.push(
-        `AUTO_REUSED_EXPLICIT_NAME:${preferredCustomerV17_90L91.customerNumber || preferredCustomerV17_90L91.id}`,
-      );
-      console.log(
-        `[${source}] 🎯 PROTECTED EXPLICIT CUSTOMER REUSE → ${preferredCustomerV17_90L91.name} (${preferredCustomerV17_90L91.customerNumber || preferredCustomerV17_90L91.id})`,
-      );
+    } else if (!hasCompleteStrictBillingIdentityV17_90L281) {
+      matchId = "";
+      abgleichStatus = "moeglicher_treffer";
     }
   }
 
@@ -16476,6 +16476,8 @@ export async function processIncomingMessage(
     }, dataScope);
     if (exact.match) {
       customerId = exact.match.id;
+      abgleichStatus = "gleicher_kunde";
+      duplicateWarning = "";
       autoReuseTags.push(`AUTO_REUSED:${exact.match.customerNumber}`);
       console.log(
         `[${source}] 🎯 EXACT REUSE → binding to existing ${exact.match.customerNumber} (${exact.match.id})`,
@@ -16503,27 +16505,12 @@ export async function processIncomingMessage(
       matchId &&
       abgleichStatus === "bestaetigungs_treffer"
     ) {
-      // V17.90L81: Do not create a third/fourth duplicate when the verified AI
-      // candidate is already inside an exact duplicate set. Reuse that existing
-      // record, but keep the assignment review visible.
-      const confirmedCandidate = await prisma.customer.findFirst({
-        where: {
-          id: matchId,
-          ...(userId ? { userId } : {}),
-          dataScope,
-          deletedAt: null,
-        },
-        select: { id: true, customerNumber: true },
-      });
-      if (confirmedCandidate) {
-        customerId = confirmedCandidate.id;
-        autoReuseTags.push(
-          `AUTO_REUSED_CONFIRMED_DUPLICATE_SET:${confirmedCandidate.customerNumber}`,
-        );
-        console.log(
-          `[${source}] 🎯 CONFIRMED DUPLICATE-SET REUSE → binding to existing ${confirmedCandidate.customerNumber} (${confirmedCandidate.id})`,
-        );
-      }
+      // V17.90L281: Even with all four identity fields present, multiple exact
+      // customer records are ambiguous. Keep review/create handling; never
+      // choose one automatically.
+      console.log(
+        `[${source}] strict exact reuse skipped: multiple exact customer candidates`,
+      );
     } else if (
       exact.reason !== "incomplete_incoming" &&
       exact.reason !== "no_candidate"
@@ -16556,32 +16543,11 @@ export async function processIncomingMessage(
       dataScope,
     );
     if (nearExact.match && nearExact.completedField) {
-      customerId = nearExact.match.id;
-      autoReuseTags.push(
-        `AUTO_REUSED_NEAR_EXACT:${nearExact.match.customerNumber}:${nearExact.completedField}_completed`,
-      );
+      // V17.90L281: Near-exact completion is intentionally not an automatic
+      // customer assignment. All four fields must already be present and exact.
       console.log(
-        `[${source}] 🎯 NEAR-EXACT REUSE → binding to existing ${nearExact.match.customerNumber} (${nearExact.match.id}), completed=${nearExact.completedField}`,
+        `[${source}] strict customer reuse skipped near-exact candidate ${nearExact.match.customerNumber}; ${nearExact.completedField} missing in incoming identity`,
       );
-      logAuditAsync({
-        userId,
-        action: "CUSTOMER_REUSE_NEAR_EXACT",
-        area: "CUSTOMERS",
-        targetType: "Customer",
-        targetId: nearExact.match.id,
-        success: true,
-        details: {
-          source,
-          matchedOn: [
-            "name",
-            "street",
-            nearExact.completedField === "plz" ? "city" : "plz",
-          ],
-          completedField: nearExact.completedField,
-          completedValue: nearExact.completedValue,
-          candidateCustomerNumber: nearExact.match.customerNumber,
-        },
-      });
     } else if (
       nearExact.reason !== "not_applicable" &&
       nearExact.reason !== "incomplete_incoming" &&
@@ -19814,93 +19780,36 @@ export async function processIncomingMessage(
     finalAiWorkCoverageV17_90L251.missingWork
       .flatMap((finding) => {
         const direct = [finding.relatedRoleText || "", finding.quote || ""];
-        const alignedTranslations = direct.map((text) =>
-          alignedTranslatedRoleDisplayVariantV17_90L280({
-            line: text,
-            originalText: messageText,
-            translationText,
-          }),
+        const sourceSentences =
+          finding.source === "translation"
+            ? translatedAppointmentReviewSentencesV17_90L271
+            : originalAppointmentReviewSentencesV17_90L271;
+        const counterpartSentences =
+          finding.source === "translation"
+            ? originalAppointmentReviewSentencesV17_90L271
+            : translatedAppointmentReviewSentencesV17_90L271;
+        const sourceIndex = sourceSentences.findIndex((sentence) =>
+          exactQuoteExistsInSourceV17_90L251(
+            sentence.text,
+            finding.quote,
+          ),
         );
-
-        // Do not rely solely on the source flag. Search both sentence arrays and
-        // include nearby aligned counterparts; the later semantic filter still
-        // requires an actual match before hiding anything.
-        const counterpartCandidates: string[] = [];
-        for (const [sourceSentences, counterpartSentences] of [
-          [
-            originalAppointmentReviewSentencesV17_90L271,
-            translatedAppointmentReviewSentencesV17_90L271,
-          ],
-          [
-            translatedAppointmentReviewSentencesV17_90L271,
-            originalAppointmentReviewSentencesV17_90L271,
-          ],
-        ] as const) {
-          const sourceIndex = sourceSentences.findIndex((sentence) =>
-            exactQuoteExistsInSourceV17_90L251(
-              sentence.text,
-              finding.quote,
-            ),
-          );
-          if (sourceIndex < 0) continue;
-          for (const index of [sourceIndex, sourceIndex - 1, sourceIndex + 1]) {
-            const counterpart = counterpartSentences[index]?.text || "";
-            if (counterpart) counterpartCandidates.push(counterpart);
-          }
-        }
-        return [...direct, ...alignedTranslations, ...counterpartCandidates];
+        const counterpart =
+          sourceIndex >= 0 ? counterpartSentences[sourceIndex]?.text || "" : "";
+        return [...direct, counterpart];
       })
       .map((text) => compactExactSourceTextV17_90L251(text))
       .filter(Boolean);
-
-  const displayCanonicalFactRolesV17_90L280 = {
-    safety: canonicalFactAssemblyV17_90L204.roles.safety.map((text) =>
-      alignedTranslatedRoleDisplayVariantV17_90L280({
-        line: text,
-        originalText: messageText,
-        translationText,
-      }),
-    ),
-    access: canonicalFactAssemblyV17_90L204.roles.access.map((text) =>
-      alignedTranslatedRoleDisplayVariantV17_90L280({
-        line: text,
-        originalText: messageText,
-        translationText,
-      }),
-    ),
-    parking: canonicalFactAssemblyV17_90L204.roles.parking.map((text) =>
-      alignedTranslatedRoleDisplayVariantV17_90L280({
-        line: text,
-        originalText: messageText,
-        translationText,
-      }),
-    ),
-    other: canonicalFactAssemblyV17_90L204.roles.other.map((text) =>
-      alignedTranslatedRoleDisplayVariantV17_90L280({
-        line: text,
-        originalText: messageText,
-        translationText,
-      }),
-    ),
-    ordinary: canonicalFactAssemblyV17_90L204.roles.ordinary.map((text) =>
-      alignedTranslatedRoleDisplayVariantV17_90L280({
-        line: text,
-        originalText: messageText,
-        translationText,
-      }),
-    ),
-  };
-
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
         onsiteContactHint.hint || "",
         firstAiCommunicationInstructionHintV17_90L265 || "",
         ...structuredAppointmentHintsV17_90L86,
-        ...displayCanonicalFactRolesV17_90L280.access,
-        ...displayCanonicalFactRolesV17_90L280.parking,
-        ...displayCanonicalFactRolesV17_90L280.other,
-        ...displayCanonicalFactRolesV17_90L280.ordinary,
+        ...canonicalFactAssemblyV17_90L204.roles.access,
+        ...canonicalFactAssemblyV17_90L204.roles.parking,
+        ...canonicalFactAssemblyV17_90L204.roles.other,
+        ...canonicalFactAssemblyV17_90L204.roles.ordinary,
       ].filter((text) => {
         const compact = compactExactSourceTextV17_90L251(text);
         if (!compact) return false;
@@ -19934,7 +19843,7 @@ export async function processIncomingMessage(
     );
   finalSpecialNotes =
     buildSpecialNotes({
-      safetyWarnings: displayCanonicalFactRolesV17_90L280.safety,
+      safetyWarnings: canonicalFactAssemblyV17_90L204.roles.safety,
       jobHints: canonicalSpecialNoteHintsV17_90L203,
       preserveStructuredRoles: true,
     }) || null;
