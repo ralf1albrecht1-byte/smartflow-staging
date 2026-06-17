@@ -6220,6 +6220,82 @@ function hasExplicitVagueAppointmentEvidenceV17_90L270(
   ].some((pattern) => pattern.test(text));
 }
 
+const APPOINTMENT_MONTH_ALIASES_V17_90L279: Record<number, string[]> = {
+  1: ["januar", "january", "janvier", "gennaio", "enero", "janeiro"],
+  2: ["februar", "february", "fevrier", "febbraio", "febrero", "fevereiro"],
+  3: ["maerz", "march", "mars", "marzo", "marco"],
+  4: ["april", "avril", "aprile", "abril"],
+  5: ["mai", "may", "maggio", "mayo", "maio"],
+  6: ["juni", "june", "juin", "giugno", "junio", "junho"],
+  7: ["juli", "july", "juillet", "luglio", "julio", "julho"],
+  8: ["august", "aout", "agosto"],
+  9: ["september", "septembre", "settembre", "septiembre"],
+  10: ["oktober", "october", "octobre", "ottobre", "octubre", "outubro"],
+  11: ["november", "novembre", "noviembre"],
+  12: ["dezember", "december", "decembre", "dicembre", "diciembre", "dezembro"],
+};
+
+function normalizeNamedAppointmentDateSourceV17_90L279(
+  value: unknown,
+): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sourceContainsNamedAppointmentDateV17_90L279(args: {
+  source: string;
+  day: number;
+  month: number;
+  year?: string | null;
+  requireYear?: boolean;
+}): boolean {
+  const aliases = APPOINTMENT_MONTH_ALIASES_V17_90L279[args.month] || [];
+  const source = normalizeNamedAppointmentDateSourceV17_90L279(args.source);
+  const expectedYear = String(args.year || "").trim();
+  if (!source || !Number.isFinite(args.day) || aliases.length === 0) return false;
+
+  const aliasPattern = aliases
+    .map((alias) => normalizeNamedAppointmentDateSourceV17_90L279(alias))
+    .filter(Boolean)
+    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  if (!aliasPattern) return false;
+
+  const dayPattern = `0?${Math.trunc(args.day)}`;
+  const patterns = [
+    new RegExp(
+      `(?:^|\\s)${dayPattern}\\s+(?:de\\s+)?(?:${aliasPattern})(?:\\s+(?:de\\s+)?(\\d{2,4}))?(?:$|\\s)`,
+      "g",
+    ),
+    new RegExp(
+      `(?:^|\\s)(?:${aliasPattern})\\s+${dayPattern}(?:\\s+(?:de\\s+)?(\\d{2,4}))?(?:$|\\s)`,
+      "g",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const matchedYearRaw = String(match[1] || "");
+      const matchedYear =
+        matchedYearRaw.length === 2 ? `20${matchedYearRaw}` : matchedYearRaw;
+      if (args.requireYear) {
+        if (expectedYear && matchedYear === expectedYear) return true;
+        continue;
+      }
+      if (expectedYear && matchedYear && matchedYear !== expectedYear) continue;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function sourceSupportsAppointmentPartV17_90L86(
   source: string,
   value?: string | null,
@@ -6238,6 +6314,7 @@ function sourceSupportsAppointmentPartV17_90L86(
   const localDate = rawValue.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
   const day = isoDate?.[3] || localDate?.[1] || "";
   const month = isoDate?.[2] || localDate?.[2] || "";
+  const year = isoDate?.[1] || localDate?.[3] || "";
   if (day && month) {
     const dayValue = String(Number(day));
     const monthValue = String(Number(month));
@@ -6245,6 +6322,20 @@ function sourceSupportsAppointmentPartV17_90L86(
       `(?:^|\\D)0?${dayValue}[.\\/-]0?${monthValue}(?:[.\\/-]\\d{2,4})?(?:$|\\D)`,
     );
     if (datePattern.test(rawSource)) return true;
+    if (
+      sourceContainsNamedAppointmentDateV17_90L279({
+        source: rawSource,
+        day: Number(dayValue),
+        month: Number(monthValue),
+        year: year
+          ? year.length === 2
+            ? `20${year}`
+            : year
+          : null,
+      })
+    ) {
+      return true;
+    }
   }
 
   const time = rawValue.match(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b/);
@@ -6323,11 +6414,14 @@ function buildStructuredAppointmentHintsV17_90L86(
     const sourceBackedExplicitDate = Boolean(
       date && sourceSupportsAppointmentPartV17_90L86(rawText, rawDate),
     );
-    const resolvedRelativeDateV17_90L271 =
-      resolveRelativeAppointmentDateV17_90L271({
-        appointment,
-        reference,
-      });
+    // V17.90L279: An explicit date backed by the customer message is final.
+    // Relative weekday resolution is only allowed when no explicit date exists.
+    const resolvedRelativeDateV17_90L271 = sourceBackedExplicitDate
+      ? null
+      : resolveRelativeAppointmentDateV17_90L271({
+          appointment,
+          reference,
+        });
     if (resolvedRelativeDateV17_90L271) {
       date = resolvedRelativeDateV17_90L271.displayDate;
     } else if (!sourceBackedExplicitDate) {
@@ -6336,10 +6430,18 @@ function buildStructuredAppointmentHintsV17_90L86(
       date = null;
     } else if (date && /\.\d{4}$/.test(date)) {
       const dayMonth = date.match(/^(\d{2})\.(\d{2})\./);
+      const explicitYear = date.match(/\.(\d{4})$/)?.[1] || "";
       const sourceHasYear = dayMonth
         ? new RegExp(
             `(?:^|\D)0?${Number(dayMonth[1])}[.\/-]0?${Number(dayMonth[2])}[.\/-]\d{2,4}(?:$|\D)`,
-          ).test(rawText)
+          ).test(rawText) ||
+          sourceContainsNamedAppointmentDateV17_90L279({
+            source: rawText,
+            day: Number(dayMonth[1]),
+            month: Number(dayMonth[2]),
+            year: explicitYear,
+            requireYear: true,
+          })
         : false;
       if (!sourceHasYear) date = date.replace(/\.\d{4}$/, ".");
     }
