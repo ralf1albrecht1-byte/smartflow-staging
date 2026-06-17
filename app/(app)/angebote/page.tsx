@@ -1214,6 +1214,50 @@ function isOfferCommunicationLikeLineV17_90L266(
   );
 }
 
+function hasConcreteOfferContactIdentityV17_90L282(
+  contact?: {
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null,
+): boolean {
+  return Boolean(
+    compactOfferValue(contact?.name) ||
+      compactOfferValue(contact?.phone) ||
+      compactOfferValue(contact?.email),
+  );
+}
+
+function isOfferReviewOnlyUnconfirmedWorkLineV17_90L282(
+  value?: string | null,
+): boolean {
+  const key = normalizeOfferHint(value || "");
+  if (!key) return false;
+
+  // Operational roles must remain visible even when they contain words such
+  // as "offen" or "nicht bestätigt" (for example an unclear parking space).
+  if (
+    isOfferParkingLineV17_90L101(value) ||
+    isOfferDogHint(String(value || "")) ||
+    isOfferCanonicalPrimaryLineV17_90L273(String(value || "")) ||
+    isOfferCommunicationLikeLineV17_90L266(value)
+  ) {
+    return false;
+  }
+
+  const hasUnconfirmedMeaning =
+    /\b(?:falls|wenn|sofern)\s+(?:noch\s+)?zeit\s+(?:bleibt|ist)|\b(?:vielleicht|eventuell|moeglicherweise|moglicherweise|allenfalls)\b|\b(?:noch\s+)?nicht\s+(?:bestaetigt|bestatigt|freigegeben|vereinbart)|\b(?:if\s+time\s+(?:remains|allows)|maybe|perhaps|possibly|not\s+yet\s+confirmed|unconfirmed)|\b(?:si\s+le\s+temps\s+le\s+permet|peut[- ]etre|eventuellement|pas\s+encore\s+confirme)|\b(?:se\s+(?:rimane|resta)\s+tempo|forse|eventualmente|non\s+e\s+ancora\s+confermato)|\b(?:si\s+queda\s+tiempo|quizas|tal\s+vez|aun\s+no\s+confirmado)\b/.test(
+      key,
+    );
+  if (!hasUnconfirmedMeaning) return false;
+
+  // This is a role check, not a service-name list: only statements about a
+  // possible task are suppressed. The original customer message remains.
+  return /\b(?:leistung|arbeit|arbeiten|auftrag|reinigen|putzen|saeubern|saubern|clean|cleaning|work|task|nettoyer|nettoyage|travaux|pulire|pulizia|lavori|limpiar|limpieza|trabajo)\b/.test(
+    key,
+  );
+}
+
 function extractOfferCommunicationInstructionLinesV17_90L265(
   orders: any[],
 ): string[] {
@@ -1401,7 +1445,14 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
             order?.specialNotes,
           ),
         )
-        .filter((contact) => contact.title)
+        // V17.90L282: A pure channel instruction such as "15 Minuten vorher
+        // anrufen" is not an on-site contact. Keep it as an instruction, but
+        // never manufacture the label "Kontakt vor Ort" without a real name,
+        // phone number or email address.
+        .filter(
+          (contact) =>
+            contact.title && hasConcreteOfferContactIdentityV17_90L282(contact),
+        )
         .map((contact) => [normalizeOfferHint(contact.title), contact.title]),
     ).values(),
   );
@@ -1436,6 +1487,12 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   explicitContacts.forEach((line) => add(primary, line));
 
   for (const record of records) {
+    // V17.90L282: An explicitly unconfirmed possible task is review evidence,
+    // not an active operational instruction in an offer. "Verwerfen" removes
+    // the finding; the original wording remains auditably in the message.
+    if (isOfferReviewOnlyUnconfirmedWorkLineV17_90L282(record.text)) {
+      continue;
+    }
     const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
       record.text,
     );
@@ -1462,6 +1519,32 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
       continue;
     }
     add(additional, record.text);
+  }
+
+  // V17.90L282: The order editor can display deterministic safety/non-work
+  // lines that are not wrapped in canonical bracket markers. Merge those
+  // read-only classifications as a fallback so an explicit prohibition such
+  // as "Keine Arbeiten im Technikraum" cannot disappear during
+  // Auftrag → Angebot. Canonical records still win through the shared `seen`
+  // set and no order data is changed here.
+  for (const order of sourceOrders || []) {
+    const parsed = splitSpecialNotes(order?.specialNotes);
+    for (const rawLine of parsed.safetyWarnings || []) {
+      if (isOfferReviewOnlyUnconfirmedWorkLineV17_90L282(rawLine)) continue;
+      add(safety, rawLine);
+    }
+    for (const rawLine of parsed.jobHints || []) {
+      if (isOfferReviewOnlyUnconfirmedWorkLineV17_90L282(rawLine)) continue;
+      if (isOfferDogHint(rawLine)) {
+        add(safety, rawLine);
+      } else if (isOfferParkingLineV17_90L101(rawLine)) {
+        add(additional, rawLine);
+      } else if (isOfferCanonicalPrimaryLineV17_90L273(rawLine)) {
+        add(primary, rawLine);
+      } else {
+        add(additional, rawLine);
+      }
+    }
   }
 
   return {
