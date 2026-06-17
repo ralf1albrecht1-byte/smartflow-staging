@@ -7336,9 +7336,21 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   if (!order.siteAddressDifferent) return false;
 
   const workSites = Array.isArray(order.workSites) ? order.workSites : [];
-  if (workSites.length > 1) return true;
+  const completeWorkSites = workSites.filter((site) =>
+    Boolean(
+      compactText(site?.siteAddress) &&
+        compactText(site?.sitePlz) &&
+        compactText(site?.siteCity),
+    ),
+  );
 
-  const firstSite = workSites[0] || null;
+  // V17.90L280: Multi-Site-Aufträge bleiben uneingeschränkt erhalten.
+  // Ein separater Einzel-Arbeitsort ist dagegen nur mit vollständiger
+  // strukturierter Adresse gültig. Name-only-Restwerte wie "stermin"
+  // dürfen nach einem Dokument-Rückweg keinen Ausführungsort aktivieren.
+  if (completeWorkSites.length > 1) return true;
+
+  const firstSite = completeWorkSites[0] || workSites[0] || null;
   const siteStreet = normalizeAddressPartForCompare(
     firstSite?.siteAddress || order.siteAddress,
   );
@@ -7349,7 +7361,9 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
     firstSite?.siteCity || order.siteCity,
   );
 
-  if (!siteStreet && !sitePlz && !siteCity) return false;
+  // Ein separater Arbeitsort ohne vollständige Adresse ist kein gültiger
+  // Ausführungsort. Damit bleiben Karte und Editor fail-closed.
+  if (!siteStreet || !sitePlz || !siteCity) return false;
 
   const customerStreet = normalizeAddressPartForCompare(
     order.customer?.address,
@@ -7358,12 +7372,7 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   const customerCity = normalizeAddressPartForCompare(order.customer?.city);
 
   const hasCompleteComparableAddress = Boolean(
-    siteStreet &&
-    sitePlz &&
-    siteCity &&
-    customerStreet &&
-    customerPlz &&
-    customerCity,
+    customerStreet && customerPlz && customerCity,
   );
 
   if (
@@ -7483,9 +7492,14 @@ const getSystemBadges = (
   // und Keller“) bleibt auf der Karte sichtbar, auch wenn Rechnungs- und
   // Ausführungsadresse identisch sind. Nur eine echte offene Adressprüfung
   // unterdrückt den normalen cyanfarbenen Ausführungsort-Chip.
+  const hasValidDifferentExecutionAddress =
+    hasDifferentExecutionAddressForBadge(order);
+  const hasNamedSameAddressWorkArea = Boolean(
+    !order.siteAddressDifferent && compactText(explicitExecutionSiteTitle),
+  );
+
   if (
-    (hasDifferentExecutionAddressForBadge(order) ||
-      Boolean(compactText(explicitExecutionSiteTitle))) &&
+    (hasValidDifferentExecutionAddress || hasNamedSameAddressWorkArea) &&
     !hasActiveAddressRoleReviewV17_90K(order)
   ) {
     pushUniqueBadge(badges, {
@@ -11988,6 +12002,14 @@ export default function AuftraegePage() {
     )
       ? ""
       : inferredSiteName;
+    const hasValidDifferentExecutionAddressV17_90L280 =
+      hasDifferentExecutionAddressForBadge(o);
+    const hasInvalidReverseHandoffExecutionStateV17_90L280 = Boolean(
+      o.siteAddressDifferent && !hasValidDifferentExecutionAddressV17_90L280,
+    );
+    const effectiveSiteAddressDifferentV17_90L280 = Boolean(
+      o.siteAddressDifferent && hasValidDifferentExecutionAddressV17_90L280,
+    );
 
     setForm({
       customerId: o.customerId ?? "",
@@ -12003,16 +12025,34 @@ export default function AuftraegePage() {
           preserveStructuredRoles: true,
         });
       })(),
-      siteAddressDifferent: Boolean(o.siteAddressDifferent),
-      siteName: isSameAddressPlaceholderV17_90L135H(o.siteName)
+      siteAddressDifferent: effectiveSiteAddressDifferentV17_90L280,
+      siteName: hasInvalidReverseHandoffExecutionStateV17_90L280
         ? ""
-        : cleanWorkSiteDisplayName(o.siteName) || safeInferredSiteName || "",
-      siteAddress: o.siteAddress ?? "",
-      sitePlz: o.sitePlz ?? "",
-      siteCity: o.siteCity ?? "",
-      siteNote: o.siteNote ?? "",
+        : isSameAddressPlaceholderV17_90L135H(o.siteName)
+          ? ""
+          : cleanWorkSiteDisplayName(o.siteName) || safeInferredSiteName || "",
+      siteAddress: hasInvalidReverseHandoffExecutionStateV17_90L280
+        ? ""
+        : o.siteAddress ?? "",
+      sitePlz: hasInvalidReverseHandoffExecutionStateV17_90L280
+        ? ""
+        : o.sitePlz ?? "",
+      siteCity: hasInvalidReverseHandoffExecutionStateV17_90L280
+        ? ""
+        : o.siteCity ?? "",
+      siteNote: hasInvalidReverseHandoffExecutionStateV17_90L280
+        ? ""
+        : o.siteNote ?? "",
     });
-    const nextWorkSites = (o.workSites ?? [])
+    const nextWorkSites = (hasInvalidReverseHandoffExecutionStateV17_90L280
+      ? (o.workSites ?? []).filter((site) =>
+          Boolean(
+            compactText(site?.siteAddress) &&
+              compactText(site?.sitePlz) &&
+              compactText(site?.siteCity),
+          ),
+        )
+      : o.workSites ?? [])
       .map((site, index) => {
         const safeSiteName = isSameAddressPlaceholderV17_90L135H(site.siteName)
           ? ""
@@ -12038,7 +12078,7 @@ export default function AuftraegePage() {
     setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
-        Boolean(o.siteAddressDifferent) &&
+        effectiveSiteAddressDifferentV17_90L280 &&
         ![o.siteName, o.siteAddress, o.sitePlz, o.siteCity, o.siteNote].some(
           (value) => String(value || "").trim(),
         ),
