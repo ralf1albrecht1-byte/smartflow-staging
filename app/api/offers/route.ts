@@ -389,6 +389,7 @@ function enrichOfferItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
           sitePlz: compactOfferText(item?.sitePlz) || null,
           siteCity: compactOfferText(item?.siteCity) || null,
           siteNote: compactOfferText(item?.siteNote) || null,
+          sourceOrderId: explicitOrderId || null,
         }
       : null;
     const validManualItemSite =
