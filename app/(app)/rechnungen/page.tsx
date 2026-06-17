@@ -97,6 +97,7 @@ interface InvoiceItem {
   siteCity?: string | null;
   siteNote?: string | null;
   sourceOrderId?: string | null;
+  _workSiteUiKey?: string | null;
 }
 interface Invoice {
   id: string;
@@ -190,6 +191,7 @@ type InvoiceExecutionSite = {
   siteNote?: string | null;
   sourceOrderId?: string | null;
   operationalText?: string | null;
+  _workSiteUiKey?: string | null;
 };
 
 const getEmptyInvoiceExecutionSite = (): InvoiceExecutionSite => ({
@@ -1059,6 +1061,7 @@ function collectInvoiceExecutionSites(source: {
       siteCity: compactInvoiceValue(candidate.siteCity) || null,
       siteNote: compactInvoiceValue(candidate.siteNote) || null,
       sourceOrderId: compactInvoiceValue(candidate.sourceOrderId) || null,
+      _workSiteUiKey: compactInvoiceValue(candidate._workSiteUiKey) || null,
       operationalText:
         compactInvoiceValue(candidate.operationalText) ||
         operationalContextByAddress.get(documentSiteAddressKey(candidate)) ||
@@ -1096,6 +1099,7 @@ function collectInvoiceExecutionSites(source: {
       siteCity: item?.siteCity,
       siteNote: item?.siteNote,
       sourceOrderId: item?.sourceOrderId,
+      _workSiteUiKey: item?._workSiteUiKey,
     });
   });
   sourceOrders.forEach((order) => {
@@ -1136,6 +1140,19 @@ const invoiceSiteKey = (site: InvoiceExecutionSite) =>
     .map((value) => compactInvoiceValue(value).toLowerCase())
     .join("|");
 
+// V17.90L287: UI-only stable key. Typing in a worksite must not change the
+// React group key and remount the editor. The key is never persisted.
+const invoiceWorkSiteGroupKeyV17_90L287 = (site: InvoiceExecutionSite) =>
+  compactInvoiceValue(site._workSiteUiKey) ||
+  `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+
+const stripInvoiceWorkSiteUiStateV17_90L287 = (
+  item: InvoiceItem,
+): InvoiceItem => {
+  const { _workSiteUiKey: _ignoredUiKey, ...persisted } = item;
+  return persisted;
+};
+
 function groupInvoiceItemsByExecutionSite(
   sourceItems: InvoiceItem[],
   sites: InvoiceExecutionSite[] = [],
@@ -1146,7 +1163,7 @@ function groupInvoiceItemsByExecutionSite(
   // So bleibt ein neuer Arbeitsort sichtbar und bearbeitbar, bevor ihm eine
   // Leistung zugeordnet wird.
   sites.filter(Boolean).forEach((site) => {
-    const key = `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+    const key = invoiceWorkSiteGroupKeyV17_90L287(site);
     if (!groups.has(key)) {
       groups.set(key, { key, site, entries: [], subtotal: 0 });
     }
@@ -1154,6 +1171,11 @@ function groupInvoiceItemsByExecutionSite(
 
   sourceItems.forEach((item, index) => {
     const matchedSite =
+      sites.find(
+        (site) =>
+          Boolean(compactInvoiceValue(site._workSiteUiKey)) &&
+          site._workSiteUiKey === item._workSiteUiKey,
+      ) ||
       sites.find((site) => invoiceSiteKey(site) === invoiceSiteKey(item)) ||
       (item.sourceOrderId
         ? sites.find((site) => site.sourceOrderId === item.sourceOrderId)
@@ -1174,10 +1196,11 @@ function groupInvoiceItemsByExecutionSite(
             siteCity: item.siteCity || null,
             siteNote: item.siteNote || null,
             sourceOrderId: item.sourceOrderId || null,
+            _workSiteUiKey: item._workSiteUiKey || null,
           }
         : null);
     const key = site
-      ? `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`
+      ? invoiceWorkSiteGroupKeyV17_90L287(site)
       : "general";
     const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
     const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
@@ -3871,7 +3894,7 @@ export default function RechnungenPage() {
   };
 
   const invoiceGroupKeyForSite = (site: InvoiceExecutionSite) =>
-    `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+    invoiceWorkSiteGroupKeyV17_90L287(site);
 
   const getCurrentInvoiceExecutionSitesV17_90L284 = () => {
     const collected = collectInvoiceExecutionSites({
@@ -3930,6 +3953,7 @@ export default function RechnungenPage() {
       toast.info("Neuen Arbeitsort und Leistung zuerst vollständig ausfüllen.");
       return;
     }
+    const uiKey = `invoice-draft-site-${Math.random().toString(36).slice(2)}`;
     const site: InvoiceExecutionSite = {
       siteName: "",
       siteAddress: "",
@@ -3937,6 +3961,7 @@ export default function RechnungenPage() {
       siteCity: "",
       siteNote: "",
       sourceOrderId: null,
+      _workSiteUiKey: uiKey,
     };
     const key = invoiceGroupKeyForSite(site);
     const blankItem = { ...getEmptyItem(), ...site };
@@ -3978,12 +4003,6 @@ export default function RechnungenPage() {
     field: keyof InvoiceExecutionSite,
     value: string,
   ) => {
-    const currentSite = getCurrentInvoiceExecutionSitesV17_90L284().find(
-      (site) => invoiceGroupKeyForSite(site) === groupKey,
-    );
-    const nextKey = currentSite
-      ? invoiceGroupKeyForSite({ ...currentSite, [field]: value })
-      : groupKey;
     setInvoiceExecutionSiteDrafts((current) =>
       current.map((site) =>
         invoiceGroupKeyForSite(site) === groupKey
@@ -3998,13 +4017,8 @@ export default function RechnungenPage() {
           : item,
       ),
     );
-    setEditingInvoiceSiteKey(nextKey);
-    setExpandedInvoiceSiteKeys((current) => {
-      const next = new Set(current);
-      next.delete(groupKey);
-      next.add(nextKey);
-      return next;
-    });
+    setEditingInvoiceSiteKey(groupKey);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, groupKey]));
   };
 
   const removeInvoiceExecutionSite = (groupKey: string) => {
@@ -4374,7 +4388,7 @@ export default function RechnungenPage() {
     }
     setSaving(true);
     try {
-      const itemsForCreate = newInvoiceExecutionSite
+      const itemsForCreateWithUiState = newInvoiceExecutionSite
         ? items.map((item) => {
             const hasAssignedExecutionSite = Boolean(
               compactInvoiceValue(item.siteAddress) &&
@@ -4397,6 +4411,9 @@ export default function RechnungenPage() {
             };
           })
         : items;
+      const itemsForCreate = itemsForCreateWithUiState.map(
+        stripInvoiceWorkSiteUiStateV17_90L287,
+      );
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4505,7 +4522,7 @@ export default function RechnungenPage() {
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
-          items,
+          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
           vatRate,
           currency,
         }),

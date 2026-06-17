@@ -113,6 +113,7 @@ interface OfferItem {
   siteCity?: string | null;
   siteNote?: string | null;
   sourceOrderId?: string | null;
+  _workSiteUiKey?: string | null;
 }
 interface OfferExecutionSite {
   siteName?: string | null;
@@ -122,6 +123,7 @@ interface OfferExecutionSite {
   siteNote?: string | null;
   sourceOrderId?: string | null;
   operationalText?: string | null;
+  _workSiteUiKey?: string | null;
 }
 
 interface Offer {
@@ -392,6 +394,18 @@ const offerSiteKey = (site: OfferExecutionSite) =>
     .map((value) => compactOfferValue(value).toLowerCase())
     .join("|");
 
+// V17.90L287: UI-only stable key. Address/name edits must never remount
+// the worksite editor after every keystroke. Persisted documents still use
+// the canonical source/address identity; this key is stripped before save.
+const offerWorkSiteGroupKeyV17_90L287 = (site: OfferExecutionSite) =>
+  compactOfferValue(site._workSiteUiKey) ||
+  `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
+
+const stripOfferWorkSiteUiStateV17_90L287 = (item: OfferItem): OfferItem => {
+  const { _workSiteUiKey: _ignoredUiKey, ...persisted } = item;
+  return persisted;
+};
+
 function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
   const sites: OfferExecutionSite[] = [];
   const sourceOrders = offer.orders || [];
@@ -503,7 +517,7 @@ function groupOfferItemsByExecutionSite(
   // Dadurch bleibt ein neuer Arbeitsort sichtbar und bearbeitbar, bevor ihm
   // eine Leistung zugeordnet wird.
   normalizedSites.forEach((site) => {
-    const key = `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
+    const key = offerWorkSiteGroupKeyV17_90L287(site);
     if (!groups.has(key)) {
       groups.set(key, { key, site, entries: [], subtotal: 0 });
     }
@@ -511,6 +525,11 @@ function groupOfferItemsByExecutionSite(
 
   sourceItems.forEach((item, index) => {
     const matchedSite =
+      normalizedSites.find(
+        (site) =>
+          Boolean(compactOfferValue(site._workSiteUiKey)) &&
+          site._workSiteUiKey === item._workSiteUiKey,
+      ) ||
       normalizedSites.find((site) => offerSiteKey(site) === offerSiteKey(item)) ||
       (item.sourceOrderId
         ? normalizedSites.find((site) => site.sourceOrderId === item.sourceOrderId)
@@ -531,10 +550,11 @@ function groupOfferItemsByExecutionSite(
             siteCity: item.siteCity || null,
             siteNote: item.siteNote || null,
             sourceOrderId: item.sourceOrderId || null,
+            _workSiteUiKey: item._workSiteUiKey || null,
           }
         : null);
     const key = site
-      ? `${site.sourceOrderId || ""}|${offerSiteKey(site)}`
+      ? offerWorkSiteGroupKeyV17_90L287(site)
       : "general";
     const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
     const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
@@ -660,20 +680,27 @@ function applyExecutionSitesToOfferItems(
   );
 
   if (cleanSites.length === 0) {
-    return sourceItems.map((item) => ({
-      ...item,
-      siteName: null,
-      siteAddress: null,
-      sitePlz: null,
-      siteCity: null,
-      siteNote: null,
-      sourceOrderId: item.sourceOrderId || null,
-    }));
+    return sourceItems.map((item) =>
+      stripOfferWorkSiteUiStateV17_90L287({
+        ...item,
+        siteName: null,
+        siteAddress: null,
+        sitePlz: null,
+        siteCity: null,
+        siteNote: null,
+        sourceOrderId: item.sourceOrderId || null,
+      }),
+    );
   }
 
   return sourceItems.map((item) => {
     const currentKey = offerSiteKey(item);
     const site =
+      cleanSites.find(
+        (candidate) =>
+          Boolean(compactOfferValue(candidate._workSiteUiKey)) &&
+          candidate._workSiteUiKey === item._workSiteUiKey,
+      ) ||
       cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
       (item.sourceOrderId
         ? cleanSites.find(
@@ -682,8 +709,8 @@ function applyExecutionSitesToOfferItems(
         : undefined) ||
       (cleanSites.length === 1 ? cleanSites[0] : undefined);
 
-    if (!site) return item;
-    return {
+    if (!site) return stripOfferWorkSiteUiStateV17_90L287(item);
+    return stripOfferWorkSiteUiStateV17_90L287({
       ...item,
       siteName: compactOfferValue(site.siteName) || null,
       siteAddress: compactOfferValue(site.siteAddress) || null,
@@ -691,7 +718,7 @@ function applyExecutionSitesToOfferItems(
       siteCity: compactOfferValue(site.siteCity) || null,
       siteNote: compactOfferValue(site.siteNote) || null,
       sourceOrderId: site.sourceOrderId || item.sourceOrderId || null,
-    };
+    });
   });
 }
 
@@ -4543,7 +4570,7 @@ export default function AngebotePage() {
   };
 
   const offerGroupKeyForSite = (site: OfferExecutionSite) =>
-    `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
+    offerWorkSiteGroupKeyV17_90L287(site);
 
   const addExecutionSite = () => {
     const unfinishedSiteIndex = executionSites.findIndex(
@@ -4567,6 +4594,7 @@ export default function AngebotePage() {
       return;
     }
 
+    const uiKey = `offer-draft-site-${Math.random().toString(36).slice(2)}`;
     const site: OfferExecutionSite = {
       siteName: "",
       siteAddress: "",
@@ -4574,6 +4602,7 @@ export default function AngebotePage() {
       siteCity: "",
       siteNote: "",
       sourceOrderId: null,
+      _workSiteUiKey: uiKey,
     };
     const key = offerGroupKeyForSite(site);
     const blankItem = { ...getEmptyItem(), ...site };
@@ -4608,9 +4637,6 @@ export default function AngebotePage() {
       (site) => offerGroupKeyForSite(site) === groupKey,
     );
     if (siteIndex < 0) return;
-    const oldSite = executionSites[siteIndex];
-    const nextSite = { ...oldSite, [field]: value };
-    const nextKey = offerGroupKeyForSite(nextSite);
     updateExecutionSite(siteIndex, field, value);
     setItems((current) =>
       current.map((item) => {
@@ -4619,13 +4645,8 @@ export default function AngebotePage() {
         return belongs ? { ...item, [field]: value || null } : item;
       }),
     );
-    setEditingOfferSiteKey(nextKey);
-    setExpandedOfferSiteKeys((current) => {
-      const next = new Set(current);
-      next.delete(groupKey);
-      next.add(nextKey);
-      return next;
-    });
+    setEditingOfferSiteKey(groupKey);
+    setExpandedOfferSiteKeys((current) => new Set([...current, groupKey]));
   };
 
   const removeOfferExecutionSite = (groupKey: string) => {
