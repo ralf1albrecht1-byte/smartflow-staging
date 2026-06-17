@@ -6434,6 +6434,18 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     return isBrokenWorkSiteRoleFragmentV17_90L176(candidate);
   };
 
+  // V17.90L281: Alte, bereits gespeicherte Wortreste aus Terminüberschriften
+  // sind keine Objekt- oder Arbeitsortnamen. Das ist eine rein strukturelle
+  // Bereinigung von Feldbezeichnern und verändert keine echten Adressen.
+  const normalizedStructuralNameV17_90L281 = normalizeRoleLabel(text);
+  if (
+    /^(?:stermin|ausfuehrungstermin|ausfuehrungsdatum|ausfuehrungszeit|execution date|execution time)$/.test(
+      normalizedStructuralNameV17_90L281,
+    )
+  ) {
+    return "";
+  }
+
   if (isGenericAddressRoleLabel(text)) return "";
 
   const stripOperationalTailV17_90L13 = (candidate: string) => {
@@ -6529,8 +6541,11 @@ const inferExecutionSiteNameFromText = (
     .map((line) => compactText(line))
     .filter(Boolean);
 
+  // V17.90L281: Der Rollenmarker muss als vollständiges Wort enden.
+  // Dadurch kann „Ausführungstermin“ nicht mehr als „Ausführung“ +
+  // Objektname „stermin“ zerlegt werden.
   const markerPattern =
-    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|adresse\s+chantier|adresse\s+de\s+chantier|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|adresse\s+chantier|adresse\s+de\s+chantier|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\b\s*:?\s*(.*)$/i;
   const stopPattern =
     /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
 

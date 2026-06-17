@@ -21,6 +21,23 @@ const hasCompleteExecutionAddress = (site: {
     compact(site.siteAddress) && compact(site.sitePlz) && compact(site.siteCity),
   );
 
+const isInvalidExecutionSiteLabelV17_90L281 = (value: unknown) => {
+  const key = compact(value)
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:stermin|ausfuehrungstermin|ausfuehrungsdatum|ausfuehrungszeit|execution date|execution time)$/.test(
+    key,
+  );
+};
+
 /**
  * POST /api/offers/[id]/revert
  * Moves an offer back to orders stage without duplicating records.
@@ -109,8 +126,16 @@ export async function POST(
         const hasValidStoredExecutionSite = Boolean(
           completeWorkSites.length > 0 || flatSiteIsComplete,
         );
+        const hasInvalidStructuralSiteLabelV17_90L281 = Boolean(
+          isInvalidExecutionSiteLabelV17_90L281(order.siteName) ||
+            (order.workSites || []).some((site) =>
+              isInvalidExecutionSiteLabelV17_90L281(site.siteName),
+            ),
+        );
         const mustClearInvalidReverseState = Boolean(
-          order.siteAddressDifferent && !hasValidStoredExecutionSite,
+          !hasValidStoredExecutionSite &&
+            (order.siteAddressDifferent ||
+              hasInvalidStructuralSiteLabelV17_90L281),
         );
 
         if (mustClearInvalidReverseState) {

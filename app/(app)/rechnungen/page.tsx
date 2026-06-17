@@ -204,6 +204,34 @@ const compactInvoiceValue = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+// V17.90L281: Strukturelle Termin-/Rollenfragmente dürfen niemals als
+// Arbeitsort- oder Kundennachrichten-Gruppenname erscheinen.
+const cleanInvoiceExecutionSiteLabelV17_90L281 = (value: unknown) => {
+  const text = compactInvoiceValue(value);
+  if (!text) return "";
+  const key = text
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (
+    /^(?:stermin|ausfuehrungstermin|ausfuehrungsdatum|ausfuehrungszeit|execution date|execution time)$/.test(
+      key,
+    )
+  ) {
+    return "";
+  }
+
+  return text;
+};
 type InvoiceCurrencyReviewDetailV17_90L227 = {
   serviceName: string;
   sourceCurrency: string;
@@ -1024,7 +1052,8 @@ function collectInvoiceExecutionSites(source: {
   const add = (candidate?: InvoiceExecutionSite | null) => {
     if (!candidate) return;
     const site: InvoiceExecutionSite = {
-      siteName: compactInvoiceValue(candidate.siteName) || null,
+      siteName:
+        cleanInvoiceExecutionSiteLabelV17_90L281(candidate.siteName) || null,
       siteAddress: compactInvoiceValue(candidate.siteAddress) || null,
       sitePlz: compactInvoiceValue(candidate.sitePlz) || null,
       siteCity: compactInvoiceValue(candidate.siteCity) || null,
@@ -7705,10 +7734,31 @@ export default function RechnungenPage() {
                                     Number(b?.sortOrder || 0),
                               )
                             : [];
+                          const completeSites = sites.filter(
+                            (site) =>
+                              Boolean(
+                                compactInvoiceValue(site?.siteAddress) &&
+                                  compactInvoiceValue(site?.sitePlz) &&
+                                  compactInvoiceValue(site?.siteCity),
+                              ),
+                          );
+                          const primarySite = completeSites[0] || null;
+                          const flatSiteIsComplete = Boolean(
+                            order?.siteAddressDifferent &&
+                              compactInvoiceValue(order?.siteAddress) &&
+                              compactInvoiceValue(order?.sitePlz) &&
+                              compactInvoiceValue(order?.siteCity),
+                          );
                           const title =
-                            sites[0]?.siteName ||
-                            order?.siteName ||
-                            order?.siteAddress ||
+                            cleanInvoiceExecutionSiteLabelV17_90L281(
+                              primarySite?.siteName,
+                            ) ||
+                            compactInvoiceValue(primarySite?.siteAddress) ||
+                            (flatSiteIsComplete
+                              ? cleanInvoiceExecutionSiteLabelV17_90L281(
+                                  order?.siteName,
+                                ) || compactInvoiceValue(order?.siteAddress)
+                              : "") ||
                             `Quellauftrag ${index + 1}`;
                           const message = String(
                             order?.notes || order?.audioTranscript || "",
