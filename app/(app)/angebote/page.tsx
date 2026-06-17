@@ -2828,18 +2828,6 @@ function OfferAddressTooltip({ site }: { site: OfferExecutionSite }) {
         <span className="break-words">
           {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
         </span>
-        {site.siteNote && (
-          <>
-            <span className="text-muted-foreground">Hinweis:</span>
-            <span className="break-words">{site.siteNote}</span>
-          </>
-        )}
-        {site.operationalText && (
-          <>
-            <span className="text-muted-foreground">Arbeitsort:</span>
-            <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
-          </>
-        )}
       </span>
     </OfferViewportTooltipV17_95>
   );
@@ -2889,18 +2877,6 @@ function OfferExecutionSitesTooltip({
               <span className="break-words">
                 {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
               </span>
-              {site.siteNote && (
-                <>
-                  <span className="text-muted-foreground">Hinweis:</span>
-                  <span className="break-words">{site.siteNote}</span>
-                </>
-              )}
-              {site.operationalText && (
-                <>
-                  <span className="text-muted-foreground">Arbeitsort:</span>
-                  <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
-                </>
-              )}
             </span>
           </span>
         ))}
@@ -5690,38 +5666,63 @@ export default function AngebotePage() {
           >
             {activeMobileTooltip.kind === "execution_address" ? (
               <div>
-                <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
-                  <MapPin className="h-4 w-4" /> Ausführungsadresse
-                </div>
-                <div className="space-y-1.5">
-                  {textValue
-                    .split("\n")
-                    .slice(1)
-                    .map((line, index) => {
-                      const match = line.match(
-                        /^(Objekt|Strasse|PLZ \/ Ort|Hinweis):\s*(.*)$/i,
-                      );
-                      if (!match) return null;
-                      const isObject = /^Objekt$/i.test(match[1]);
-                      return (
-                        <div
-                          key={`offer_mobile_address_${index}`}
-                          className="grid grid-cols-[76px_1fr] gap-x-2"
-                        >
-                          <span className="text-muted-foreground">{match[1]}:</span>
-                          <span
-                            className={`break-words ${
-                              isObject
-                                ? "font-bold text-slate-950 dark:text-slate-50"
-                                : "font-normal"
-                            }`}
-                          >
-                            {match[2] || "–"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                </div>
+                {(() => {
+                  const addressLines = textValue.split("\n");
+                  const heading =
+                    addressLines[0] || "Ausführungsadresse";
+                  return (
+                    <>
+                      <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+                        <MapPin className="h-4 w-4" /> {heading}
+                      </div>
+                      <div className="space-y-1.5">
+                        {addressLines.slice(1).map((line, index) => {
+                          const siteHeading = line.match(/^Arbeitsort\s+\d+$/i);
+                          if (siteHeading) {
+                            if (heading === "Ausführungsadresse") return null;
+                            return (
+                              <div
+                                key={`offer_mobile_address_site_${index}`}
+                                className={`font-bold text-slate-950 dark:text-slate-50 ${
+                                  index > 0
+                                    ? "mt-2 border-t border-sky-100 pt-2 dark:border-slate-700"
+                                    : ""
+                                }`}
+                              >
+                                {line}
+                              </div>
+                            );
+                          }
+                          if (/^---$/.test(line)) return null;
+                          const match = line.match(
+                            /^(Objekt|Strasse|PLZ \/ Ort):\s*(.*)$/i,
+                          );
+                          if (!match) return null;
+                          const isObject = /^Objekt$/i.test(match[1]);
+                          return (
+                            <div
+                              key={`offer_mobile_address_${index}`}
+                              className="grid grid-cols-[76px_1fr] gap-x-2"
+                            >
+                              <span className="text-muted-foreground">
+                                {match[1]}:
+                              </span>
+                              <span
+                                className={`break-words ${
+                                  isObject
+                                    ? "font-bold text-slate-950 dark:text-slate-50"
+                                    : "font-normal"
+                                }`}
+                              >
+                                {match[2] || "–"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <>
@@ -6857,7 +6858,6 @@ export default function AngebotePage() {
                                                   site.siteName ? `Objekt: ${site.siteName}` : "",
                                                   `Strasse: ${site.siteAddress || "–"}`,
                                                   `PLZ / Ort: ${place || "–"}`,
-                                                  site.siteNote ? `Hinweis: ${site.siteNote}` : "",
                                                 ]
                                                   .filter(Boolean)
                                                   .join("\n");
@@ -7058,7 +7058,6 @@ export default function AngebotePage() {
                                               site.siteName ? `Objekt: ${site.siteName}` : "",
                                               `Strasse: ${site.siteAddress || "–"}`,
                                               `PLZ / Ort: ${place || "–"}`,
-                                              site.siteNote ? `Hinweis: ${site.siteNote}` : "",
                                             ]
                                               .filter(Boolean)
                                               .join("\n");

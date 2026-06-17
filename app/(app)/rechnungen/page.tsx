@@ -2669,7 +2669,10 @@ function InvoiceExecutionSitesTooltip({
 }) {
   if (sites.length === 0) return null;
   return (
-    <InvoiceViewportTooltip>
+    <InvoiceViewportTooltip
+      preferredWidth={420}
+      mobileDismissOnInteraction
+    >
       <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
         <MapPin className="h-4 w-4" />
         {sites.length > 1
@@ -2706,18 +2709,6 @@ function InvoiceExecutionSitesTooltip({
               <span className="break-words">
                 {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
               </span>
-              {site.siteNote && (
-                <>
-                  <span className="text-muted-foreground">Hinweis:</span>
-                  <span className="break-words">{site.siteNote}</span>
-                </>
-              )}
-              {site.operationalText && (
-                <>
-                  <span className="text-muted-foreground">Arbeitsort:</span>
-                  <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
-                </>
-              )}
             </span>
           </span>
         ))}
@@ -5605,17 +5596,9 @@ export default function RechnungenPage() {
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
-                                            openEditInvoice(inv);
-                                            window.setTimeout(
-                                              () =>
-                                                setEditingExecutionAddress(
-                                                  true,
-                                                ),
-                                              120,
-                                            );
                                           }}
                                           className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
-                                          aria-label="Ausführungsort anzeigen und bearbeiten"
+                                          aria-label="Ausführungsort anzeigen"
                                         >
                                           <MapPin className="h-3 w-3 shrink-0" />
                                           <span className="truncate">
@@ -5818,14 +5801,9 @@ export default function RechnungenPage() {
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
-                                      openEditInvoice(inv);
-                                      window.setTimeout(
-                                        () => setEditingExecutionAddress(true),
-                                        120,
-                                      );
                                     }}
                                     className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
-                                    aria-label="Ausführungsadresse anzeigen und bearbeiten"
+                                    aria-label="Ausführungsadresse anzeigen"
                                   >
                                     <MapPin className="h-3 w-3 shrink-0" />
                                     <span className="truncate">
