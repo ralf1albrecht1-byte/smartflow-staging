@@ -4268,14 +4268,14 @@ export default function AngebotePage() {
 
   const focusNewestOfferExecutionSiteV17_90L284 = () => {
     requestAnimationFrame(() => {
-      executionAddressRef.current?.scrollIntoView({
+      serviceItemsRef.current?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
       window.setTimeout(() => {
-        executionAddressRef.current
+        serviceItemsRef.current
           ?.querySelector<HTMLInputElement>(
-            '[data-offer-execution-site-index="0"] input',
+            "[data-offer-work-site-editor] input",
           )
           ?.focus();
       }, 180);
@@ -8286,6 +8286,7 @@ export default function AngebotePage() {
                 </div>
               ) : (
                 <>
+                  {executionSites.length <= 1 && (
                   <div
                     ref={executionAddressRef}
                     className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"
@@ -8488,16 +8489,6 @@ export default function AngebotePage() {
                                         </span>
                                       </>
                                     )}
-                                    {site.operationalText && (
-                                      <>
-                                        <span className="text-muted-foreground">
-                                          Arbeitsort:
-                                        </span>
-                                        <span className="whitespace-pre-wrap break-words">
-                                          {site.operationalText}
-                                        </span>
-                                      </>
-                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -8542,11 +8533,12 @@ export default function AngebotePage() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   <div
                     ref={serviceItemsRef}
                     tabIndex={-1}
-                    className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
+                    className="scroll-mt-24 space-y-2 rounded-xl border-2 border-slate-300 bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3 dark:border-slate-600"
                   >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -8985,26 +8977,35 @@ export default function AngebotePage() {
                             className="overflow-visible space-y-1.5"
                           >
                             <summary
-                              className={`flex cursor-pointer list-none items-center justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden ${
+                              className={`flex cursor-pointer list-none items-start justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/30 [&::-webkit-details-marker]:hidden ${
                                 expandedOfferSiteKeys.has(group.key)
                                   ? "rounded-t-xl rounded-b-none border-b-0"
                                   : "rounded-xl"
                               }`}
                             >
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold">
-                                  📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                  <span className="shrink-0 text-base leading-none">
+                                    {expandedOfferSiteKeys.has(group.key) ? "▾" : "▸"}
+                                  </span>
+                                  <span>
+                                    📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                  </span>
+                                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                    {group.entries.length} Leistung{group.entries.length === 1 ? "" : "en"}
+                                  </span>
                                 </div>
                                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                  {[group.site?.siteAddress, [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" ")]
+                                  {[
+                                    group.site?.siteAddress,
+                                    [group.site?.sitePlz, group.site?.siteCity]
+                                      .filter(Boolean)
+                                      .join(" "),
+                                    group.site?.siteNote,
+                                  ]
                                     .filter(Boolean)
-                                    .join(" · ") || "Adresse nicht angegeben"}
+                                    .join(" · ") || "Adresse prüfen"}
                                 </div>
-                                {group.site?.operationalText && (
-                                  <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-cyan-200 bg-white/70 p-2 text-xs leading-5 text-slate-700 dark:border-cyan-900 dark:bg-slate-950/40 dark:text-slate-200">
-                                    {group.site.operationalText}
-                                  </div>
-                                )}
                                 {(() => {
                                   const groupSummary = buildOfferServiceReviewSummary(
                                     {
@@ -9063,9 +9064,9 @@ export default function AngebotePage() {
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-[10px] text-muted-foreground">
-                                  {group.entries.length} Leistungen
+                                  Zwischensumme
                                 </div>
-                                <div className="font-mono text-sm font-bold text-emerald-700">
+                                <div className="font-mono text-sm font-semibold">
                                   {formatCurrency(group.subtotal, currency)}
                                 </div>
                                 <button
@@ -9085,7 +9086,7 @@ export default function AngebotePage() {
                             {editingOfferSiteKey === group.key && group.site && (
                               <div
                                 data-offer-work-site-editor={group.key}
-                                className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2"
+                                className="grid grid-cols-1 gap-2 rounded-md border bg-background/80 p-2 sm:grid-cols-2"
                               >
                                 <div className="sm:col-span-2"><Label className="text-xs">Objekt / Bereich</Label><Input value={group.site.siteName || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteName", event.target.value)} /></div>
                                 <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
@@ -9111,7 +9112,15 @@ export default function AngebotePage() {
                                   >
                                     Arbeitsort löschen
                                   </Button>
-                                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingOfferSiteKey(null)}>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingOfferSiteKey(null);
+                                      setEditingExecutionAddress(false);
+                                    }}
+                                  >
                                     Fertig
                                   </Button>
                                 </div>

@@ -6939,7 +6939,7 @@ export default function RechnungenPage() {
                 <>
                   <div
                     ref={serviceItemsRef}
-                    className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4"
+                    className="scroll-mt-24 space-y-2 rounded-xl border-2 border-slate-300 bg-background p-2.5 sm:p-3 dark:border-slate-600"
                   >
                     <div className="space-y-2">
                       {(() => {
@@ -7390,18 +7390,26 @@ export default function RechnungenPage() {
                             className="overflow-visible space-y-1.5"
                           >
                             <summary
-                              className={`flex cursor-pointer list-none items-center justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden ${
+                              className={`flex cursor-pointer list-none items-start justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/30 [&::-webkit-details-marker]:hidden ${
                                 expandedInvoiceSiteKeys.has(group.key)
                                   ? "rounded-t-xl rounded-b-none border-b-0"
                                   : "rounded-xl"
                               }`}
                             >
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold">
-                                  📍 {groupIndex + 1}.{" "}
-                                  {group.site?.siteName ||
-                                    group.site?.siteAddress ||
-                                    `Ausführungsort ${groupIndex + 1}`}
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                  <span className="shrink-0 text-base leading-none">
+                                    {expandedInvoiceSiteKeys.has(group.key) ? "▾" : "▸"}
+                                  </span>
+                                  <span>
+                                    📍 {groupIndex + 1}.{" "}
+                                    {group.site?.siteName ||
+                                      group.site?.siteAddress ||
+                                      `Ausführungsort ${groupIndex + 1}`}
+                                  </span>
+                                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                    {group.entries.length} Leistung{group.entries.length === 1 ? "" : "en"}
+                                  </span>
                                 </div>
                                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
                                   {[
@@ -7409,15 +7417,11 @@ export default function RechnungenPage() {
                                     [group.site?.sitePlz, group.site?.siteCity]
                                       .filter(Boolean)
                                       .join(" "),
+                                    group.site?.siteNote,
                                   ]
                                     .filter(Boolean)
-                                    .join(" · ") || "Adresse nicht angegeben"}
+                                    .join(" · ") || "Adresse prüfen"}
                                 </div>
-                                {group.site?.operationalText && (
-                                  <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-cyan-200 bg-white/70 p-2 text-xs leading-5 text-slate-700 dark:border-cyan-900 dark:bg-slate-950/40 dark:text-slate-200">
-                                    {group.site.operationalText}
-                                  </div>
-                                )}
                                 {(() => {
                                   const groupReviewEntries =
                                     buildInvoiceServiceReviewEntriesV17_90L135G(
@@ -7503,9 +7507,9 @@ export default function RechnungenPage() {
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-[10px] text-muted-foreground">
-                                  {group.entries.length} Leistungen
+                                  Zwischensumme
                                 </div>
-                                <div className="font-mono text-sm font-bold text-emerald-700">
+                                <div className="font-mono text-sm font-semibold">
                                   {formatCurrency(group.subtotal, currency)}
                                 </div>
                                 <button
@@ -7531,7 +7535,7 @@ export default function RechnungenPage() {
                               group.site && (
                                 <div
                                   data-invoice-work-site-editor={group.key}
-                                  className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2"
+                                  className="grid grid-cols-1 gap-2 rounded-md border bg-background/80 p-2 sm:grid-cols-2"
                                 >
                                   <div className="sm:col-span-2">
                                     <Label className="text-xs">
