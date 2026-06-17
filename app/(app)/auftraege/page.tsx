@@ -4477,15 +4477,17 @@ const getOperationalBadges = (
         focusTarget: "specialNotes",
       });
     }
-    const suppressedReviewRoleTextsV17_90L252 =
-      activeRecognitionRelatedRoleTextsV17_90L252(order);
+    const suppressedReviewDisplayTextsV17_90L280 =
+      activeRecognitionDisplayTextsV17_90L280(order);
     canonicalLinesV2([
       ...canonicalSnapshotV2.roles.other,
       ...canonicalSnapshotV2.roles.ordinary,
     ])
       .filter(
         (line) =>
-          !suppressedReviewRoleTextsV17_90L252.has(normalizeForMatch(line)),
+          !suppressedReviewDisplayTextsV17_90L280.some((reviewText) =>
+            orderInfoLinesEquivalentV17_66(line, reviewText),
+          ),
       )
       .forEach((line) => {
       const kind = getSemanticBadgeKind(line);
