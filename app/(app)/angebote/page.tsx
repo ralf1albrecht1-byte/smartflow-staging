@@ -498,6 +498,17 @@ function groupOfferItemsByExecutionSite(
 ): OfferItemGroup[] {
   const groups = new Map<string, OfferItemGroup>();
   const normalizedSites = sites.filter(Boolean);
+
+  // V17.90L284: Arbeitsorte zuerst als eigenständige Gruppen anlegen.
+  // Dadurch bleibt ein neuer Arbeitsort sichtbar und bearbeitbar, bevor ihm
+  // eine Leistung zugeordnet wird.
+  normalizedSites.forEach((site) => {
+    const key = `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
+    if (!groups.has(key)) {
+      groups.set(key, { key, site, entries: [], subtotal: 0 });
+    }
+  });
+
   sourceItems.forEach((item, index) => {
     const matchedSite =
       normalizedSites.find((site) => offerSiteKey(site) === offerSiteKey(item)) ||
@@ -4255,6 +4266,22 @@ export default function AngebotePage() {
     });
   };
 
+  const focusNewestOfferExecutionSiteV17_90L284 = () => {
+    requestAnimationFrame(() => {
+      executionAddressRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        executionAddressRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-offer-execution-site-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
   const addItem = () => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
     // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
@@ -4534,6 +4561,8 @@ export default function AngebotePage() {
       setExpandedOfferSiteKeys((current) =>
         new Set([...current, unfinishedKey]),
       );
+      setEditingExecutionAddress(true);
+      focusNewestOfferExecutionSiteV17_90L284();
       toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
       return;
     }
@@ -4547,13 +4576,23 @@ export default function AngebotePage() {
       sourceOrderId: null,
     };
     const key = offerGroupKeyForSite(site);
-    setExecutionSites((current) => [...current, site]);
-    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setExecutionSites((current) => [site, ...current]);
     setEditingExecutionAddress(true);
     setEditingOfferSiteKey(key);
     setNewOfferItemSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(null);
+    focusNewestOfferExecutionSiteV17_90L284();
+  };
+
+  const addOfferItemToSiteV17_90L284 = (site: OfferExecutionSite) => {
+    const key = offerGroupKeyForSite(site);
+    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setNewOfferItemSiteKey(key);
+    setEditingOfferSiteKey(key);
+    setExpandedOfferSiteKeys((current) => new Set([...current, key]));
     setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
     focusNewestOfferItem();
   };
 
@@ -4959,6 +4998,27 @@ export default function AngebotePage() {
     }
     if (!items?.length || !items[0]?.description?.trim()) {
       toast.error("Mindestens eine Position");
+      return null;
+    }
+
+    const unassignedExecutionSite =
+      executionSites.length > 1
+        ? executionSites.find((site) => {
+            const siteKey = offerGroupKeyForSite(site);
+            return !items.some((item) => {
+              const itemKey = offerGroupKeyForSite(item as OfferExecutionSite);
+              return (
+                itemKey === siteKey ||
+                (site.sourceOrderId &&
+                  item.sourceOrderId === site.sourceOrderId)
+              );
+            });
+          })
+        : null;
+    if (unassignedExecutionSite) {
+      toast.error(
+        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+      );
       return null;
     }
 
@@ -8306,6 +8366,7 @@ export default function AngebotePage() {
                         {executionSites.map((site, index) => (
                           <div
                             key={`${site.sourceOrderId || "site"}-${index}`}
+                            data-offer-execution-site-index={index}
                             className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950"
                           >
                             {editingExecutionAddress ? (
@@ -8438,6 +8499,19 @@ export default function AngebotePage() {
                                 </div>
                               </div>
                             )}
+                            {editingExecutionAddress && (
+                              <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => addOfferItemToSiteV17_90L284(site)}
+                                >
+                                  <Plus className="mr-1 h-3.5 w-3.5" />
+                                  Leistung hier hinzufügen
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         ))}
                         {editingExecutionAddress && (
@@ -8479,6 +8553,18 @@ export default function AngebotePage() {
                             : `Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`}
                         </Label>
                         <div className="flex flex-wrap items-center justify-end gap-2">
+                          {executionSites.length > 0 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={addExecutionSite}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Arbeitsort hinzufügen
+                            </Button>
+                          )}
                           {executionSites.length > 1 && (
                             <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
                               {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
@@ -8873,7 +8959,10 @@ export default function AngebotePage() {
                         );
                                                 });
 
-                        if (groups.length <= 1) {
+                        if (
+                          groups.length <= 1 &&
+                          (groups[0]?.entries.length || 0) > 0
+                        ) {
                           return renderEntries(groups[0]?.entries || []);
                         }
 
@@ -8991,12 +9080,25 @@ export default function AngebotePage() {
                               </div>
                             </summary>
                             {editingOfferSiteKey === group.key && group.site && (
-                              <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
+                              <div
+                                data-offer-work-site-editor={group.key}
+                                className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2"
+                              >
                                 <div className="sm:col-span-2"><Label className="text-xs">Objekt / Bereich</Label><Input value={group.site.siteName || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteName", event.target.value)} /></div>
                                 <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
                                 <div><Label className="text-xs">PLZ</Label><Input value={group.site.sitePlz || ""} onChange={(event) => updateOfferGroupSite(group.key, "sitePlz", event.target.value)} /></div>
                                 <div><Label className="text-xs">Ort</Label><Input value={group.site.siteCity || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteCity", event.target.value)} /></div>
+                                <div className="sm:col-span-2"><Label className="text-xs">Hinweis</Label><Input value={group.site.siteNote || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteNote", event.target.value)} placeholder="z. B. Eingang hinten, Rampe 2" /></div>
                                 <div className="sm:col-span-2 flex flex-wrap justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => addOfferItemToSiteV17_90L284(group.site!)}
+                                  >
+                                    <Plus className="mr-1 h-3.5 w-3.5" />
+                                    Leistung hier hinzufügen
+                                  </Button>
                                   <Button
                                     type="button"
                                     size="sm"
@@ -9013,7 +9115,30 @@ export default function AngebotePage() {
                               </div>
                             )}
                             <div className="ml-2 space-y-2 bg-background pt-1">
-                              {renderEntries(group.entries)}
+                              {group.entries.length > 0 ? (
+                                renderEntries(group.entries)
+                              ) : (
+                                <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/40 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/10 dark:text-amber-200">
+                                  <div className="font-semibold">
+                                    Noch keine Leistung für diesen Arbeitsort.
+                                  </div>
+                                  <div className="mt-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        group.site &&
+                                        addOfferItemToSiteV17_90L284(group.site)
+                                      }
+                                    >
+                                      <Plus className="mr-1 h-3.5 w-3.5" />
+                                      Leistung hier hinzufügen
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </details>
                         ));

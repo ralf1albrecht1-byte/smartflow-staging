@@ -1141,6 +1141,17 @@ function groupInvoiceItemsByExecutionSite(
   sites: InvoiceExecutionSite[] = [],
 ): InvoiceItemGroup[] {
   const groups = new Map<string, InvoiceItemGroup>();
+
+  // V17.90L284: Arbeitsorte zuerst als eigenständige Gruppen anlegen.
+  // So bleibt ein neuer Arbeitsort sichtbar und bearbeitbar, bevor ihm eine
+  // Leistung zugeordnet wird.
+  sites.filter(Boolean).forEach((site) => {
+    const key = `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+    if (!groups.has(key)) {
+      groups.set(key, { key, site, entries: [], subtotal: 0 });
+    }
+  });
+
   sourceItems.forEach((item, index) => {
     const matchedSite =
       sites.find((site) => invoiceSiteKey(site) === invoiceSiteKey(item)) ||
@@ -2890,6 +2901,9 @@ export default function RechnungenPage() {
   >(null);
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
+  const [invoiceExecutionSiteDrafts, setInvoiceExecutionSiteDrafts] = useState<
+    InvoiceExecutionSite[]
+  >([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -3415,6 +3429,7 @@ export default function RechnungenPage() {
     setEditingInvoiceSiteKey(null);
     setNewInvoiceItemSiteKey("");
     setNewInvoiceExecutionSite(null);
+    setInvoiceExecutionSiteDrafts([]);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
     setShowNewCustomer(false);
@@ -3498,6 +3513,7 @@ export default function RechnungenPage() {
     setEditingInvoiceSiteKey(null);
     setNewInvoiceItemSiteKey("");
     setNewInvoiceExecutionSite(null);
+    setInvoiceExecutionSiteDrafts([]);
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
@@ -3661,10 +3677,7 @@ export default function RechnungenPage() {
   };
 
   const addItem = () => {
-    const sites = collectInvoiceExecutionSites({
-      items,
-      orders: editingInvoice?.orders || [],
-    });
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
     const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
     // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
     // innerhalb der neu geöffneten Leistungsposition ausgewählt. Dadurch ist
@@ -3730,10 +3743,7 @@ export default function RechnungenPage() {
   };
 
   const assignInvoiceItemToSite = (index: number, siteKey: string) => {
-    const sites = collectInvoiceExecutionSites({
-      items,
-      orders: editingInvoice?.orders || [],
-    });
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
     const site = sites.find(
       (candidate) => invoiceGroupKeyForSite(candidate) === siteKey,
     );
@@ -3863,11 +3873,45 @@ export default function RechnungenPage() {
   const invoiceGroupKeyForSite = (site: InvoiceExecutionSite) =>
     `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
 
-  const addInvoiceExecutionSite = () => {
-    const sites = collectInvoiceExecutionSites({
+  const getCurrentInvoiceExecutionSitesV17_90L284 = () => {
+    const collected = collectInvoiceExecutionSites({
       items,
       orders: editingInvoice?.orders || [],
     });
+    const result: InvoiceExecutionSite[] = [];
+    const seen = new Set<string>();
+    const addSite = (site: InvoiceExecutionSite) => {
+      const key = invoiceGroupKeyForSite(site);
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(site);
+    };
+    invoiceExecutionSiteDrafts.forEach(addSite);
+    if (!editingInvoice && newInvoiceExecutionSite) {
+      addSite(newInvoiceExecutionSite);
+    }
+    collected.forEach(addSite);
+    return result;
+  };
+
+  const focusInvoiceWorkSiteEditorV17_90L284 = () => {
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            "[data-invoice-work-site-editor] input",
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
+  const addInvoiceExecutionSite = () => {
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
     const unfinishedSite = sites.find(
       (site) =>
         !compactInvoiceValue(site.siteName) &&
@@ -3882,6 +3926,7 @@ export default function RechnungenPage() {
       setExpandedInvoiceSiteKeys(
         (current) => new Set([...current, unfinishedKey]),
       );
+      focusInvoiceWorkSiteEditorV17_90L284();
       toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
       return;
     }
@@ -3894,17 +3939,35 @@ export default function RechnungenPage() {
       sourceOrderId: null,
     };
     const key = invoiceGroupKeyForSite(site);
+    setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(null);
+    focusInvoiceWorkSiteEditorV17_90L284();
+  };
+
+  const addInvoiceItemToSiteV17_90L284 = (site: InvoiceExecutionSite) => {
+    const key = invoiceGroupKeyForSite(site);
     setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
     setExpandedItemIndex(0);
-    requestAnimationFrame(() =>
+    setServiceActionMenuIndex(null);
+    requestAnimationFrame(() => {
       serviceItemsRef.current?.scrollIntoView({
         behavior: "smooth",
         block: "start",
-      }),
-    );
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-service-item-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
   };
 
   const updateInvoiceGroupSite = (
@@ -3912,13 +3975,19 @@ export default function RechnungenPage() {
     field: keyof InvoiceExecutionSite,
     value: string,
   ) => {
-    const currentSite = collectInvoiceExecutionSites({
-      items,
-      orders: editingInvoice?.orders || [],
-    }).find((site) => invoiceGroupKeyForSite(site) === groupKey);
+    const currentSite = getCurrentInvoiceExecutionSitesV17_90L284().find(
+      (site) => invoiceGroupKeyForSite(site) === groupKey,
+    );
     const nextKey = currentSite
       ? invoiceGroupKeyForSite({ ...currentSite, [field]: value })
       : groupKey;
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.map((site) =>
+        invoiceGroupKeyForSite(site) === groupKey
+          ? { ...site, [field]: value || null }
+          : site,
+      ),
+    );
     setItems((current) =>
       current.map((item) =>
         invoiceGroupKeyForSite(item as InvoiceExecutionSite) === groupKey
@@ -3938,10 +4007,7 @@ export default function RechnungenPage() {
   const removeInvoiceExecutionSite = (groupKey: string) => {
     const groups = groupInvoiceItemsByExecutionSite(
       items || [],
-      collectInvoiceExecutionSites({
-        items,
-        orders: editingInvoice?.orders || [],
-      }),
+      getCurrentInvoiceExecutionSitesV17_90L284(),
     );
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
@@ -3964,6 +4030,9 @@ export default function RechnungenPage() {
       );
       return;
     }
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.filter((site) => invoiceGroupKeyForSite(site) !== groupKey),
+    );
     setItems((current) =>
       current.filter(
         (item) =>
@@ -3980,10 +4049,7 @@ export default function RechnungenPage() {
   };
 
   const toggleAllInvoiceSites = () => {
-    const sites = collectInvoiceExecutionSites({
-      items,
-      orders: editingInvoice?.orders || [],
-    });
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
     const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
     setExpandedInvoiceSiteKeys((current) =>
       current.size === groups.length
@@ -4257,6 +4323,42 @@ export default function RechnungenPage() {
       toast.error("Mindestens eine Leistung");
       return false;
     }
+    const currentExecutionSites =
+      getCurrentInvoiceExecutionSitesV17_90L284();
+    const unassignedExecutionSite =
+      currentExecutionSites.length > 1
+        ? currentExecutionSites.find((site) => {
+            const siteKey = invoiceGroupKeyForSite(site);
+            const isPrimaryNewInvoiceSite = Boolean(
+              !editingInvoice &&
+                newInvoiceExecutionSite &&
+                siteKey === invoiceGroupKeyForSite(newInvoiceExecutionSite),
+            );
+            if (
+              isPrimaryNewInvoiceSite &&
+              items.some(
+                (item) =>
+                  !compactInvoiceValue(item.siteAddress) &&
+                  !compactInvoiceValue(item.sitePlz) &&
+                  !compactInvoiceValue(item.siteCity),
+              )
+            ) {
+              return false;
+            }
+            return !items.some((item) => {
+              const itemKey = invoiceGroupKeyForSite(
+                item as InvoiceExecutionSite,
+              );
+              return itemKey === siteKey;
+            });
+          })
+        : null;
+    if (unassignedExecutionSite) {
+      toast.error(
+        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+      );
+      return false;
+    }
     if (!form.invoiceDate || !form.dueDate) {
       toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
       return false;
@@ -4270,19 +4372,27 @@ export default function RechnungenPage() {
     setSaving(true);
     try {
       const itemsForCreate = newInvoiceExecutionSite
-        ? items.map((item) => ({
-            ...item,
-            siteName:
-              compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
-            siteAddress:
-              compactInvoiceValue(newInvoiceExecutionSite.siteAddress) || null,
-            sitePlz:
-              compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
-            siteCity:
-              compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
-            siteNote:
-              compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
-          }))
+        ? items.map((item) => {
+            const hasAssignedExecutionSite = Boolean(
+              compactInvoiceValue(item.siteAddress) &&
+                compactInvoiceValue(item.sitePlz) &&
+                compactInvoiceValue(item.siteCity),
+            );
+            if (hasAssignedExecutionSite) return item;
+            return {
+              ...item,
+              siteName:
+                compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
+              siteAddress:
+                compactInvoiceValue(newInvoiceExecutionSite.siteAddress) || null,
+              sitePlz:
+                compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
+              siteCity:
+                compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
+              siteNote:
+                compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
+            };
+          })
         : items;
       const res = await fetch("/api/invoices", {
         method: "POST",
@@ -4298,6 +4408,7 @@ export default function RechnungenPage() {
       if (res.ok) {
         const createdInvoice = await res.json().catch(() => null);
         toast.success("Rechnung gespeichert");
+        setInvoiceExecutionSiteDrafts([]);
         await load();
         if (closeAfterSave) {
           setDialogOpen(false);
@@ -4349,6 +4460,28 @@ export default function RechnungenPage() {
 
   const saveEdit = async (closeAfterSave = true): Promise<boolean> => {
     if (!editingInvoice) return false;
+    const unassignedExecutionSite =
+      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
+        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
+            const siteKey = invoiceGroupKeyForSite(site);
+            return !items.some((item) => {
+              const itemKey = invoiceGroupKeyForSite(
+                item as InvoiceExecutionSite,
+              );
+              return (
+                itemKey === siteKey ||
+                (site.sourceOrderId &&
+                  item.sourceOrderId === site.sourceOrderId)
+              );
+            });
+          })
+        : null;
+    if (unassignedExecutionSite) {
+      toast.error(
+        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+      );
+      return false;
+    }
     if (!form.invoiceDate || !form.dueDate) {
       toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
       return false;
@@ -4379,6 +4512,7 @@ export default function RechnungenPage() {
         return false;
       }
       toast.success("Rechnung aktualisiert");
+      setInvoiceExecutionSiteDrafts([]);
       if (closeAfterSave) {
         setDialogOpen(false);
         setEditingInvoice(null);
@@ -4397,10 +4531,7 @@ export default function RechnungenPage() {
     const saved = await saveEdit(false);
     if (saved) {
       const currentSite =
-        collectInvoiceExecutionSites({
-          items,
-          orders: editingInvoice?.orders || [],
-        })[0] || null;
+        getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;
       setExecutionAddressEditSnapshot(
         serializeInvoiceExecutionSiteForEdit(currentSite),
       );
@@ -4411,6 +4542,28 @@ export default function RechnungenPage() {
   // Save + Archive → set status Erledigt + back to list
   const saveAndArchive = async () => {
     if (!editingInvoice) return;
+    const unassignedExecutionSite =
+      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
+        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
+            const siteKey = invoiceGroupKeyForSite(site);
+            return !items.some((item) => {
+              const itemKey = invoiceGroupKeyForSite(
+                item as InvoiceExecutionSite,
+              );
+              return (
+                itemKey === siteKey ||
+                (site.sourceOrderId &&
+                  item.sourceOrderId === site.sourceOrderId)
+              );
+            });
+          })
+        : null;
+    if (unassignedExecutionSite) {
+      toast.error(
+        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+      );
+      return;
+    }
     if (!form.invoiceDate || !form.dueDate) {
       toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
       return;
@@ -6578,15 +6731,10 @@ export default function RechnungenPage() {
 
               {!dupCheckOpen &&
                 editingInvoice &&
-                collectInvoiceExecutionSites({
-                  items,
-                  orders: editingInvoice?.orders || [],
-                }).length <= 1 &&
+                getCurrentInvoiceExecutionSitesV17_90L284().length <= 1 &&
                 (() => {
-                  const executionSite = collectInvoiceExecutionSites({
-                    items,
-                    orders: editingInvoice?.orders || [],
-                  })[0];
+                  const executionSite =
+                    getCurrentInvoiceExecutionSitesV17_90L284()[0];
                   if (!executionSite) return null;
                   return (
                     <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
@@ -6792,10 +6940,8 @@ export default function RechnungenPage() {
                   >
                     <div className="space-y-2">
                       {(() => {
-                        const currentSites = collectInvoiceExecutionSites({
-                          items,
-                          orders: editingInvoice?.orders || [],
-                        });
+                        const currentSites =
+                          getCurrentInvoiceExecutionSitesV17_90L284();
                         const multiSite = currentSites.length > 1;
                         return (
                           <>
@@ -6806,6 +6952,18 @@ export default function RechnungenPage() {
                                   : `Leistungen · ${items?.length || 0}`}
                               </h3>
                               <div className="flex flex-wrap items-center justify-end gap-2">
+                                {editingInvoice && currentSites.length > 0 && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={addInvoiceExecutionSite}
+                                  >
+                                    <Plus className="mr-1 h-3.5 w-3.5" />
+                                    Arbeitsort hinzufügen
+                                  </Button>
+                                )}
                                 {multiSite && (
                                   <Button
                                     variant="outline"
@@ -6858,10 +7016,7 @@ export default function RechnungenPage() {
                       {(() => {
                         const groups = groupInvoiceItemsByExecutionSite(
                           items || [],
-                          collectInvoiceExecutionSites({
-                            items,
-                            orders: editingInvoice?.orders || [],
-                          }),
+                          getCurrentInvoiceExecutionSitesV17_90L284(),
                         );
                         const renderEntries = (
                           entries: Array<{ item: InvoiceItem; index: number }>,
@@ -7034,10 +7189,7 @@ export default function RechnungenPage() {
 
                                 {isExpanded && (
                                   <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                    {collectInvoiceExecutionSites({
-                                      items,
-                                      orders: editingInvoice?.orders || [],
-                                    }).length > 1 && (
+                                    {getCurrentInvoiceExecutionSitesV17_90L284().length > 1 && (
                                       <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                         <Label className="text-xs">
                                           Arbeitsort
@@ -7046,11 +7198,7 @@ export default function RechnungenPage() {
                                           className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                           value={(() => {
                                             const sites =
-                                              collectInvoiceExecutionSites({
-                                                items,
-                                                orders:
-                                                  editingInvoice?.orders || [],
-                                              });
+                                              getCurrentInvoiceExecutionSitesV17_90L284();
                                             const matched = sites.find(
                                               (site) =>
                                                 invoiceSiteKey(site) ===
@@ -7070,11 +7218,7 @@ export default function RechnungenPage() {
                                           <option value="">
                                             Arbeitsort wählen…
                                           </option>
-                                          {collectInvoiceExecutionSites({
-                                            items,
-                                            orders:
-                                              editingInvoice?.orders || [],
-                                          }).map((site, siteIndex) => {
+                                          {getCurrentInvoiceExecutionSitesV17_90L284().map((site, siteIndex) => {
                                             const key =
                                               invoiceGroupKeyForSite(site);
                                             return (
@@ -7220,7 +7364,10 @@ export default function RechnungenPage() {
                             );
                           });
 
-                        if (groups.length <= 1) {
+                        if (
+                          groups.length <= 1 &&
+                          (groups[0]?.entries.length || 0) > 0
+                        ) {
                           return renderEntries(groups[0]?.entries || []);
                         }
 
@@ -7379,7 +7526,10 @@ export default function RechnungenPage() {
                             </summary>
                             {editingInvoiceSiteKey === group.key &&
                               group.site && (
-                                <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
+                                <div
+                                  data-invoice-work-site-editor={group.key}
+                                  className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2"
+                                >
                                   <div className="sm:col-span-2">
                                     <Label className="text-xs">
                                       Objekt / Bereich
@@ -7434,7 +7584,32 @@ export default function RechnungenPage() {
                                       }
                                     />
                                   </div>
-                                  <div className="sm:col-span-2 flex justify-end">
+                                  <div className="sm:col-span-2">
+                                    <Label className="text-xs">Hinweis</Label>
+                                    <Input
+                                      value={group.site.siteNote || ""}
+                                      placeholder="z. B. Eingang hinten, Rampe 2"
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteNote",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="sm:col-span-2 flex flex-wrap justify-end gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        addInvoiceItemToSiteV17_90L284(group.site!)
+                                      }
+                                    >
+                                      <Plus className="mr-1 h-3.5 w-3.5" />
+                                      Leistung hier hinzufügen
+                                    </Button>
                                     {!group.site.sourceOrderId && (
                                       <Button
                                         type="button"
@@ -7462,7 +7637,30 @@ export default function RechnungenPage() {
                                 </div>
                               )}
                             <div className="ml-2 space-y-2 bg-background pt-1">
-                              {renderEntries(group.entries)}
+                              {group.entries.length > 0 ? (
+                                renderEntries(group.entries)
+                              ) : (
+                                <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/40 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/10 dark:text-amber-200">
+                                  <div className="font-semibold">
+                                    Noch keine Leistung für diesen Arbeitsort.
+                                  </div>
+                                  <div className="mt-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        group.site &&
+                                        addInvoiceItemToSiteV17_90L284(group.site)
+                                      }
+                                    >
+                                      <Plus className="mr-1 h-3.5 w-3.5" />
+                                      Leistung hier hinzufügen
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </details>
                         ));

@@ -14190,11 +14190,17 @@ export default function AuftraegePage() {
         site.id === activeWorkSiteId,
     )
     .slice()
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      // V17.90L284: Ein neu angelegter Arbeitsort bleibt bis zum Abschluss
+      // immer oben sichtbar. Bestehende Primär-/Sortierreihenfolge bleibt danach erhalten.
+      const aIsOpenDraft = a.id === editingWorkSiteId && a.id.startsWith("tmp-");
+      const bIsOpenDraft = b.id === editingWorkSiteId && b.id.startsWith("tmp-");
+      if (aIsOpenDraft !== bIsOpenDraft) return aIsOpenDraft ? -1 : 1;
+      return (
         Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
-        Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
-    );
+        Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+      );
+    });
 
   const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
 
@@ -14286,6 +14292,22 @@ export default function AuftraegePage() {
     );
   };
 
+  const focusFormWorkSiteEditorV17_90L284 = (siteId: string) => {
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            `[data-work-site-editor-id="${siteId}"] input`,
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
   const addFormWorkSite = () => {
     const openDraft = formWorkSites.find(
       (site) =>
@@ -14299,6 +14321,7 @@ export default function AuftraegePage() {
       setExpandedWorkSiteIds((prev) =>
         prev.includes(openDraft.id) ? prev : [openDraft.id, ...prev],
       );
+      focusFormWorkSiteEditorV17_90L284(openDraft.id);
       toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
       return;
     }
@@ -14353,7 +14376,6 @@ export default function AuftraegePage() {
     setForm((prev) => ({ ...prev, siteAddressDifferent: true }));
     setSiteAddressEditing(false);
     setFormWorkSites([
-      ...baseSites,
       {
         id: newId,
         siteName: "",
@@ -14364,6 +14386,7 @@ export default function AuftraegePage() {
         isPrimary: baseSites.length === 0,
         sortOrder: baseSites.length,
       },
+      ...baseSites,
     ]);
     setEditingWorkSiteId(newId);
     setActiveWorkSiteId(newId);
@@ -14371,6 +14394,7 @@ export default function AuftraegePage() {
     setExpandedWorkSiteIds((prev) =>
       prev.includes(newId) ? prev : [newId, ...prev],
     );
+    focusFormWorkSiteEditorV17_90L284(newId);
   };
 
   const removeFormWorkSite = (siteId: string) => {
@@ -19948,6 +19972,18 @@ export default function AuftraegePage() {
                               type="button"
                               size="sm"
                               variant="outline"
+                              onClick={addFormWorkSite}
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Arbeitsort hinzufügen
+                            </Button>
+                          )}
+                          {hasMultipleEditWorkSites && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
                               onClick={toggleWorkSiteOverview}
                               className="h-7 px-2 text-xs"
                             >
@@ -20968,6 +21004,7 @@ export default function AuftraegePage() {
 
                                   {site && isEditingSite && (
                                     <div
+                                      data-work-site-editor-id={site.id}
                                       onClick={(event) =>
                                         event.stopPropagation()
                                       }
@@ -21067,17 +21104,27 @@ export default function AuftraegePage() {
                                           Zugeordnet: {groupItemCount}{" "}
                                           Leistung(en)
                                         </div>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="ghost"
-                                          className="text-red-600 hover:text-red-700"
-                                          onClick={() =>
-                                            removeFormWorkSite(site.id)
-                                          }
-                                        >
-                                          Löschen
-                                        </Button>
+                                        <div className="flex flex-wrap items-center justify-end gap-2">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-red-600 hover:text-red-700"
+                                            onClick={() =>
+                                              removeFormWorkSite(site.id)
+                                            }
+                                          >
+                                            Löschen
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setEditingWorkSiteId(null)}
+                                          >
+                                            Fertig
+                                          </Button>
+                                        </div>
                                       </div>
                                     </div>
                                   )}
