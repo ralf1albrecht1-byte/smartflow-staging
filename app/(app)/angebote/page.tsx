@@ -4563,7 +4563,7 @@ export default function AngebotePage() {
       );
       setEditingExecutionAddress(true);
       focusNewestOfferExecutionSiteV17_90L284();
-      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+      toast.info("Neuen Arbeitsort und Leistung zuerst vollständig ausfüllen.");
       return;
     }
 
@@ -4576,12 +4576,15 @@ export default function AngebotePage() {
       sourceOrderId: null,
     };
     const key = offerGroupKeyForSite(site);
+    const blankItem = { ...getEmptyItem(), ...site };
     setExecutionSites((current) => [site, ...current]);
+    setItems((current) => [blankItem, ...current]);
     setEditingExecutionAddress(true);
     setEditingOfferSiteKey(key);
     setNewOfferItemSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
-    setExpandedItemIndex(null);
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
     focusNewestOfferExecutionSiteV17_90L284();
   };
 

@@ -3927,7 +3927,7 @@ export default function RechnungenPage() {
         (current) => new Set([...current, unfinishedKey]),
       );
       focusInvoiceWorkSiteEditorV17_90L284();
-      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+      toast.info("Neuen Arbeitsort und Leistung zuerst vollständig ausfüllen.");
       return;
     }
     const site: InvoiceExecutionSite = {
@@ -3939,11 +3939,14 @@ export default function RechnungenPage() {
       sourceOrderId: null,
     };
     const key = invoiceGroupKeyForSite(site);
+    const blankItem = { ...getEmptyItem(), ...site };
     setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
+    setItems((current) => [blankItem, ...current]);
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
-    setExpandedItemIndex(null);
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
     focusInvoiceWorkSiteEditorV17_90L284();
   };
 

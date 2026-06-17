@@ -12059,20 +12059,27 @@ export default function AuftraegePage() {
         ? ""
         : o.siteNote ?? "",
     });
-    const nextWorkSites = (hasInvalidReverseHandoffExecutionStateV17_90L280
-      ? (o.workSites ?? []).filter((site) =>
-          Boolean(
-            compactText(site?.siteAddress) &&
-              compactText(site?.sitePlz) &&
-              compactText(site?.siteCity),
-          ),
-        )
-      : o.workSites ?? [])
+    const sourceWorkSitesForEditorV17_90L285 =
+      hasInvalidReverseHandoffExecutionStateV17_90L280
+        ? (o.workSites ?? []).filter((site) =>
+            Boolean(
+              compactText(site?.siteAddress) &&
+                compactText(site?.sitePlz) &&
+                compactText(site?.siteCity),
+            ),
+          )
+        : o.workSites ?? [];
+    const mayInferSingleSiteNameV17_90L285 =
+      sourceWorkSitesForEditorV17_90L285.length === 1;
+    const nextWorkSites = sourceWorkSitesForEditorV17_90L285
       .map((site, index) => {
         const safeSiteName = isSameAddressPlaceholderV17_90L135H(site.siteName)
           ? ""
           : cleanWorkSiteDisplayName(site.siteName);
-        return index === 0 && !safeSiteName && safeInferredSiteName
+        return mayInferSingleSiteNameV17_90L285 &&
+          index === 0 &&
+          !safeSiteName &&
+          safeInferredSiteName
           ? { ...site, siteName: safeInferredSiteName }
           : { ...site, siteName: safeSiteName || null };
       })
@@ -13231,10 +13238,15 @@ export default function AuftraegePage() {
     // V17.90L135J: Bei mehreren Arbeitsorten wird die Auswahl erst
     // innerhalb der neu geöffneten Leistungsposition getroffen. Dadurch bleibt
     // die Kopfzeile kompakt und es gibt dort kein dauerhaftes Dropdown mehr.
+    const preferredEditedWorkSiteIdV17_90L285 =
+      [editingWorkSiteId, newItemWorkSiteId]
+        .map((value) => String(value || "").trim())
+        .find((value) =>
+          selectableSites.some((site) => site.id === value),
+        ) || null;
     const targetWorkSiteId =
-      selectableSites.length > 1
-        ? null
-        : newItemWorkSiteId || selectableSites[0]?.id || null;
+      preferredEditedWorkSiteIdV17_90L285 ||
+      (selectableSites.length === 1 ? selectableSites[0]?.id || null : null);
 
     const nextItem = {
       ...createEmptyItem(),
@@ -14309,20 +14321,33 @@ export default function AuftraegePage() {
   };
 
   const addFormWorkSite = () => {
-    const openDraft = formWorkSites.find(
-      (site) =>
-        !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
-    );
-
-    if (openDraft) {
-      setEditingWorkSiteId(openDraft.id);
-      setActiveWorkSiteId(openDraft.id);
-      setNewItemWorkSiteId(openDraft.id);
-      setExpandedWorkSiteIds((prev) =>
-        prev.includes(openDraft.id) ? prev : [openDraft.id, ...prev],
+    const unfinishedDraft = formWorkSites.find((site) => {
+      const assigned = formItems.filter((item) => item.workSiteId === site.id);
+      return (
+        !hasWorkSiteContent(site) ||
+        assigned.some((item) => !String(item.serviceName || "").trim())
       );
-      focusFormWorkSiteEditorV17_90L284(openDraft.id);
-      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+    });
+
+    if (unfinishedDraft) {
+      setEditingWorkSiteId(unfinishedDraft.id);
+      setActiveWorkSiteId(unfinishedDraft.id);
+      setNewItemWorkSiteId(unfinishedDraft.id);
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes(unfinishedDraft.id)
+          ? prev
+          : [unfinishedDraft.id, ...prev],
+      );
+      const unfinishedItem = formItems.find(
+        (item) =>
+          item.workSiteId === unfinishedDraft.id &&
+          !String(item.serviceName || "").trim(),
+      );
+      if (unfinishedItem) {
+        setExpandedServiceItemKeys([unfinishedItem.key]);
+      }
+      focusFormWorkSiteEditorV17_90L284(unfinishedDraft.id);
+      toast.info("Neuen Arbeitsort und Leistung zuerst vollständig ausfüllen.");
       return;
     }
 
@@ -14372,7 +14397,29 @@ export default function AuftraegePage() {
           ]
       : formWorkSites;
 
+    const existingAssignmentSiteId =
+      baseSites.find((site) => Boolean(site.isPrimary))?.id ||
+      baseSites[0]?.id ||
+      null;
     const newId = `tmp-${Math.random().toString(36).slice(2)}`;
+    const assignmentForExistingItems = existingAssignmentSiteId || newId;
+    const blankItem = {
+      ...createEmptyItem(),
+      workSiteId: newId,
+    };
+
+    // V17.90L285: Sobald aus einem Einzel-Arbeitsort ein Multi-Site-Auftrag
+    // wird, erhalten alle bisherigen Leistungen zuerst den bisherigen Ort.
+    // Nur die neu erzeugte leere Leistung gehört zum neuen Arbeitsort.
+    setFormItems((prev) => [
+      blankItem,
+      ...prev.map((item) => ({
+        ...item,
+        workSiteId: item.workSiteId || assignmentForExistingItems,
+      })),
+    ]);
+    setExpandedServiceItemKeys([blankItem.key]);
+
     setForm((prev) => ({ ...prev, siteAddressDifferent: true }));
     setSiteAddressEditing(false);
     setFormWorkSites([
@@ -14394,6 +14441,7 @@ export default function AuftraegePage() {
     setExpandedWorkSiteIds((prev) =>
       prev.includes(newId) ? prev : [newId, ...prev],
     );
+    setMovingItemKey(null);
     focusFormWorkSiteEditorV17_90L284(newId);
   };
 
@@ -15794,17 +15842,23 @@ export default function AuftraegePage() {
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
         editId && cleanWorkSites.length > 0
-          ? cleanWorkSites.map((site, index) => ({
-              id: site.id,
-              siteName: cleanWorkSiteDisplayName(site.siteName) || null,
-              siteAddress: site.siteAddress?.trim() || null,
-              sitePlz: site.sitePlz?.trim() || null,
-              siteCity: site.siteCity?.trim() || null,
-              siteNote: site.siteNote?.trim() || null,
-              isPrimary: Boolean(site.isPrimary) || index === 0,
-              sortOrder: index,
-              sourceOrderId: (site as any).sourceOrderId || null,
-            }))
+          ? (() => {
+              const canonicalPrimarySiteIdV17_90L285 =
+                cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
+                cleanWorkSites[0]?.id ||
+                null;
+              return cleanWorkSites.map((site, index) => ({
+                id: site.id,
+                siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+                siteAddress: site.siteAddress?.trim() || null,
+                sitePlz: site.sitePlz?.trim() || null,
+                siteCity: site.siteCity?.trim() || null,
+                siteNote: site.siteNote?.trim() || null,
+                isPrimary: site.id === canonicalPrimarySiteIdV17_90L285,
+                sortOrder: index,
+                sourceOrderId: (site as any).sourceOrderId || null,
+              }));
+            })()
           : undefined,
       items: validItems.map((item) => {
         const itemCurrencyConfirmed = isManuallyConfirmedCurrencyItem(item);
@@ -21120,7 +21174,10 @@ export default function AuftraegePage() {
                                             type="button"
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => setEditingWorkSiteId(null)}
+                                            onClick={() => {
+                                              setEditingWorkSiteId(null);
+                                              setNewItemWorkSiteId("");
+                                            }}
                                           >
                                             Fertig
                                           </Button>
@@ -21145,8 +21202,8 @@ export default function AuftraegePage() {
                                       : "Noch keine Leistungen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
-                                    Arbeitsort bearbeiten oder löschen. Leistung
-                                    erst hinzufügen, wenn der Ort stimmt.
+                                    Arbeitsort und zugehörige Leistung vollständig
+                                    ausfüllen oder den Arbeitsort löschen.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     {site && (
