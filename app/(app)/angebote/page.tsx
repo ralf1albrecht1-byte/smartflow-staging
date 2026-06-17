@@ -8961,10 +8961,31 @@ export default function AngebotePage() {
                           return renderEntries(groups[0]?.entries || []);
                         }
 
-                        return groups.map((group, groupIndex) => (
+                        return groups.map((group, groupIndex) => {
+                          const siteHasRequiredInfo = Boolean(
+                            group.site &&
+                              (compactOfferValue(group.site.siteName) ||
+                                compactOfferValue(group.site.siteAddress) ||
+                                compactOfferValue(group.site.sitePlz) ||
+                                compactOfferValue(group.site.siteCity) ||
+                                compactOfferValue(group.site.siteNote)),
+                          );
+                          const siteNeedsReview = !siteHasRequiredInfo;
+                          const siteHasNoItems = group.entries.length === 0;
+                          const siteAccentClass = siteNeedsReview
+                            ? "border-red-400 bg-red-100/70 text-red-900 hover:bg-red-200/60 dark:border-red-800/70 dark:bg-red-950/25 dark:text-red-100 dark:hover:bg-red-900/30"
+                            : siteHasNoItems
+                              ? "border-amber-400 bg-amber-100/70 text-amber-900 hover:bg-amber-200/60 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100 dark:hover:bg-amber-900/30"
+                              : "border-cyan-400 bg-cyan-100/70 text-slate-900 hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:text-slate-50 dark:hover:bg-cyan-900/30";
+                          const groupExpanded = expandedOfferSiteKeys.has(group.key);
+                          const isEditingSite = editingOfferSiteKey === group.key;
+                          const isActiveSite =
+                            newOfferItemSiteKey === group.key || isEditingSite;
+
+                          return (
                           <details
                             key={group.key}
-                            open={expandedOfferSiteKeys.has(group.key)}
+                            open={groupExpanded}
                             onToggle={(event) => {
                               const open = event.currentTarget.open;
                               setExpandedOfferSiteKeys((current) => {
@@ -8977,34 +8998,38 @@ export default function AngebotePage() {
                             className="overflow-visible space-y-1.5"
                           >
                             <summary
-                              className={`flex cursor-pointer list-none items-start justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/30 [&::-webkit-details-marker]:hidden ${
-                                expandedOfferSiteKeys.has(group.key)
+                              className={`flex cursor-pointer list-none items-start justify-between gap-3 border-2 px-3 py-2 shadow-sm transition-colors [&::-webkit-details-marker]:hidden ${siteAccentClass} ${
+                                groupExpanded
                                   ? "rounded-t-xl rounded-b-none border-b-0"
                                   : "rounded-xl"
-                              }`}
+                              } ${isActiveSite ? "ring-2 ring-offset-1 ring-cyan-300" : ""}`}
                             >
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
                                   <span className="shrink-0 text-base leading-none">
-                                    {expandedOfferSiteKeys.has(group.key) ? "▾" : "▸"}
+                                    {groupExpanded ? "▾" : "▸"}
                                   </span>
                                   <span>
-                                    📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                    📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || "Ausführungsort"}
                                   </span>
                                   <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
                                     {group.entries.length} Leistung{group.entries.length === 1 ? "" : "en"}
                                   </span>
-                                </div>
-                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                  {[
-                                    group.site?.siteAddress,
-                                    [group.site?.sitePlz, group.site?.siteCity]
-                                      .filter(Boolean)
-                                      .join(" "),
-                                    group.site?.siteNote,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ") || "Adresse prüfen"}
+                                  {isActiveSite && (
+                                    <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
+                                      aktiv
+                                    </span>
+                                  )}
+                                  {siteNeedsReview && (
+                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
+                                      Arbeitsort prüfen
+                                    </span>
+                                  )}
+                                  {siteHasNoItems && !siteNeedsReview && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                      Keine Leistungen
+                                    </span>
+                                  )}
                                 </div>
                                 {(() => {
                                   const groupSummary = buildOfferServiceReviewSummary(
@@ -9061,6 +9086,17 @@ export default function AngebotePage() {
                                     </div>
                                   );
                                 })()}
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                  {[
+                                    group.site?.siteAddress,
+                                    [group.site?.sitePlz, group.site?.siteCity]
+                                      .filter(Boolean)
+                                      .join(" "),
+                                    group.site?.siteNote,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ") || "Adresse prüfen"}
+                                </div>
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-[10px] text-muted-foreground">
@@ -9071,7 +9107,7 @@ export default function AngebotePage() {
                                 </div>
                                 <button
                                   type="button"
-                                  className="mt-1 text-[11px] font-medium text-emerald-700 hover:underline"
+                                  className="mt-1 text-xs text-primary hover:underline"
                                   onClick={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
@@ -9079,50 +9115,130 @@ export default function AngebotePage() {
                                     setExpandedOfferSiteKeys((current) => new Set([...current, group.key]));
                                   }}
                                 >
-                                  Arbeitsort bearbeiten
+                                  {isEditingSite
+                                    ? "Arbeitsort schließen"
+                                    : "Arbeitsort bearbeiten"}
                                 </button>
                               </div>
                             </summary>
-                            {editingOfferSiteKey === group.key && group.site && (
+                            {isEditingSite && group.site && (
                               <div
                                 data-offer-work-site-editor={group.key}
-                                className="grid grid-cols-1 gap-2 rounded-md border bg-background/80 p-2 sm:grid-cols-2"
+                                className={`rounded-b-xl border-2 border-t-0 p-2 ${
+                                  siteNeedsReview
+                                    ? "border-red-400 bg-red-100/70 dark:border-red-800/70 dark:bg-red-950/25"
+                                    : siteHasNoItems
+                                      ? "border-amber-400 bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950/25"
+                                      : "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
+                                }`}
                               >
-                                <div className="sm:col-span-2"><Label className="text-xs">Objekt / Bereich</Label><Input value={group.site.siteName || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteName", event.target.value)} /></div>
-                                <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
-                                <div><Label className="text-xs">PLZ</Label><Input value={group.site.sitePlz || ""} onChange={(event) => updateOfferGroupSite(group.key, "sitePlz", event.target.value)} /></div>
-                                <div><Label className="text-xs">Ort</Label><Input value={group.site.siteCity || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteCity", event.target.value)} /></div>
-                                <div className="sm:col-span-2"><Label className="text-xs">Hinweis</Label><Input value={group.site.siteNote || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteNote", event.target.value)} placeholder="z. B. Eingang hinten, Rampe 2" /></div>
-                                <div className="sm:col-span-2 flex flex-wrap justify-end gap-2">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => addOfferItemToSiteV17_90L284(group.site!)}
-                                  >
-                                    <Plus className="mr-1 h-3.5 w-3.5" />
-                                    Leistung hier hinzufügen
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                    onClick={() => removeOfferExecutionSite(group.key)}
-                                  >
-                                    Arbeitsort löschen
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setEditingOfferSiteKey(null);
-                                      setEditingExecutionAddress(false);
-                                    }}
-                                  >
-                                    Fertig
-                                  </Button>
+                                <div className="rounded-md border bg-background/80 p-2 space-y-2">
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <div>
+                                      <Label className="text-[10px]">Bezeichnung</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.siteName || ""}
+                                        placeholder="z. B. Haus A, EG rechts"
+                                        onChange={(event) =>
+                                          updateOfferGroupSite(
+                                            group.key,
+                                            "siteName",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px]">Strasse</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.siteAddress || ""}
+                                        placeholder="Strasse + Hausnr."
+                                        onChange={(event) =>
+                                          updateOfferGroupSite(
+                                            group.key,
+                                            "siteAddress",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr]">
+                                    <div>
+                                      <Label className="text-[10px]">PLZ</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.sitePlz || ""}
+                                        placeholder="PLZ"
+                                        onChange={(event) =>
+                                          updateOfferGroupSite(
+                                            group.key,
+                                            "sitePlz",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px]">Ort</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.siteCity || ""}
+                                        placeholder="Ort"
+                                        onChange={(event) =>
+                                          updateOfferGroupSite(
+                                            group.key,
+                                            "siteCity",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px]">Hinweis</Label>
+                                    <Input
+                                      className="h-8 text-xs"
+                                      value={group.site.siteNote || ""}
+                                      placeholder="z. B. Eingang hinten, Rampe 2"
+                                      onChange={(event) =>
+                                        updateOfferGroupSite(
+                                          group.key,
+                                          "siteNote",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Zugeordnet: {group.entries.length} Leistung(en)
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-red-600 hover:text-red-700"
+                                        onClick={() => removeOfferExecutionSite(group.key)}
+                                      >
+                                        Löschen
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                          setEditingOfferSiteKey(null);
+                                          setEditingExecutionAddress(false);
+                                        }}
+                                      >
+                                        Fertig
+                                      </Button>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -9153,7 +9269,8 @@ export default function AngebotePage() {
                               )}
                             </div>
                           </details>
-                        ));
+                          );
+                        });
                       })()}
                     </div>
                   </div>
