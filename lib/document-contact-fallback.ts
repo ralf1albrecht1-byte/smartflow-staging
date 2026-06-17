@@ -55,13 +55,28 @@ const emailCandidates = (value: unknown): string[] =>
     ),
   );
 
+const COMPANY_SUFFIX_PATTERN =
+  /\b(?:AG|GmbH|mbH|SA|Sàrl|Sarl|SARL|SAS|Ltd\.?|LLC|Inc\.?|KG|KGaA|OHG|SE|Stiftung|Verein|Genossenschaft)\b/i;
+
+const isCompanyLikeName = (value: unknown): boolean => {
+  const candidate = compact(value);
+  if (!candidate) return false;
+  if (COMPANY_SUFFIX_PATTERN.test(candidate)) return true;
+  const key = normalize(candidate);
+  return /\b(?:facility|immobilien|verwaltung|hauswartung|services|service|holding|group|gruppe|solutions|systeme|systems|gewerbe|objektservice)\b/.test(
+    key,
+  );
+};
+
 const cleanName = (value: unknown): string => {
   const candidate = compact(value)
     .replace(/^[\s:.,;\-–—]+|[\s:.,;\-–—]+$/g, "")
     .replace(/^(?:ist|heisst|heißt)\s+/i, "")
     .replace(/\s+(?:zustaendig|zuständig|erreichbar|vor ort)$/i, "")
     .trim();
-  if (!candidate || /\d|@/.test(candidate)) return "";
+  if (!candidate || /\d|@/.test(candidate) || isCompanyLikeName(candidate)) {
+    return "";
+  }
   const words = candidate.split(/\s+/).filter(Boolean);
   if (words.length < 2 || words.length > 4) return "";
   if (
@@ -79,6 +94,31 @@ const cleanName = (value: unknown): string => {
 const contactMarker =
   /\b(?:kontaktperson(?:\s+vor\s+ort)?|kontakt\s+vor\s+ort|ansprechperson(?:\s+vor\s+ort)?|ansprechpartner(?:in)?(?:\s+vor\s+ort)?|vor\s+ort\s+(?:ist|zustaendig|zuständig)|on[-\s]?site\s+contact|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
 
+const STRUCTURAL_HEADING_PATTERN =
+  /^(?:rechnungskunde|rechnungsadresse|ausführungsadresse|ausfuehrungsadresse|ausführung|ausfuehrung|leistungen|ausführungstermin|ausfuehrungstermin|gewünschter ausführungstermin|gewuenschter ausfuehrungstermin|termin)\s*:/i;
+
+function scopedBlockAfterMarker(source: string, markerIndex: number): string {
+  const raw = source.slice(markerIndex, markerIndex + 900);
+  const lines = raw.split(/\n+/);
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = compact(lines[index]);
+    if (index > 0 && STRUCTURAL_HEADING_PATTERN.test(line)) break;
+    kept.push(lines[index]);
+    if (kept.length >= 8) break;
+  }
+  return kept.join("\n").trim();
+}
+
+function markerSpecificity(value: unknown): number {
+  const key = normalize(value);
+  if (/\b(?:kontaktperson|ansprechperson|ansprechpartner|on site contact|contact sur place|contatto sul posto|contacto en sitio)\b/.test(key)) {
+    return 35;
+  }
+  if (/\bkontakt vor ort\b/.test(key)) return 15;
+  return 5;
+}
+
 function extractScopedContact(source: string): {
   scope: string;
   name: string;
@@ -90,26 +130,30 @@ function extractScopedContact(source: string): {
     return { scope: "", name: "", phone: "", email: "" };
   }
 
-  const candidates = matches.map((marker) => {
+  const candidates = matches.map((marker, candidateIndex) => {
     const markerIndex = Number(marker.index || 0);
-    const scope = source.slice(markerIndex, markerIndex + 560);
+    const scope = scopedBlockAfterMarker(source, markerIndex);
     const lines = scope
       .split(/\n+/)
       .map((line) => compact(line))
       .filter(Boolean);
 
     let name = "";
+    let nameQuality = 0;
     const markerLine = lines[0] || "";
     const inlineAfterMarker = markerLine
       .replace(contactMarker, "")
       .replace(/^\s*[:.,;\-–—]*\s*/, "");
     name = cleanName(inlineAfterMarker);
+    if (name) nameQuality = 12;
 
     if (!name) {
       for (const line of lines.slice(1, 5)) {
+        if (/^(?:telefon|tel\.?|e-?mail|email|mail)\s*:/i.test(line)) continue;
         const candidate = cleanName(line);
         if (candidate) {
           name = candidate;
+          nameQuality = 30;
           break;
         }
       }
@@ -120,11 +164,18 @@ function extractScopedContact(source: string): {
         /\b(?:vor\s+ort\s+(?:ist|zustaendig|zuständig)|kontaktperson(?:\s+vor\s+ort)?|kontakt\s+vor\s+ort|ansprechperson(?:\s+vor\s+ort)?)\s*:?\s*(?:ist\s+)?((?:[A-ZÄÖÜÀ-Ý][\p{L}'’.-]+\s+){1,3}[A-ZÄÖÜÀ-Ý][\p{L}'’.-]+)/u,
       );
       name = cleanName(inlineMatch?.[1]);
+      if (name) nameQuality = 18;
     }
 
     const phone = phoneCandidates(scope)[0] || "";
     const email = emailCandidates(scope)[0] || "";
-    const score = (name ? 20 : 0) + (phone ? 30 : 0) + (email ? 30 : 0);
+    const score =
+      markerSpecificity(marker[0]) +
+      nameQuality +
+      (name ? 30 : 0) +
+      (phone ? 35 : 0) +
+      (email ? 35 : 0) -
+      candidateIndex * 0.001;
     return { scope, name, phone, email, score };
   });
 
@@ -147,9 +198,9 @@ function detectPositiveChannel(source: string, name: string): {
     .filter(Boolean);
   const normalizedName = normalize(name);
   const weighted = lines
-    .map((line) => {
+    .map((line, index) => {
       const text = normalize(line);
-      let score = 0;
+      let score = -index * 0.001;
       if (normalizedName && text.includes(normalizedName)) score += 30;
       if (/\b(?:ausschliesslich|nur|only|exclusively|uniquement|solo)\b/.test(text)) score += 20;
       if (/\b\d{1,3}\s*minuten?\s*(?:vorher|vor)\b/.test(text)) score += 8;
@@ -200,7 +251,7 @@ export function extractDocumentContactFallback(
 
   const scoped = extractScopedContact(source);
   const positive = detectPositiveChannel(source, scoped.name);
-  const minutesMatch = (positive.line || source).match(
+  const minutesMatch = (positive.line || scoped.scope || source).match(
     /\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i,
   );
   const notCall = /\b(?:nicht|kein|keine|ohne|no|not|never)\b.{0,45}\b(?:anrufen|telefon|telefonisch|rueckruf|rückruf|call)\b/i.test(

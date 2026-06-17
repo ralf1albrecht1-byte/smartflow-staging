@@ -43,6 +43,10 @@ import {
   isFallbackCustomerName,
 } from "@/lib/customer-form";
 import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
+import {
+  buildDocumentSiteOperationalContexts,
+  documentSiteAddressKey,
+} from "@/lib/document-site-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -117,6 +121,7 @@ interface OfferExecutionSite {
   siteCity?: string | null;
   siteNote?: string | null;
   sourceOrderId?: string | null;
+  operationalText?: string | null;
 }
 
 interface Offer {
@@ -383,18 +388,26 @@ const pickBestOfferCustomerName = (...values: unknown[]) => {
 };
 
 const offerSiteKey = (site: OfferExecutionSite) =>
-  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
+  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
     .map((value) => compactOfferValue(value).toLowerCase())
     .join("|");
 
 function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
   const sites: OfferExecutionSite[] = [];
+  const sourceOrders = offer.orders || [];
   const sourceOrderRole = new Map(
-    (offer.orders || []).map((order) => [
+    sourceOrders.map((order) => [
       String(order.id || ""),
       Boolean(order.siteAddressDifferent),
     ]),
   );
+  const operationalContextByAddress = new Map(
+    buildDocumentSiteOperationalContexts(sourceOrders).map((context) => [
+      documentSiteAddressKey(context),
+      context.text,
+    ]),
+  );
+
   const addSite = (candidate?: OfferExecutionSite | null) => {
     if (!candidate) return;
     const site: OfferExecutionSite = {
@@ -404,14 +417,26 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
       siteCity: compactOfferValue(candidate.siteCity) || null,
       siteNote: compactOfferValue(candidate.siteNote) || null,
       sourceOrderId: compactOfferValue(candidate.sourceOrderId) || null,
+      operationalText:
+        compactOfferValue(candidate.operationalText) ||
+        operationalContextByAddress.get(documentSiteAddressKey(candidate)) ||
+        null,
     };
-    // V17.90L278: Ein separater Arbeitsort ist nur mit vollständiger Adresse
-    // gültig. Name-only-Restwerte wie "stermin" werden nie angezeigt.
+    // V17.90L279: Ein separater Arbeitsort ist nur mit vollständiger Adresse
+    // gültig. Name-only-Restwerte werden nie angezeigt oder weitergereicht.
     if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
     const key = offerSiteKey(site);
-    if (!sites.some((existing) => offerSiteKey(existing) === key)) {
-      sites.push(site);
+    const existing = sites.find((entry) => offerSiteKey(entry) === key);
+    if (existing) {
+      if (!existing.operationalText && site.operationalText) {
+        existing.operationalText = site.operationalText;
+      }
+      if (!existing.sourceOrderId && site.sourceOrderId) {
+        existing.sourceOrderId = site.sourceOrderId;
+      }
+      return;
     }
+    sites.push(site);
   };
 
   (offer.items || []).forEach((item: any) => {
@@ -427,7 +452,7 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
     });
   });
 
-  (offer.orders || []).forEach((order) => {
+  sourceOrders.forEach((order) => {
     // Die Rollenentscheidung des Auftrags ist verbindlich. Bei gleicher
     // Rechnungs-/Ausführungsadresse werden alle Restwerte ignoriert.
     if (!order.siteAddressDifferent) return;
@@ -438,7 +463,12 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
             Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
         )
       : [];
-    workSites.forEach((site) => addSite({ ...site, sourceOrderId: order.id }));
+    workSites.forEach((site) =>
+      addSite({
+        ...site,
+        sourceOrderId: site.sourceOrderId || order.id,
+      }),
+    );
     if (workSites.length === 0) {
       addSite({
         siteName: order.siteName,
@@ -1343,8 +1373,37 @@ function isOfferCanonicalPrimaryLineV17_90L273(value: string): boolean {
 function buildOfferCanonicalWorkflowSummaryV17_90L274(
   sourceOrders: any[],
 ): OfferCanonicalWorkflowSummaryV17_90L273 {
+  const siteContexts = buildDocumentSiteOperationalContexts(sourceOrders);
+  if (siteContexts.length > 1) {
+    // V17.90L279: Bei verbundenen Aufträgen bleiben Termin, Kommunikation,
+    // Zugang und weitere Hinweise exakt beim ursprünglichen Arbeitsort. Die
+    // Originaltexte werden nur lesend gruppiert und nicht neu interpretiert.
+    return {
+      safety: [],
+      primary: siteContexts.map(
+        (context) => `${context.label}\n${context.text}`,
+      ),
+      additional: [],
+      hasCanonicalMarkers: true,
+    };
+  }
+
   const records = (sourceOrders || []).flatMap((order) =>
     parseOfferCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
+  );
+  const explicitContacts = Array.from(
+    new Map(
+      (sourceOrders || [])
+        .map((order) =>
+          extractDocumentContactFallback(
+            order?.notes,
+            order?.audioTranscript,
+            order?.specialNotes,
+          ),
+        )
+        .filter((contact) => contact.title)
+        .map((contact) => [normalizeOfferHint(contact.title), contact.title]),
+    ).values(),
   );
   const canonicalAppointmentLinesV17_90L276 = (sourceOrders || [])
     .map((order) => {
@@ -1365,10 +1424,6 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   const additional: string[] = [];
   const seen = new Set<string>();
 
-  // V17.90L276: specialNotes bleiben die alleinige Quelle für operative
-  // Hinweise. Der Termin wird zusätzlich ausschließlich aus dem bereits
-  // versiegelten kanonischen Intake-Snapshot des verknüpften Auftrags gelesen.
-  // Kundennachricht, Beschreibung und Legacy-Parser bleiben ausgeschlossen.
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
     const key = normalizeOfferHint(text).replace(/^termin\s+/, "");
@@ -1378,12 +1433,20 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   };
 
   canonicalAppointmentLinesV17_90L276.forEach((line) => add(primary, line));
+  explicitContacts.forEach((line) => add(primary, line));
 
   for (const record of records) {
     const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
       record.text,
     );
     if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
+      continue;
+    }
+    if (
+      explicitContacts.length > 0 &&
+      !isAppointmentRecord &&
+      isOfferCommunicationLikeLineV17_90L266(record.text)
+    ) {
       continue;
     }
     if (record.role === "safety" || isOfferDogHint(record.text)) {
@@ -1998,9 +2061,9 @@ function buildOfferContactAction(
 ): OfferContactAction | null {
   const segments = offerContactSourceSegments(data);
   const explicitContact = extractDocumentContactFallback(
-    data.specialNotes,
     data.notes,
     data.audioTranscript,
+    data.specialNotes,
   );
   const candidates = segments
     .map((segment) => {
@@ -2650,6 +2713,12 @@ function OfferAddressTooltip({ site }: { site: OfferExecutionSite }) {
             <span className="break-words">{site.siteNote}</span>
           </>
         )}
+        {site.operationalText && (
+          <>
+            <span className="text-muted-foreground">Arbeitsort:</span>
+            <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
+          </>
+        )}
       </span>
     </OfferViewportTooltipV17_95>
   );
@@ -2703,6 +2772,12 @@ function OfferExecutionSitesTooltip({
                 <>
                   <span className="text-muted-foreground">Hinweis:</span>
                   <span className="break-words">{site.siteNote}</span>
+                </>
+              )}
+              {site.operationalText && (
+                <>
+                  <span className="text-muted-foreground">Arbeitsort:</span>
+                  <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
                 </>
               )}
             </span>
@@ -8266,6 +8341,16 @@ export default function AngebotePage() {
                                         </span>
                                       </>
                                     )}
+                                    {site.operationalText && (
+                                      <>
+                                        <span className="text-muted-foreground">
+                                          Arbeitsort:
+                                        </span>
+                                        <span className="whitespace-pre-wrap break-words">
+                                          {site.operationalText}
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -8740,6 +8825,11 @@ export default function AngebotePage() {
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
+                                {group.site?.operationalText && (
+                                  <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-cyan-200 bg-white/70 p-2 text-xs leading-5 text-slate-700 dark:border-cyan-900 dark:bg-slate-950/40 dark:text-slate-200">
+                                    {group.site.operationalText}
+                                  </div>
+                                )}
                                 {(() => {
                                   const groupSummary = buildOfferServiceReviewSummary(
                                     {

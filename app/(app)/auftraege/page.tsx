@@ -3832,9 +3832,9 @@ function canonicalOrderInfoForOrderV17_90L252(
     order.notes,
   );
   const explicitContact = extractDocumentContactFallback(
-    order.specialNotes,
     order.notes,
     order.audioTranscript,
+    order.specialNotes,
   );
   const explicitTarget =
     explicitContact.channel === "email"
@@ -8733,9 +8733,9 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
     const explicitContact = extractDocumentContactFallback(
-      order.specialNotes,
       order.notes,
       order.audioTranscript,
+      order.specialNotes,
     );
     const targetPhone =
       communication.targetPhone || explicitContact.phone || "";
@@ -10606,9 +10606,9 @@ const getOrderPhoneForHref = (order: Order) => {
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
     const explicitContact = extractDocumentContactFallback(
-      order.specialNotes,
       order.notes,
       order.audioTranscript,
+      order.specialNotes,
     );
     return normalizeStoredPhoneForTelHrefV17_90K6(
       communication.targetPhone ||

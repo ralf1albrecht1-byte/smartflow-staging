@@ -43,6 +43,10 @@ import {
   isFallbackCustomerName,
 } from "@/lib/customer-form";
 import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
+import {
+  buildDocumentSiteOperationalContexts,
+  documentSiteAddressKey,
+} from "@/lib/document-site-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,6 +189,7 @@ type InvoiceExecutionSite = {
   siteCity?: string | null;
   siteNote?: string | null;
   sourceOrderId?: string | null;
+  operationalText?: string | null;
 };
 
 const getEmptyInvoiceExecutionSite = (): InvoiceExecutionSite => ({
@@ -861,21 +866,35 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
 ): InvoiceCanonicalWorkflowSummaryV17_90L273 {
+  const sourceOrders = invoice?.orders || [];
+  const siteContexts = buildDocumentSiteOperationalContexts(
+    sourceOrders as any[],
+  );
+  if (siteContexts.length > 1) {
+    return {
+      hazards: [],
+      primaryHints: siteContexts.map(
+        (context) => `${context.label}\n${context.text}`,
+      ),
+      otherHints: [],
+    };
+  }
+
   const sources = [
-    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    ...sourceOrders.map((order) => order?.specialNotes),
     fallbackSpecialNotes,
   ].filter(Boolean);
   const records = sources.flatMap((value) =>
     parseInvoiceCanonicalWorkflowRecordsV17_90L273(value),
   );
   const explicitContact = extractDocumentContactFallback(
-    ...(invoice?.orders || []).flatMap((order) => [
-      order?.specialNotes,
+    ...sourceOrders.flatMap((order) => [
       order?.notes,
       order?.audioTranscript,
+      order?.specialNotes,
     ]),
   );
-  const canonicalAppointmentLinesV17_90L276 = (invoice?.orders || [])
+  const canonicalAppointmentLinesV17_90L276 = sourceOrders
     .map((order) => {
       const snapshot = getCanonicalIntakeV2(order);
       const appointment = snapshot
@@ -894,9 +913,6 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const otherHints: string[] = [];
   const seen = new Set<string>();
 
-  // V17.90L276: Operative Hinweise bleiben ausschließlich specialNotes.
-  // Der Termin kommt ausschließlich aus dem versiegelten kanonischen
-  // Intake-Snapshot des verknüpften Auftrags. Keine Rohtext-Auswertung.
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
     const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
@@ -922,8 +938,6 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       !isAppointmentRecord &&
       isInvoiceCommunicationLikeLineV17_90L266(record.text)
     ) {
-      // Die vollständige Vor-Ort-Kontaktrolle ersetzt unvollständige
-      // kanonische Kurzzeilen; reine Terminangaben bleiben separat erhalten.
       continue;
     }
     if (record.role === "safety" || isInvoiceCanonicalDogLineV17_90L273(record.text)) {
@@ -993,47 +1007,54 @@ function collectInvoiceExecutionSites(source: {
   orders?: Invoice["orders"] | null;
 }): InvoiceExecutionSite[] {
   const sites: InvoiceExecutionSite[] = [];
+  const sourceOrders = source.orders || [];
   const sourceOrderRole = new Map(
-    (source.orders || []).map((order) => [
+    sourceOrders.map((order) => [
       String(order?.id || ""),
       Boolean(order?.siteAddressDifferent),
     ]),
   );
+  const operationalContextByAddress = new Map(
+    buildDocumentSiteOperationalContexts(sourceOrders as any[]).map((context) => [
+      documentSiteAddressKey(context),
+      context.text,
+    ]),
+  );
+
   const add = (candidate?: InvoiceExecutionSite | null) => {
     if (!candidate) return;
-    const site = {
+    const site: InvoiceExecutionSite = {
       siteName: compactInvoiceValue(candidate.siteName) || null,
       siteAddress: compactInvoiceValue(candidate.siteAddress) || null,
       sitePlz: compactInvoiceValue(candidate.sitePlz) || null,
       siteCity: compactInvoiceValue(candidate.siteCity) || null,
       siteNote: compactInvoiceValue(candidate.siteNote) || null,
       sourceOrderId: compactInvoiceValue(candidate.sourceOrderId) || null,
+      operationalText:
+        compactInvoiceValue(candidate.operationalText) ||
+        operationalContextByAddress.get(documentSiteAddressKey(candidate)) ||
+        null,
     };
-    // V17.90L278: Ein separater Arbeitsort ist nur mit vollständiger
-    // strukturierter Adresse gültig. Name-only-Restwerte werden ignoriert.
     if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
-    const key = [
-      site.siteName,
-      site.siteAddress,
-      site.sitePlz,
-      site.siteCity,
-      site.siteNote,
-    ]
+    const key = [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
       .map((value) => compactInvoiceValue(value).toLowerCase())
       .join("|");
-    const exists = sites.some(
+    const existing = sites.find(
       (entry) =>
-        [
-          entry.siteName,
-          entry.siteAddress,
-          entry.sitePlz,
-          entry.siteCity,
-          entry.siteNote,
-        ]
+        [entry.siteName, entry.siteAddress, entry.sitePlz, entry.siteCity]
           .map((value) => compactInvoiceValue(value).toLowerCase())
           .join("|") === key,
     );
-    if (!exists) sites.push(site);
+    if (existing) {
+      if (!existing.operationalText && site.operationalText) {
+        existing.operationalText = site.operationalText;
+      }
+      if (!existing.sourceOrderId && site.sourceOrderId) {
+        existing.sourceOrderId = site.sourceOrderId;
+      }
+      return;
+    }
+    sites.push(site);
   };
 
   (source.items || []).forEach((item: any) => {
@@ -1048,7 +1069,7 @@ function collectInvoiceExecutionSites(source: {
       sourceOrderId: item?.sourceOrderId,
     });
   });
-  (source.orders || []).forEach((order) => {
+  sourceOrders.forEach((order) => {
     if (!order?.siteAddressDifferent) return;
     const workSites = Array.isArray(order?.workSites)
       ? [...order.workSites].sort(
@@ -1082,7 +1103,7 @@ type InvoiceItemGroup = {
 };
 
 const invoiceSiteKey = (site: InvoiceExecutionSite) =>
-  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
+  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
     .map((value) => compactInvoiceValue(value).toLowerCase())
     .join("|");
 
@@ -1404,9 +1425,9 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
   const resolved = resolveCommunicationData(null, invoice.orders || []);
   const explicitContact = extractDocumentContactFallback(
     ...(invoice.orders || []).flatMap((order) => [
-      order?.specialNotes,
       order?.notes,
       order?.audioTranscript,
+      order?.specialNotes,
     ]),
   );
   const targetPhone = explicitContact.phone || resolved.phone || null;
@@ -2626,6 +2647,12 @@ function InvoiceExecutionSitesTooltip({
                 <>
                   <span className="text-muted-foreground">Hinweis:</span>
                   <span className="break-words">{site.siteNote}</span>
+                </>
+              )}
+              {site.operationalText && (
+                <>
+                  <span className="text-muted-foreground">Arbeitsort:</span>
+                  <span className="whitespace-pre-wrap break-words">{site.operationalText}</span>
                 </>
               )}
             </span>
@@ -7207,6 +7234,11 @@ export default function RechnungenPage() {
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
+                                {group.site?.operationalText && (
+                                  <div className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-cyan-200 bg-white/70 p-2 text-xs leading-5 text-slate-700 dark:border-cyan-900 dark:bg-slate-950/40 dark:text-slate-200">
+                                    {group.site.operationalText}
+                                  </div>
+                                )}
                                 {(() => {
                                   const groupReviewEntries =
                                     buildInvoiceServiceReviewEntriesV17_90L135G(
