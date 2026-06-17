@@ -3481,6 +3481,97 @@ const orderInfoLinesEquivalentV17_66 = (left: string, right: string) => {
   return overlap >= 2 && overlap / smallerSize >= 0.72;
 };
 
+// V17.90L280: Localize canonical display lines from the already persisted
+// automatic translation. This changes only the rendered text; the sealed
+// canonical roles, facts and customer message remain untouched.
+const splitStoredTranslationSectionsV17_90L280 = (value?: string | null) => {
+  const source = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const marker = source.match(
+    /(?:^|\n)\s*(?:---\s*)?(?:Übersetzung\s*\(automatisch\)|Deutsche\s+Übersetzung)(?:\s*---)?\s*(?:\n|$)/i,
+  );
+  if (!marker || marker.index == null) return null;
+  const translationStart = marker.index + marker[0].length;
+  return {
+    original: source.slice(0, marker.index).trim(),
+    translation: source.slice(translationStart).trim(),
+  };
+};
+
+const splitStoredTranslationSentencesV17_90L280 = (value: string) =>
+  String(value || "")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactText(line))
+    .filter((line) => line.length >= 4 && line.length <= 700);
+
+const infoLineInvariantTokensV17_90L280 = (value: string) =>
+  Array.from(new Set(String(value || "").match(/\b\d+(?:[.,]\d+)?\b/g) || [])).sort();
+
+const infoLineHasNegationV17_90L280 = (value: string) =>
+  /\b(?:nicht|kein|keine|keinen|ohne|no|not|never|sans|pas|non|sin|senza)\b/i.test(
+    normalizeForMatch(value),
+  );
+
+const localizeOrderInfoLineV17_90L280 = (
+  line: string,
+  storedNotes?: string | null,
+) => {
+  const sections = splitStoredTranslationSectionsV17_90L280(storedNotes);
+  const rawLine = compactText(line);
+  if (!sections || !rawLine) return rawLine;
+
+  const labelMatch = rawLine.match(/^([^:\n]{2,40}):\s*(.+)$/);
+  const label = labelMatch?.[1] || "";
+  const body = compactText(labelMatch?.[2] || rawLine);
+  const originalSentences = splitStoredTranslationSentencesV17_90L280(
+    sections.original,
+  );
+  const translatedSentences = splitStoredTranslationSentencesV17_90L280(
+    sections.translation,
+  );
+
+  if (
+    translatedSentences.some((sentence) =>
+      orderInfoLinesEquivalentV17_66(sentence, body),
+    )
+  ) {
+    return rawLine;
+  }
+
+  const sourceIndex = originalSentences.findIndex((sentence) =>
+    orderInfoLinesEquivalentV17_66(sentence, body),
+  );
+  if (sourceIndex < 0) return rawLine;
+
+  const bodyInvariants = infoLineInvariantTokensV17_90L280(body).join("|");
+  const bodyNegated = infoLineHasNegationV17_90L280(body);
+  for (const index of [sourceIndex, sourceIndex - 1, sourceIndex + 1]) {
+    const candidate = compactText(translatedSentences[index]);
+    if (!candidate) continue;
+    if (infoLineInvariantTokensV17_90L280(candidate).join("|") !== bodyInvariants) {
+      continue;
+    }
+    if (infoLineHasNegationV17_90L280(candidate) !== bodyNegated) continue;
+    return label ? `${label}: ${candidate}` : candidate;
+  }
+
+  return rawLine;
+};
+
+const localizeOrderInfoSummaryV17_90L280 = (
+  info: OrderInfoSummaryV17_65,
+  storedNotes?: string | null,
+): OrderInfoSummaryV17_65 => ({
+  safety: info.safety.map((line) =>
+    localizeOrderInfoLineV17_90L280(line, storedNotes),
+  ),
+  primary: info.primary.map((line) =>
+    localizeOrderInfoLineV17_90L280(line, storedNotes),
+  ),
+  additional: info.additional.map((line) =>
+    localizeOrderInfoLineV17_90L280(line, storedNotes),
+  ),
+});
+
 const uniqueOrderInfoLinesV17_66 = (lines: Array<string | null | undefined>) => {
   const result: string[] = [];
   lines.forEach((raw) => {
@@ -3702,10 +3793,11 @@ const extractOrderOperationalContactLineV17_90L101 = (
   return `Kontakt vor Ort: ${parts.filter(Boolean).join(" · ")}`;
 };
 
-function activeRecognitionRelatedRoleTextsV17_90L252(order: {
+function activeRecognitionDisplayTextsV17_90L280(order: {
   reviewReasons?: string[] | null;
-}): Set<string> {
-  const result = new Set<string>();
+  notes?: string | null;
+}): string[] {
+  const result: string[] = [];
   for (const reason of order.reviewReasons || []) {
     const value = String(reason || "");
     if (!value.startsWith("intake_risk:recognition_review:")) continue;
@@ -3713,25 +3805,36 @@ function activeRecognitionRelatedRoleTextsV17_90L252(order: {
       const payload = JSON.parse(
         decodeURIComponent(value.slice("intake_risk:recognition_review:".length)),
       ) as RecognitionReviewPayloadV17_90L69;
-      const related = compactText(payload.relatedRoleText);
-      if (related) result.add(normalizeForMatch(related));
+      for (const rawText of [payload.relatedRoleText, payload.sourceText]) {
+        const text = compactText(rawText);
+        if (!text) continue;
+        result.push(text);
+        const localized = localizeOrderInfoLineV17_90L280(text, order.notes);
+        if (localized) result.push(localized);
+      }
     } catch {}
   }
-  return result;
+  return uniqueOrderInfoLinesV17_66(result);
 }
 
 function canonicalOrderInfoForOrderV17_90L252(
-  order: { reviewReasons?: string[] | null },
+  order: { reviewReasons?: string[] | null; notes?: string | null },
   snapshot: NonNullable<ReturnType<typeof getCanonicalIntakeV2>>,
 ): OrderInfoSummaryV17_65 {
-  const info = canonicalOrderInfoV2(snapshot);
-  const suppressed = activeRecognitionRelatedRoleTextsV17_90L252(order);
-  if (suppressed.size === 0) return info;
+  const info = localizeOrderInfoSummaryV17_90L280(
+    canonicalOrderInfoV2(snapshot),
+    order.notes,
+  );
+  const suppressed = activeRecognitionDisplayTextsV17_90L280(order);
+  if (suppressed.length === 0) return info;
+  const keep = (line: string) =>
+    !suppressed.some((reviewText) =>
+      orderInfoLinesEquivalentV17_66(line, reviewText),
+    );
   return {
     ...info,
-    additional: info.additional.filter(
-      (line) => !suppressed.has(normalizeForMatch(line)),
-    ),
+    primary: info.primary.filter(keep),
+    additional: info.additional.filter(keep),
   };
 }
 
@@ -14578,9 +14681,15 @@ export default function AuftraegePage() {
   const canonicalFormSnapshotV2 = currentEditOrder
     ? getCanonicalIntakeV2(currentEditOrder)
     : null;
-  const canonicalFormInfoV2 = canonicalFormSnapshotV2
-    ? canonicalOrderInfoV2(canonicalFormSnapshotV2)
-    : null;
+  const canonicalFormInfoV2 =
+    canonicalFormSnapshotV2 && currentEditOrder
+      ? canonicalOrderInfoForOrderV17_90L252(
+          currentEditOrder,
+          canonicalFormSnapshotV2,
+        )
+      : canonicalFormSnapshotV2
+        ? canonicalOrderInfoV2(canonicalFormSnapshotV2)
+        : null;
   const formInfoSummary =
     canonicalFormInfoV2 ||
     buildOrderInfoSummaryV17_65(

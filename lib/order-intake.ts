@@ -289,6 +289,72 @@ function splitWorkCoverageSentenceCandidatesV17_90L266(
     }));
 }
 
+// V17.90L280: Display-only localization from the already stored automatic
+// translation. Canonical facts remain exactly as selected by the first AI.
+// A translated sentence is used only when it is position-aligned with the
+// original source sentence and preserves numbers/codes and logical polarity.
+function alignedTranslatedRoleDisplayVariantV17_90L280(args: {
+  line: unknown;
+  originalText?: string | null;
+  translationText?: string | null;
+}): string {
+  const line = compactExactSourceTextV17_90L251(args.line);
+  if (!line || !compactExactSourceTextV17_90L251(args.translationText)) {
+    return line;
+  }
+
+  const originalSentences = splitWorkCoverageSentenceCandidatesV17_90L266(
+    args.originalText,
+    "original",
+  );
+  const translatedSentences = splitWorkCoverageSentenceCandidatesV17_90L266(
+    args.translationText,
+    "translation",
+  );
+
+  // The first AI may already have returned the German translation.
+  if (
+    translatedSentences.some((sentence) =>
+      exactQuoteExistsInSourceV17_90L251(sentence.text, line),
+    )
+  ) {
+    return line;
+  }
+
+  const originalIndex = originalSentences.findIndex(
+    (sentence) =>
+      exactQuoteExistsInSourceV17_90L251(sentence.text, line) ||
+      exactQuoteExistsInSourceV17_90L251(line, sentence.text),
+  );
+  if (originalIndex < 0) return line;
+
+  const candidateIndexes = [originalIndex, originalIndex - 1, originalIndex + 1]
+    .filter((index, position, all) =>
+      index >= 0 && index < translatedSentences.length && all.indexOf(index) === position,
+    );
+  const lineInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
+  const lineNegated = hasCanonicalRoleNegationV17_90L201(line);
+
+  for (const index of candidateIndexes) {
+    const candidate = compactExactSourceTextV17_90L251(
+      translatedSentences[index]?.text,
+    );
+    if (!candidate || candidate.length > 700) continue;
+    if (
+      canonicalRoleInvariantTokensV17_90L201(candidate).join("|") !==
+      lineInvariants
+    ) {
+      continue;
+    }
+    if (hasCanonicalRoleNegationV17_90L201(candidate) !== lineNegated) {
+      continue;
+    }
+    return candidate;
+  }
+
+  return line;
+}
+
 function matchRoleEntryForSentenceV17_90L266(
   sentence: string,
   roleEntries: Array<{ role: string; text: string }>,
@@ -19748,36 +19814,93 @@ export async function processIncomingMessage(
     finalAiWorkCoverageV17_90L251.missingWork
       .flatMap((finding) => {
         const direct = [finding.relatedRoleText || "", finding.quote || ""];
-        const sourceSentences =
-          finding.source === "translation"
-            ? translatedAppointmentReviewSentencesV17_90L271
-            : originalAppointmentReviewSentencesV17_90L271;
-        const counterpartSentences =
-          finding.source === "translation"
-            ? originalAppointmentReviewSentencesV17_90L271
-            : translatedAppointmentReviewSentencesV17_90L271;
-        const sourceIndex = sourceSentences.findIndex((sentence) =>
-          exactQuoteExistsInSourceV17_90L251(
-            sentence.text,
-            finding.quote,
-          ),
+        const alignedTranslations = direct.map((text) =>
+          alignedTranslatedRoleDisplayVariantV17_90L280({
+            line: text,
+            originalText: messageText,
+            translationText,
+          }),
         );
-        const counterpart =
-          sourceIndex >= 0 ? counterpartSentences[sourceIndex]?.text || "" : "";
-        return [...direct, counterpart];
+
+        // Do not rely solely on the source flag. Search both sentence arrays and
+        // include nearby aligned counterparts; the later semantic filter still
+        // requires an actual match before hiding anything.
+        const counterpartCandidates: string[] = [];
+        for (const [sourceSentences, counterpartSentences] of [
+          [
+            originalAppointmentReviewSentencesV17_90L271,
+            translatedAppointmentReviewSentencesV17_90L271,
+          ],
+          [
+            translatedAppointmentReviewSentencesV17_90L271,
+            originalAppointmentReviewSentencesV17_90L271,
+          ],
+        ] as const) {
+          const sourceIndex = sourceSentences.findIndex((sentence) =>
+            exactQuoteExistsInSourceV17_90L251(
+              sentence.text,
+              finding.quote,
+            ),
+          );
+          if (sourceIndex < 0) continue;
+          for (const index of [sourceIndex, sourceIndex - 1, sourceIndex + 1]) {
+            const counterpart = counterpartSentences[index]?.text || "";
+            if (counterpart) counterpartCandidates.push(counterpart);
+          }
+        }
+        return [...direct, ...alignedTranslations, ...counterpartCandidates];
       })
       .map((text) => compactExactSourceTextV17_90L251(text))
       .filter(Boolean);
+
+  const displayCanonicalFactRolesV17_90L280 = {
+    safety: canonicalFactAssemblyV17_90L204.roles.safety.map((text) =>
+      alignedTranslatedRoleDisplayVariantV17_90L280({
+        line: text,
+        originalText: messageText,
+        translationText,
+      }),
+    ),
+    access: canonicalFactAssemblyV17_90L204.roles.access.map((text) =>
+      alignedTranslatedRoleDisplayVariantV17_90L280({
+        line: text,
+        originalText: messageText,
+        translationText,
+      }),
+    ),
+    parking: canonicalFactAssemblyV17_90L204.roles.parking.map((text) =>
+      alignedTranslatedRoleDisplayVariantV17_90L280({
+        line: text,
+        originalText: messageText,
+        translationText,
+      }),
+    ),
+    other: canonicalFactAssemblyV17_90L204.roles.other.map((text) =>
+      alignedTranslatedRoleDisplayVariantV17_90L280({
+        line: text,
+        originalText: messageText,
+        translationText,
+      }),
+    ),
+    ordinary: canonicalFactAssemblyV17_90L204.roles.ordinary.map((text) =>
+      alignedTranslatedRoleDisplayVariantV17_90L280({
+        line: text,
+        originalText: messageText,
+        translationText,
+      }),
+    ),
+  };
+
   const canonicalSpecialNoteHintsV17_90L203 =
     dedupeTranslatedRoleVariantsV17_90L201(
       [
         onsiteContactHint.hint || "",
         firstAiCommunicationInstructionHintV17_90L265 || "",
         ...structuredAppointmentHintsV17_90L86,
-        ...canonicalFactAssemblyV17_90L204.roles.access,
-        ...canonicalFactAssemblyV17_90L204.roles.parking,
-        ...canonicalFactAssemblyV17_90L204.roles.other,
-        ...canonicalFactAssemblyV17_90L204.roles.ordinary,
+        ...displayCanonicalFactRolesV17_90L280.access,
+        ...displayCanonicalFactRolesV17_90L280.parking,
+        ...displayCanonicalFactRolesV17_90L280.other,
+        ...displayCanonicalFactRolesV17_90L280.ordinary,
       ].filter((text) => {
         const compact = compactExactSourceTextV17_90L251(text);
         if (!compact) return false;
@@ -19811,7 +19934,7 @@ export async function processIncomingMessage(
     );
   finalSpecialNotes =
     buildSpecialNotes({
-      safetyWarnings: canonicalFactAssemblyV17_90L204.roles.safety,
+      safetyWarnings: displayCanonicalFactRolesV17_90L280.safety,
       jobHints: canonicalSpecialNoteHintsV17_90L203,
       preserveStructuredRoles: true,
     }) || null;
