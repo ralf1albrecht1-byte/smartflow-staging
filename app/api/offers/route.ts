@@ -24,6 +24,7 @@ import {
   isCustomerSnapshotStatus,
   withDocumentCustomerSnapshot,
 } from "@/lib/document-customer-snapshot";
+import { lockWorkflowHandoffItems } from "@/lib/workflow-handoff-snapshot";
 
 const HARD_CURRENCY_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
@@ -105,7 +106,9 @@ const hasActiveExecutionAddressReviewV17_90L36b = (order: any) => {
     workSites.find((site: any) => Boolean(site?.isPrimary)) ||
     workSites[0] ||
     null;
-  const siteAddress = String(primary?.siteAddress || order?.siteAddress || "").trim();
+  const siteAddress = String(
+    primary?.siteAddress || order?.siteAddress || "",
+  ).trim();
   const sitePlz = String(primary?.sitePlz || order?.sitePlz || "").trim();
   const siteCity = String(primary?.siteCity || order?.siteCity || "").trim();
   const hasAnySiteValue = Boolean(siteAddress || sitePlz || siteCity);
@@ -246,42 +249,6 @@ const compactOfferText = (value: unknown) =>
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-function getPrimarySourceOrderSite(order: any) {
-  // V17.90L279: Die Rollenentscheidung des Auftrags ist verbindlich.
-  if (!order?.siteAddressDifferent) return null;
-
-  const validWorkSites = (Array.isArray(order?.workSites) ? order.workSites : [])
-    .map((site: any) => ({
-      siteName: compactOfferText(site?.siteName) || null,
-      siteAddress: compactOfferText(site?.siteAddress) || null,
-      sitePlz: compactOfferText(site?.sitePlz) || null,
-      siteCity: compactOfferText(site?.siteCity) || null,
-      siteNote: compactOfferText(site?.siteNote) || null,
-      sourceOrderId: site?.sourceOrderId || order?.id || null,
-    }))
-    .filter(
-      (site: any) => site.siteAddress && site.sitePlz && site.siteCity,
-    );
-
-  // Bei mehreren Arbeitsorten gibt es absichtlich keinen globalen
-  // Primary-Fallback. Fehlt an einer Position die eindeutige Zuordnung, wird
-  // sie nicht automatisch an den ersten Arbeitsort verschoben.
-  if (validWorkSites.length > 1) return null;
-  if (validWorkSites.length === 1) return validWorkSites[0];
-
-  const flatSite = {
-    siteName: compactOfferText(order?.siteName) || null,
-    siteAddress: compactOfferText(order?.siteAddress) || null,
-    sitePlz: compactOfferText(order?.sitePlz) || null,
-    siteCity: compactOfferText(order?.siteCity) || null,
-    siteNote: compactOfferText(order?.siteNote) || null,
-    sourceOrderId: order?.id || null,
-  };
-  return flatSite.siteAddress && flatSite.sitePlz && flatSite.siteCity
-    ? flatSite
-    : null;
-}
-
 async function loadSourceOrdersForOfferCreation(
   userId: string,
   dataScope: DataScope,
@@ -289,9 +256,7 @@ async function loadSourceOrdersForOfferCreation(
 ) {
   const ids = Array.isArray(orderIds)
     ? Array.from(
-        new Set(
-          orderIds.map((id) => String(id || "").trim()).filter(Boolean),
-        ),
+        new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean)),
       )
     : [];
   if (ids.length === 0) return [];
@@ -305,104 +270,10 @@ async function loadSourceOrdersForOfferCreation(
   });
 }
 
-const normalizeOfferItemMatchText = (value: unknown) =>
-  compactOfferText(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-function findMatchingSourceOrderItem(order: any, item: any) {
-  const sourceItems = Array.isArray(order?.items) ? order.items : [];
-  if (sourceItems.length === 0) return null;
-
-  const descriptionKey = normalizeOfferItemMatchText(item?.description);
-  const quantity = Number(item?.quantity ?? 0);
-  const unitPrice = Number(item?.unitPrice ?? 0);
-  const exactMatches = sourceItems.filter((sourceItem: any) => {
-    const sourceKey = normalizeOfferItemMatchText(
-      sourceItem?.serviceName || sourceItem?.description,
-    );
-    return (
-      sourceKey === descriptionKey &&
-      Number(sourceItem?.quantity ?? 0) === quantity &&
-      Number(sourceItem?.unitPrice ?? 0) === unitPrice
-    );
-  });
-  if (exactMatches.length === 1) return exactMatches[0];
-
-  const numericMatches = sourceItems.filter(
-    (sourceItem: any) =>
-      Number(sourceItem?.quantity ?? 0) === quantity &&
-      Number(sourceItem?.unitPrice ?? 0) === unitPrice,
-  );
-  return numericMatches.length === 1 ? numericMatches[0] : null;
-}
-
-function validOfferItemSite(
-  item: any,
-  sourceOrderId: string | null,
-) {
-  const site = {
-    siteName: compactOfferText(item?.siteName) || null,
-    siteAddress: compactOfferText(item?.siteAddress) || null,
-    sitePlz: compactOfferText(item?.sitePlz) || null,
-    siteCity: compactOfferText(item?.siteCity) || null,
-    siteNote: compactOfferText(item?.siteNote) || null,
-    sourceOrderId: sourceOrderId || null,
-  };
-  return site.siteAddress && site.sitePlz && site.siteCity ? site : null;
-}
-
 function enrichOfferItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
-  const byId = new Map(
-    sourceOrders.map((order: any) => [String(order.id), order]),
-  );
-  const singleOrder = sourceOrders.length === 1 ? sourceOrders[0] : null;
-
-  return items.map((item: any) => {
-    const explicitOrderId = compactOfferText(item?.sourceOrderId) || null;
-    const sourceOrder =
-      (explicitOrderId ? byId.get(explicitOrderId) : null) || singleOrder;
-
-    // Die bereits gespeicherte Positions-/Arbeitsort-Zuordnung aus dem Auftrag
-    // ist die verbindliche Quelle. Das ist besonders wichtig bei identischen
-    // Positionen wie zwei gleichen Anfahrten an verschiedenen Arbeitsorten.
-    const explicitItemSite =
-      sourceOrder?.siteAddressDifferent === false
-        ? null
-        : validOfferItemSite(item, explicitOrderId);
-
-    const sourceOrderItem =
-      !explicitItemSite && sourceOrder
-        ? findMatchingSourceOrderItem(sourceOrder, item)
-        : null;
-    const matchedSourceItemSite =
-      sourceOrder?.siteAddressDifferent && sourceOrderItem?.workSite
-        ? validOfferItemSite(
-            sourceOrderItem.workSite,
-            sourceOrderItem.workSite.sourceOrderId || sourceOrder?.id || null,
-          )
-        : null;
-    const singleSourceSite = sourceOrder
-      ? getPrimarySourceOrderSite(sourceOrder)
-      : null;
-    const authoritativeSite =
-      explicitItemSite || matchedSourceItemSite || singleSourceSite;
-
-    return {
-      ...item,
-      siteName: authoritativeSite?.siteName || null,
-      siteAddress: authoritativeSite?.siteAddress || null,
-      sitePlz: authoritativeSite?.sitePlz || null,
-      siteCity: authoritativeSite?.siteCity || null,
-      siteNote: authoritativeSite?.siteNote || null,
-      sourceOrderId:
-        authoritativeSite?.sourceOrderId || explicitOrderId || sourceOrder?.id || null,
-    };
-  });
+  // V17.90L283: Der ausgehende Editor-/Dokumentstand ist der Snapshot.
+  // Keine erneute Leistungs- oder Arbeitsort-Zuordnung aus älteren Aufträgen.
+  return lockWorkflowHandoffItems(items, sourceOrders);
 }
 
 function buildDefaultOfferPdfText(sourceOrders: any[], items: any[]) {
@@ -607,7 +478,13 @@ export async function POST(request: Request) {
         select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
-        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+        return NextResponse.json(
+          {
+            error:
+              "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb.",
+          },
+          { status: 409 },
+        );
       }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
