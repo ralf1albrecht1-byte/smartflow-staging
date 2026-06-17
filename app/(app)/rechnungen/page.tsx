@@ -38,7 +38,6 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -2868,38 +2867,13 @@ export default function RechnungenPage() {
     description?: string | null;
   } | null>(null);
 
-  // Auto-fill customer data from order notes when dialog opens
-  const autoFillCustomer = async (customerId: string) => {
-    if (!customerId) return;
-    try {
-      const res = await fetch(`/api/customers/${customerId}/auto-fill`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setCustomers((prev) => {
-          const exists = prev.some((c) => c.id === updated.id);
-          if (exists)
-            return prev.map((c) =>
-              c.id === updated.id ? { ...c, ...updated } : c,
-            );
-          return [...prev, updated];
-        });
-      }
-    } catch {}
-  };
-
   // Block D: open the "Kunde bearbeiten" sheet for the currently-selected customer.
   // Used both by the inline ✏️ button and by clicking the customer summary box.
   // Optional `customerIdOverride` lets callers (e.g. the list-card chip
   // shortcut) pass a customer id directly without first relying on the
   // form state being flushed (useful when called immediately after
   // `openEditInvoice()` because React state updates batch).
-  // Optional `noteOverride` is the linked-order's notes used for merge.
-  const openCustomerEditor = async (
-    customerIdOverride?: string,
-    noteOverride?: string | null,
-  ) => {
+  const openCustomerEditor = async (customerIdOverride?: string) => {
     if (historicalInvoiceCustomerLocked) {
       toast.error(
         "Gesendete, bezahlte oder archivierte Rechnungen behalten den historischen Kundenstand. Setze die Rechnung zuerst auf Entwurf.",
@@ -2923,8 +2897,10 @@ export default function RechnungenPage() {
       }
     } catch {}
     if (freshCust) {
-      const noteSource =
-        noteOverride !== undefined ? noteOverride : linkedOrderData?.notes;
+      // V17.90L277: Der Kundeneditor startet ausschließlich mit dem
+      // gespeicherten Kundenstamm. Verknüpfte Auftragsnachrichten enthalten
+      // häufig Ausführungsadressen oder fremde Kontaktpersonen und dürfen
+      // deshalb keine Kundenfelder vorbefüllen.
       // Use blank form as merge base — prevents stale data from previously viewed records leaking in
       const blankForm = {
         name: "",
@@ -2938,7 +2914,7 @@ export default function RechnungenPage() {
       const merged = mergeCustomerIntoForm(
         blankForm,
         freshCust as any,
-        noteSource,
+        null,
       );
       setNewCust(merged);
     }
@@ -3261,8 +3237,9 @@ export default function RechnungenPage() {
           })
           .catch(() => {});
       }
-      // Auto-fill: extract missing customer data from notes and update DB
-      if (customerId) autoFillCustomer(customerId);
+      // V17.90L277: Angebot → Rechnung übernimmt den bestehenden Kunden
+      // unverändert. Freitext aus verknüpften Aufträgen darf den Kundenstamm
+      // weder ergänzen noch überschreiben.
       setDialogOpen(true);
     }
     // fromOrder auto-open removed — small dropdown now creates directly via API
@@ -3459,10 +3436,9 @@ export default function RechnungenPage() {
         });
       }, 180);
     }
-    // Historische Rechnungen dürfen den zentralen Kundenstamm weder nachladen
-    // noch durch Auto-Fill verändern. Entwürfe bleiben live verknüpft.
-    if (inv.customerId && !isHistoricalInvoiceStatus(inv.status))
-      autoFillCustomer(inv.customerId);
+    // V17.90L277: Das Öffnen einer Rechnung ist strikt read-only gegenüber
+    // dem zentralen Kundenstamm. Kundennachrichten, Kontaktpersonen und
+    // Ausführungsadressen dürfen niemals automatisch Kundendaten verändern.
   };
 
   // Stage E (deterministic chip flow): runs AFTER the dialog has actually
@@ -3496,7 +3472,8 @@ export default function RechnungenPage() {
         } catch {}
         if (cancelled) return;
         if (freshCust) {
-          const noteSource = linkedOrderData?.notes ?? null;
+          // V17.90L277: Auch der Chip-Schnellzugriff übernimmt ausschließlich
+          // den gespeicherten Kundenstamm und niemals Freitext aus Aufträgen.
           const merged = mergeCustomerIntoForm(
             {
               name: "",
@@ -3508,7 +3485,7 @@ export default function RechnungenPage() {
               country: "CH",
             },
             freshCust as any,
-            noteSource,
+            null,
           );
           setNewCust(merged);
         }
