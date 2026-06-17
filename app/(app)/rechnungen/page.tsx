@@ -6732,33 +6732,73 @@ export default function RechnungenPage() {
                 getCurrentInvoiceExecutionSitesV17_90L284().length <= 1 &&
                 (() => {
                   const executionSite =
-                    getCurrentInvoiceExecutionSitesV17_90L284()[0];
-                  if (!executionSite) return null;
+                    getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;
+                  const hasExecutionSite = Boolean(executionSite);
                   return (
                     <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                       <div
-                        role="button"
-                        tabIndex={0}
+                        role={hasExecutionSite ? "button" : undefined}
+                        tabIndex={hasExecutionSite ? 0 : -1}
                         onClick={(event) => {
+                          if (!executionSite) return;
                           const target = event.target as HTMLElement;
                           if (target.closest("button,input,select,textarea,a"))
                             return;
                           toggleInvoiceExecutionAddressEditor(executionSite);
                         }}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            executionSite &&
+                            (event.key === "Enter" || event.key === " ")
+                          ) {
                             event.preventDefault();
                             toggleInvoiceExecutionAddressEditor(executionSite);
                           }
                         }}
-                        className="-m-1 grid cursor-pointer grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:hover:bg-cyan-900/30"
+                        className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
+                          hasExecutionSite
+                            ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                            : ""
+                        }`}
                       >
                         <div className="flex min-w-0 flex-1 items-start gap-2">
                           <input
                             type="checkbox"
-                            checked
-                            readOnly
+                            checked={hasExecutionSite}
+                            readOnly={hasExecutionSite}
                             onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              if (!event.target.checked || executionSite) return;
+                              const uiKey = `invoice-draft-site-${Math.random()
+                                .toString(36)
+                                .slice(2)}`;
+                              const site: InvoiceExecutionSite = {
+                                siteName: "",
+                                siteAddress: "",
+                                sitePlz: "",
+                                siteCity: "",
+                                siteNote: "",
+                                sourceOrderId: null,
+                                _workSiteUiKey: uiKey,
+                              };
+                              const key = invoiceGroupKeyForSite(site);
+                              setInvoiceExecutionSiteDrafts((current) => [
+                                site,
+                                ...current,
+                              ]);
+                              setItems((current) => [
+                                { ...getEmptyItem(), ...site },
+                                ...current,
+                              ]);
+                              setEditingExecutionAddress(true);
+                              setEditingInvoiceSiteKey(key);
+                              setNewInvoiceItemSiteKey(key);
+                              setExpandedInvoiceSiteKeys(
+                                (current) => new Set([...current, key]),
+                              );
+                              setExpandedItemIndex(0);
+                              setServiceActionMenuIndex(null);
+                            }}
                             className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                             aria-label="Ausführungsadresse abweichend"
                           />
@@ -6772,7 +6812,7 @@ export default function RechnungenPage() {
                             </p>
                           </div>
                         </div>
-                        {!editingExecutionAddress && (
+                        {executionSite && !editingExecutionAddress && (
                           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                             <button
                               type="button"
@@ -6802,116 +6842,122 @@ export default function RechnungenPage() {
                         )}
                       </div>
 
-                      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                        {editingExecutionAddress ? (
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <div className="sm:col-span-2">
-                              <Label className="text-xs">
-                                Objekt / Bereich
-                              </Label>
-                              <Input
-                                value={executionSite.siteName || ""}
-                                onChange={(event: any) =>
-                                  updateInvoiceExecutionSite(
-                                    "siteName",
-                                    event?.target?.value ?? "",
-                                  )
-                                }
-                              />
-                            </div>
-                            <div className="sm:col-span-2">
-                              <Label className="text-xs">Strasse</Label>
-                              <Input
-                                value={executionSite.siteAddress || ""}
-                                onChange={(event: any) =>
-                                  updateInvoiceExecutionSite(
-                                    "siteAddress",
-                                    event?.target?.value ?? "",
-                                  )
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">PLZ</Label>
-                              <Input
-                                value={executionSite.sitePlz || ""}
-                                onChange={(event: any) =>
-                                  updateInvoiceExecutionSite(
-                                    "sitePlz",
-                                    event?.target?.value ?? "",
-                                  )
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">Ort</Label>
-                              <Input
-                                value={executionSite.siteCity || ""}
-                                onChange={(event: any) =>
-                                  updateInvoiceExecutionSite(
-                                    "siteCity",
-                                    event?.target?.value ?? "",
-                                  )
-                                }
-                              />
-                            </div>
-                            <div className="sm:col-span-2 flex flex-wrap items-center justify-end gap-2 pt-1">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  addInvoiceExecutionSite();
-                                }}
-                                disabled={saving}
-                              >
-                                <Plus className="mr-1 h-3.5 w-3.5" />
-                                Arbeitsort hinzufügen
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void saveInvoiceExecutionAddress();
-                                }}
-                                disabled={saving}
-                              >
-                                {saving ? "Speichern..." : "Adresse speichern"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-start gap-2">
-                            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-semibold">
-                                {executionSite.siteName || "Ausführungsadresse"}
+                      {!executionSite ? (
+                        <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
+                          Die Rechnungsadresse gilt auch als Ausführungsadresse.
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                          {editingExecutionAddress ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                <Label className="text-xs">
+                                  Objekt / Bereich
+                                </Label>
+                                <Input
+                                  value={executionSite.siteName || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceExecutionSite(
+                                      "siteName",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
                               </div>
-                              <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
-                                <span className="text-muted-foreground">
-                                  Strasse:
-                                </span>
-                                <span className="break-words">
-                                  {executionSite.siteAddress || "–"}
-                                </span>
-                                <span className="text-muted-foreground">
-                                  PLZ / Ort:
-                                </span>
-                                <span className="break-words">
-                                  {[
-                                    executionSite.sitePlz,
-                                    executionSite.siteCity,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" ") || "–"}
-                                </span>
+                              <div className="sm:col-span-2">
+                                <Label className="text-xs">Strasse</Label>
+                                <Input
+                                  value={executionSite.siteAddress || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceExecutionSite(
+                                      "siteAddress",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">PLZ</Label>
+                                <Input
+                                  value={executionSite.sitePlz || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceExecutionSite(
+                                      "sitePlz",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Ort</Label>
+                                <Input
+                                  value={executionSite.siteCity || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceExecutionSite(
+                                      "siteCity",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="sm:col-span-2 flex flex-wrap items-center justify-end gap-2 pt-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    addInvoiceExecutionSite();
+                                  }}
+                                  disabled={saving}
+                                >
+                                  <Plus className="mr-1 h-3.5 w-3.5" />
+                                  Arbeitsort hinzufügen
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void saveInvoiceExecutionAddress();
+                                  }}
+                                  disabled={saving}
+                                >
+                                  {saving ? "Speichern..." : "Adresse speichern"}
+                                </Button>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold">
+                                  {executionSite.siteName || "Ausführungsadresse"}
+                                </div>
+                                <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                                  <span className="text-muted-foreground">
+                                    Strasse:
+                                  </span>
+                                  <span className="break-words">
+                                    {executionSite.siteAddress || "–"}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    PLZ / Ort:
+                                  </span>
+                                  <span className="break-words">
+                                    {[
+                                      executionSite.sitePlz,
+                                      executionSite.siteCity,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ") || "–"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
