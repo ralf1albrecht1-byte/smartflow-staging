@@ -42,6 +42,7 @@ import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
 } from "@/lib/customer-form";
+import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -388,6 +389,12 @@ const offerSiteKey = (site: OfferExecutionSite) =>
 
 function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
   const sites: OfferExecutionSite[] = [];
+  const sourceOrderRole = new Map(
+    (offer.orders || []).map((order) => [
+      String(order.id || ""),
+      Boolean(order.siteAddressDifferent),
+    ]),
+  );
   const addSite = (candidate?: OfferExecutionSite | null) => {
     if (!candidate) return;
     const site: OfferExecutionSite = {
@@ -398,21 +405,18 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
       siteNote: compactOfferValue(candidate.siteNote) || null,
       sourceOrderId: compactOfferValue(candidate.sourceOrderId) || null,
     };
-    if (
-      !site.siteName &&
-      !site.siteAddress &&
-      !site.sitePlz &&
-      !site.siteCity &&
-      !site.siteNote
-    )
-      return;
+    // V17.90L278: Ein separater Arbeitsort ist nur mit vollständiger Adresse
+    // gültig. Name-only-Restwerte wie "stermin" werden nie angezeigt.
+    if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
     const key = offerSiteKey(site);
     if (!sites.some((existing) => offerSiteKey(existing) === key)) {
       sites.push(site);
     }
   };
 
-  (offer.items || []).forEach((item: any) =>
+  (offer.items || []).forEach((item: any) => {
+    const sourceOrderId = compactOfferValue(item?.sourceOrderId);
+    if (sourceOrderId && sourceOrderRole.get(sourceOrderId) === false) return;
     addSite({
       siteName: item?.siteName,
       siteAddress: item?.siteAddress,
@@ -420,10 +424,13 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
       siteCity: item?.siteCity,
       siteNote: item?.siteNote,
       sourceOrderId: item?.sourceOrderId,
-    }),
-  );
+    });
+  });
 
   (offer.orders || []).forEach((order) => {
+    // Die Rollenentscheidung des Auftrags ist verbindlich. Bei gleicher
+    // Rechnungs-/Ausführungsadresse werden alle Restwerte ignoriert.
+    if (!order.siteAddressDifferent) return;
     const workSites = Array.isArray(order.workSites)
       ? [...order.workSites].sort(
           (a, b) =>
@@ -432,8 +439,7 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
         )
       : [];
     workSites.forEach((site) => addSite({ ...site, sourceOrderId: order.id }));
-
-    if (workSites.length === 0 || order.siteAddressDifferent) {
+    if (workSites.length === 0) {
       addSite({
         siteName: order.siteName,
         siteAddress: order.siteAddress,
@@ -469,11 +475,14 @@ function groupOfferItemsByExecutionSite(
         ? normalizedSites.find((site) => site.sourceOrderId === item.sourceOrderId)
         : undefined) ||
       (normalizedSites.length === 1 ? normalizedSites[0] : null);
-    const key = matchedSite
-      ? `${matchedSite.sourceOrderId || ''}|${offerSiteKey(matchedSite)}`
-      : `${item.sourceOrderId || ''}|${offerSiteKey(item) || 'general'}`;
-    const site = matchedSite ||
-      (item.siteName || item.siteAddress || item.sitePlz || item.siteCity
+    const hasCompleteItemSite = Boolean(
+      compactOfferValue(item.siteAddress) &&
+        compactOfferValue(item.sitePlz) &&
+        compactOfferValue(item.siteCity),
+    );
+    const site =
+      matchedSite ||
+      (hasCompleteItemSite
         ? {
             siteName: item.siteName || null,
             siteAddress: item.siteAddress || null,
@@ -483,6 +492,9 @@ function groupOfferItemsByExecutionSite(
             sourceOrderId: item.sourceOrderId || null,
           }
         : null);
+    const key = site
+      ? `${site.sourceOrderId || ""}|${offerSiteKey(site)}`
+      : "general";
     const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
     const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
     group.entries.push({ item, index });
@@ -599,14 +611,11 @@ function applyExecutionSitesToOfferItems(
   sourceItems: OfferItem[],
   sites: OfferExecutionSite[],
 ): OfferItem[] {
-  const cleanSites = sites.filter((site) =>
-    Boolean(
-      compactOfferValue(site.siteName) ||
-      compactOfferValue(site.siteAddress) ||
-      compactOfferValue(site.sitePlz) ||
-      compactOfferValue(site.siteCity) ||
-      compactOfferValue(site.siteNote),
-    ),
+  const cleanSites = sites.filter(
+    (site) =>
+      Boolean(compactOfferValue(site.siteAddress)) &&
+      Boolean(compactOfferValue(site.sitePlz)) &&
+      Boolean(compactOfferValue(site.siteCity)),
   );
 
   if (cleanSites.length === 0) {
@@ -1255,11 +1264,21 @@ function compactOfferPrimaryInfoLinesV17_90L124(
     return !isAppointment && !isContact;
   });
 
-  const contactTitle =
-    exactCommunicationLines.length > 0 ? "" : contactAction?.title || "";
+  const actionTarget = contactAction
+    ? contactAction.channel === "mail"
+      ? contactAction.email
+      : contactAction.phone
+    : "";
+  const exactLinesForDisplay =
+    contactAction?.title && actionTarget
+      ? exactCommunicationLines.filter(
+          (line) => !isOfferCommunicationLikeLineV17_90L266(line),
+        )
+      : exactCommunicationLines;
+  const contactTitle = contactAction?.title || "";
   return uniqueOfferInfoLinesV17_66([
     ...retained,
-    ...exactCommunicationLines,
+    ...exactLinesForDisplay,
     appointmentLabel,
     contactTitle,
   ]);
@@ -1978,6 +1997,11 @@ function buildOfferContactAction(
   customer?: Customer | null,
 ): OfferContactAction | null {
   const segments = offerContactSourceSegments(data);
+  const explicitContact = extractDocumentContactFallback(
+    data.specialNotes,
+    data.notes,
+    data.audioTranscript,
+  );
   const candidates = segments
     .map((segment) => {
       const channel = offerContactChannelFromLine(segment.text);
@@ -2034,7 +2058,14 @@ function buildOfferContactAction(
     }>;
 
   const best = candidates.sort((left, right) => right.score - left.score)[0];
-  if (!best) return null;
+  const explicitChannel: OfferContactChannel | null =
+    explicitContact.channel === "email"
+      ? "mail"
+      : explicitContact.channel === "call"
+        ? "phone"
+        : explicitContact.channel;
+  const channel = best?.channel || explicitChannel;
+  if (!channel) return null;
 
   const fallbackPhone = String(
     customer?.phone || data.customer?.phone || data.phone || "",
@@ -2042,38 +2073,58 @@ function buildOfferContactAction(
   const fallbackEmail = String(
     customer?.email || data.customer?.email || data.email || "",
   ).trim();
-  const phone = best.phone || (best.channel !== "mail" ? fallbackPhone : "");
-  const email = best.email || (best.channel === "mail" ? fallbackEmail : "");
+  // V17.90L278: Kontaktperson und Zielkanal können in getrennten Zeilen
+  // stehen. Die explizite Vor-Ort-Rolle wird deshalb als read-only Ziel
+  // zusammengeführt, ohne den Kundenstamm zu verändern.
+  const phone =
+    best?.phone ||
+    (channel !== "mail" ? explicitContact.phone : "") ||
+    (channel !== "mail" ? fallbackPhone : "");
+  const email =
+    best?.email ||
+    (channel === "mail" ? explicitContact.email : "") ||
+    (channel === "mail" ? fallbackEmail : "");
+  const name = best?.name || explicitContact.name || "";
+  const minutesBefore = best?.minutesBefore ?? explicitContact.minutesBefore;
+  const notCall = Boolean(best?.notCall || explicitContact.notCall);
   const phoneHref = normalizeOfferPhoneHref(phone);
   const channelLabel =
-    best.channel === "whatsapp"
+    channel === "whatsapp"
       ? "WhatsApp"
-      : best.channel === "sms"
+      : channel === "sms"
         ? "SMS"
-        : best.channel === "mail"
+        : channel === "mail"
           ? "E-Mail"
           : "Anruf";
-  const target = best.channel === "mail" ? email : phone;
-  const title = [
-    best.name,
+  const target = channel === "mail" ? email : phone;
+  const generatedTitle = [
+    name,
     target,
     channelLabel,
-    best.minutesBefore ? `${best.minutesBefore} Minuten vorher` : "",
-    best.notCall ? "nicht anrufen" : "",
+    minutesBefore ? `${minutesBefore} Minuten vorher` : "",
+    notCall && channel !== "phone" ? "nicht anrufen" : "",
   ]
     .filter(Boolean)
     .join(" · ");
+  const explicitHasMatchingTarget = Boolean(
+    explicitContact.title &&
+      ((channel === "mail" && explicitContact.email) ||
+        (channel !== "mail" && explicitContact.phone)),
+  );
 
   return {
-    channel: best.channel,
-    name: best.name,
+    channel,
+    name,
     phone,
     phoneHref,
     email,
-    minutesBefore: best.minutesBefore,
-    notCall: best.notCall,
-    title: title || channelLabel,
-    sourceText: best.sourceText,
+    minutesBefore,
+    notCall,
+    title:
+      (explicitHasMatchingTarget ? explicitContact.title : "") ||
+      generatedTitle ||
+      channelLabel,
+    sourceText: best?.sourceText || explicitContact.title,
   };
 }
 
@@ -5210,7 +5261,7 @@ export default function AngebotePage() {
 
   const createInvoiceDirectly = async (off: Offer) => {
     // Direkt Rechnung erstellen via API — kein Extra-Dialog
-    const invoiceItems =
+    const rawInvoiceItems =
       off.items?.map((it: any) => ({
         description: it.description ?? "",
         quantity: String(it.quantity ?? 0),
@@ -5223,6 +5274,10 @@ export default function AngebotePage() {
         siteNote: it.siteNote || null,
         sourceOrderId: it.sourceOrderId || null,
       })) ?? [];
+    const invoiceItems = applyExecutionSitesToOfferItems(
+      rawInvoiceItems,
+      collectOfferExecutionSites(off),
+    );
     const conversionBlockers = getOfferToInvoiceBlockersV17_90L174(invoiceItems);
     if (conversionBlockers.length > 0) {
       toast.error(`Rechnung nicht möglich: ${conversionBlockers.slice(0, 3).join(", ")}`);

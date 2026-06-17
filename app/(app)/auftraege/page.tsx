@@ -56,6 +56,7 @@ import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
 } from "@/lib/customer-form";
+import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -3818,23 +3819,60 @@ function activeRecognitionDisplayTextsV17_90L280(order: {
 }
 
 function canonicalOrderInfoForOrderV17_90L252(
-  order: { reviewReasons?: string[] | null; notes?: string | null },
+  order: {
+    reviewReasons?: string[] | null;
+    notes?: string | null;
+    specialNotes?: string | null;
+    audioTranscript?: string | null;
+  },
   snapshot: NonNullable<ReturnType<typeof getCanonicalIntakeV2>>,
 ): OrderInfoSummaryV17_65 {
   const info = localizeOrderInfoSummaryV17_90L280(
     canonicalOrderInfoV2(snapshot),
     order.notes,
   );
+  const explicitContact = extractDocumentContactFallback(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  );
+  const explicitTarget =
+    explicitContact.channel === "email"
+      ? explicitContact.email
+      : explicitContact.phone;
+  const enrichedPrimary =
+    explicitContact.title && explicitTarget
+      ? uniqueOrderInfoLinesV17_66([
+          ...info.primary.filter((line) => {
+            const text = normalizeForMatch(line);
+            const isAppointment =
+              /\b(?:termin|datum|uhr|zeitfenster|ankunft|arbeitsbeginn)\b/.test(
+                text,
+              ) || /\b\d{1,2}[.:]\d{2}\b/.test(text);
+            const isCommunication =
+              /\b(?:kontakt|kontaktperson|ansprechperson|whatsapp|sms|e mail|email|mail|telefon|anrufen|melden)\b/.test(
+                text,
+              );
+            return !isCommunication || isAppointment;
+          }),
+          explicitContact.title,
+        ])
+      : info.primary;
   const suppressed = activeRecognitionDisplayTextsV17_90L280(order);
-  if (suppressed.length === 0) return info;
   const keep = (line: string) =>
     !suppressed.some((reviewText) =>
       orderInfoLinesEquivalentV17_66(line, reviewText),
     );
   return {
     ...info,
-    primary: info.primary.filter(keep),
-    additional: info.additional.filter(keep),
+    primary:
+      suppressed.length === 0
+        ? enrichedPrimary
+        : enrichedPrimary.filter(keep),
+    additional:
+      suppressed.length === 0
+        ? info.additional
+        : info.additional.filter(keep),
   };
 }
 
@@ -8694,12 +8732,23 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
+    const explicitContact = extractDocumentContactFallback(
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+    );
+    const targetPhone =
+      communication.targetPhone || explicitContact.phone || "";
+    const targetEmail =
+      communication.targetEmail || explicitContact.email || "";
+    const communicationContext =
+      explicitContact.title || communication.communicationContext || "";
     return {
       ...order,
-      phone: communication.targetPhone,
+      phone: targetPhone,
       customerPhone: canonicalSnapshotV2.customer.phone || "",
-      contactPhone: communication.targetPhone,
-      email: communication.targetEmail,
+      contactPhone: targetPhone,
+      email: targetEmail,
       customer: order.customer
         ? {
             ...order.customer,
@@ -8709,9 +8758,8 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
         : order.customer,
       specialNotes: "",
       communicationContext:
-        communication.channel === "call" ? "" : communication.communicationContext,
-      notes:
-        communication.channel === "call" ? "" : communication.communicationContext,
+        communication.channel === "call" ? "" : communicationContext,
+      notes: communication.channel === "call" ? "" : communicationContext,
       audioTranscript: "",
     };
   }
@@ -10557,8 +10605,15 @@ const getOrderPhoneForHref = (order: Order) => {
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
+    const explicitContact = extractDocumentContactFallback(
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+    );
     return normalizeStoredPhoneForTelHrefV17_90K6(
-      communication.targetPhone || canonicalSnapshotV2.customer.phone,
+      communication.targetPhone ||
+        explicitContact.phone ||
+        canonicalSnapshotV2.customer.phone,
     );
   }
   if (isIntakeV2Order(order)) return "";

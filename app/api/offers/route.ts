@@ -247,6 +247,11 @@ const compactOfferText = (value: unknown) =>
     .trim();
 
 function getPrimarySourceOrderSite(order: any) {
+  // V17.90L278: Die Rollenentscheidung des Auftrags ist verbindlich.
+  // Bei gleicher Rechnungs-/Ausführungsadresse dürfen weder alte Restwerte
+  // noch item-/workSite-Fallbacks einen separaten Arbeitsort erzeugen.
+  if (!order?.siteAddressDifferent) return null;
+
   const workSites = Array.isArray(order?.workSites)
     ? [...order.workSites].sort(
         (a: any, b: any) =>
@@ -265,14 +270,10 @@ function getPrimarySourceOrderSite(order: any) {
     sourceOrderId: primary?.sourceOrderId || order?.id || null,
   };
 
-  const hasSite = Boolean(
-    site.siteName ||
-      site.siteAddress ||
-      site.sitePlz ||
-      site.siteCity ||
-      site.siteNote,
-  );
-  if (!hasSite && !order?.siteAddressDifferent) return null;
+  // Eine abweichende Ausführungsadresse ist nur mit vollständiger
+  // strukturierter Adresse übergabefähig. Ein isolierter Name wie ein
+  // abgeschnittenes Textfragment darf nie als Arbeitsort weitergereicht werden.
+  if (!site.siteAddress || !site.sitePlz || !site.siteCity) return null;
   return site;
 }
 
@@ -355,30 +356,58 @@ function enrichOfferItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
     const sourceOrderItem = sourceOrder
       ? findMatchingSourceOrderItem(sourceOrder, item, index, items.length)
       : null;
-    const sourceSite = sourceOrderItem?.workSite
-      ? {
-          siteName: compactOfferText(sourceOrderItem.workSite.siteName) || null,
-          siteAddress:
-            compactOfferText(sourceOrderItem.workSite.siteAddress) || null,
-          sitePlz: compactOfferText(sourceOrderItem.workSite.sitePlz) || null,
-          siteCity: compactOfferText(sourceOrderItem.workSite.siteCity) || null,
-          siteNote: compactOfferText(sourceOrderItem.workSite.siteNote) || null,
-          sourceOrderId: sourceOrderItem.workSite.sourceOrderId || sourceOrder?.id || null,
-        }
-      : sourceOrder
-        ? getPrimarySourceOrderSite(sourceOrder)
+    const matchedSourceItemSite =
+      sourceOrder?.siteAddressDifferent && sourceOrderItem?.workSite
+        ? {
+            siteName:
+              compactOfferText(sourceOrderItem.workSite.siteName) || null,
+            siteAddress:
+              compactOfferText(sourceOrderItem.workSite.siteAddress) || null,
+            sitePlz:
+              compactOfferText(sourceOrderItem.workSite.sitePlz) || null,
+            siteCity:
+              compactOfferText(sourceOrderItem.workSite.siteCity) || null,
+            siteNote:
+              compactOfferText(sourceOrderItem.workSite.siteNote) || null,
+            sourceOrderId:
+              sourceOrderItem.workSite.sourceOrderId || sourceOrder?.id || null,
+          }
         : null;
+    const validMatchedSourceItemSite =
+      matchedSourceItemSite?.siteAddress &&
+      matchedSourceItemSite?.sitePlz &&
+      matchedSourceItemSite?.siteCity
+        ? matchedSourceItemSite
+        : null;
+    const sourceSite = sourceOrder
+      ? validMatchedSourceItemSite || getPrimarySourceOrderSite(sourceOrder)
+      : null;
+    const manualItemSite = !sourceOrder
+      ? {
+          siteName: compactOfferText(item?.siteName) || null,
+          siteAddress: compactOfferText(item?.siteAddress) || null,
+          sitePlz: compactOfferText(item?.sitePlz) || null,
+          siteCity: compactOfferText(item?.siteCity) || null,
+          siteNote: compactOfferText(item?.siteNote) || null,
+        }
+      : null;
+    const validManualItemSite =
+      manualItemSite?.siteAddress &&
+      manualItemSite?.sitePlz &&
+      manualItemSite?.siteCity
+        ? manualItemSite
+        : null;
+    const authoritativeSite = sourceSite || validManualItemSite;
 
     return {
       ...item,
-      siteName: compactOfferText(item?.siteName) || sourceSite?.siteName || null,
-      siteAddress:
-        compactOfferText(item?.siteAddress) || sourceSite?.siteAddress || null,
-      sitePlz: compactOfferText(item?.sitePlz) || sourceSite?.sitePlz || null,
-      siteCity: compactOfferText(item?.siteCity) || sourceSite?.siteCity || null,
-      siteNote: compactOfferText(item?.siteNote) || sourceSite?.siteNote || null,
+      siteName: authoritativeSite?.siteName || null,
+      siteAddress: authoritativeSite?.siteAddress || null,
+      sitePlz: authoritativeSite?.sitePlz || null,
+      siteCity: authoritativeSite?.siteCity || null,
+      siteNote: authoritativeSite?.siteNote || null,
       sourceOrderId:
-        explicitOrderId || sourceSite?.sourceOrderId || sourceOrder?.id || null,
+        explicitOrderId || authoritativeSite?.sourceOrderId || sourceOrder?.id || null,
     };
   });
 }

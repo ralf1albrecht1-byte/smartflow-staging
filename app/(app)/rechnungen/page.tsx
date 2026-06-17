@@ -42,6 +42,7 @@ import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
 } from "@/lib/customer-form";
+import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -867,6 +868,13 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const records = sources.flatMap((value) =>
     parseInvoiceCanonicalWorkflowRecordsV17_90L273(value),
   );
+  const explicitContact = extractDocumentContactFallback(
+    ...(invoice?.orders || []).flatMap((order) => [
+      order?.specialNotes,
+      order?.notes,
+      order?.audioTranscript,
+    ]),
+  );
   const canonicalAppointmentLinesV17_90L276 = (invoice?.orders || [])
     .map((order) => {
       const snapshot = getCanonicalIntakeV2(order);
@@ -900,12 +908,22 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   canonicalAppointmentLinesV17_90L276.forEach((line) =>
     add(primaryHints, line),
   );
+  if (explicitContact.title) add(primaryHints, explicitContact.title);
 
   for (const record of records) {
     const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
       record.text,
     );
     if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
+      continue;
+    }
+    if (
+      explicitContact.title &&
+      !isAppointmentRecord &&
+      isInvoiceCommunicationLikeLineV17_90L266(record.text)
+    ) {
+      // Die vollständige Vor-Ort-Kontaktrolle ersetzt unvollständige
+      // kanonische Kurzzeilen; reine Terminangaben bleiben separat erhalten.
       continue;
     }
     if (record.role === "safety" || isInvoiceCanonicalDogLineV17_90L273(record.text)) {
@@ -975,6 +993,12 @@ function collectInvoiceExecutionSites(source: {
   orders?: Invoice["orders"] | null;
 }): InvoiceExecutionSite[] {
   const sites: InvoiceExecutionSite[] = [];
+  const sourceOrderRole = new Map(
+    (source.orders || []).map((order) => [
+      String(order?.id || ""),
+      Boolean(order?.siteAddressDifferent),
+    ]),
+  );
   const add = (candidate?: InvoiceExecutionSite | null) => {
     if (!candidate) return;
     const site = {
@@ -985,14 +1009,9 @@ function collectInvoiceExecutionSites(source: {
       siteNote: compactInvoiceValue(candidate.siteNote) || null,
       sourceOrderId: compactInvoiceValue(candidate.sourceOrderId) || null,
     };
-    if (
-      !site.siteName &&
-      !site.siteAddress &&
-      !site.sitePlz &&
-      !site.siteCity &&
-      !site.siteNote
-    )
-      return;
+    // V17.90L278: Ein separater Arbeitsort ist nur mit vollständiger
+    // strukturierter Adresse gültig. Name-only-Restwerte werden ignoriert.
+    if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
     const key = [
       site.siteName,
       site.siteAddress,
@@ -1017,7 +1036,9 @@ function collectInvoiceExecutionSites(source: {
     if (!exists) sites.push(site);
   };
 
-  (source.items || []).forEach((item: any) =>
+  (source.items || []).forEach((item: any) => {
+    const sourceOrderId = compactInvoiceValue(item?.sourceOrderId);
+    if (sourceOrderId && sourceOrderRole.get(sourceOrderId) === false) return;
     add({
       siteName: item?.siteName,
       siteAddress: item?.siteAddress,
@@ -1025,9 +1046,10 @@ function collectInvoiceExecutionSites(source: {
       siteCity: item?.siteCity,
       siteNote: item?.siteNote,
       sourceOrderId: item?.sourceOrderId,
-    }),
-  );
+    });
+  });
   (source.orders || []).forEach((order) => {
+    if (!order?.siteAddressDifferent) return;
     const workSites = Array.isArray(order?.workSites)
       ? [...order.workSites].sort(
           (a, b) =>
@@ -1038,7 +1060,7 @@ function collectInvoiceExecutionSites(source: {
     workSites.forEach((site) =>
       add({ ...site, sourceOrderId: site.sourceOrderId || order.id }),
     );
-    if (workSites.length === 0 || order?.siteAddressDifferent) {
+    if (workSites.length === 0) {
       add({
         siteName: order?.siteName,
         siteAddress: order?.siteAddress,
@@ -1076,9 +1098,14 @@ function groupInvoiceItemsByExecutionSite(
         ? sites.find((site) => site.sourceOrderId === item.sourceOrderId)
         : undefined) ||
       (sites.length === 1 ? sites[0] : null);
+    const hasCompleteItemSite = Boolean(
+      compactInvoiceValue(item.siteAddress) &&
+        compactInvoiceValue(item.sitePlz) &&
+        compactInvoiceValue(item.siteCity),
+    );
     const site =
       matchedSite ||
-      (item.siteName || item.siteAddress || item.sitePlz || item.siteCity
+      (hasCompleteItemSite
         ? {
             siteName: item.siteName || null,
             siteAddress: item.siteAddress || null,
@@ -1375,16 +1402,41 @@ function getInvoiceMergedCount(invoice: Invoice): number {
 
 function buildInvoiceCommunicationData(invoice: Invoice) {
   const resolved = resolveCommunicationData(null, invoice.orders || []);
+  const explicitContact = extractDocumentContactFallback(
+    ...(invoice.orders || []).flatMap((order) => [
+      order?.specialNotes,
+      order?.notes,
+      order?.audioTranscript,
+    ]),
+  );
+  const targetPhone = explicitContact.phone || resolved.phone || null;
+  const targetEmail = explicitContact.email || resolved.email || null;
+  const communicationContext =
+    explicitContact.title ||
+    String((resolved as any).communicationContext || resolved.notes || "").trim();
+
+  // V17.90L278: Vor-Ort-Kontaktdaten bleiben read-only am Dokument und
+  // werden nur als Ziel der Kommunikationschips verwendet. Der Kundenstamm
+  // wird dabei nicht verändert.
   return {
     ...resolved,
     customer: {
       ...(resolved.customer || {}),
-      name: resolved.customer?.name || invoice.customer?.name || null,
-      phone: resolved.customer?.phone || invoice.customer?.phone || null,
-      email: resolved.customer?.email || invoice.customer?.email || null,
+      name:
+        explicitContact.name ||
+        resolved.customer?.name ||
+        invoice.customer?.name ||
+        null,
+      phone: targetPhone || invoice.customer?.phone || null,
+      email: targetEmail || invoice.customer?.email || null,
     },
-    phone: resolved.phone || invoice.customer?.phone || null,
-    email: resolved.email || invoice.customer?.email || null,
+    phone: targetPhone || invoice.customer?.phone || null,
+    contactPhone: targetPhone || invoice.customer?.phone || null,
+    email: targetEmail || invoice.customer?.email || null,
+    specialNotes: "",
+    communicationContext,
+    notes: communicationContext,
+    audioTranscript: "",
   };
 }
 
