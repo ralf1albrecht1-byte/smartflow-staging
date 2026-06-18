@@ -1,4 +1,7 @@
 "use client";
+// SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
+// SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
+// SMARTFLOW_V17_90L310_YELLOW_SERVICE_CATALOG_MENU_ALL3
 // SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
@@ -21441,7 +21444,7 @@ export default function AuftraegePage() {
                                 hasMultipleEditWorkSites ? "space-y-1.5" : ""
                               }
                             >
-                              {hasMultipleEditWorkSites && isFirstInSite && (
+                              {hasMultipleEditWorkSites && isFirstInSite && site && (
                                 <div
                                   role="button"
                                   tabIndex={0}
@@ -21473,9 +21476,7 @@ export default function AuftraegePage() {
                                         </span>
                                         <span>
                                           📍{" "}
-                                          {site
-                                            ? `${siteIndex + 1}. ${formatWorkSiteTitle(site)}`
-                                            : "Neue Leistung: Arbeitsort wählen"}
+                                          {`${siteIndex + 1}. ${formatWorkSiteTitle(site)}`}
                                         </span>
                                         <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
                                           {groupItemCount} Leistung
@@ -21555,7 +21556,7 @@ export default function AuftraegePage() {
                                         {site
                                           ? formatWorkSiteAddress(site) ||
                                             "Adresse prüfen"
-                                          : "Bitte Arbeitsort auswählen, dann Leistung prüfen"}
+                                          : "Arbeitsort und Leistung direkt unten auswählen"}
                                       </div>
                                     </div>
                                     <div className="shrink-0 text-right">
@@ -21798,7 +21799,7 @@ export default function AuftraegePage() {
                                     }}
                                     className={`group/service-item relative min-w-0 border-2 shadow-sm ${
                                       hasMultipleEditWorkSites
-                                        ? `ml-2 rounded-xl border-l-4 ${itemAccentClass}`
+                                        ? `${site ? "ml-2" : ""} rounded-xl border-l-4 ${itemAccentClass}`
                                         : "rounded-xl"
                                     } ${
                                       hasCriticalItemReview
@@ -21823,7 +21824,11 @@ export default function AuftraegePage() {
                                       <div className="min-w-0">
                                         <div className="min-w-0">
                                           <span className="block truncate text-sm font-semibold text-foreground sm:text-base">
-                                            {item.serviceName.trim() || "Leistung auswählen"}
+                                            {item.serviceName.trim() ||
+                                              (hasMultipleEditWorkSites &&
+                                              !item.workSiteId
+                                                ? "Ausführungsort und Leistung auswählen"
+                                                : "Leistung auswählen")}
                                           </span>
                                         </div>
                                         <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">

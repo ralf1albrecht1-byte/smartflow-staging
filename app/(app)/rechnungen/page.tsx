@@ -1,4 +1,7 @@
 "use client";
+// SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
+// SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
+// SMARTFLOW_V17_90L310_YELLOW_SERVICE_CATALOG_MENU_ALL3
 // SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
@@ -8008,7 +8011,14 @@ export default function RechnungenPage() {
                                   >
                                     <div className="min-w-0">
                                       <span className="block truncate font-medium">
-                                        {item?.description || "Neue Leistung"}
+                                        {item?.description ||
+                                          (getCurrentInvoiceExecutionSitesV17_90L284().length > 1 &&
+                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteName) &&
+                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteAddress) &&
+                                          !compactInvoiceValue((item as InvoiceExecutionSite).sitePlz) &&
+                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteCity)
+                                            ? "Ausführungsort und Leistung auswählen"
+                                            : "Neue Leistung")}
                                       </span>
                                     </div>
                                     <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
@@ -8323,6 +8333,14 @@ export default function RechnungenPage() {
                           const isEditingSite = editingInvoiceSiteKey === group.key;
                           const isActiveSite =
                             newInvoiceItemSiteKey === group.key || isEditingSite;
+
+                          if (!group.site) {
+                            return (
+                              <div key={group.key} className="space-y-1.5">
+                                {renderEntries(group.entries)}
+                              </div>
+                            );
+                          }
 
                           return (
                           <details
