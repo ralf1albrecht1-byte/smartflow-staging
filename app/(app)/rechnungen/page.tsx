@@ -641,6 +641,59 @@ const joinInvoicePdfText = (pdfTitle: string, notes: string) => {
   return body ? `Titel: ${title}\n\n${body}` : `Titel: ${title}`;
 };
 
+// V17.90L321: Rechnungs-Besonderheiten bleiben intern. Wenn keine
+// internen Rechnungshinweise vorhanden sind, bleibt das alte PDF-Textformat
+// unverändert. Dadurch werden bestehende Rechnungen/PDF-Texte nicht migriert.
+const INVOICE_PDF_META_PREFIX_V17_90L321 = "[[SMARTFLOW_INVOICE_PDF_V1]]";
+
+type InvoicePdfMetaV17_90L321 = {
+  pdfTitle: string;
+  notes: string;
+  specialNotes: string;
+};
+
+function decodeInvoicePdfMetaV17_90L321(
+  value?: string | null,
+): InvoicePdfMetaV17_90L321 {
+  const raw = String(value ?? "").trim();
+  if (raw.startsWith(INVOICE_PDF_META_PREFIX_V17_90L321)) {
+    try {
+      const parsed = JSON.parse(
+        raw.slice(INVOICE_PDF_META_PREFIX_V17_90L321.length),
+      );
+      return {
+        pdfTitle: String(parsed?.pdfTitle ?? parsed?.title ?? "").trim(),
+        notes: String(parsed?.notes ?? parsed?.text ?? "").trim(),
+        specialNotes: String(
+          parsed?.specialNotes ?? parsed?.internalNotes ?? "",
+        ).trim(),
+      };
+    } catch {
+      return { pdfTitle: "", notes: raw, specialNotes: "" };
+    }
+  }
+  const legacy = splitInvoicePdfText(raw);
+  return {
+    pdfTitle: legacy.pdfTitle,
+    notes: legacy.notes,
+    specialNotes: "",
+  };
+}
+
+function encodeInvoicePdfMetaV17_90L321(
+  pdfTitle: string,
+  notes: string,
+  specialNotes: string,
+): string {
+  const cleanSpecialNotes = String(specialNotes || "").trim();
+  if (!cleanSpecialNotes) return joinInvoicePdfText(pdfTitle, notes);
+  return `${INVOICE_PDF_META_PREFIX_V17_90L321}${JSON.stringify({
+    pdfTitle: compactInvoiceValue(pdfTitle),
+    notes: String(notes || "").trim(),
+    specialNotes: cleanSpecialNotes,
+  })}`;
+}
+
 const OFFER_PDF_META_PREFIX_V17_90L319 = "[[SMARTFLOW_OFFER_PDF_V1]]";
 
 function decodeOfferInternalNotesForInvoiceV17_90L319(
@@ -1083,10 +1136,16 @@ function collectInvoiceCanonicalSpecialNotesV17_90L237(
 function buildInvoiceSpecialNotesSourceV17_90L319(
   invoice: Invoice | null,
   sourceOfferInternalNotes?: string | null,
+  invoiceInternalNotesV17_90L321?: string | null,
 ): string {
+  const storedInvoiceInternalNotesV17_90L321 = invoice
+    ? decodeInvoicePdfMetaV17_90L321(invoice.notes).specialNotes
+    : "";
   return [
     ...(invoice?.orders || []).map((order) => order?.specialNotes),
     sourceOfferInternalNotes,
+    invoiceInternalNotesV17_90L321,
+    storedInvoiceInternalNotesV17_90L321,
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
@@ -3008,6 +3067,7 @@ export default function RechnungenPage() {
     paymentDays: "14",
     pdfTitle: "",
     notes: "",
+    specialNotes: "",
     orderIds: [] as string[],
   });
   const historicalInvoiceCustomerLocked = Boolean(
@@ -3307,6 +3367,8 @@ export default function RechnungenPage() {
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
   const serviceItemsRef = useRef<HTMLDivElement | null>(null);
+  const invoiceExecutionSitesRef = useRef<HTMLDivElement | null>(null);
+  const invoiceSpecialNotesRef = useRef<HTMLDivElement | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -3707,6 +3769,7 @@ export default function RechnungenPage() {
       paymentDays: String(defaultPaymentDays),
       pdfTitle: "",
       notes: "",
+      specialNotes: "",
       orderIds: [],
     });
     setItems([getEmptyItem()]);
@@ -3737,6 +3800,8 @@ export default function RechnungenPage() {
       openCustomerSection?: boolean;
       focusStatus?: boolean;
       focusItems?: boolean;
+      focusExecutionSites?: boolean;
+      focusSpecialNotes?: boolean;
     },
   ) => {
     if (typeof window !== "undefined") {
@@ -3782,7 +3847,7 @@ export default function RechnungenPage() {
     );
     // Strip forwarded customer message from Bemerkungen (legacy data cleanup)
     const cleanNotes = stripForwardedMessage(inv.notes, lo?.notes);
-    const invoicePdfText = splitInvoicePdfText(cleanNotes);
+    const invoicePdfText = decodeInvoicePdfMetaV17_90L321(cleanNotes);
     const invoiceDate = toInvoiceDateInputValue(inv.invoiceDate);
     setForm({
       customerId: inv.customerId,
@@ -3793,6 +3858,7 @@ export default function RechnungenPage() {
       paymentDays: String(defaultPaymentDays),
       pdfTitle: invoicePdfText.pdfTitle,
       notes: invoicePdfText.notes,
+      specialNotes: invoicePdfText.specialNotes,
       orderIds: [],
     });
     setExpandedItemIndex(null);
@@ -3844,6 +3910,22 @@ export default function RechnungenPage() {
     if (opts?.focusItems) {
       window.setTimeout(() => {
         serviceItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 180);
+    }
+    if (opts?.focusExecutionSites) {
+      window.setTimeout(() => {
+        (invoiceExecutionSitesRef.current || serviceItemsRef.current)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 180);
+    }
+    if (opts?.focusSpecialNotes) {
+      window.setTimeout(() => {
+        invoiceSpecialNotesRef.current?.scrollIntoView({
           behavior: "smooth",
           block: "start",
         });
@@ -5316,8 +5398,16 @@ export default function RechnungenPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...form,
-          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
+          customerId: form.customerId,
+          invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
+          paymentDays: form.paymentDays,
+          orderIds: form.orderIds,
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
           items: itemsForCreate,
           clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
           saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
@@ -5348,6 +5438,7 @@ export default function RechnungenPage() {
             paymentDays: String(defaultPaymentDays),
             pdfTitle: "",
             notes: "",
+            specialNotes: "",
             orderIds: [],
           });
         } else if (createdInvoice?.id) {
@@ -5442,7 +5533,11 @@ export default function RechnungenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: editingInvoice.status,
-          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
           items: itemsForEditWithUiStateV17_90L292.map(
@@ -5610,7 +5705,11 @@ export default function RechnungenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: "Erledigt",
-          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
           items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
@@ -6282,6 +6381,7 @@ export default function RechnungenPage() {
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
+                            openEditInvoice(inv, { focusSpecialNotes: true });
                           }}
                           className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
                         >
@@ -6295,16 +6395,51 @@ export default function RechnungenPage() {
                                 <Info className="h-4 w-4" />
                                 Besonderheiten
                               </span>
-                              <span className="block space-y-1 text-[12px] leading-snug">
-                                {invoiceSpecialInfoLinesV17_90L319.map(
-                                  (line, index) => (
-                                    <span
-                                      key={`invoice-info-${inv.id}-${index}`}
-                                      className="block whitespace-pre-wrap break-words"
-                                    >
-                                      {line}
+                              <span className="block space-y-2 text-[12px] leading-snug">
+                                {invoiceSpecialSummaryV17_90L319.primaryHints.length > 0 && (
+                                  <span className="block">
+                                    <span className="block font-semibold text-blue-800 dark:text-blue-200">
+                                      Wichtige Informationen
                                     </span>
-                                  ),
+                                    {invoiceSpecialSummaryV17_90L319.primaryHints.map((line, index) => (
+                                      <span
+                                        key={`invoice-info-primary-${inv.id}-${index}`}
+                                        className="block whitespace-pre-wrap break-words"
+                                      >
+                                        • {line}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
+                                {invoiceSpecialSummaryV17_90L319.hazards.length > 0 && (
+                                  <span className="block">
+                                    <span className="block font-semibold text-red-800 dark:text-red-200">
+                                      Gefahr / Achtung
+                                    </span>
+                                    {invoiceSpecialSummaryV17_90L319.hazards.map((line, index) => (
+                                      <span
+                                        key={`invoice-info-hazard-${inv.id}-${index}`}
+                                        className="block whitespace-pre-wrap break-words"
+                                      >
+                                        • {line}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
+                                {invoiceSpecialSummaryV17_90L319.otherHints.length > 0 && (
+                                  <span className="block">
+                                    <span className="block font-semibold text-amber-800 dark:text-amber-200">
+                                      Weitere Besonderheiten
+                                    </span>
+                                    {invoiceSpecialSummaryV17_90L319.otherHints.map((line, index) => (
+                                      <span
+                                        key={`invoice-info-other-${inv.id}-${index}`}
+                                        className="block whitespace-pre-wrap break-words"
+                                      >
+                                        • {line}
+                                      </span>
+                                    ))}
+                                  </span>
                                 )}
                               </span>
                             </span>
@@ -6677,6 +6812,7 @@ export default function RechnungenPage() {
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
+                                            openEditInvoice(inv, { focusExecutionSites: true });
                                           }}
                                           className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                           aria-label="Ausführungsort anzeigen"
@@ -6882,6 +7018,7 @@ export default function RechnungenPage() {
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
+                                      openEditInvoice(inv, { focusExecutionSites: true });
                                     }}
                                     className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                     aria-label="Ausführungsadresse anzeigen"
@@ -7584,7 +7721,7 @@ export default function RechnungenPage() {
                 )}
               </div>
               {!dupCheckOpen && !editingInvoice && (
-                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                <div ref={invoiceExecutionSitesRef} className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                   <div
                     role={newInvoiceExecutionSite ? "button" : undefined}
                     tabIndex={newInvoiceExecutionSite ? 0 : -1}
@@ -7836,7 +7973,7 @@ export default function RechnungenPage() {
                     getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;
                   const hasExecutionSite = Boolean(executionSite);
                   return (
-                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                    <div ref={invoiceExecutionSitesRef} className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                       <div
                         role={hasExecutionSite ? "button" : undefined}
                         tabIndex={hasExecutionSite ? 0 : -1}
@@ -9198,6 +9335,39 @@ export default function RechnungenPage() {
                     </div>
                   </div>
 
+                  {!editOrderCtx && editingInvoice && (
+                    <div
+                      ref={invoiceSpecialNotesRef}
+                      className="scroll-mt-24 rounded-xl border p-3 sm:p-4"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-base font-semibold">
+                          Besonderheiten
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          Intern – nicht automatisch im Kunden-PDF
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
+                        <Label className="text-xs font-semibold">
+                          Besonderheiten in der Rechnung
+                        </Label>
+                        <textarea
+                          className="flex min-h-[82px] w-full resize-y rounded-md border border-blue-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300/60 dark:border-blue-900 dark:bg-slate-950"
+                          rows={3}
+                          placeholder="Optionaler interner Rechnungshinweis..."
+                          value={form.specialNotes}
+                          onChange={(event) =>
+                            setForm({ ...form, specialNotes: event.target.value })
+                          }
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          Intern. Auf der Rechnungskarte erscheint dafür nur der Info-Chip.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {!editOrderCtx && renderInvoiceServiceOverview()}
 
                   {editOrderCtx &&
@@ -9211,6 +9381,7 @@ export default function RechnungenPage() {
                           editingInvoice,
                           editingInvoiceSourceOfferInternalNotesV17_90L319 ||
                             editOrderCtx.specialNotes,
+                          form.specialNotes,
                         );
                       const { hazards, primaryHints, otherHints } =
                         buildInvoiceCanonicalWorkflowSummaryV17_90L274(
@@ -9275,10 +9446,11 @@ export default function RechnungenPage() {
 
                       return (
                         <div className="space-y-3">
-                          {(primaryHints.length > 0 ||
-                            hazards.length > 0 ||
-                            otherHints.length > 0) && (
-                            <div className="rounded-xl border p-3 sm:p-4">
+                          {editingInvoice && (
+                            <div
+                              ref={invoiceSpecialNotesRef}
+                              className="scroll-mt-24 rounded-xl border p-3 sm:p-4"
+                            >
                               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                 <h3 className="text-base font-semibold">
                                   Besonderheiten
@@ -9286,6 +9458,26 @@ export default function RechnungenPage() {
                                 <span className="text-xs text-muted-foreground">
                                   Intern – nicht automatisch im Kunden-PDF
                                 </span>
+                              </div>
+                              <div className="mb-3 space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
+                                <Label className="text-xs font-semibold">
+                                  Besonderheiten in der Rechnung
+                                </Label>
+                                <textarea
+                                  className="flex min-h-[82px] w-full resize-y rounded-md border border-blue-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300/60 dark:border-blue-900 dark:bg-slate-950"
+                                  rows={3}
+                                  placeholder="Optionaler interner Rechnungshinweis..."
+                                  value={form.specialNotes}
+                                  onChange={(event) =>
+                                    setForm({
+                                      ...form,
+                                      specialNotes: event.target.value,
+                                    })
+                                  }
+                                />
+                                <div className="text-xs text-muted-foreground">
+                                  Intern. Auf der Rechnungskarte erscheint dafür nur der Info-Chip.
+                                </div>
                               </div>
                               <div className="space-y-3">
                                 {primaryHints.length > 0 && (
