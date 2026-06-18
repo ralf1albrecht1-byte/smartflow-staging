@@ -2846,6 +2846,8 @@ export default function RechnungenPage() {
     number | null
   >(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [executionAddressClearRequested, setExecutionAddressClearRequested] =
+    useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
     useState("");
   const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<
@@ -3423,6 +3425,7 @@ export default function RechnungenPage() {
   const openNewInvoice = () => {
     const invoiceDate = getTodayInvoiceDateInputValue();
     setEditingInvoice(null);
+    setExecutionAddressClearRequested(false);
     setEditingInvoiceCustomer(null);
     setVatRate(defaultVatRate);
     setCurrency(currency === "EUR" ? "EUR" : "CHF");
@@ -3470,6 +3473,7 @@ export default function RechnungenPage() {
     }
     setActiveInvoiceServiceSheet(null);
     setEditingInvoice(inv);
+    setExecutionAddressClearRequested(false);
     setEditingInvoiceCustomer(inv.customer ? { ...inv.customer } : null);
     setDupCheckOpen(false);
     // Reset customer form to prevent stale data leaking between records
@@ -3888,10 +3892,12 @@ export default function RechnungenPage() {
     invoiceWorkSiteGroupKeyV17_90L287(site);
 
   const getCurrentInvoiceExecutionSitesV17_90L284 = () => {
-    const collected = collectInvoiceExecutionSites({
-      items,
-      orders: editingInvoice?.orders || [],
-    });
+    const collected = executionAddressClearRequested
+      ? []
+      : collectInvoiceExecutionSites({
+          items,
+          orders: editingInvoice?.orders || [],
+        });
     const result: InvoiceExecutionSite[] = [];
     const seen = new Set<string>();
     const addSite = (site: InvoiceExecutionSite) => {
@@ -3906,6 +3912,66 @@ export default function RechnungenPage() {
     }
     collected.forEach(addSite);
     return result;
+  };
+
+  const setInvoiceExecutionAddressEnabledV17_90L288 = (
+    enabled: boolean,
+    executionSite?: InvoiceExecutionSite | null,
+  ) => {
+    if (!enabled) {
+      const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+      if (currentSites.length > 1) {
+        toast.error(
+          "Mehrere Arbeitsorte können nur einzeln bearbeitet werden.",
+        );
+        return;
+      }
+
+      setExecutionAddressClearRequested(true);
+      setItems((current) =>
+        current.map((item) => ({
+          ...item,
+          siteName: null,
+          siteAddress: null,
+          sitePlz: null,
+          siteCity: null,
+          siteNote: null,
+          _workSiteUiKey: null,
+        })),
+      );
+      setInvoiceExecutionSiteDrafts([]);
+      setNewInvoiceExecutionSite(null);
+      setEditingInvoiceSiteKey(null);
+      setNewInvoiceItemSiteKey("");
+      setExpandedInvoiceSiteKeys(new Set());
+      setEditingExecutionAddress(false);
+      return;
+    }
+
+    setExecutionAddressClearRequested(false);
+    if (executionSite) return;
+
+    const uiKey = `invoice-draft-site-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const site: InvoiceExecutionSite = {
+      siteName: "",
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+      sourceOrderId: null,
+      _workSiteUiKey: uiKey,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
+    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setEditingExecutionAddress(true);
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
   };
 
   const focusInvoiceWorkSiteEditorV17_90L284 = () => {
@@ -4514,6 +4580,7 @@ export default function RechnungenPage() {
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
           items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
+          clearExecutionAddress: executionAddressClearRequested,
           vatRate,
           currency,
         }),
@@ -4522,6 +4589,11 @@ export default function RechnungenPage() {
         toast.error("Fehler");
         return false;
       }
+      const savedInvoice = await res.json().catch(() => null);
+      if (savedInvoice && !closeAfterSave) {
+        setEditingInvoice(savedInvoice);
+      }
+      setExecutionAddressClearRequested(false);
       toast.success("Rechnung aktualisiert");
       setInvoiceExecutionSiteDrafts([]);
       if (closeAfterSave) {
@@ -4595,7 +4667,8 @@ export default function RechnungenPage() {
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
-          items,
+          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
+          clearExecutionAddress: executionAddressClearRequested,
           vatRate,
           currency,
         }),
@@ -6765,40 +6838,13 @@ export default function RechnungenPage() {
                           <input
                             type="checkbox"
                             checked={hasExecutionSite}
-                            readOnly={hasExecutionSite}
                             onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => {
-                              if (!event.target.checked || executionSite) return;
-                              const uiKey = `invoice-draft-site-${Math.random()
-                                .toString(36)
-                                .slice(2)}`;
-                              const site: InvoiceExecutionSite = {
-                                siteName: "",
-                                siteAddress: "",
-                                sitePlz: "",
-                                siteCity: "",
-                                siteNote: "",
-                                sourceOrderId: null,
-                                _workSiteUiKey: uiKey,
-                              };
-                              const key = invoiceGroupKeyForSite(site);
-                              setInvoiceExecutionSiteDrafts((current) => [
-                                site,
-                                ...current,
-                              ]);
-                              setItems((current) => [
-                                { ...getEmptyItem(), ...site },
-                                ...current,
-                              ]);
-                              setEditingExecutionAddress(true);
-                              setEditingInvoiceSiteKey(key);
-                              setNewInvoiceItemSiteKey(key);
-                              setExpandedInvoiceSiteKeys(
-                                (current) => new Set([...current, key]),
-                              );
-                              setExpandedItemIndex(0);
-                              setServiceActionMenuIndex(null);
-                            }}
+                            onChange={(event) =>
+                              setInvoiceExecutionAddressEnabledV17_90L288(
+                                event.target.checked,
+                                executionSite,
+                              )
+                            }
                             className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                             aria-label="Ausführungsadresse abweichend"
                           />

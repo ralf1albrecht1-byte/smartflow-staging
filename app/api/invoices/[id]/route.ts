@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getActiveDataScope } from "@/lib/data-scope";
+import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import {
   requireUserId,
   unauthorizedResponse,
@@ -45,6 +45,106 @@ const invoiceOrderInclude = {
     },
   },
 } as const;
+
+const normalizeExecutionSiteIdentityV17_90L288 = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+async function clearLinkedOrderExecutionAddressesForInvoiceV17_90L288(
+  invoiceId: string,
+  userId: string,
+  dataScope: DataScope,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const linkedOrders = await prisma.order.findMany({
+    where: { invoiceId, userId, dataScope },
+    select: {
+      id: true,
+      siteAddressDifferent: true,
+      siteName: true,
+      siteAddress: true,
+      sitePlz: true,
+      siteCity: true,
+      workSites: {
+        select: {
+          siteName: true,
+          siteAddress: true,
+          sitePlz: true,
+          siteCity: true,
+        },
+      },
+    },
+  });
+
+  const siteKeys = new Set<string>();
+  linkedOrders.forEach((order: any) => {
+    if (!order?.siteAddressDifferent) return;
+    const completeSites = Array.isArray(order?.workSites)
+      ? order.workSites.filter(
+          (site: any) =>
+            String(site?.siteAddress || "").trim() &&
+            String(site?.sitePlz || "").trim() &&
+            String(site?.siteCity || "").trim(),
+        )
+      : [];
+    const candidates =
+      completeSites.length > 0
+        ? completeSites
+        : [
+            {
+              siteName: order?.siteName,
+              siteAddress: order?.siteAddress,
+              sitePlz: order?.sitePlz,
+              siteCity: order?.siteCity,
+            },
+          ];
+    candidates.forEach((site: any) => {
+      const address = normalizeExecutionSiteIdentityV17_90L288(
+        site?.siteAddress,
+      );
+      const plz = normalizeExecutionSiteIdentityV17_90L288(site?.sitePlz);
+      const city = normalizeExecutionSiteIdentityV17_90L288(site?.siteCity);
+      if (!address || !plz || !city) return;
+      const name = normalizeExecutionSiteIdentityV17_90L288(site?.siteName);
+      siteKeys.add(`${name}|${address}|${plz}|${city}`);
+    });
+  });
+
+  if (siteKeys.size > 1) {
+    return {
+      ok: false,
+      error:
+        "Mehrere Arbeitsorte können nicht gemeinsam auf die Rechnungsadresse zurückgesetzt werden.",
+    };
+  }
+
+  const orderIds = linkedOrders.map((order: any) => String(order.id));
+  if (orderIds.length === 0) return { ok: true };
+
+  await prisma.$transaction([
+    prisma.orderItem.updateMany({
+      where: { orderId: { in: orderIds } },
+      data: { workSiteId: null },
+    }),
+    prisma.orderWorkSite.deleteMany({
+      where: { orderId: { in: orderIds } },
+    }),
+    prisma.order.updateMany({
+      where: { id: { in: orderIds }, userId, dataScope },
+      data: {
+        siteAddressDifferent: false,
+        siteName: null,
+        siteAddress: null,
+        sitePlz: null,
+        siteCity: null,
+        siteNote: null,
+      },
+    }),
+  ]);
+
+  return { ok: true };
+}
 
 function validateDocumentItemsForUpdate(items: any[]) {
   if (!Array.isArray(items)) return null;
@@ -167,6 +267,8 @@ export async function PUT(
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
 
+    const clearExecutionAddress = data?.clearExecutionAddress === true;
+
     const currentStatus = String(existing.status || "Entwurf");
     const nextStatus = String(data?.status ?? currentStatus);
     const currentLocked = isCustomerSnapshotStatus("invoice", currentStatus);
@@ -196,7 +298,8 @@ export async function PUT(
         Array.isArray(data?.items) ||
         data?.invoiceDate !== undefined ||
         data?.dueDate !== undefined ||
-        data?.vatRate !== undefined;
+        data?.vatRate !== undefined ||
+        clearExecutionAddress;
       if (hasDataEdit) {
         return NextResponse.json(
           {
@@ -323,6 +426,23 @@ export async function PUT(
       );
     }
 
+    // V17.90L288: Erst nach allen Status-, Kunden- und Datums-Guards die
+    // verknüpfte Auftragsadresse leeren. Leistungen selbst bleiben bestehen.
+    if (clearExecutionAddress) {
+      const clearResult =
+        await clearLinkedOrderExecutionAddressesForInvoiceV17_90L288(
+          params.id,
+          userId,
+          dataScope,
+        );
+      if (!clearResult.ok) {
+        return NextResponse.json(
+          { error: clearResult.error },
+          { status: 409 },
+        );
+      }
+    }
+
     const updateData: any = {};
     if (data?.customerId) updateData.customerId = data.customerId;
     if (isReopen) {
@@ -359,11 +479,11 @@ export async function PUT(
           unit: item?.unit ?? "Stunde",
           unitPrice: price,
           totalPrice,
-          siteName: item?.siteName || null,
-          siteAddress: item?.siteAddress || null,
-          sitePlz: item?.sitePlz || null,
-          siteCity: item?.siteCity || null,
-          siteNote: item?.siteNote || null,
+          siteName: clearExecutionAddress ? null : item?.siteName || null,
+          siteAddress: clearExecutionAddress ? null : item?.siteAddress || null,
+          sitePlz: clearExecutionAddress ? null : item?.sitePlz || null,
+          siteCity: clearExecutionAddress ? null : item?.siteCity || null,
+          siteNote: clearExecutionAddress ? null : item?.siteNote || null,
           sourceOrderId: item?.sourceOrderId || null,
         };
       });
@@ -380,11 +500,26 @@ export async function PUT(
           invoiceId: params?.id,
         })),
       });
+    } else if (clearExecutionAddress) {
+      await prisma.invoiceItem.updateMany({
+        where: { invoiceId: params?.id },
+        data: {
+          siteName: null,
+          siteAddress: null,
+          sitePlz: null,
+          siteCity: null,
+          siteNote: null,
+        },
+      });
     }
     const invoice = await prisma.invoice.update({
       where: { id: params?.id },
       data: updateData,
-      include: { customer: true, items: true },
+      include: {
+        customer: true,
+        items: true,
+        orders: { include: invoiceOrderInclude },
+      },
     });
     const su = await getSessionUser();
     logAuditAsync({

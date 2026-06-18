@@ -1705,6 +1705,7 @@ export async function PUT(
       const qty = primaryQuantity ?? Number(existing?.quantity ?? 1);
       totalPrice = qty * up;
     }
+    const clearExecutionAddress = data?.clearExecutionAddress === true;
     const workSiteIdMap = new Map<string, string>();
     const workSitePayload = Array.isArray(data?.workSites) ? data.workSites : null;
     const existingTopSiteHasContent = Boolean(
@@ -1745,13 +1746,44 @@ export async function PUT(
         )
       : false;
     const preserveExistingSiteOnBlankItemSave = Boolean(
-      data?.items !== undefined &&
+      !clearExecutionAddress &&
+        data?.items !== undefined &&
         !incomingTopSiteHasContent &&
         !incomingWorkSiteHasContent &&
         (existingTopSiteHasContent || existingWorkSiteHasContent),
     );
 
-    if (workSitePayload) {
+    if (clearExecutionAddress) {
+      const existingExecutionSiteKeys = new Set(
+        (Array.isArray((existing as any)?.workSites)
+          ? (existing as any).workSites
+          : []
+        )
+          .filter(
+            (site: any) =>
+              String(site?.siteAddress || "").trim() &&
+              String(site?.sitePlz || "").trim() &&
+              String(site?.siteCity || "").trim(),
+          )
+          .map((site: any) =>
+            [
+              String(site?.siteName || "").trim().toLowerCase(),
+              String(site?.siteAddress || "").trim().toLowerCase(),
+              String(site?.sitePlz || "").trim().toLowerCase(),
+              String(site?.siteCity || "").trim().toLowerCase(),
+            ].join("|"),
+          ),
+      );
+      if (existingExecutionSiteKeys.size > 1) {
+        return NextResponse.json(
+          {
+            error:
+              "Mehrere Arbeitsorte können nicht gemeinsam auf die Rechnungsadresse zurückgesetzt werden.",
+          },
+          { status: 409 },
+        );
+      }
+    } else if (workSitePayload) {
       const existingWorkSites = await prisma.orderWorkSite.findMany({
         where: { orderId: params?.id },
         select: { id: true },
@@ -1864,6 +1896,23 @@ export async function PUT(
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
+    if (clearExecutionAddress) {
+      // V17.90L288: Erst nach allen fachlichen Guards die Arbeitsort-Zuordnung
+      // entfernen. Die Leistungen werden mit unveränderten Fachdaten neu
+      // gespeichert oder – bei einem Teilrequest – nur vom Arbeitsort gelöst.
+      if (items) {
+        await prisma.orderItem.deleteMany({ where: { orderId: params?.id } });
+      } else {
+        await prisma.orderItem.updateMany({
+          where: { orderId: params?.id },
+          data: { workSiteId: null },
+        });
+      }
+      await prisma.orderWorkSite.deleteMany({
+        where: { orderId: params?.id },
+      });
+    }
+
     const order = await prisma.order.update({
       where: { id: params?.id },
       data: {
@@ -1886,38 +1935,44 @@ export async function PUT(
             }
           : {}),
         currency,
-        siteAddressDifferent:
-          data?.siteAddressDifferent !== undefined
+        siteAddressDifferent: clearExecutionAddress
+          ? false
+          : data?.siteAddressDifferent !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? Boolean(existing?.siteAddressDifferent)
               : Boolean(data.siteAddressDifferent)
             : undefined,
-        siteName:
-          data?.siteName !== undefined
+        siteName: clearExecutionAddress
+          ? null
+          : data?.siteName !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? existing?.siteName
               : cleanWorkSiteDisplayName(data.siteName)
             : undefined,
-        siteAddress:
-          data?.siteAddress !== undefined
+        siteAddress: clearExecutionAddress
+          ? null
+          : data?.siteAddress !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? existing?.siteAddress
               : data.siteAddress?.trim() || null
             : undefined,
-        sitePlz:
-          data?.sitePlz !== undefined
+        sitePlz: clearExecutionAddress
+          ? null
+          : data?.sitePlz !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? existing?.sitePlz
               : data.sitePlz?.trim() || null
             : undefined,
-        siteCity:
-          data?.siteCity !== undefined
+        siteCity: clearExecutionAddress
+          ? null
+          : data?.siteCity !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? existing?.siteCity
               : data.siteCity?.trim() || null
             : undefined,
-        siteNote:
-          data?.siteNote !== undefined
+        siteNote: clearExecutionAddress
+          ? null
+          : data?.siteNote !== undefined
             ? preserveExistingSiteOnBlankItemSave
               ? existing?.siteNote
               : data.siteNote?.trim() || null
@@ -1951,7 +2006,9 @@ export async function PUT(
                     item.totalPrice ??
                       (Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1)),
                   ),
-                  workSiteId: resolveWorkSiteId(item.workSiteId),
+                  workSiteId: clearExecutionAddress
+                    ? null
+                    : resolveWorkSiteId(item.workSiteId),
                 })),
               },
             }

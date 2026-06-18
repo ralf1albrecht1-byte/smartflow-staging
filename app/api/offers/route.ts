@@ -241,6 +241,114 @@ function validateDocumentItems(items: any[]) {
     : null;
 }
 
+const normalizeExecutionSiteIdentityV17_90L288 = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+async function clearExecutionAddressesForOrderIdsV17_90L288(
+  orderIds: unknown,
+  userId: string,
+  dataScope: DataScope,
+  applyChanges = true,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ids = Array.isArray(orderIds)
+    ? Array.from(
+        new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean)),
+      )
+    : [];
+  if (ids.length === 0) return { ok: true };
+
+  const linkedOrders = await prisma.order.findMany({
+    where: { id: { in: ids }, userId, dataScope, deletedAt: null },
+    select: {
+      id: true,
+      siteAddressDifferent: true,
+      siteName: true,
+      siteAddress: true,
+      sitePlz: true,
+      siteCity: true,
+      workSites: {
+        select: {
+          siteName: true,
+          siteAddress: true,
+          sitePlz: true,
+          siteCity: true,
+        },
+      },
+    },
+  });
+
+  const siteKeys = new Set<string>();
+  linkedOrders.forEach((order: any) => {
+    if (!order?.siteAddressDifferent) return;
+    const completeSites = Array.isArray(order?.workSites)
+      ? order.workSites.filter(
+          (site: any) =>
+            String(site?.siteAddress || "").trim() &&
+            String(site?.sitePlz || "").trim() &&
+            String(site?.siteCity || "").trim(),
+        )
+      : [];
+    const candidates =
+      completeSites.length > 0
+        ? completeSites
+        : [
+            {
+              siteName: order?.siteName,
+              siteAddress: order?.siteAddress,
+              sitePlz: order?.sitePlz,
+              siteCity: order?.siteCity,
+            },
+          ];
+    candidates.forEach((site: any) => {
+      const address = normalizeExecutionSiteIdentityV17_90L288(
+        site?.siteAddress,
+      );
+      const plz = normalizeExecutionSiteIdentityV17_90L288(site?.sitePlz);
+      const city = normalizeExecutionSiteIdentityV17_90L288(site?.siteCity);
+      if (!address || !plz || !city) return;
+      const name = normalizeExecutionSiteIdentityV17_90L288(site?.siteName);
+      siteKeys.add(`${name}|${address}|${plz}|${city}`);
+    });
+  });
+
+  if (siteKeys.size > 1) {
+    return {
+      ok: false,
+      error:
+        "Mehrere Arbeitsorte können nicht gemeinsam auf die Rechnungsadresse zurückgesetzt werden.",
+    };
+  }
+
+  const existingIds = linkedOrders.map((order: any) => String(order.id));
+  if (existingIds.length === 0 || !applyChanges) return { ok: true };
+
+  await prisma.$transaction([
+    prisma.orderItem.updateMany({
+      where: { orderId: { in: existingIds } },
+      data: { workSiteId: null },
+    }),
+    prisma.orderWorkSite.deleteMany({
+      where: { orderId: { in: existingIds } },
+    }),
+    prisma.order.updateMany({
+      where: { id: { in: existingIds }, userId, dataScope },
+      data: {
+        siteAddressDifferent: false,
+        siteName: null,
+        siteAddress: null,
+        sitePlz: null,
+        siteCity: null,
+        siteNote: null,
+      },
+    }),
+  ]);
+
+  return { ok: true };
+}
+
 const compactOfferText = (value: unknown) =>
   String(value ?? "")
     .replace(/\r\n/g, "\n")
@@ -498,6 +606,24 @@ export async function POST(request: Request) {
           }
         : {};
 
+    // V17.90L288: Multi-Site vor dem Anlegen prüfen. Bei einer gesperrten
+    // Sammellöschung darf kein halbfertiges Angebot entstehen.
+    if (data?.clearExecutionAddress === true && data?.orderIds?.length) {
+      const preflightResult =
+        await clearExecutionAddressesForOrderIdsV17_90L288(
+          data.orderIds,
+          userId,
+          dataScope,
+          false,
+        );
+      if (!preflightResult.ok) {
+        return NextResponse.json(
+          { error: preflightResult.error },
+          { status: 409 },
+        );
+      }
+    }
+
     // Retry loop: guards against P2002 (unique constraint on offerNumber)
     // in case of a race condition between concurrent requests.
     let offer: any = null;
@@ -530,11 +656,26 @@ export async function POST(request: Request) {
                   item?.quantity ?? 1,
                   item?.unitPrice ?? 0,
                 ),
-                siteName: item?.siteName || null,
-                siteAddress: item?.siteAddress || null,
-                sitePlz: item?.sitePlz || null,
-                siteCity: item?.siteCity || null,
-                siteNote: item?.siteNote || null,
+                siteName:
+                  data?.clearExecutionAddress === true
+                    ? null
+                    : item?.siteName || null,
+                siteAddress:
+                  data?.clearExecutionAddress === true
+                    ? null
+                    : item?.siteAddress || null,
+                sitePlz:
+                  data?.clearExecutionAddress === true
+                    ? null
+                    : item?.sitePlz || null,
+                siteCity:
+                  data?.clearExecutionAddress === true
+                    ? null
+                    : item?.siteCity || null,
+                siteNote:
+                  data?.clearExecutionAddress === true
+                    ? null
+                    : item?.siteNote || null,
                 sourceOrderId: item?.sourceOrderId || null,
               })),
             },
@@ -558,6 +699,20 @@ export async function POST(request: Request) {
         where: { id: { in: data.orderIds }, userId, dataScope },
         data: { offerId: offer.id },
       });
+
+      if (data?.clearExecutionAddress === true) {
+        const clearResult = await clearExecutionAddressesForOrderIdsV17_90L288(
+          data.orderIds,
+          userId,
+          dataScope,
+        );
+        if (!clearResult.ok) {
+          return NextResponse.json(
+            { error: clearResult.error },
+            { status: 409 },
+          );
+        }
+      }
     }
 
     offer =

@@ -3843,6 +3843,8 @@ export default function AngebotePage() {
   const [editingOfferSiteKey, setEditingOfferSiteKey] = useState<string | null>(null);
   const [newOfferItemSiteKey, setNewOfferItemSiteKey] = useState<string>("");
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [executionAddressClearRequested, setExecutionAddressClearRequested] =
+    useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
     useState("");
   const [selectedChipDetail, setSelectedChipDetail] = useState<string | null>(
@@ -4687,6 +4689,7 @@ export default function AngebotePage() {
 
   const setExecutionAddressEnabled = (enabled: boolean) => {
     if (enabled) {
+      setExecutionAddressClearRequested(false);
       setExecutionSites((current) =>
         current.length > 0
           ? current
@@ -4711,7 +4714,29 @@ export default function AngebotePage() {
       return;
     }
 
+    if (executionSites.length > 1) {
+      toast.error(
+        "Mehrere Arbeitsorte können nur einzeln bearbeitet werden.",
+      );
+      return;
+    }
+
+    setExecutionAddressClearRequested(true);
     setExecutionSites([]);
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        siteName: null,
+        siteAddress: null,
+        sitePlz: null,
+        siteCity: null,
+        siteNote: null,
+        _workSiteUiKey: null,
+      })),
+    );
+    setEditingOfferSiteKey(null);
+    setNewOfferItemSiteKey("");
+    setExpandedOfferSiteKeys(new Set());
     setEditingExecutionAddress(false);
   };
 
@@ -4779,6 +4804,7 @@ export default function AngebotePage() {
     }
     setActiveMobileTooltip(null);
     setEditOfferId(off.id);
+    setExecutionAddressClearRequested(false);
     setEditingOfferCustomer(off.customer ? { ...off.customer } : null);
     setServiceOverviewOpen(false);
     setDupCheckOpen(false);
@@ -4962,6 +4988,7 @@ export default function AngebotePage() {
 
   const openNewOffer = () => {
     setEditOfferId(null);
+    setExecutionAddressClearRequested(false);
     setServiceOverviewOpen(false);
     setVatRate(defaultVatRate);
     setCurrency(defaultCurrency);
@@ -5032,11 +5059,16 @@ export default function AngebotePage() {
           ...form,
           notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
           items: itemsForSave,
+          clearExecutionAddress: executionAddressClearRequested,
           vatRate,
           currency,
         }),
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const saved = await res.json();
+        setExecutionAddressClearRequested(false);
+        return saved;
+      }
       toast.error("Fehler beim Speichern");
       return null;
     } else {
@@ -5044,6 +5076,7 @@ export default function AngebotePage() {
         ...form,
         notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
         items: itemsForSave,
+        clearExecutionAddress: executionAddressClearRequested,
         vatRate,
         currency,
       };
@@ -5053,7 +5086,11 @@ export default function AngebotePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const saved = await res.json();
+        setExecutionAddressClearRequested(false);
+        return saved;
+      }
       toast.error("Fehler beim Erstellen");
       return null;
     }

@@ -11221,6 +11221,8 @@ export default function AuftraegePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [siteAddressEditing, setSiteAddressEditing] = useState(false);
+  const [executionAddressClearRequested, setExecutionAddressClearRequested] =
+    useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
     useState("");
 
@@ -11909,6 +11911,7 @@ export default function AuftraegePage() {
     setManualResidualCurrencyAcknowledged(false);
     setDiscardedRecognitionReviewKeys([]);
     setFormWorkSites([]);
+    setExecutionAddressClearRequested(false);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
     setNewItemWorkSiteId("");
@@ -11968,6 +11971,7 @@ export default function AuftraegePage() {
     const effectiveOrderReviewReasons =
       effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);
+    setExecutionAddressClearRequested(false);
     setManualResidualCurrencyAcknowledged(false);
     setDiscardedRecognitionReviewKeys([]);
     setServiceActionMenuKey(null);
@@ -14445,6 +14449,69 @@ export default function AuftraegePage() {
     focusFormWorkSiteEditorV17_90L284(newId);
   };
 
+  const setOrderExecutionAddressEnabledV17_90L288 = (checked: boolean) => {
+    if (!checked && formWorkSites.length > 1) {
+      toast.error(
+        "Mehrere Arbeitsorte können nur einzeln bearbeitet werden.",
+      );
+      return;
+    }
+
+    setExecutionAddressClearRequested(!checked);
+
+    if (!checked) {
+      setSiteAddressEditing(false);
+      setForm((prev) => ({
+        ...prev,
+        siteAddressDifferent: false,
+        siteName: "",
+        siteAddress: "",
+        sitePlz: "",
+        siteCity: "",
+        siteNote: "",
+      }));
+      setFormWorkSites([]);
+      setFormItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          workSiteId: null,
+          workSite: null,
+        })),
+      );
+      setEditingWorkSiteId(null);
+      setActiveWorkSiteId(null);
+      setNewItemWorkSiteId("");
+      setExpandedWorkSiteIds([]);
+      return;
+    }
+
+    setSiteAddressEditing(true);
+    setForm((prev) => {
+      const hasCompleteStoredExecutionAddress = Boolean(
+        compactText(prev.siteAddress) &&
+          compactText(prev.sitePlz) &&
+          compactText(prev.siteCity),
+      );
+      const mustStartBlank =
+        !hasCompleteStoredExecutionAddress ||
+        isSameAddressPlaceholderV17_90L135H(prev.siteName) ||
+        isSameAddressPlaceholderV17_90L135H(prev.siteCity);
+      return {
+        ...prev,
+        siteAddressDifferent: true,
+        ...(mustStartBlank
+          ? {
+              siteName: "",
+              siteAddress: "",
+              sitePlz: "",
+              siteCity: "",
+              siteNote: "",
+            }
+          : {}),
+      };
+    });
+  };
+
   const removeFormWorkSite = (siteId: string) => {
     const assignedItems = formItems.filter(
       (item) => item.workSiteId === siteId,
@@ -15840,26 +15907,31 @@ export default function AuftraegePage() {
       manualResidualCurrencyAcknowledged,
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
+      clearExecutionAddress: Boolean(
+        editId && executionAddressClearRequested,
+      ),
       workSites:
-        editId && cleanWorkSites.length > 0
-          ? (() => {
-              const canonicalPrimarySiteIdV17_90L285 =
-                cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
-                cleanWorkSites[0]?.id ||
-                null;
-              return cleanWorkSites.map((site, index) => ({
-                id: site.id,
-                siteName: cleanWorkSiteDisplayName(site.siteName) || null,
-                siteAddress: site.siteAddress?.trim() || null,
-                sitePlz: site.sitePlz?.trim() || null,
-                siteCity: site.siteCity?.trim() || null,
-                siteNote: site.siteNote?.trim() || null,
-                isPrimary: site.id === canonicalPrimarySiteIdV17_90L285,
-                sortOrder: index,
-                sourceOrderId: (site as any).sourceOrderId || null,
-              }));
-            })()
-          : undefined,
+        editId && executionAddressClearRequested
+          ? []
+          : editId && cleanWorkSites.length > 0
+            ? (() => {
+                const canonicalPrimarySiteIdV17_90L285 =
+                  cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
+                  cleanWorkSites[0]?.id ||
+                  null;
+                return cleanWorkSites.map((site, index) => ({
+                  id: site.id,
+                  siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+                  siteAddress: site.siteAddress?.trim() || null,
+                  sitePlz: site.sitePlz?.trim() || null,
+                  siteCity: site.siteCity?.trim() || null,
+                  siteNote: site.siteNote?.trim() || null,
+                  isPrimary: site.id === canonicalPrimarySiteIdV17_90L285,
+                  sortOrder: index,
+                  sourceOrderId: (site as any).sourceOrderId || null,
+                }));
+              })()
+            : undefined,
       items: validItems.map((item) => {
         const itemCurrencyConfirmed = isManuallyConfirmedCurrencyItem(item);
         const itemIsStillBlockedByCurrency =
@@ -15927,7 +15999,9 @@ export default function AuftraegePage() {
     if (res.ok) {
       // V17.90L275: The normal order PUT now preserves the exact canonical
       // `specialNotes`. Do not run a second save or a second interpretation.
-      return await res.json();
+      const saved = await res.json();
+      setExecutionAddressClearRequested(false);
+      return saved;
     }
     toast.error("Fehler beim Speichern");
     return null;
@@ -19696,35 +19770,11 @@ export default function AuftraegePage() {
                         type="checkbox"
                         checked={Boolean(form.siteAddressDifferent)}
                         onClick={(event) => event.stopPropagation()}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setSiteAddressEditing(checked);
-                          setForm((prev) => {
-                            const hasCompleteStoredExecutionAddress = Boolean(
-                              compactText(prev.siteAddress) &&
-                                compactText(prev.sitePlz) &&
-                                compactText(prev.siteCity),
-                            );
-                            const mustStartBlank =
-                              checked &&
-                              (!hasCompleteStoredExecutionAddress ||
-                                isSameAddressPlaceholderV17_90L135H(prev.siteName) ||
-                                isSameAddressPlaceholderV17_90L135H(prev.siteCity));
-                            return {
-                              ...prev,
-                              siteAddressDifferent: checked,
-                              ...(checked && !mustStartBlank
-                                ? {}
-                                : {
-                                    siteName: "",
-                                    siteAddress: "",
-                                    sitePlz: "",
-                                    siteCity: "",
-                                    siteNote: "",
-                                  }),
-                            };
-                          });
-                        }}
+                        onChange={(e) =>
+                          setOrderExecutionAddressEnabledV17_90L288(
+                            e.target.checked,
+                          )
+                        }
                         className="mt-1"
                       />
                       <span className="min-w-0">
