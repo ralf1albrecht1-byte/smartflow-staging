@@ -4773,8 +4773,14 @@ export default function AngebotePage() {
 
   const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: OfferExecutionSite | null) => {
     if (!site) return false;
-    const hasStoredCustomerAddress = Boolean(compactOfferValue(site.customerExecutionAddressId));
-    return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
+    const knownCustomerAddressId =
+      compactOfferValue(site.customerExecutionAddressId) ||
+      resolveOfferCustomerExecutionAddressIdV17_90L295(site);
+    if (!knownCustomerAddressId) return true;
+    return customerExecutionAddressChangedV17_90L296({
+      ...site,
+      customerExecutionAddressId: knownCustomerAddressId,
+    });
   };
 
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OfferExecutionSite) => {
@@ -9210,16 +9216,18 @@ export default function AngebotePage() {
                                 : "Alle öffnen"}
                             </Button>
                           )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={addExecutionSite}
-                            className="h-7 shrink-0 px-2 text-xs"
-                          >
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Ausführungsort
-                          </Button>
+                          {executionSites.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={addExecutionSite}
+                              className="h-7 shrink-0 px-2 text-xs"
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Ausführungsort
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             size="sm"

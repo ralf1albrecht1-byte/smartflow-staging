@@ -14867,8 +14867,14 @@ export default function AuftraegePage() {
 
   const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: OrderWorkSite | null) => {
     if (!site) return false;
-    const hasStoredCustomerAddress = Boolean(compactText(site.customerExecutionAddressId));
-    return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
+    const knownCustomerAddressId =
+      compactText(site.customerExecutionAddressId) ||
+      resolveCustomerExecutionAddressIdV17_90L295(site);
+    if (!knownCustomerAddressId) return true;
+    return customerExecutionAddressChangedV17_90L296({
+      ...site,
+      customerExecutionAddressId: knownCustomerAddressId,
+    });
   };
 
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OrderWorkSite) => {
@@ -20499,17 +20505,19 @@ export default function AuftraegePage() {
                                 : "Alle öffnen"}
                             </Button>
                           )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={addFormWorkSite}
-                            disabled={saving}
-                            className="h-7 shrink-0 px-2 text-xs"
-                          >
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Ausführungsort
-                          </Button>
+                          {hasMultipleEditWorkSites && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={addFormWorkSite}
+                              disabled={saving}
+                              className="h-7 shrink-0 px-2 text-xs"
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Ausführungsort
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             size="sm"
