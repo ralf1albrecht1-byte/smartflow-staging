@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L305_WORKSITE_PROFILE_CHOICE_UI_CLEANUP_ALL3
+// SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
 import { createPortal } from "react-dom";
@@ -2941,7 +2941,7 @@ export default function RechnungenPage() {
   const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
     useState(true);
   const [customerExecutionAddressSaveModeV17_90L296, setCustomerExecutionAddressSaveModeV17_90L296] =
-    useState<"create" | "update">("create");
+    useState<"local" | "create" | "update">("local");
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -4257,16 +4257,10 @@ export default function RechnungenPage() {
     ].map(normalize).join("|");
   };
 
-  const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: InvoiceExecutionSite | null) => {
-    if (!site) return false;
-    const knownCustomerAddressId =
-      compactInvoiceValue(site.customerExecutionAddressId) ||
-      resolveInvoiceCustomerExecutionAddressIdV17_90L295(site);
-    // V17.90L305: Wenn ein gespeicherter Kundenprofil-Ort geändert wurde,
-    // entscheidet ausschließlich das gelbe Auswahlfeld. Die zusätzliche
-    // Checkbox unten wäre doppelt und kann widersprüchliche Signale geben.
-    if (knownCustomerAddressId) return false;
-    return true;
+  const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (_site?: InvoiceExecutionSite | null) => {
+    // V17.90L306: Die alte Checkbox wird durch den eindeutigen Entscheidungsblock
+    // ersetzt. So gibt es keine doppelte Logik zwischen Rechnung und Kundenprofil.
+    return false;
   };
 
   const shouldPersistCustomerExecutionAddressChoiceV17_90L305 = (site: InvoiceExecutionSite) => {
@@ -4274,38 +4268,85 @@ export default function RechnungenPage() {
       compactInvoiceValue(site.customerExecutionAddressId) ||
       resolveInvoiceCustomerExecutionAddressIdV17_90L295(site);
     if (knownCustomerAddressId) {
-      return customerExecutionAddressChangedV17_90L296({
+      const changed = customerExecutionAddressChangedV17_90L296({
         ...site,
         customerExecutionAddressId: knownCustomerAddressId,
       });
+      return changed && customerExecutionAddressSaveModeV17_90L296 !== "local";
     }
-    return Boolean(saveExecutionAddressInCustomerProfile);
+    return customerExecutionAddressSaveModeV17_90L296 === "create";
   };
 
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: InvoiceExecutionSite) => {
-    if (!customerExecutionAddressChangedV17_90L296(site)) return null;
+    const hasAddressContent = Boolean(
+      compactInvoiceValue(site.siteName) ||
+        compactInvoiceValue(site.siteAddress) ||
+        compactInvoiceValue(site.sitePlz) ||
+        compactInvoiceValue(site.siteCity) ||
+        compactInvoiceValue(site.siteNote),
+    );
+    if (!hasAddressContent) return null;
+    const knownCustomerAddressId =
+      compactInvoiceValue(site.customerExecutionAddressId) ||
+      resolveInvoiceCustomerExecutionAddressIdV17_90L295(site);
+    const isChangedStoredAddress = Boolean(
+      knownCustomerAddressId &&
+        customerExecutionAddressChangedV17_90L296({
+          ...site,
+          customerExecutionAddressId: knownCustomerAddressId,
+        }),
+    );
+    if (knownCustomerAddressId && !isChangedStoredAddress) return null;
+
     return (
       <div className="rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-xs dark:border-amber-800 dark:bg-amber-950/20">
-        <div className="mb-2 font-semibold">Gespeicherter Ausführungsort wurde geändert</div>
-        <div className="flex flex-col gap-1.5">
-          <label className="inline-flex items-center gap-2">
+        <div className="mb-2 font-semibold">
+          {isChangedStoredAddress
+            ? "Gespeicherter Ausführungsort wurde geändert"
+            : "Was soll mit dieser Ausführungsadresse passieren?"}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-start gap-2">
             <input
               type="radio"
-              name="customer-execution-address-save-mode-v17-90l296"
+              name="customer-execution-address-save-mode-v17-90l306"
+              className="mt-0.5"
+              checked={customerExecutionAddressSaveModeV17_90L296 === "local"}
+              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("local")}
+            />
+            <span>
+              <span className="font-medium">Nur in dieser Rechnung übernehmen</span>
+              <span className="block text-[11px] text-muted-foreground">Kundenprofil bleibt unverändert.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="customer-execution-address-save-mode-v17-90l306"
+              className="mt-0.5"
               checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
             />
-            Als neuen Ausführungsort im Kundenprofil speichern
+            <span>
+              <span className="font-medium">Als neuen Ausführungsort im Kundenprofil speichern</span>
+              <span className="block text-[11px] text-muted-foreground">Bestehende Vorlage bleibt erhalten.</span>
+            </span>
           </label>
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="radio"
-              name="customer-execution-address-save-mode-v17-90l296"
-              checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
-              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
-            />
-            Bestehenden Ausführungsort im Kundenprofil aktualisieren
-          </label>
+          {knownCustomerAddressId && (
+            <label className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="customer-execution-address-save-mode-v17-90l306"
+                className="mt-0.5"
+                checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
+                onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
+              />
+              <span>
+                <span className="font-medium">Bestehenden Ausführungsort im Kundenprofil aktualisieren</span>
+                <span className="block text-[11px] text-muted-foreground">Die gewählte Kundenprofil-Vorlage wird bewusst überschrieben.</span>
+              </span>
+            </label>
+          )}
         </div>
       </div>
     );
@@ -4330,7 +4371,9 @@ export default function RechnungenPage() {
           saveMode:
             compactInvoiceValue(site.customerExecutionAddressId)
               ? customerExecutionAddressChangedV17_90L296(site)
-                ? customerExecutionAddressSaveModeV17_90L296
+                ? customerExecutionAddressSaveModeV17_90L296 === "update"
+                  ? "update"
+                  : "create"
                 : "update"
               : "create",
           siteName: compactInvoiceValue(site.siteName) || null,
@@ -5108,6 +5151,14 @@ export default function RechnungenPage() {
       );
       return false;
     }
+    const primaryExecutionSiteForProfilePayloadV17_90L306 =
+      currentExecutionSites[0] || null;
+    const saveExecutionAddressInCustomerProfileForPayloadV17_90L306 =
+      primaryExecutionSiteForProfilePayloadV17_90L306
+        ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(
+            primaryExecutionSiteForProfilePayloadV17_90L306,
+          )
+        : false;
     setSaving(true);
     try {
       const itemsForCreate = itemsForCreateWithUiState.map(
@@ -5121,9 +5172,9 @@ export default function RechnungenPage() {
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           items: itemsForCreate,
           clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
-          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
-          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
-          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
+          saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          upsertCustomerExecutionAddress: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
           vatRate,
           currency,
         }),
@@ -5228,6 +5279,14 @@ export default function RechnungenPage() {
       );
       return false;
     }
+    const primaryExecutionSiteForProfilePayloadV17_90L306 =
+      currentExecutionSitesV17_90L292[0] || null;
+    const saveExecutionAddressInCustomerProfileForPayloadV17_90L306 =
+      primaryExecutionSiteForProfilePayloadV17_90L306
+        ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(
+            primaryExecutionSiteForProfilePayloadV17_90L306,
+          )
+        : false;
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
@@ -5242,9 +5301,9 @@ export default function RechnungenPage() {
             stripInvoiceWorkSiteUiStateV17_90L287,
           ),
           clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
-          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
-          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
-          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
+          saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          upsertCustomerExecutionAddress: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
           vatRate,
           currency,
         }),
@@ -5408,9 +5467,9 @@ export default function RechnungenPage() {
           dueDate: form.dueDate,
           items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
           clearExecutionAddress: executionAddressClearRequested,
-          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
-          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
-          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
+          saveExecutionAddressInCustomerProfile: false,
+          upsertCustomerExecutionAddress: false,
+          skipCustomerExecutionAddressUpsert: true,
           vatRate,
           currency,
         }),
