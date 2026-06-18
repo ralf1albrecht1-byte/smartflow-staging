@@ -4773,7 +4773,7 @@ export default function AngebotePage() {
 
   const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: OfferExecutionSite | null) => {
     if (!site) return false;
-    const hasStoredCustomerAddress = Boolean(compactText(site.customerExecutionAddressId));
+    const hasStoredCustomerAddress = Boolean(compactOfferValue(site.customerExecutionAddressId));
     return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
   };
 

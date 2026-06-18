@@ -4238,7 +4238,7 @@ export default function RechnungenPage() {
 
   const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: InvoiceExecutionSite | null) => {
     if (!site) return false;
-    const hasStoredCustomerAddress = Boolean(compactText(site.customerExecutionAddressId));
+    const hasStoredCustomerAddress = Boolean(compactInvoiceValue(site.customerExecutionAddressId));
     return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
   };
 
