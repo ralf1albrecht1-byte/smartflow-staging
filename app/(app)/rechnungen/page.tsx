@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
 // SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
 // SMARTFLOW_V17_90L319_INVOICE_SPECIAL_NOTES_INFO_ONLY
@@ -520,6 +521,9 @@ const buildAdaptiveAppointmentLabels = (
   value: unknown,
 ): AdaptiveAppointmentLabels => {
   const full = compactInvoiceValue(value) || "Termin klären";
+  if (/^Termine(?:\s*·\s*\d+)?/i.test(full)) {
+    return { full, dateOnly: "Termine" };
+  }
   const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
   if (!dateMatch) return { full, dateOnly: null };
   const day = dateMatch[1].padStart(2, "0");
@@ -1200,6 +1204,39 @@ function flattenInvoiceSpecialInfoLinesV17_90L319(
   summary.hazards.forEach(add);
   summary.otherHints.forEach(add);
   return result;
+}
+
+function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
+  summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
+): string {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const text = compactInvoiceValue(value)
+      .replace(/^Termin\s*:\s*/i, "")
+      .trim();
+    const key = normalizeInvoiceAppointmentKeyV17_90L177R(text);
+    if (!text || !key || seen.has(key)) return;
+    if (
+      !/\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(text)
+    ) {
+      return;
+    }
+    seen.add(key);
+    result.push(text);
+  };
+
+  // V17.90L323: Der Terminchip der Rechnung darf bei mehreren
+  // Besonderheiten-Terminen nicht blind den ersten alten Termin anzeigen.
+  // Die Details bleiben im Info-Chip; der Terminchip zeigt dann neutral
+  // "Termine" und das Tooltip listet alle Terminhinweise.
+  summary.primaryHints.forEach(add);
+  if (result.length <= 1) return "";
+
+  return [
+    `Termine · ${result.length}`,
+    ...result.map((line, index) => `${index + 1}. ${line}`),
+  ].join("\n");
 }
 
 const cleanInvoiceCustomerMessage = (value?: string | null) =>
@@ -6303,12 +6340,8 @@ export default function RechnungenPage() {
                     collectInvoiceAppointmentEntriesV17_90L177R(inv);
                   const invoiceAppointmentLabel =
                     formatInvoiceAppointmentLabel(inv);
-                  const invoiceAppointmentDisplayLabel =
+                  let invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel;
-                  const invoiceAppointmentChipLabels =
-                    buildAdaptiveAppointmentLabels(
-                      invoiceAppointmentDisplayLabel,
-                    );
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
                   const invoiceSourceOfferInternalNotesV17_90L319 =
                     sourceOfferInternalNotesByIdV17_90L319[
@@ -6330,6 +6363,18 @@ export default function RechnungenPage() {
                     );
                   const hasInvoiceSpecialInfoV17_90L319 =
                     invoiceSpecialInfoLinesV17_90L319.length > 0;
+                  const invoiceSpecialAppointmentDisplayLabelV17_90L323 =
+                    buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
+                      invoiceSpecialSummaryV17_90L319,
+                    );
+                  if (invoiceSpecialAppointmentDisplayLabelV17_90L323) {
+                    invoiceAppointmentDisplayLabel =
+                      invoiceSpecialAppointmentDisplayLabelV17_90L323;
+                  }
+                  const invoiceAppointmentChipLabels =
+                    buildAdaptiveAppointmentLabels(
+                      invoiceAppointmentDisplayLabel,
+                    );
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
                     (inv.orders || []) as any,
