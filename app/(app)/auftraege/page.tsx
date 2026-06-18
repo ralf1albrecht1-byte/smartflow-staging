@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L318B_ORDER_SPECIAL_NOTES_TEXTAREA_MATCH_OFFER
 // SMARTFLOW_V17_90L316_MANUAL_ORDER_NO_AUTO_APPOINTMENT_CHIP
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
@@ -1879,41 +1880,6 @@ const stripRepeatedLocationPrefix = (hint: string, location: string) => {
   }
 
   return text;
-};
-
-const SPECIAL_NOTES_GROUP_SEPARATOR = "────────────────────";
-
-const isSpecialNotesGroupSeparator = (value?: string | null) =>
-  /^[-─—–_]{6,}$/.test(compactText(value));
-
-const isSpecialNotesGroupHeader = (value?: string | null) => {
-  const text = compactText(value);
-  if (!/^[^:]{2,190}:$/.test(text)) return false;
-  return looksLikeWorkSitePrefix(text.replace(/:$/, ""));
-};
-
-const formatSpecialNotesForDisplay = (lines: string[]) => {
-  const result: string[] = [];
-  let hasCurrentGroupContent = false;
-
-  for (const rawLine of lines) {
-    const line = compactText(rawLine);
-    if (!line || isSpecialNotesGroupSeparator(line)) continue;
-
-    if (isSpecialNotesGroupHeader(line)) {
-      if (result.length > 0 && hasCurrentGroupContent) {
-        result.push(SPECIAL_NOTES_GROUP_SEPARATOR);
-      }
-      result.push(line);
-      hasCurrentGroupContent = false;
-      continue;
-    }
-
-    result.push(line);
-    hasCurrentGroupContent = true;
-  }
-
-  return result.join("\n");
 };
 
 const structuredSpecialNoteHints = (order: Order) => {
@@ -12080,14 +12046,9 @@ export default function AuftraegePage() {
       status: o.status ?? "Offen",
       date: o.date ? new Date(o.date).toISOString().split("T")[0] : "",
       notes: o.notes ?? "",
-      specialNotes: (() => {
-        const parsedSpecialNotes = splitSpecialNotes(o.specialNotes);
-        return buildSpecialNotes({
-          safetyWarnings: parsedSpecialNotes.safetyWarnings,
-          jobHints: parsedSpecialNotes.jobHints,
-          preserveStructuredRoles: true,
-        });
-      })(),
+      // V17.90L318B: Rohtext erhalten, damit das Auftrags-Besonderheitenfeld
+      // Leerzeilen/Zeilenumbrüche wie das Angebotsfeld anzeigen und speichern kann.
+      specialNotes: String(o.specialNotes ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n"),
       siteAddressDifferent: effectiveSiteAddressDifferentV17_90L280,
       siteName: hasInvalidReverseHandoffExecutionStateV17_90L280
         ? ""
@@ -15420,14 +15381,6 @@ export default function AuftraegePage() {
     );
   // V17.90L205: For sealed Intake V2 orders, the editor renders the canonical
   // roles directly. It must not reclassify safety facts from legacy notes.
-  const reclassifiedLegacySafetyHints = canonicalFormInfoV2
-    ? []
-    : uniqueOrderInfoLinesV17_66(
-        parsedFormSpecialNotes.safetyWarnings,
-      ).filter((line) => {
-        if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return false;
-        return classifySpecialNoteRoleV17_90L93(line) !== "safety";
-      });
   const dangerNoteLines = canonicalFormInfoV2
     ? canonicalFormInfoV2.safety
     : uniqueOrderInfoLinesV17_66(
@@ -15464,66 +15417,25 @@ export default function AuftraegePage() {
   const compactPrimaryInfoLines: string[] = canonicalFormInfoV2
     ? [...primaryInfoLines]
     : compactImportantInfoLinesV17_90L73(primaryInfoLines);
-  const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints
-    .filter(isPrimaryOrderInfoHintV17_65)
-    .filter((line) =>
-      compactPrimaryInfoLines.some((primaryLine) =>
-        orderInfoLinesEquivalentV17_66(primaryLine, line),
-      ),
-    );
-  const preservedParkingJobHints = parsedFormSpecialNotes.jobHints.filter(
-    isParkingOrderInfoLineV17_90L101,
-  );
-  const legacyEditableAdditionalJobHints = uniqueOrderInfoLinesV17_66([
-    ...parsedFormSpecialNotes.jobHints,
-    ...reclassifiedLegacySafetyHints,
-  ])
-    .filter((line) => !isParkingOrderInfoLineV17_90L101(line))
-    .filter(
-      (line) =>
-        !compactPrimaryInfoLines.some((primaryLine) =>
-          orderInfoLinesEquivalentV17_66(primaryLine, line),
-        ),
-    );
-  // Canonical additional facts already contain parking, ordinary hints and
-  // other operational information, while safety remains exclusively red.
-  const editableAdditionalJobHints = (
-    canonicalFormInfoV2
-      ? canonicalFormInfoV2.additional
-      : legacyEditableAdditionalJobHints
-  ).filter((line) => !isRecognitionReviewSpecialNoteV17_90L262(line));
-  const normalSpecialNotesText = formatSpecialNotesForDisplay(
-    editableAdditionalJobHints,
+  // V17.90L318B: Das Auftrags-Besonderheitenfeld soll sich wie das
+  // Angebotsfeld verhalten. Deshalb wird der Text hier nicht mehr bei jeder
+  // Eingabe in strukturierte Hinweiszeilen zerlegt; Leerzeilen und
+  // Zeilenumbrüche bleiben im Editor erhalten. Die bestehende Chip-Logik liest
+  // weiterhin aus form.specialNotes.
+  const normalizeOrderSpecialNotesEditorTextV17_90L318B = (value: unknown) =>
+    String(value ?? "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+
+  const normalSpecialNotesText = normalizeOrderSpecialNotesEditorTextV17_90L318B(
+    form.specialNotes,
   );
 
   const updateNormalSpecialNotes = (value: string) => {
-    const nextJobHints = value
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter((line) => line && !isSpecialNotesGroupSeparator(line));
-
-    setForm((prev) => {
-      const previousNotes = splitSpecialNotes(prev.specialNotes);
-
-      const preservedSafetyWarnings = previousNotes.safetyWarnings.filter(
-        (line) =>
-          /\b(?:hund|dog|chien|cane|perro)\b/i.test(line) ||
-          classifySpecialNoteRoleV17_90L93(line) === "safety",
-      );
-
-      return {
-        ...prev,
-        specialNotes: buildSpecialNotes({
-          safetyWarnings: preservedSafetyWarnings,
-          jobHints: [
-            ...editablePrimaryJobHints,
-            ...preservedParkingJobHints,
-            ...nextJobHints,
-          ],
-          preserveStructuredRoles: true,
-        }),
-      };
-    });
+    setForm((prev) => ({
+      ...prev,
+      specialNotes: normalizeOrderSpecialNotesEditorTextV17_90L318B(value),
+    }));
   };
 
   const stripInternalCustomerMessageMetadata = (value?: string | null) =>
@@ -22518,69 +22430,73 @@ export default function AuftraegePage() {
                       </div>
                     </div>
 
-                  {/* Besonderheiten — always visible, important warnings highlighted */}
+                  {/* Besonderheiten — wie beim Angebot als sauberes mehrzeiliges internes Textfeld */}
                   <div
                     ref={specialNotesRef}
                     tabIndex={-1}
-                    className="scroll-mt-24 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                    className="scroll-mt-24 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-4"
                   >
-                    <div className="flex items-center gap-2">
-                      <Label className="font-semibold">Besonderheiten</Label>
-                      {dangerNoteLines.length > 0 && (
-                        <Badge className="bg-red-100 text-red-700 border border-red-300">
-                          Gefahr / Achtung
-                        </Badge>
-                      )}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="font-semibold">Besonderheiten</Label>
+                        {dangerNoteLines.length > 0 && (
+                          <Badge className="border border-red-300 bg-red-100 text-red-700">
+                            Gefahr / Achtung
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        Intern – nicht automatisch im Kunden-PDF
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/50 p-3">
+                      <Label className="text-xs font-semibold">
+                        Besonderheiten im Auftrag
+                      </Label>
+                      <textarea
+                        className="flex min-h-[82px] w-full resize-y rounded-md border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/60 dark:bg-slate-950"
+                        rows={3}
+                        placeholder="z. B. Vorsicht Hund, Zugang nur über Hintereingang, bitte vorher anrufen..."
+                        value={normalSpecialNotesText}
+                        onChange={(e) => updateNormalSpecialNotes(e.target.value)}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        Intern. Daraus entstehen auf der Auftragskarte dieselben Hinweis-/Warnchips wie bisher.
+                      </div>
                     </div>
 
                     {compactPrimaryInfoLines.length > 0 && (
-                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 space-y-1.5">
-                        <div className="font-semibold flex items-center gap-2"><Info className="w-4 h-4" /> Wichtige Informationen</div>
-                        {compactPrimaryInfoLines.map((line, index) => {
-                          const [label, ...valueParts] = line.split(/:\s+/);
-                          const value = valueParts.join(": ").trim();
-                          return (
-                            <div key={`${line}-${index}`} className="grid grid-cols-[auto_1fr] gap-x-2 break-words">
-                              <span className="font-semibold">{value ? `${label}:` : "•"}</span>
-                              <span>{value || line}</span>
-                            </div>
-                          );
-                        })}
+                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+                        <div className="mb-1 flex items-center gap-2 font-semibold"><Info className="h-4 w-4" /> Wichtige Informationen</div>
+                        <div className="space-y-1">
+                          {compactPrimaryInfoLines.map((line, index) => {
+                            const [label, ...valueParts] = line.split(/:\s+/);
+                            const value = valueParts.join(": ").trim();
+                            return (
+                              <div key={`${line}-${index}`} className="grid grid-cols-[auto_1fr] gap-x-2 break-words">
+                                <span className="font-semibold">{value ? `${label}:` : "•"}</span>
+                                <span className="whitespace-pre-wrap break-words">{value || line}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 
                     {dangerNoteLines.length > 0 && (
-                      <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 space-y-1">
-                        <div className="font-semibold flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4" />
+                      <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                        <div className="flex items-center gap-2 font-semibold">
+                          <AlertTriangle className="h-4 w-4" />
                           Wichtige Gefahren / Warnhinweise
                         </div>
                         <ul className="list-disc pl-5">
                           {dangerNoteLines.map((line, index) => (
-                            <li key={`${line}-${index}`}>{line}</li>
+                            <li key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-
-                    <textarea
-                      className="w-full resize-none overflow-hidden rounded-md border border-yellow-300 bg-yellow-50/40 px-3 py-2 text-sm leading-7 text-slate-900 outline-none focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-yellow-800/70 dark:bg-yellow-950/15 dark:text-slate-100"
-                      rows={Math.max(
-                        4,
-                        normalSpecialNotesText
-                          .split(/\n/g)
-                          .reduce(
-                            (sum, line) =>
-                              sum + Math.max(1, Math.ceil(line.length / 70)),
-                            0,
-                          ),
-                      )}
-                      style={
-                        { fieldSizing: "content", overflow: "hidden" } as any
-                      }
-                      value={normalSpecialNotesText}
-                      onChange={(e) => updateNormalSpecialNotes(e.target.value)}
-                    />
                   </div>
 
                   {/* Leistungsübersicht — live from the editable items above */}
