@@ -3976,9 +3976,7 @@ export default function RechnungenPage() {
     const customer = customers.find(
       (entry) => entry.id === compactInvoiceValue(form.customerId),
     );
-    const stored = Array.isArray(customer?.executionAddresses)
-      ? customer.executionAddresses
-      : [];
+    const stored = customer?.executionAddresses ?? [];
     const usedKeys = new Set(
       currentInvoiceExecutionSitesForSuggestionsV17_90L289
         .map(normalizeCustomerExecutionAddressKeyV17_90L289)

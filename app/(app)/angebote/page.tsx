@@ -4609,9 +4609,7 @@ export default function AngebotePage() {
     const customer = customers.find(
       (entry) => entry.id === compactOfferValue(form.customerId),
     );
-    const stored = Array.isArray(customer?.executionAddresses)
-      ? customer.executionAddresses
-      : [];
+    const stored = customer?.executionAddresses ?? [];
     const usedKeys = new Set(
       executionSites
         .map(normalizeCustomerExecutionAddressKeyV17_90L289)
