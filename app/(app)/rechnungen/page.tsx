@@ -105,6 +105,7 @@ interface InvoiceItem {
   siteNote?: string | null;
   sourceOrderId?: string | null;
   _workSiteUiKey?: string | null;
+  _manualUserAdded?: boolean;
 }
 interface Invoice {
   id: string;
@@ -3873,7 +3874,7 @@ export default function RechnungenPage() {
       sites.find((site) => invoiceGroupKeyForSite(site) === requestedKey) ||
       null;
     setItems((current) => [
-      { ...getEmptyItem(), ...(targetSite || {}) },
+      { ...getEmptyItem(), ...(targetSite || {}), _manualUserAdded: true },
       ...current,
     ]);
     if (requestedKey)
@@ -4715,7 +4716,7 @@ export default function RechnungenPage() {
         const baseItems = current.length > 0 ? current : [getEmptyItem()];
         return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
       }
-      return [{ ...getEmptyItem(), ...site }, ...current];
+      return [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current];
     });
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
@@ -4728,7 +4729,7 @@ export default function RechnungenPage() {
 
   const addInvoiceItemToSiteV17_90L284 = (site: InvoiceExecutionSite) => {
     const key = invoiceGroupKeyForSite(site);
-    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setItems((current) => [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current]);
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));

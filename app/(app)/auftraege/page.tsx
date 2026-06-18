@@ -430,6 +430,9 @@ interface FormItem {
   pendingReviewSourceServiceName?: string;
   recognitionReviewKey?: string;
   sourceDescription?: string;
+  // V17.90L313: Rein manuell über „+ Leistung“ angelegte Zeilen dürfen
+  // keine alte Kundennachrichten-Quelle per Namens-Fallback anzeigen.
+  _manualUserAdded?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -13276,6 +13279,7 @@ export default function AuftraegePage() {
     const nextItem = {
       ...createEmptyItem(),
       workSiteId: targetWorkSiteId,
+      _manualUserAdded: true,
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
@@ -13301,6 +13305,7 @@ export default function AuftraegePage() {
     const nextItem = {
       ...createEmptyItem(),
       workSiteId: siteId || null,
+      _manualUserAdded: true,
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
@@ -21032,17 +21037,24 @@ export default function AuftraegePage() {
                             unit: item.unit,
                             unitPrice: item.unitPrice,
                           };
-                          const sourceLineForItem =
+                          const isManualUserAddedItemV17_90L313 = Boolean(
+                            (item as any)._manualUserAdded,
+                          );
+                          const storedSourceLineForItemV17_90L313 =
                             getCompactStoredItemEvidenceV17_90L81(
                               item.sourceDescription,
                               item.serviceName,
                               itemEvidenceInput,
-                            ) ||
-                            findCustomerTextLineForService(
-                              visibleCustomerMessageText || customerMessageText,
-                              item.serviceName,
-                              itemEvidenceInput,
                             );
+                          const sourceLineForItem =
+                            storedSourceLineForItemV17_90L313 ||
+                            (isManualUserAddedItemV17_90L313
+                              ? ""
+                              : findCustomerTextLineForService(
+                                  visibleCustomerMessageText || customerMessageText,
+                                  item.serviceName,
+                                  itemEvidenceInput,
+                                ));
                           const catalogSummary = catalogService
                             ? `${catalogService.unit}${
                                 catalogPrice > 0

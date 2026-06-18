@@ -121,6 +121,7 @@ interface OfferItem {
   siteNote?: string | null;
   sourceOrderId?: string | null;
   _workSiteUiKey?: string | null;
+  _manualUserAdded?: boolean;
 }
 interface OfferExecutionSite {
   customerExecutionAddressId?: string | null;
@@ -4384,7 +4385,7 @@ export default function AngebotePage() {
       ) ||
       null;
     setItems((current) => [
-      { ...getEmptyItem(), ...(targetSite || {}) },
+      { ...getEmptyItem(), ...(targetSite || {}), _manualUserAdded: true },
       ...current,
     ]);
     if (requestedKey)
@@ -5165,7 +5166,7 @@ export default function AngebotePage() {
         const baseItems = current.length > 0 ? current : [getEmptyItem()];
         return baseItems.map((item: OfferItem) => ({ ...item, ...site }));
       }
-      return [{ ...getEmptyItem(), ...site }, ...current];
+      return [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current];
     });
     setEditingExecutionAddress(true);
     setEditingOfferSiteKey(key);
@@ -5178,7 +5179,7 @@ export default function AngebotePage() {
 
   const addOfferItemToSiteV17_90L284 = (site: OfferExecutionSite) => {
     const key = offerGroupKeyForSite(site);
-    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setItems((current) => [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current]);
     setNewOfferItemSiteKey(key);
     setEditingOfferSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
