@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
 // SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
 // SMARTFLOW_V17_90L319_INVOICE_SPECIAL_NOTES_INFO_ONLY
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
@@ -1119,7 +1120,38 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     add(otherHints, record.text);
   }
 
-  return { hazards, primaryHints, otherHints };
+  // V17.90L322: Manuelle Rechnungs-Besonderheiten strikt zeilenlokal halten.
+  // Falls ein alter/abgeleiteter Mischsatz Termin + Hund/Gefahr enthält und
+  // dieselben Fakten bereits sauber getrennt vorhanden sind, wird nur dieser
+  // Mischsatz ausgeblendet. Echte Einzelzeilen bleiben unverändert.
+  const hasSeparatePrimaryAppointmentV17_90L322 = primaryHints.some((line) =>
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(
+      normalizeInvoiceServiceName(line),
+    ),
+  );
+  const hasSeparateSafetyLineV17_90L322 = hazards.some((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    return (
+      isInvoiceCanonicalDogLineV17_90L273(line) &&
+      !/\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(key)
+    );
+  });
+  const cleanHazardsV17_90L322 = hazards.filter((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    const mixesAppointmentAndSafety =
+      /\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(key) &&
+      (isInvoiceCanonicalDogLineV17_90L273(line) ||
+        /\b(?:vorsicht|achtung|gefahr|warnung|warnhinweis|rutschig|giftig|beissen|beisst|beißt|aggressiv|gefährlich|gefaehrlich)\b/.test(
+          key,
+        ));
+    return !(
+      mixesAppointmentAndSafety &&
+      hasSeparatePrimaryAppointmentV17_90L322 &&
+      hasSeparateSafetyLineV17_90L322
+    );
+  });
+
+  return { hazards: cleanHazardsV17_90L322, primaryHints, otherHints };
 }
 
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
@@ -6397,14 +6429,14 @@ export default function RechnungenPage() {
                               </span>
                               <span className="block space-y-2 text-[12px] leading-snug">
                                 {invoiceSpecialSummaryV17_90L319.primaryHints.length > 0 && (
-                                  <span className="block">
-                                    <span className="block font-semibold text-blue-800 dark:text-blue-200">
+                                  <span className="block rounded-xl border border-blue-300 bg-blue-50 p-2.5 text-blue-950 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
+                                    <span className="block font-semibold">
                                       Wichtige Informationen
                                     </span>
                                     {invoiceSpecialSummaryV17_90L319.primaryHints.map((line, index) => (
                                       <span
                                         key={`invoice-info-primary-${inv.id}-${index}`}
-                                        className="block whitespace-pre-wrap break-words"
+                                        className="mt-1 block whitespace-pre-wrap break-words"
                                       >
                                         • {line}
                                       </span>
@@ -6412,14 +6444,14 @@ export default function RechnungenPage() {
                                   </span>
                                 )}
                                 {invoiceSpecialSummaryV17_90L319.hazards.length > 0 && (
-                                  <span className="block">
-                                    <span className="block font-semibold text-red-800 dark:text-red-200">
+                                  <span className="block rounded-xl border border-red-300 bg-red-50 p-2.5 text-red-950 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100">
+                                    <span className="block font-semibold">
                                       Gefahr / Achtung
                                     </span>
                                     {invoiceSpecialSummaryV17_90L319.hazards.map((line, index) => (
                                       <span
                                         key={`invoice-info-hazard-${inv.id}-${index}`}
-                                        className="block whitespace-pre-wrap break-words"
+                                        className="mt-1 block whitespace-pre-wrap break-words"
                                       >
                                         • {line}
                                       </span>
@@ -6427,14 +6459,14 @@ export default function RechnungenPage() {
                                   </span>
                                 )}
                                 {invoiceSpecialSummaryV17_90L319.otherHints.length > 0 && (
-                                  <span className="block">
-                                    <span className="block font-semibold text-amber-800 dark:text-amber-200">
+                                  <span className="block rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+                                    <span className="block font-semibold">
                                       Weitere Besonderheiten
                                     </span>
                                     {invoiceSpecialSummaryV17_90L319.otherHints.map((line, index) => (
                                       <span
                                         key={`invoice-info-other-${inv.id}-${index}`}
-                                        className="block whitespace-pre-wrap break-words"
+                                        className="mt-1 block whitespace-pre-wrap break-words"
                                       >
                                         • {line}
                                       </span>
