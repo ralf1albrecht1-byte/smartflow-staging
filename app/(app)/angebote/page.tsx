@@ -4750,15 +4750,27 @@ export default function AngebotePage() {
   };
 
   const addExecutionSite = () => {
-    const unfinishedSiteIndex = executionSites.findIndex(
-      (site) =>
-        !compactOfferValue(site.siteName) &&
-        !compactOfferValue(site.siteAddress) &&
-        !compactOfferValue(site.sitePlz) &&
-        !compactOfferValue(site.siteCity),
-    );
-    if (unfinishedSiteIndex >= 0) {
-      const unfinishedSite = executionSites[unfinishedSiteIndex];
+    const unfinishedSite = executionSites.find((site) => {
+      const siteKey = offerGroupKeyForSite(site);
+      const assignedItems = items.filter(
+        (item) =>
+          offerGroupKeyForSite(item as OfferExecutionSite) === siteKey,
+      );
+      const hasSiteContent = Boolean(
+        compactOfferValue(site.siteName) ||
+          compactOfferValue(site.siteAddress) ||
+          compactOfferValue(site.sitePlz) ||
+          compactOfferValue(site.siteCity) ||
+          compactOfferValue(site.siteNote),
+      );
+      return (
+        !hasSiteContent ||
+        assignedItems.some(
+          (item) => !compactOfferValue(item.description),
+        )
+      );
+    });
+    if (unfinishedSite) {
       const unfinishedKey = offerGroupKeyForSite(unfinishedSite);
       setEditingOfferSiteKey(unfinishedKey);
       setNewOfferItemSiteKey(unfinishedKey);
@@ -4863,11 +4875,13 @@ export default function AngebotePage() {
 
   const toggleAllOfferSites = () => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
-    setExpandedOfferSiteKeys((current) =>
-      current.size === groups.length
+    setExpandedOfferSiteKeys((current) => {
+      const allOpen =
+        groups.length > 0 && groups.every((group) => current.has(group.key));
+      return allOpen
         ? new Set()
-        : new Set(groups.map((group) => group.key)),
-    );
+        : new Set(groups.map((group) => group.key));
+    });
   };
 
   const toggleOfferExecutionAddressEditor = () => {
@@ -8820,8 +8834,21 @@ export default function AngebotePage() {
                             </Button>
                           )}
                           {executionSites.length > 1 && (
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
-                              {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={toggleAllOfferSites}
+                            >
+                              {groupOfferItemsByExecutionSite(
+                                items || [],
+                                executionSites,
+                              ).every((group) =>
+                                expandedOfferSiteKeys.has(group.key),
+                              )
+                                ? "Übersicht"
+                                : "Alle öffnen"}
                             </Button>
                           )}
                           <Button

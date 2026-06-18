@@ -4209,13 +4209,26 @@ export default function RechnungenPage() {
 
   const addInvoiceExecutionSite = () => {
     const sites = getCurrentInvoiceExecutionSitesV17_90L284();
-    const unfinishedSite = sites.find(
-      (site) =>
-        !compactInvoiceValue(site.siteName) &&
-        !compactInvoiceValue(site.siteAddress) &&
-        !compactInvoiceValue(site.sitePlz) &&
-        !compactInvoiceValue(site.siteCity),
-    );
+    const unfinishedSite = sites.find((site) => {
+      const siteKey = invoiceGroupKeyForSite(site);
+      const assignedItems = items.filter(
+        (item) =>
+          invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
+      );
+      const hasSiteContent = Boolean(
+        compactInvoiceValue(site.siteName) ||
+          compactInvoiceValue(site.siteAddress) ||
+          compactInvoiceValue(site.sitePlz) ||
+          compactInvoiceValue(site.siteCity) ||
+          compactInvoiceValue(site.siteNote),
+      );
+      return (
+        !hasSiteContent ||
+        assignedItems.some(
+          (item) => !compactInvoiceValue(item.description),
+        )
+      );
+    });
     if (unfinishedSite) {
       const unfinishedKey = invoiceGroupKeyForSite(unfinishedSite);
       setEditingInvoiceSiteKey(unfinishedKey);
@@ -4342,11 +4355,13 @@ export default function RechnungenPage() {
   const toggleAllInvoiceSites = () => {
     const sites = getCurrentInvoiceExecutionSitesV17_90L284();
     const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
-    setExpandedInvoiceSiteKeys((current) =>
-      current.size === groups.length
+    setExpandedInvoiceSiteKeys((current) => {
+      const allOpen =
+        groups.length > 0 && groups.every((group) => current.has(group.key));
+      return allOpen
         ? new Set()
-        : new Set(groups.map((group) => group.key)),
-    );
+        : new Set(groups.map((group) => group.key));
+    });
   };
 
   const updateInvoiceExecutionSite = (
@@ -7265,13 +7280,13 @@ export default function RechnungenPage() {
                         return (
                           <>
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <h3 className="whitespace-nowrap text-base font-semibold">
+                              <Label className="whitespace-nowrap text-base font-semibold">
                                 {multiSite
                                   ? "Arbeitsorte & Leistungen"
-                                  : `Leistungen · ${items?.length || 0}`}
-                              </h3>
+                                  : `Leistungen · ${items.filter((item: InvoiceItem) => String(item?.description || "").trim()).length} *`}
+                              </Label>
                               <div className="flex flex-wrap items-center justify-end gap-2">
-                                {editingInvoice && currentSites.length > 0 && (
+                                {currentSites.length > 0 && (
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -7285,28 +7300,31 @@ export default function RechnungenPage() {
                                 )}
                                 {multiSite && (
                                   <Button
+                                    type="button"
                                     variant="outline"
                                     size="sm"
                                     className="h-7 px-2 text-xs"
                                     onClick={toggleAllInvoiceSites}
                                   >
-                                    {expandedInvoiceSiteKeys.size ===
-                                    groupInvoiceItemsByExecutionSite(
+                                    {groupInvoiceItemsByExecutionSite(
                                       items || [],
                                       currentSites,
-                                    ).length
+                                    ).every((group) =>
+                                      expandedInvoiceSiteKeys.has(group.key),
+                                    )
                                       ? "Übersicht"
                                       : "Alle öffnen"}
                                   </Button>
                                 )}
                                 <Button
+                                  type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 px-2 text-xs"
+                                  className="h-7 shrink-0 px-2 text-xs"
                                   onClick={addItem}
                                 >
-                                  <Plus className="mr-1 h-4 w-4" /> Leistung
-                                  hinzufügen
+                                  <Plus className="mr-1 h-3.5 w-3.5" />
+                                  Leistung hinzufügen
                                 </Button>
                               </div>
                             </div>
@@ -7314,7 +7332,9 @@ export default function RechnungenPage() {
                               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                                 <span className="min-w-0 truncate">
                                   {currentSites.length} Arbeitsorte ·{" "}
-                                  {items?.length || 0} Leistungen
+                                  {items.filter((item: InvoiceItem) =>
+                                    String(item?.description || "").trim(),
+                                  ).length} Leistungen
                                 </span>
                                 <span className="shrink-0 font-mono font-medium text-foreground">
                                   {formatCurrency(subtotal, currency)}

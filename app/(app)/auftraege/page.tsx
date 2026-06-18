@@ -14222,6 +14222,15 @@ export default function AuftraegePage() {
     });
 
   const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
+  const currentEditWorkSiteGroupKeysV17_90L290 = [
+    ...(formItems.some((item) => !item.workSiteId) ? ["__unassigned__"] : []),
+    ...currentEditWorkSites.map((site) => site.id),
+  ];
+  const allEditWorkSiteGroupsExpandedV17_90L290 =
+    currentEditWorkSiteGroupKeysV17_90L290.length > 0 &&
+    currentEditWorkSiteGroupKeysV17_90L290.every((key) =>
+      expandedWorkSiteIds.includes(key),
+    );
 
   const currentEditSystemBadges = currentEditOrder
     ? getSystemBadges(currentEditOrder, services)
@@ -14519,15 +14528,32 @@ export default function AuftraegePage() {
     const assignedItems = formItems.filter(
       (item) => item.workSiteId === siteId,
     );
-    if (assignedItems.length > 0) {
+    const hasRealItems = assignedItems.some((item) =>
+      Boolean(
+        String(item.serviceName || "").trim() ||
+          Number(item.quantity || 0) > 0 ||
+          Number(item.unitPrice || 0) > 0,
+      ),
+    );
+    if (hasRealItems) {
       toast.error(
         "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
       );
       return;
     }
 
+    // V17.90L290: Eine automatisch angelegte, noch leere Leistung wird wie
+    // bei Angebot und Rechnung zusammen mit dem leeren Arbeitsort entfernt.
+    setFormItems((prev) =>
+      prev.filter((item) => item.workSiteId !== siteId),
+    );
     setFormWorkSites((prev) => prev.filter((site) => site.id !== siteId));
     setEditingWorkSiteId((prev) => (prev === siteId ? null : prev));
+    setActiveWorkSiteId((prev) => (prev === siteId ? null : prev));
+    setNewItemWorkSiteId((prev) => (prev === siteId ? "" : prev));
+    setExpandedWorkSiteIds((prev) =>
+      prev.filter((entry) => entry !== siteId),
+    );
   };
 
   const getWorkSiteSelectLabel = (site: OrderWorkSite) => {
@@ -14667,7 +14693,9 @@ export default function AuftraegePage() {
         suggestions.push(normalizedSite);
       });
 
-    return suggestions.slice(0, 6);
+    // V17.90L290: Auftrag, Angebot und Rechnung zeigen gleich viele
+    // gespeicherte Ausführungsorte an.
+    return suggestions.slice(0, 8);
   }, [
     customers,
     form.customerId,
@@ -14857,16 +14885,11 @@ export default function AuftraegePage() {
   };
 
   const toggleWorkSiteOverview = () => {
-    const allGroupKeys = [
-      ...(formItems.some((item) => !item.workSiteId) ? ["__unassigned__"] : []),
-      ...currentEditWorkSites.map((site) => site.id),
-    ];
-
-    const allOpen =
-      allGroupKeys.length > 0 &&
-      allGroupKeys.every((key) => expandedWorkSiteIds.includes(key));
-
-    setExpandedWorkSiteIds(allOpen ? [] : allGroupKeys);
+    setExpandedWorkSiteIds(
+      allEditWorkSiteGroupsExpandedV17_90L290
+        ? []
+        : currentEditWorkSiteGroupKeysV17_90L290,
+    );
     setEditingWorkSiteId(null);
     setMovingItemKey(null);
   };
@@ -20133,7 +20156,7 @@ export default function AuftraegePage() {
                             )}
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          {hasMultipleEditWorkSites && (
+                          {currentEditWorkSites.length > 0 && (
                             <Button
                               type="button"
                               size="sm"
@@ -20153,7 +20176,7 @@ export default function AuftraegePage() {
                               onClick={toggleWorkSiteOverview}
                               className="h-7 px-2 text-xs"
                             >
-                              {expandedWorkSiteIds.length > 0
+                              {allEditWorkSiteGroupsExpandedV17_90L290
                                 ? "Übersicht"
                                 : "Alle öffnen"}
                             </Button>
@@ -20163,7 +20186,7 @@ export default function AuftraegePage() {
                             size="sm"
                             variant="outline"
                             onClick={addItem}
-                            className="h-7 px-2 text-xs"
+                            className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
                             Leistung hinzufügen
