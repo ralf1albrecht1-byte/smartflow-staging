@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L324_INVOICE_APPOINTMENT_CHIP_CURRENT_ONLY
+// SMARTFLOW_V17_90L325_INVOICE_APPOINTMENT_ICON_ONLY_CURRENT_TERMS
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
 // SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
@@ -521,19 +521,10 @@ type AdaptiveAppointmentLabels = {
 const buildAdaptiveAppointmentLabels = (
   value: unknown,
 ): AdaptiveAppointmentLabels => {
+  // SMARTFLOW_V17_90L325: Auf Rechnungskarten bleibt der Terminchip außen
+  // bewusst icon-only. Details wie Datum/"Termine" stehen nur im Tooltip/Popover.
   const full = compactInvoiceValue(value) || "Termin klären";
-  if (/^Termine(?:\s*·\s*\d+)?/i.test(full)) {
-    return { full, dateOnly: "Termine" };
-  }
-  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
-  if (!dateMatch) return { full, dateOnly: null };
-  const day = dateMatch[1].padStart(2, "0");
-  const month = dateMatch[2].padStart(2, "0");
-  const year = dateMatch[3] || "";
-  return {
-    full,
-    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
-  };
+  return { full, dateOnly: null };
 };
 
 // V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
@@ -1245,6 +1236,8 @@ const getInvoiceAppointmentTimingV17_90L324 = (value: unknown): InvoiceAppointme
 };
 
 const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => {
+  // SMARTFLOW_V17_90L325: Chip bleibt nur sichtbar, wenn mindestens ein
+  // aktueller/unklarer Terminhinweis vorhanden ist; vergangene Termine bleiben nur im Info-Chip.
   const text = compactInvoiceValue(value);
   if (!text) return false;
   if (/^Termine(?:\s*·\s*\d+)?/i.test(text)) return true;
@@ -2152,7 +2145,9 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
 }
 
 function formatInvoiceAppointmentLabel(invoice: Invoice): string {
-  const entries = collectInvoiceAppointmentEntriesV17_90L177R(invoice);
+  const entries = collectInvoiceAppointmentEntriesV17_90L177R(invoice).filter(
+    (entry) => getInvoiceAppointmentTimingV17_90L324(entry.label) !== "past",
+  );
   if (entries.length === 0) return "";
   if (entries.length === 1) return entries[0].label;
   return [
