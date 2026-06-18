@@ -14865,6 +14865,12 @@ export default function AuftraegePage() {
     ].map(normalize).join("|");
   };
 
+  const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: OrderWorkSite | null) => {
+    if (!site) return false;
+    const hasStoredCustomerAddress = Boolean(compactText(site.customerExecutionAddressId));
+    return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
+  };
+
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OrderWorkSite) => {
     if (
       !saveExecutionAddressInCustomerProfile ||
@@ -20397,6 +20403,7 @@ export default function AuftraegePage() {
                       } as OrderWorkSite)}
 
                       <div className="flex flex-wrap items-center justify-between gap-3">
+                        {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(({ ...(formWorkSites.find((entry) => entry.isPrimary) || formWorkSites[0] || {}), siteName: form.siteName, siteAddress: form.siteAddress, sitePlz: form.sitePlz, siteCity: form.siteCity, siteNote: form.siteNote } as OrderWorkSite)) && (
                         <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                           <input
                             type="checkbox"
@@ -20410,6 +20417,7 @@ export default function AuftraegePage() {
                           />
                           Im Kundenprofil speichern
                         </label>
+                        )}
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <Button
                             type="button"
@@ -21618,6 +21626,7 @@ export default function AuftraegePage() {
                                           >
                                             Löschen
                                           </Button>
+                                          {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(site) && (
                                           <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
                                             <input
                                               type="checkbox"
@@ -21631,6 +21640,7 @@ export default function AuftraegePage() {
                                             />
                                             Im Kundenprofil speichern
                                           </label>
+                                          )}
                                           <Button
                                             type="button"
                                             size="sm"
@@ -21671,20 +21681,6 @@ export default function AuftraegePage() {
                                     ausfüllen oder den Arbeitsort löschen.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
-                                    {site && (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() => {
-                                          setActiveWorkSiteId(site.id);
-                                          setEditingWorkSiteId(site.id);
-                                        }}
-                                      >
-                                        Arbeitsort bearbeiten
-                                      </Button>
-                                    )}
                                     {site && !siteNeedsReview && (
                                       <Button
                                         type="button"
@@ -21776,46 +21772,19 @@ export default function AuftraegePage() {
 
                                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-180" />
 
-                                      <div className="relative shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            setServiceActionMenuKey((prev) =>
-                                              prev === item.key
-                                                ? null
-                                                : item.key,
-                                            );
-                                          }}
-                                          className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                          title="Aktionen"
-                                        >
-                                          <MoreVertical className="h-4 w-4" />
-                                        </button>
-
-                                        {isMenuOpen && (
-                                          <div
-                                            onClick={(event) => {
-                                              event.preventDefault();
-                                              event.stopPropagation();
-                                            }}
-                                            className="absolute right-0 top-9 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                          >
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                removeItem(index);
-                                                setServiceActionMenuKey(null);
-                                              }}
-                                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                            >
-                                              <Trash2 className="h-3.5 w-3.5" />
-                                              Löschen
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          removeItem(index);
+                                        }}
+                                        className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
+                                        title="Leistung löschen"
+                                        aria-label="Leistung löschen"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
                                     </summary>
 
                                     <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">

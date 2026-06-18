@@ -4771,6 +4771,12 @@ export default function AngebotePage() {
     ].map(normalize).join("|");
   };
 
+  const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (site?: OfferExecutionSite | null) => {
+    if (!site) return false;
+    const hasStoredCustomerAddress = Boolean(compactText(site.customerExecutionAddressId));
+    return !hasStoredCustomerAddress || customerExecutionAddressChangedV17_90L296(site);
+  };
+
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OfferExecutionSite) => {
     if (
       !saveExecutionAddressInCustomerProfile ||
@@ -9128,6 +9134,7 @@ export default function AngebotePage() {
                             {executionSites[0] &&
                               renderCustomerExecutionAddressSaveChoiceV17_90L296(executionSites[0])}
                             <div className="flex flex-wrap items-center justify-between gap-3">
+                            {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(executionSites[0]) && (
                             <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                               <input
                                 type="checkbox"
@@ -9141,6 +9148,7 @@ export default function AngebotePage() {
                               />
                               Im Kundenprofil speichern
                             </label>
+                            )}
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               <Button
                                 type="button"
@@ -9368,40 +9376,18 @@ export default function AngebotePage() {
                                 />
                               </button>
 
-                              <div className="relative">
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setServiceActionMenuIndex((current) =>
-                                      current === idx ? null : idx,
-                                    );
-                                  }}
-                                  className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                  title="Aktionen"
-                                >
-                                  <MoreVertical className="h-4 w-4" />
-                                </button>
-
-                                {isMenuOpen && (
-                                  <div
-                                    onClick={(event) => event.stopPropagation()}
-                                    className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        removeItem(idx);
-                                        setServiceActionMenuIndex(null);
-                                      }}
-                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                      Löschen
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  removeItem(idx);
+                                }}
+                                className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
+                                title="Leistung löschen"
+                                aria-label="Leistung löschen"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
 
                             {isExpanded && (
@@ -9850,6 +9836,7 @@ export default function AngebotePage() {
                                       >
                                         Löschen
                                       </Button>
+                                      {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(group.site) && (
                                       <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
                                         <input
                                           type="checkbox"
@@ -9863,6 +9850,7 @@ export default function AngebotePage() {
                                         />
                                         Im Kundenprofil speichern
                                       </label>
+                                      )}
                                       <Button
                                         type="button"
                                         size="sm"
