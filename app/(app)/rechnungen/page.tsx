@@ -4698,10 +4698,11 @@ export default function RechnungenPage() {
     setExpandedInvoiceSiteKeys((current) => new Set([...current, groupKey]));
   };
 
-  const removeInvoiceExecutionSite = (groupKey: string) => {
+  const removeInvoiceExecutionSite = async (groupKey: string) => {
+    const currentSitesBeforeDelete = getCurrentInvoiceExecutionSitesV17_90L284();
     const groups = groupInvoiceItemsByExecutionSite(
       items || [],
-      getCurrentInvoiceExecutionSitesV17_90L284(),
+      currentSitesBeforeDelete,
     );
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
@@ -4714,8 +4715,8 @@ export default function RechnungenPage() {
     const hasRealItems = group.entries.some(({ item }) =>
       Boolean(
         compactInvoiceValue(item.description) ||
-        Number(item.quantity || 0) > 0 ||
-        Number(item.unitPrice || 0) > 0,
+          Number(item.quantity || 0) > 0 ||
+          Number(item.unitPrice || 0) > 0,
       ),
     );
     if (hasRealItems) {
@@ -4724,15 +4725,23 @@ export default function RechnungenPage() {
       );
       return;
     }
-    setInvoiceExecutionSiteDrafts((current) =>
-      current.filter((site) => invoiceGroupKeyForSite(site) !== groupKey),
+
+    const nextDraftSites = invoiceExecutionSiteDrafts.filter(
+      (site) => invoiceGroupKeyForSite(site) !== groupKey,
     );
-    setItems((current) =>
-      current.filter(
-        (item) =>
-          invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
-      ),
+    const nextItems = items.filter(
+      (item) =>
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
     );
+    const nextExecutionSites = currentSitesBeforeDelete.filter(
+      (site) => invoiceGroupKeyForSite(site) !== groupKey,
+    );
+    const nextClearExecutionAddress =
+      nextExecutionSites.length === 0 ? true : executionAddressClearRequested;
+
+    setInvoiceExecutionSiteDrafts(nextDraftSites);
+    setItems(nextItems);
+    setExecutionAddressClearRequested(nextClearExecutionAddress);
     setExpandedInvoiceSiteKeys((current) => {
       const next = new Set(current);
       next.delete(groupKey);
@@ -4740,6 +4749,26 @@ export default function RechnungenPage() {
     });
     setEditingInvoiceSiteKey(null);
     setNewInvoiceItemSiteKey("");
+
+    if (!editingInvoice) return;
+
+    setSaving(true);
+    try {
+      const saved = await saveEdit(
+        false,
+        nextExecutionSites,
+        nextItems,
+        nextClearExecutionAddress,
+      );
+      if (saved) {
+        toast.success("Arbeitsort wurde gelöscht.");
+        await load();
+      }
+    } catch {
+      toast.error("Arbeitsort konnte nicht gelöscht werden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleAllInvoiceSites = () => {
@@ -5127,13 +5156,21 @@ export default function RechnungenPage() {
     }
   };
 
-  const saveEdit = async (closeAfterSave = true): Promise<boolean> => {
+  const saveEdit = async (
+    closeAfterSave = true,
+    executionSitesOverrideV17_90L301?: InvoiceExecutionSite[],
+    itemsOverrideV17_90L301?: InvoiceItem[],
+    clearExecutionAddressOverrideV17_90L301?: boolean,
+  ): Promise<boolean> => {
     if (!editingInvoice) return false;
     const currentExecutionSitesV17_90L292 =
-      getCurrentInvoiceExecutionSitesV17_90L284();
+      executionSitesOverrideV17_90L301 ?? getCurrentInvoiceExecutionSitesV17_90L284();
+    const sourceItemsV17_90L301 = itemsOverrideV17_90L301 ?? items;
+    const clearExecutionAddressForSaveV17_90L301 =
+      clearExecutionAddressOverrideV17_90L301 ?? executionAddressClearRequested;
     const itemsForEditWithUiStateV17_90L292 =
       applyInvoiceExecutionSitesToItemsV17_90L292(
-        items,
+        sourceItemsV17_90L301,
         currentExecutionSitesV17_90L292,
       );
     const realItemsForEditV17_90L292 = itemsForEditWithUiStateV17_90L292.filter(
@@ -5181,7 +5218,14 @@ export default function RechnungenPage() {
           items: itemsForEditWithUiStateV17_90L292.map(
             stripInvoiceWorkSiteUiStateV17_90L287,
           ),
-          clearExecutionAddress: executionAddressClearRequested,
+          clearExecutionAddress: clearExecutionAddressForSaveV17_90L301,
+          saveExecutionAddressInCustomerProfile: Boolean(
+            saveExecutionAddressInCustomerProfile,
+          ),
+          upsertCustomerExecutionAddress: Boolean(
+            saveExecutionAddressInCustomerProfile,
+          ),
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
           vatRate,
           currency,
         }),

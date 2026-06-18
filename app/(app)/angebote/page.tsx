@@ -5135,7 +5135,7 @@ export default function AngebotePage() {
     setExpandedOfferSiteKeys((current) => new Set([...current, groupKey]));
   };
 
-  const removeOfferExecutionSite = (groupKey: string) => {
+  const removeOfferExecutionSite = async (groupKey: string) => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
@@ -5153,14 +5153,18 @@ export default function AngebotePage() {
       return;
     }
 
-    setExecutionSites((current) =>
-      current.filter((site) => offerGroupKeyForSite(site) !== groupKey),
+    const nextExecutionSites = executionSites.filter(
+      (site) => offerGroupKeyForSite(site) !== groupKey,
     );
-    setItems((current) =>
-      current.filter(
-        (item) => offerGroupKeyForSite(item as OfferExecutionSite) !== groupKey,
-      ),
+    const nextItems = items.filter(
+      (item) => offerGroupKeyForSite(item as OfferExecutionSite) !== groupKey,
     );
+    const nextClearExecutionAddress =
+      nextExecutionSites.length === 0 ? true : executionAddressClearRequested;
+
+    setExecutionSites(nextExecutionSites);
+    setItems(nextItems);
+    setExecutionAddressClearRequested(nextClearExecutionAddress);
     setExpandedOfferSiteKeys((current) => {
       const next = new Set(current);
       next.delete(groupKey);
@@ -5168,6 +5172,25 @@ export default function AngebotePage() {
     });
     setEditingOfferSiteKey(null);
     setNewOfferItemSiteKey("");
+
+    if (!editOfferId) return;
+
+    setSaving(true);
+    try {
+      const saved = await saveOffer(
+        nextExecutionSites,
+        nextItems,
+        nextClearExecutionAddress,
+      );
+      if (saved) {
+        toast.success("Arbeitsort wurde gelöscht.");
+        await load();
+      }
+    } catch {
+      toast.error("Arbeitsort konnte nicht gelöscht werden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleAllOfferSites = () => {
@@ -5537,12 +5560,22 @@ export default function AngebotePage() {
   };
 
   // Core save — returns saved offer or null
-  const saveOffer = async (): Promise<any | null> => {
+  const saveOffer = async (
+    executionSitesOverrideV17_90L301?: OfferExecutionSite[],
+    itemsOverrideV17_90L301?: OfferItem[],
+    clearExecutionAddressOverrideV17_90L301?: boolean,
+  ): Promise<any | null> => {
+    const sourceExecutionSitesV17_90L301 =
+      executionSitesOverrideV17_90L301 ?? executionSites;
+    const sourceItemsV17_90L301 = itemsOverrideV17_90L301 ?? items;
+    const clearExecutionAddressForSaveV17_90L301 =
+      clearExecutionAddressOverrideV17_90L301 ?? executionAddressClearRequested;
+
     if (!form?.customerId) {
       toast.error("Bitte Kunde wählen");
       return null;
     }
-    if (!items?.some((item) => compactOfferValue(item.description))) {
+    if (!sourceItemsV17_90L301?.some((item) => compactOfferValue(item.description))) {
       toast.error("Mindestens eine Position");
       return null;
     }
@@ -5552,8 +5585,11 @@ export default function AngebotePage() {
     // Angebot-Arbeitsorte werden über die Positionen persistiert; eine leere
     // automatisch angelegte Position darf deshalb keinen erfolgreichen Save
     // vortäuschen und danach kommentarlos verschwinden.
-    const itemsForSave = applyExecutionSitesToOfferItems(items, executionSites);
-    const completeExecutionSitesV17_90L292 = executionSites.filter(
+    const itemsForSave = applyExecutionSitesToOfferItems(
+      sourceItemsV17_90L301,
+      sourceExecutionSitesV17_90L301,
+    );
+    const completeExecutionSitesV17_90L292 = sourceExecutionSitesV17_90L301.filter(
       (site) =>
         Boolean(compactOfferValue(site.siteAddress)) &&
         Boolean(compactOfferValue(site.sitePlz)) &&
@@ -5583,7 +5619,14 @@ export default function AngebotePage() {
           ...form,
           notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
           items: itemsForSave,
-          clearExecutionAddress: executionAddressClearRequested,
+          clearExecutionAddress: clearExecutionAddressForSaveV17_90L301,
+          saveExecutionAddressInCustomerProfile: Boolean(
+            saveExecutionAddressInCustomerProfile,
+          ),
+          upsertCustomerExecutionAddress: Boolean(
+            saveExecutionAddressInCustomerProfile,
+          ),
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
           vatRate,
           currency,
         }),
@@ -5600,7 +5643,14 @@ export default function AngebotePage() {
         ...form,
         notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
         items: itemsForSave,
-        clearExecutionAddress: executionAddressClearRequested,
+        clearExecutionAddress: clearExecutionAddressForSaveV17_90L301,
+        saveExecutionAddressInCustomerProfile: Boolean(
+          saveExecutionAddressInCustomerProfile,
+        ),
+        upsertCustomerExecutionAddress: Boolean(
+          saveExecutionAddressInCustomerProfile,
+        ),
+        skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
         vatRate,
         currency,
       };

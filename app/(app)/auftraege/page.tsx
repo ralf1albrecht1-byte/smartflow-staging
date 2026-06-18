@@ -14528,7 +14528,7 @@ export default function AuftraegePage() {
     });
   };
 
-  const removeFormWorkSite = (siteId: string) => {
+  const removeFormWorkSite = async (siteId: string) => {
     const assignedItems = formItems.filter(
       (item) => item.workSiteId === siteId,
     );
@@ -14546,18 +14546,66 @@ export default function AuftraegePage() {
       return;
     }
 
-    // V17.90L290: Eine automatisch angelegte, noch leere Leistung wird wie
-    // bei Angebot und Rechnung zusammen mit dem leeren Arbeitsort entfernt.
-    setFormItems((prev) =>
-      prev.filter((item) => item.workSiteId !== siteId),
-    );
-    setFormWorkSites((prev) => prev.filter((site) => site.id !== siteId));
+    const remainingWorkSites = formWorkSites
+      .filter((site) => site.id !== siteId)
+      .map((site, index) => ({
+        ...site,
+        isPrimary: index === 0,
+        sortOrder: index,
+      }));
+    const remainingItems = formItems.filter((item) => item.workSiteId !== siteId);
+    const nextPrimarySite = remainingWorkSites[0] || null;
+    const nextFormPatch = nextPrimarySite
+      ? {
+          siteAddressDifferent: true,
+          siteName: cleanWorkSiteDisplayName(nextPrimarySite.siteName) || "",
+          siteAddress: nextPrimarySite.siteAddress || "",
+          sitePlz: nextPrimarySite.sitePlz || "",
+          siteCity: nextPrimarySite.siteCity || "",
+          siteNote: nextPrimarySite.siteNote || "",
+        }
+      : {
+          siteAddressDifferent: false,
+          siteName: "",
+          siteAddress: "",
+          sitePlz: "",
+          siteCity: "",
+          siteNote: "",
+        };
+
+    setExecutionAddressClearRequested(remainingWorkSites.length === 0);
+    setForm((prev) => ({ ...prev, ...nextFormPatch }));
+    setFormItems(remainingItems);
+    setFormWorkSites(remainingWorkSites);
     setEditingWorkSiteId((prev) => (prev === siteId ? null : prev));
-    setActiveWorkSiteId((prev) => (prev === siteId ? null : prev));
+    setActiveWorkSiteId((prev) =>
+      prev === siteId ? nextPrimarySite?.id || null : prev,
+    );
     setNewItemWorkSiteId((prev) => (prev === siteId ? "" : prev));
     setExpandedWorkSiteIds((prev) =>
       prev.filter((entry) => entry !== siteId),
     );
+
+    if (!editId) return;
+
+    setSaving(true);
+    try {
+      const saved = await saveOrder(
+        nextFormPatch,
+        remainingItems,
+        undefined,
+        undefined,
+        remainingWorkSites,
+      );
+      if (saved) {
+        toast.success("Arbeitsort wurde gelöscht.");
+        await load();
+      }
+    } catch {
+      toast.error("Arbeitsort konnte nicht gelöscht werden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getWorkSiteSelectLabel = (site: OrderWorkSite) => {
@@ -15694,12 +15742,16 @@ export default function AuftraegePage() {
       discardedServiceNames?: Set<string>;
       acknowledgeResidualCurrency?: boolean;
     },
+    workSitesOverrideV17_90L301?: OrderWorkSite[],
   ): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
     const sourceFormItems = itemsOverride ?? formItems;
+    const sourceFormWorkSitesV17_90L301 =
+      workSitesOverrideV17_90L301 ?? formWorkSites;
+    const formForSaveV17_90L301 = { ...form, ...payloadOverrides };
     let validItems = mergeEquivalentFormItems(
       sourceFormItems.filter((i) => i.serviceName.trim()),
     );
@@ -15720,17 +15772,17 @@ export default function AuftraegePage() {
     // den aktuell sichtbaren Editorfeldern synchronisiert. So werden Strasse,
     // PLZ und Ort weder verworfen noch durch alte WorkSite-Werte überschrieben.
     const currentPrimaryWorkSiteForEditor =
-      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
-      formWorkSites[0] ||
+      sourceFormWorkSitesV17_90L301.find((site) => Boolean(site.isPrimary)) ||
+      sourceFormWorkSitesV17_90L301[0] ||
       null;
     const hasCurrentExecutionAddressEditorContent = Boolean(
-      form.siteAddressDifferent &&
+      formForSaveV17_90L301.siteAddressDifferent &&
         [
-          form.siteName,
-          form.siteAddress,
-          form.sitePlz,
-          form.siteCity,
-          form.siteNote,
+          formForSaveV17_90L301.siteName,
+          formForSaveV17_90L301.siteAddress,
+          formForSaveV17_90L301.sitePlz,
+          formForSaveV17_90L301.siteCity,
+          formForSaveV17_90L301.siteNote,
         ].some((value) => String(value || "").trim()),
     );
     const synchronizedFormWorkSites = hasCurrentExecutionAddressEditorContent
@@ -15741,11 +15793,11 @@ export default function AuftraegePage() {
           const synchronizedPrimary: OrderWorkSite = {
             ...(currentPrimaryWorkSiteForEditor || {}),
             id: primaryId,
-            siteName: cleanWorkSiteDisplayName(form.siteName) || null,
-            siteAddress: form.siteAddress?.trim() || null,
-            sitePlz: form.sitePlz?.trim() || null,
-            siteCity: form.siteCity?.trim() || null,
-            siteNote: form.siteNote?.trim() || null,
+            siteName: cleanWorkSiteDisplayName(formForSaveV17_90L301.siteName) || null,
+            siteAddress: formForSaveV17_90L301.siteAddress?.trim() || null,
+            sitePlz: formForSaveV17_90L301.sitePlz?.trim() || null,
+            siteCity: formForSaveV17_90L301.siteCity?.trim() || null,
+            siteNote: formForSaveV17_90L301.siteNote?.trim() || null,
             isPrimary: true,
             sortOrder: 0,
           };
@@ -15753,7 +15805,7 @@ export default function AuftraegePage() {
           if (!currentPrimaryWorkSiteForEditor) {
             return [
               synchronizedPrimary,
-              ...formWorkSites.map((site, index) => ({
+              ...sourceFormWorkSitesV17_90L301.map((site, index) => ({
                 ...site,
                 isPrimary: false,
                 sortOrder: index + 1,
@@ -15761,7 +15813,7 @@ export default function AuftraegePage() {
             ];
           }
 
-          return formWorkSites.map((site, index) =>
+          return sourceFormWorkSitesV17_90L301.map((site, index) =>
             site.id === currentPrimaryWorkSiteForEditor.id
               ? synchronizedPrimary
               : {
@@ -16291,6 +16343,13 @@ export default function AuftraegePage() {
       description: desc,
       vatRate: orderVatRate,
       currency,
+      saveExecutionAddressInCustomerProfile: Boolean(
+        saveExecutionAddressInCustomerProfile,
+      ),
+      upsertCustomerExecutionAddress: Boolean(
+        saveExecutionAddressInCustomerProfile,
+      ),
+      skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
       // V17.14: Beim manuellen Bereinigen einer Mischwährung müssen die
       // sichtbaren Editorwerte als bestätigt gespeichert werden. Sonst ziehen
       // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
