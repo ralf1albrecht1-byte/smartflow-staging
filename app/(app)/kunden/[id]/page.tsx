@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive, Trash2 } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive, Trash2, Plus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -165,6 +165,16 @@ export default function KundenDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingCustomer, setDeletingCustomer] = useState(false);
   const [deletingExecutionAddressId, setDeletingExecutionAddressId] = useState<string | null>(null);
+  const [addExecutionAddressOpen, setAddExecutionAddressOpen] = useState(false);
+  const [savingExecutionAddress, setSavingExecutionAddress] = useState(false);
+  const [executionAddressForm, setExecutionAddressForm] = useState({
+    siteName: '',
+    siteAddress: '',
+    sitePlz: '',
+    siteCity: '',
+    siteNote: '',
+    country: 'CH',
+  });
 
   // Duplicate check state (new shared component)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -188,6 +198,8 @@ export default function KundenDetailPage() {
   useDialogBackGuard(dupCheckOpen, () => setDupCheckOpen(false));
   // Back-guard for the history-view dialog (Paket J)
   useDialogBackGuard(!!historyView, () => setHistoryView(null));
+  // Kundenprofil-Ausführungsort hinzufügen: Back schliesst zuerst den Dialog.
+  useDialogBackGuard(addExecutionAddressOpen, () => setAddExecutionAddressOpen(false));
 
   const loadCustomer = useCallback(async () => {
     try {
@@ -296,10 +308,74 @@ export default function KundenDetailPage() {
     }
   };
 
+  const resetExecutionAddressForm = () => {
+    setExecutionAddressForm({
+      siteName: '',
+      siteAddress: '',
+      sitePlz: '',
+      siteCity: '',
+      siteNote: '',
+      country: 'CH',
+    });
+  };
+
+  const openAddExecutionAddressDialog = () => {
+    resetExecutionAddressForm();
+    setAddExecutionAddressOpen(true);
+  };
+
+  const closeAddExecutionAddressDialog = () => {
+    if (savingExecutionAddress) return;
+    setAddExecutionAddressOpen(false);
+    resetExecutionAddressForm();
+  };
+
+  const saveExecutionAddress = async () => {
+    const siteAddress = executionAddressForm.siteAddress.trim();
+    const sitePlz = executionAddressForm.sitePlz.trim();
+    const siteCity = executionAddressForm.siteCity.trim();
+
+    if (!siteAddress || !sitePlz || !siteCity) {
+      toast.error('Strasse, PLZ und Ort sind erforderlich');
+      return;
+    }
+
+    setSavingExecutionAddress(true);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/execution-addresses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteName: executionAddressForm.siteName.trim(),
+          siteAddress,
+          sitePlz,
+          siteCity,
+          siteNote: executionAddressForm.siteNote.trim(),
+          country: executionAddressForm.country || 'CH',
+        }),
+      });
+
+      if (res.ok) {
+        toast.success('Ausführungsort wurde im Kundenprofil gespeichert.');
+        setAddExecutionAddressOpen(false);
+        resetExecutionAddressForm();
+        await loadCustomer();
+        return;
+      }
+
+      const err = await res.json().catch(() => ({} as any));
+      toast.error(err?.error || 'Ausführungsort konnte nicht gespeichert werden');
+    } catch {
+      toast.error('Netzwerkfehler beim Speichern des Ausführungsorts');
+    } finally {
+      setSavingExecutionAddress(false);
+    }
+  };
+
   const deleteExecutionAddress = async (addr: CustomerExecutionAddress) => {
     if (!customer) return;
     const label = addr.siteName?.trim() || [addr.siteAddress, addr.sitePlz, addr.siteCity].filter(Boolean).join(' ');
-    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`)) return;
+    if (!window.confirm(`Ausführungsort "${label}" aus dem Kundenprofil entfernen?\n\nDieser Ausführungsort wird nur aus der gespeicherten Kundenliste entfernt. Bestehende Aufträge, Angebote und Rechnungen bleiben unverändert.`)) return;
 
     setDeletingExecutionAddressId(addr.id);
     try {
@@ -991,17 +1067,27 @@ export default function KundenDetailPage() {
           Read-only: Bearbeiten/Löschen kommt erst später, wenn fachlich nötig. */}
       <Card>
         <CardContent className="py-4 px-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-primary" />
               <h3 className="text-sm font-semibold">Gespeicherte Ausführungsorte</h3>
+              <Badge variant="outline" className="text-xs">{savedExecutionAddresses.length}</Badge>
             </div>
-            <Badge variant="outline" className="text-xs">{savedExecutionAddresses.length}</Badge>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 self-start sm:self-auto"
+              onClick={openAddExecutionAddressDialog}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ausführungsort hinzufügen
+            </Button>
           </div>
 
           {savedExecutionAddresses.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Noch keine Ausführungsorte bei diesem Kunden gespeichert. Vollständige Ausführungsadressen aus neuen Aufträgen werden hier angezeigt.
+              Noch keine Ausführungsorte bei diesem Kunden gespeichert. Du kannst hier direkt einen Ausführungsort hinzufügen oder vollständige Ausführungsadressen aus neuen Aufträgen speichern lassen.
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1145,6 +1231,86 @@ export default function KundenDetailPage() {
           {archivSection}
         </section>
       </div>
+
+      {/* Kundenprofil: Ausführungsort manuell hinzufügen. Betrifft nur die gespeicherte Vorlage beim Kunden;
+          bestehende Aufträge, Angebote und Rechnungen bleiben Dokument-Snapshots. */}
+      <Dialog open={addExecutionAddressOpen} onOpenChange={(open) => {
+        if (!open) closeAddExecutionAddressDialog();
+        else setAddExecutionAddressOpen(true);
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              Ausführungsort hinzufügen
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveExecutionAddress();
+            }}
+          >
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Bezeichnung / Name</Label>
+                <Input
+                  value={executionAddressForm.siteName}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteName: event.target.value }))}
+                  placeholder="z. B. Bürogebäude Ost"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Strasse + Hausnr. *</Label>
+                <Input
+                  value={executionAddressForm.siteAddress}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteAddress: event.target.value }))}
+                  placeholder="z. B. Papiermühlestrasse 60"
+                  required
+                />
+              </div>
+              <PlzOrtInput
+                country={executionAddressForm.country}
+                onCountryChange={(country) => setExecutionAddressForm((form) => ({ ...form, country }))}
+                plzValue={executionAddressForm.sitePlz}
+                ortValue={executionAddressForm.siteCity}
+                onPlzChange={(sitePlz) => setExecutionAddressForm((form) => ({ ...form, sitePlz }))}
+                onOrtChange={(siteCity) => setExecutionAddressForm((form) => ({ ...form, siteCity }))}
+                onBothChange={(sitePlz, siteCity) => setExecutionAddressForm((form) => ({ ...form, sitePlz, siteCity }))}
+                required
+                compact
+              />
+              <div>
+                <Label className="text-xs">Notiz / Zugang / Hinweis</Label>
+                <textarea
+                  value={executionAddressForm.siteNote}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteNote: event.target.value }))}
+                  className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Optional, z. B. Eingang hinten, Schlüsselbox, Parkplatzhinweis"
+                />
+              </div>
+            </div>
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              Dieser Ausführungsort wird nur als Vorlage im Kundenprofil gespeichert. Bestehende Aufträge, Angebote und Rechnungen bleiben unverändert.
+            </div>
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeAddExecutionAddressDialog}
+                disabled={savingExecutionAddress}
+              >
+                Abbrechen
+              </Button>
+              <Button type="submit" disabled={savingExecutionAddress} className="gap-1.5">
+                {savingExecutionAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingExecutionAddress ? 'Speichern...' : 'Speichern'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate Check Dialog (shared component) */}
       {customer && (
