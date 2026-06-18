@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L305_WORKSITE_PROFILE_CHOICE_UI_CLEANUP_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
 import { createPortal } from "react-dom";
@@ -14901,18 +14902,28 @@ export default function AuftraegePage() {
     const knownCustomerAddressId =
       compactText(site.customerExecutionAddressId) ||
       resolveCustomerExecutionAddressIdV17_90L295(site);
-    if (!knownCustomerAddressId) return true;
-    return customerExecutionAddressChangedV17_90L296({
-      ...site,
-      customerExecutionAddressId: knownCustomerAddressId,
-    });
+    // V17.90L305: Wenn ein gespeicherter Kundenprofil-Ort geändert wurde,
+    // entscheidet ausschließlich das gelbe Auswahlfeld. Die zusätzliche
+    // Checkbox unten wäre doppelt und kann widersprüchliche Signale geben.
+    if (knownCustomerAddressId) return false;
+    return true;
+  };
+
+  const shouldPersistCustomerExecutionAddressChoiceV17_90L305 = (site: OrderWorkSite) => {
+    const knownCustomerAddressId =
+      compactText(site.customerExecutionAddressId) ||
+      resolveCustomerExecutionAddressIdV17_90L295(site);
+    if (knownCustomerAddressId) {
+      return customerExecutionAddressChangedV17_90L296({
+        ...site,
+        customerExecutionAddressId: knownCustomerAddressId,
+      });
+    }
+    return Boolean(saveExecutionAddressInCustomerProfile);
   };
 
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OrderWorkSite) => {
-    if (
-      !saveExecutionAddressInCustomerProfile ||
-      !customerExecutionAddressChangedV17_90L296(site)
-    ) return null;
+    if (!customerExecutionAddressChangedV17_90L296(site)) return null;
     return (
       <div className="rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-xs dark:border-amber-800 dark:bg-amber-950/20">
         <div className="mb-2 font-semibold">Gespeicherter Ausführungsort wurde geändert</div>
@@ -14924,7 +14935,7 @@ export default function AuftraegePage() {
               checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
             />
-            Als neuen Ausführungsort speichern (sicherer Standard)
+            Als neuen Ausführungsort im Kundenprofil speichern
           </label>
           <label className="inline-flex items-center gap-2">
             <input
@@ -14933,7 +14944,7 @@ export default function AuftraegePage() {
               checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
             />
-            Bestehenden Ausführungsort aktualisieren
+            Bestehenden Ausführungsort im Kundenprofil aktualisieren
           </label>
         </div>
       </div>
@@ -16581,7 +16592,9 @@ export default function AuftraegePage() {
     setSaving(true);
     try {
       let savedCustomerAddress: CustomerExecutionAddress | null = null;
-      if (saveExecutionAddressInCustomerProfile) {
+      const shouldPersistCustomerExecutionAddressV17_90L305 =
+        shouldPersistCustomerExecutionAddressChoiceV17_90L305(site);
+      if (shouldPersistCustomerExecutionAddressV17_90L305) {
         savedCustomerAddress =
           await persistOrderExecutionAddressInCustomerV17_90L295(site);
         if (targetSiteId) {
@@ -16640,7 +16653,7 @@ export default function AuftraegePage() {
       }
       await load();
       toast.success(
-        saveExecutionAddressInCustomerProfile
+        shouldPersistCustomerExecutionAddressV17_90L305
           ? "Ausführungsort übernommen und im Kundenprofil gespeichert."
           : "Ausführungsort übernommen.",
       );
