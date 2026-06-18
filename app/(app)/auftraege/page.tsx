@@ -14800,7 +14800,7 @@ export default function AuftraegePage() {
   };
 
   const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
-    compactText(value)
+    compactText(String(value ?? ""))
       .toLocaleLowerCase("de-CH")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
