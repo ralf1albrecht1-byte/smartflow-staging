@@ -7297,7 +7297,7 @@ export default function RechnungenPage() {
                           disabled={saving}
                         >
                           <Plus className="mr-1 h-3.5 w-3.5" />
-                          Arbeitsort hinzufügen
+                          Ausführungsort
                         </Button>
                         <Button
                           type="button"
@@ -7419,7 +7419,7 @@ export default function RechnungenPage() {
                                 disabled={saving}
                               >
                                 <Plus className="mr-1 h-3.5 w-3.5" />
-                                Arbeitsort hinzufügen
+                                Ausführungsort
                               </Button>
                               <Button
                                 type="button"
@@ -7549,7 +7549,7 @@ export default function RechnungenPage() {
                               className="inline-flex h-7 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
                             >
                               <Plus className="mr-1 h-3.5 w-3.5" />
-                              Arbeitsort hinzufügen
+                              Ausführungsort
                             </button>
                             <button
                               type="button"
@@ -7656,7 +7656,7 @@ export default function RechnungenPage() {
                                     disabled={saving}
                                   >
                                     <Plus className="mr-1 h-3.5 w-3.5" />
-                                    Arbeitsort hinzufügen
+                                    Ausführungsort
                                   </Button>
                                   <Button
                                     type="button"
@@ -7766,10 +7766,20 @@ export default function RechnungenPage() {
                                   variant="outline"
                                   size="sm"
                                   className="h-7 shrink-0 px-2 text-xs"
+                                  onClick={addInvoiceExecutionSite}
+                                >
+                                  <Plus className="mr-1 h-3.5 w-3.5" />
+                                  Ausführungsort
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 shrink-0 px-2 text-xs"
                                   onClick={addItem}
                                 >
                                   <Plus className="mr-1 h-3.5 w-3.5" />
-                                  Leistung hinzufügen
+                                  Leistung
                                 </Button>
                               </div>
                             </div>
@@ -7942,7 +7952,7 @@ export default function RechnungenPage() {
                                     {getCurrentInvoiceExecutionSitesV17_90L284().length > 1 && (
                                       <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                         <Label className="text-xs">
-                                          Arbeitsort
+                                          Arbeitsort wählen
                                         </Label>
                                         <select
                                           className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"

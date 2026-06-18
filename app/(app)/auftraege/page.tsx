@@ -20257,7 +20257,7 @@ export default function AuftraegePage() {
                           disabled={saving}
                         >
                           <Plus className="mr-1 h-3.5 w-3.5" />
-                          Arbeitsort hinzufügen
+                          Ausführungsort
                         </Button>
                         <Button
                           type="button"
@@ -20427,7 +20427,7 @@ export default function AuftraegePage() {
                             disabled={saving}
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Arbeitsort hinzufügen
+                            Ausführungsort
                           </Button>
                           <Button
                             type="button"
@@ -20503,11 +20503,22 @@ export default function AuftraegePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            onClick={addFormWorkSite}
+                            disabled={saving}
+                            className="h-7 shrink-0 px-2 text-xs"
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Ausführungsort
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
                             onClick={addItem}
                             className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Leistung hinzufügen
+                            Leistung
                           </Button>
                         </div>
                       </div>
@@ -21788,6 +21799,30 @@ export default function AuftraegePage() {
                                     </summary>
 
                                     <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
+                                      {hasMultipleEditWorkSites && !item.workSiteId && (
+                                        <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                          <Label className="text-xs">Arbeitsort wählen</Label>
+                                          <select
+                                            className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                            value={item.workSiteId || ""}
+                                            onChange={(e: any) => {
+                                              updateItem(
+                                                index,
+                                                "workSiteId",
+                                                e?.target?.value ?? "",
+                                              );
+                                              setMovingItemKey(null);
+                                            }}
+                                          >
+                                            <option value="">Arbeitsort wählen</option>
+                                            {currentEditWorkSites.map((siteOption) => (
+                                              <option key={siteOption.id} value={siteOption.id}>
+                                                {getWorkSiteSelectLabel(siteOption)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -21902,56 +21937,6 @@ export default function AuftraegePage() {
                                       </div>
                                     </div>
 
-                                    {hasMultipleEditWorkSites && !item.workSiteId && (
-                                        <div className="flex justify-end">
-                                          <div className="flex w-full items-end gap-2 sm:w-auto">
-                                            <div className="min-w-0 flex-1 sm:w-72">
-                                              <Label className="text-[10px] leading-none">
-                                                Arbeitsort wählen
-                                              </Label>
-                                              <select
-                                                className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                                value={item.workSiteId || ""}
-                                                onChange={(e: any) => {
-                                                  updateItem(
-                                                    index,
-                                                    "workSiteId",
-                                                    e?.target?.value ?? "",
-                                                  );
-                                                  setMovingItemKey(null);
-                                                }}
-                                              >
-                                                <option value="">
-                                                  Arbeitsort wählen
-                                                </option>
-                                                {currentEditWorkSites.map(
-                                                  (siteOption) => (
-                                                    <option
-                                                      key={siteOption.id}
-                                                      value={siteOption.id}
-                                                    >
-                                                      {getWorkSiteSelectLabel(
-                                                        siteOption,
-                                                      )}
-                                                    </option>
-                                                  ),
-                                                )}
-                                              </select>
-                                            </div>
-                                            {item.workSiteId && (
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  setMovingItemKey(null)
-                                                }
-                                                className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
-                                              >
-                                                Fertig
-                                              </button>
-                                            )}
-                                          </div>
-                                        </div>
-                                      )}
 
                                     {showItemReviewBlock && (
                                       <div

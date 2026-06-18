@@ -8969,7 +8969,7 @@ export default function AngebotePage() {
                             disabled={saving}
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Arbeitsort hinzufügen
+                            Ausführungsort
                           </Button>
                           <Button
                             type="button"
@@ -9158,7 +9158,7 @@ export default function AngebotePage() {
                                 disabled={saving}
                               >
                                 <Plus className="mr-1 h-3.5 w-3.5" />
-                                Arbeitsort hinzufügen
+                                Ausführungsort
                               </Button>
                               <Button
                                 type="button"
@@ -9214,11 +9214,21 @@ export default function AngebotePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            onClick={addExecutionSite}
+                            className="h-7 shrink-0 px-2 text-xs"
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Ausführungsort
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
                             onClick={addItem}
                             className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Leistung hinzufügen
+                            Leistung
                           </Button>
                         </div>
                       </div>
@@ -9394,7 +9404,7 @@ export default function AngebotePage() {
                               <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
                                 {executionSites.length > 1 && (
                                   <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
-                                    <Label className="text-xs">Arbeitsort</Label>
+                                    <Label className="text-xs">Arbeitsort wählen</Label>
                                     <select
                                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                       value={
