@@ -116,6 +116,7 @@ interface OfferItem {
   _workSiteUiKey?: string | null;
 }
 interface OfferExecutionSite {
+  customerExecutionAddressId?: string | null;
   siteName?: string | null;
   siteAddress?: string | null;
   sitePlz?: string | null;
@@ -3860,6 +3861,8 @@ export default function AngebotePage() {
   const [editingOfferSiteKey, setEditingOfferSiteKey] = useState<string | null>(null);
   const [newOfferItemSiteKey, setNewOfferItemSiteKey] = useState<string>("");
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
+    useState(true);
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -4598,11 +4601,12 @@ export default function AngebotePage() {
     offerWorkSiteGroupKeyV17_90L287(site);
 
   const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
+    siteName?: string | null;
     siteAddress?: string | null;
     sitePlz?: string | null;
     siteCity?: string | null;
   }) =>
-    [site.siteAddress, site.sitePlz, site.siteCity]
+    [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
       .map((value) =>
         compactOfferValue(value)
           .toLocaleLowerCase("de-CH")
@@ -4657,6 +4661,7 @@ export default function AngebotePage() {
       compactOfferValue(target._workSiteUiKey) ||
       `offer-site-${Math.random().toString(36).slice(2)}`;
     const replacement = {
+      customerExecutionAddressId: suggestion.id || null,
       siteName: compactOfferValue(suggestion.siteName) || null,
       siteAddress: compactOfferValue(suggestion.siteAddress) || null,
       sitePlz: compactOfferValue(suggestion.sitePlz) || null,
@@ -4672,10 +4677,14 @@ export default function AngebotePage() {
           : site,
       ),
     );
+    const {
+      customerExecutionAddressId: _customerExecutionAddressId,
+      ...itemReplacement
+    } = replacement;
     setItems((current) =>
       current.map((item) =>
         offerGroupKeyForSite(item as OfferExecutionSite) === targetKey
-          ? { ...item, ...replacement }
+          ? { ...item, ...itemReplacement }
           : item,
       ),
     );
@@ -4685,6 +4694,79 @@ export default function AngebotePage() {
       new Set([...current, stableUiKey]),
     );
     toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const resolveOfferCustomerExecutionAddressIdV17_90L295 = (
+    site: OfferExecutionSite,
+  ) => {
+    const directId = compactOfferValue(site.customerExecutionAddressId);
+    if (directId) return directId;
+    const customer = customers.find(
+      (entry) => entry.id === compactOfferValue(form.customerId),
+    );
+    const stored = customer?.executionAddresses || [];
+    const exactKey = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+    const exact = stored.find(
+      (entry) =>
+        normalizeCustomerExecutionAddressKeyV17_90L289(entry) === exactKey,
+    );
+    if (exact?.id) return exact.id;
+    const addressKey = [site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactOfferValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+    const addressMatches = stored.filter(
+      (entry) =>
+        [entry.siteAddress, entry.sitePlz, entry.siteCity]
+          .map((value) =>
+            compactOfferValue(value)
+              .toLocaleLowerCase("de-CH")
+              .replace(/[^a-z0-9äöüß]+/g, ""),
+          )
+          .join("|") === addressKey,
+    );
+    return addressMatches.length === 1 ? addressMatches[0]?.id || null : null;
+  };
+
+  const persistOfferExecutionAddressInCustomerV17_90L295 = async (
+    site: OfferExecutionSite,
+  ): Promise<CustomerExecutionAddress> => {
+    const customerId = compactOfferValue(form.customerId);
+    if (!customerId) throw new Error("Bitte zuerst einen Kunden auswählen.");
+    const response = await fetch(
+      `/api/customers/${customerId}/execution-addresses/upsert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addressId: resolveOfferCustomerExecutionAddressIdV17_90L295(site),
+          siteName: compactOfferValue(site.siteName) || null,
+          siteAddress: compactOfferValue(site.siteAddress),
+          sitePlz: compactOfferValue(site.sitePlz),
+          siteCity: compactOfferValue(site.siteCity),
+          siteNote: compactOfferValue(site.siteNote) || null,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error || "Ausführungsort konnte nicht gespeichert werden.");
+    }
+    const saved = payload as CustomerExecutionAddress;
+    setCustomers((current) =>
+      current.map((customer) => {
+        if (customer.id !== customerId) return customer;
+        const previous = customer.executionAddresses || [];
+        const next = previous.some((entry) => entry.id === saved.id)
+          ? previous.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...previous];
+        return { ...customer, executionAddresses: next };
+      }),
+    );
+    return saved;
   };
 
   const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
@@ -5465,9 +5547,41 @@ export default function AngebotePage() {
     }
   };
 
-  const saveOfferExecutionAddress = async () => {
+  const persistAndAcceptOfferExecutionSiteV17_90L295 = async (
+    targetKey?: string | null,
+  ) => {
+    const site = targetKey
+      ? executionSites.find(
+          (entry) => offerGroupKeyForSite(entry) === targetKey,
+        )
+      : executionSites[0];
+    if (
+      !site ||
+      !compactOfferValue(site.siteAddress) ||
+      !compactOfferValue(site.sitePlz) ||
+      !compactOfferValue(site.siteCity)
+    ) {
+      toast.error("Bitte Strasse, PLZ und Ort des Ausführungsorts ausfüllen.");
+      return;
+    }
+
     setSaving(true);
     try {
+      if (saveExecutionAddressInCustomerProfile) {
+        const savedCustomerAddress =
+          await persistOfferExecutionAddressInCustomerV17_90L295(site);
+        setExecutionSites((current) =>
+          current.map((entry) =>
+            offerGroupKeyForSite(entry) === offerGroupKeyForSite(site)
+              ? {
+                  ...entry,
+                  customerExecutionAddressId: savedCustomerAddress.id,
+                }
+              : entry,
+          ),
+        );
+      }
+
       const saved = await saveOffer();
       if (!saved) return;
       if (!editOfferId && saved?.id) setEditOfferId(saved.id);
@@ -5475,14 +5589,32 @@ export default function AngebotePage() {
       setExecutionAddressEditSnapshot(
         serializeOfferExecutionSitesForEdit(executionSites),
       );
+      setEditingOfferSiteKey(null);
       setEditingExecutionAddress(false);
-      toast.success("Ausführungsadresse gespeichert");
+      toast.success(
+        saveExecutionAddressInCustomerProfile
+          ? "Ausführungsort übernommen und im Kundenprofil gespeichert."
+          : "Ausführungsort übernommen.",
+      );
       await load();
-    } catch {
-      toast.error("Ausführungsadresse konnte nicht gespeichert werden");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Ausführungsort konnte nicht übernommen werden.",
+      );
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveOfferExecutionAddress = async () => {
+    await persistAndAcceptOfferExecutionSiteV17_90L295(
+      editingOfferSiteKey ||
+        (executionSites[0]
+          ? offerGroupKeyForSite(executionSites[0])
+          : null),
+    );
   };
 
   const saveAndClose = async () => {
@@ -8910,25 +9042,42 @@ export default function AngebotePage() {
                           </div>
                         ))}
                         {editingExecutionAddress && (
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={addExecutionSite}
-                              disabled={saving}
-                            >
-                              <Plus className="mr-1 h-3.5 w-3.5" />
-                              Arbeitsort hinzufügen
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={saveOfferExecutionAddress}
-                              disabled={saving}
-                            >
-                              {saving ? "Speichern..." : "Adresse speichern"}
-                            </Button>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={saveExecutionAddressInCustomerProfile}
+                                onChange={(event) =>
+                                  setSaveExecutionAddressInCustomerProfile(
+                                    event.target.checked,
+                                  )
+                                }
+                              />
+                              Im Kundenprofil speichern
+                            </label>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={addExecutionSite}
+                                disabled={saving}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Arbeitsort hinzufügen
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={saveOfferExecutionAddress}
+                                disabled={saving}
+                              >
+                                {saving
+                                  ? "Übernehmen..."
+                                  : "Ausführungsort übernehmen"}
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -9626,16 +9775,33 @@ export default function AngebotePage() {
                                       >
                                         Löschen
                                       </Button>
+                                      <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                                        <input
+                                          type="checkbox"
+                                          className="h-4 w-4 rounded border-input"
+                                          checked={saveExecutionAddressInCustomerProfile}
+                                          onChange={(event) =>
+                                            setSaveExecutionAddressInCustomerProfile(
+                                              event.target.checked,
+                                            )
+                                          }
+                                        />
+                                        Im Kundenprofil speichern
+                                      </label>
                                       <Button
                                         type="button"
                                         size="sm"
                                         variant="outline"
-                                        onClick={() => {
-                                          setEditingOfferSiteKey(null);
-                                          setEditingExecutionAddress(false);
-                                        }}
+                                        onClick={() =>
+                                          void persistAndAcceptOfferExecutionSiteV17_90L295(
+                                            group.key,
+                                          )
+                                        }
+                                        disabled={saving}
                                       >
-                                        Fertig
+                                        {saving
+                                          ? "Übernehmen..."
+                                          : "Ausführungsort übernehmen"}
                                       </Button>
                                     </div>
                                   </div>

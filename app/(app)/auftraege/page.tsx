@@ -11221,6 +11221,8 @@ export default function AuftraegePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [siteAddressEditing, setSiteAddressEditing] = useState(false);
+  const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
+    useState(true);
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -14563,11 +14565,13 @@ export default function AuftraegePage() {
   };
 
   const normalizePersistentExecutionAddressKeyV17_68 = (site: {
+    siteName?: string | null;
     siteAddress?: string | null;
     sitePlz?: string | null;
     siteCity?: string | null;
   }) =>
     [
+      normalizeAddressPartForCompare(site.siteName),
       normalizeAddressPartForCompare(site.siteAddress),
       normalizeAddressPartForCompare(site.sitePlz),
       normalizeAddressPartForCompare(site.siteCity),
@@ -14716,6 +14720,7 @@ export default function AuftraegePage() {
     const nextSite: OrderWorkSite = {
       ...(existingSite || {}),
       id: siteId,
+      customerExecutionAddressId: site.customerExecutionAddressId || null,
       siteName: cleanWorkSiteDisplayName(site.siteName) || null,
       siteAddress: compactText(site.siteAddress) || null,
       sitePlz: compactText(site.sitePlz) || null,
@@ -14754,7 +14759,7 @@ export default function AuftraegePage() {
       prev.includes(siteId) ? prev : [siteId, ...prev],
     );
     setSiteAddressEditing(true);
-    toast.success("Ausführungsadresse ausgewählt – Adresse speichern.");
+    toast.success("Ausführungsort ausgewählt. Bitte übernehmen.");
   };
 
   const applyPersistentExecutionAddressSuggestionToWorkSiteV17_90L289 = (
@@ -14762,6 +14767,8 @@ export default function AuftraegePage() {
     suggestion: OrderWorkSite,
   ) => {
     const replacement = {
+      customerExecutionAddressId:
+        suggestion.customerExecutionAddressId || null,
       siteName: cleanWorkSiteDisplayName(suggestion.siteName) || null,
       siteAddress: compactText(suggestion.siteAddress) || null,
       sitePlz: compactText(suggestion.sitePlz) || null,
@@ -14797,6 +14804,63 @@ export default function AuftraegePage() {
         : [targetSiteId, ...current],
     );
     toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const resolveCustomerExecutionAddressIdV17_90L295 = (
+    site: OrderWorkSite,
+  ) => {
+    const directId = compactText(site.customerExecutionAddressId);
+    if (directId) return directId;
+    const customer = customers.find((entry) => entry.id === form.customerId);
+    const stored = customer?.executionAddresses || [];
+    const exactKey = normalizePersistentExecutionAddressKeyV17_68(site);
+    const exact = stored.find(
+      (entry) =>
+        normalizePersistentExecutionAddressKeyV17_68(entry) === exactKey,
+    );
+    if (exact?.id) return exact.id;
+    const addressMatches = stored.filter((entry) =>
+      isSameAddressPartsV17_63(entry, site),
+    );
+    return addressMatches.length === 1 ? addressMatches[0]?.id || null : null;
+  };
+
+  const persistOrderExecutionAddressInCustomerV17_90L295 = async (
+    site: OrderWorkSite,
+  ): Promise<CustomerExecutionAddress> => {
+    const customerId = compactText(form.customerId);
+    if (!customerId) throw new Error("customer_missing");
+    const response = await fetch(
+      `/api/customers/${customerId}/execution-addresses/upsert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addressId: resolveCustomerExecutionAddressIdV17_90L295(site),
+          siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+          siteAddress: compactText(site.siteAddress),
+          sitePlz: compactText(site.sitePlz),
+          siteCity: compactText(site.siteCity),
+          siteNote: compactText(site.siteNote) || null,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error || "customer_execution_address_failed");
+    }
+    const saved = payload as CustomerExecutionAddress;
+    setCustomers((current) =>
+      current.map((customer) => {
+        if (customer.id !== customerId) return customer;
+        const previous = customer.executionAddresses || [];
+        const next = previous.some((entry) => entry.id === saved.id)
+          ? previous.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...previous];
+        return { ...customer, executionAddresses: next };
+      }),
+    );
+    return saved;
   };
 
   const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
@@ -16377,27 +16441,44 @@ export default function AuftraegePage() {
     setSiteAddressEditing(false);
   };
 
-  const saveExecutionAddressFromEditorV17_70 = async () => {
-    if (!form.siteAddressDifferent) {
-      toast.error("Ausführungsadresse ist nicht aktiviert.");
-      return;
-    }
-
-    const hasCompleteExecutionAddress = Boolean(
-      form.siteAddress?.trim() && form.sitePlz?.trim() && form.siteCity?.trim(),
-    );
-
-    if (!hasCompleteExecutionAddress) {
-      toast.error(
-        "Bitte Strasse, PLZ und Ort der Ausführungsadresse ausfüllen.",
-      );
+  const persistAndAcceptOrderExecutionSiteV17_90L295 = async (
+    site: OrderWorkSite,
+    targetSiteId?: string | null,
+  ) => {
+    if (
+      !compactText(site.siteAddress) ||
+      !compactText(site.sitePlz) ||
+      !compactText(site.siteCity)
+    ) {
+      toast.error("Bitte Strasse, PLZ und Ort des Ausführungsorts ausfüllen.");
       return;
     }
 
     setSaving(true);
     try {
+      let savedCustomerAddress: CustomerExecutionAddress | null = null;
+      if (saveExecutionAddressInCustomerProfile) {
+        savedCustomerAddress =
+          await persistOrderExecutionAddressInCustomerV17_90L295(site);
+        if (targetSiteId) {
+          setFormWorkSites((current) =>
+            current.map((entry) =>
+              entry.id === targetSiteId
+                ? {
+                    ...entry,
+                    customerExecutionAddressId: savedCustomerAddress?.id || null,
+                  }
+                : entry,
+            ),
+          );
+        }
+      }
+
+      const isPrimaryEditor = !targetSiteId;
       const hasOpenAddressRoleReview = Boolean(
-        currentEditOrder && hasAddressRoleReviewReasonV17_61(currentEditOrder),
+        isPrimaryEditor &&
+          currentEditOrder &&
+          hasAddressRoleReviewReasonV17_61(currentEditOrder),
       );
       const saved = hasOpenAddressRoleReview
         ? await persistAddressReviewPatchV17_64(
@@ -16417,25 +16498,72 @@ export default function AuftraegePage() {
 
       setOrders((prev) => {
         const exists = prev.some((order) => order.id === saved.id);
-        if (exists) {
-          return prev.map((order) =>
-            order.id === saved.id ? { ...order, ...saved } : order,
-          );
-        }
-        return [saved, ...prev];
+        return exists
+          ? prev.map((order) =>
+              order.id === saved.id ? { ...order, ...saved } : order,
+            )
+          : [saved, ...prev];
       });
 
       setExecutionAddressEditSnapshot(
         serializeOrderExecutionAddressForEdit(form),
       );
-      setSiteAddressEditing(false);
+      if (targetSiteId) {
+        setEditingWorkSiteId(null);
+        setNewItemWorkSiteId("");
+      } else {
+        setSiteAddressEditing(false);
+      }
       await load();
-      toast.success("Ausführungsort wurde im Kundenprofil gespeichert.");
-    } catch {
-      toast.error("Ausführungsadresse konnte nicht gespeichert werden.");
+      toast.success(
+        saveExecutionAddressInCustomerProfile
+          ? "Ausführungsort übernommen und im Kundenprofil gespeichert."
+          : "Ausführungsort übernommen.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message && !error.message.includes("failed")
+          ? error.message
+          : "Ausführungsort konnte nicht übernommen werden.",
+      );
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveExecutionAddressFromEditorV17_70 = async () => {
+    if (!form.siteAddressDifferent) {
+      toast.error("Ausführungsadresse ist nicht aktiviert.");
+      return;
+    }
+    const primarySite =
+      formWorkSites.find((entry) => entry.isPrimary) ||
+      formWorkSites[0] || {
+        id: `local-site-${Date.now().toString(36)}`,
+        siteName: form.siteName,
+        siteAddress: form.siteAddress,
+        sitePlz: form.sitePlz,
+        siteCity: form.siteCity,
+        siteNote: form.siteNote,
+        isPrimary: true,
+      };
+    await persistAndAcceptOrderExecutionSiteV17_90L295(
+      {
+        ...primarySite,
+        siteName: form.siteName,
+        siteAddress: form.siteAddress,
+        sitePlz: form.sitePlz,
+        siteCity: form.siteCity,
+        siteNote: form.siteNote,
+      },
+      null,
+    );
+  };
+
+  const acceptOrderWorkSiteV17_90L295 = async (siteId: string) => {
+    const site = formWorkSites.find((entry) => entry.id === siteId);
+    if (!site) return;
+    await persistAndAcceptOrderExecutionSiteV17_90L295(site, siteId);
   };
 
   const save = async (options?: { closeAfter?: boolean }) => {
@@ -20177,25 +20305,42 @@ export default function AuftraegePage() {
                         />
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={addFormWorkSite}
-                          disabled={saving}
-                        >
-                          <Plus className="mr-1 h-3.5 w-3.5" />
-                          Arbeitsort hinzufügen
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={saveExecutionAddressFromEditorV17_70}
-                          disabled={saving}
-                        >
-                          {saving ? "Speichern..." : "Adresse speichern"}
-                        </Button>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-input"
+                            checked={saveExecutionAddressInCustomerProfile}
+                            onChange={(event) =>
+                              setSaveExecutionAddressInCustomerProfile(
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          Im Kundenprofil speichern
+                        </label>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={addFormWorkSite}
+                            disabled={saving}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Arbeitsort hinzufügen
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={saveExecutionAddressFromEditorV17_70}
+                            disabled={saving}
+                          >
+                            {saving
+                              ? "Übernehmen..."
+                              : "Ausführungsort übernehmen"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -21381,16 +21526,33 @@ export default function AuftraegePage() {
                                           >
                                             Löschen
                                           </Button>
+                                          <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                                            <input
+                                              type="checkbox"
+                                              className="h-4 w-4 rounded border-input"
+                                              checked={saveExecutionAddressInCustomerProfile}
+                                              onChange={(event) =>
+                                                setSaveExecutionAddressInCustomerProfile(
+                                                  event.target.checked,
+                                                )
+                                              }
+                                            />
+                                            Im Kundenprofil speichern
+                                          </label>
                                           <Button
                                             type="button"
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => {
-                                              setEditingWorkSiteId(null);
-                                              setNewItemWorkSiteId("");
-                                            }}
+                                            onClick={() =>
+                                              void acceptOrderWorkSiteV17_90L295(
+                                                site.id,
+                                              )
+                                            }
+                                            disabled={saving}
                                           >
-                                            Fertig
+                                            {saving
+                                              ? "Übernehmen..."
+                                              : "Ausführungsort übernehmen"}
                                           </Button>
                                         </div>
                                       </div>

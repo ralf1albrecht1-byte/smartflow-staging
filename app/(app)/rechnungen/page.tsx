@@ -196,6 +196,7 @@ const isHistoricalInvoiceStatus = (status: unknown) =>
   INVOICE_HISTORICAL_STATUSES.has(String(status ?? "").trim());
 
 type InvoiceExecutionSite = {
+  customerExecutionAddressId?: string | null;
   siteName?: string | null;
   siteAddress?: string | null;
   sitePlz?: string | null;
@@ -2919,6 +2920,8 @@ export default function RechnungenPage() {
     number | null
   >(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
+    useState(true);
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -4047,11 +4050,12 @@ export default function RechnungenPage() {
   };
 
   const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
+    siteName?: string | null;
     siteAddress?: string | null;
     sitePlz?: string | null;
     siteCity?: string | null;
   }) =>
-    [site.siteAddress, site.sitePlz, site.siteCity]
+    [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
       .map((value) =>
         compactInvoiceValue(value)
           .toLocaleLowerCase("de-CH")
@@ -4117,6 +4121,7 @@ export default function RechnungenPage() {
       compactInvoiceValue(target._workSiteUiKey) ||
       `invoice-site-${Math.random().toString(36).slice(2)}`;
     const replacement = {
+      customerExecutionAddressId: suggestion.id || null,
       siteName: compactInvoiceValue(suggestion.siteName) || null,
       siteAddress: compactInvoiceValue(suggestion.siteAddress) || null,
       sitePlz: compactInvoiceValue(suggestion.sitePlz) || null,
@@ -4137,10 +4142,14 @@ export default function RechnungenPage() {
           : site,
       ),
     );
+    const {
+      customerExecutionAddressId: _customerExecutionAddressId,
+      ...itemReplacement
+    } = replacement;
     setItems((current) =>
       current.map((item) =>
         invoiceGroupKeyForSite(item as InvoiceExecutionSite) === targetKey
-          ? { ...item, ...replacement }
+          ? { ...item, ...itemReplacement }
           : item,
       ),
     );
@@ -4150,6 +4159,81 @@ export default function RechnungenPage() {
       new Set([...current, stableUiKey]),
     );
     toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const resolveInvoiceCustomerExecutionAddressIdV17_90L295 = (
+    site: InvoiceExecutionSite,
+  ) => {
+    const directId = compactInvoiceValue(site.customerExecutionAddressId);
+    if (directId) return directId;
+    const customer = customers.find(
+      (entry) => entry.id === compactInvoiceValue(form.customerId),
+    );
+    const stored = customer?.executionAddresses || [];
+    const exactKey = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+    const exact = stored.find(
+      (entry) =>
+        normalizeCustomerExecutionAddressKeyV17_90L289(entry) === exactKey,
+    );
+    if (exact?.id) return exact.id;
+    const addressKey = [site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactInvoiceValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+    const addressMatches = stored.filter(
+      (entry) =>
+        [entry.siteAddress, entry.sitePlz, entry.siteCity]
+          .map((value) =>
+            compactInvoiceValue(value)
+              .toLocaleLowerCase("de-CH")
+              .replace(/[^a-z0-9äöüß]+/g, ""),
+          )
+          .join("|") === addressKey,
+    );
+    return addressMatches.length === 1 ? addressMatches[0]?.id || null : null;
+  };
+
+  const persistInvoiceExecutionAddressInCustomerV17_90L295 = async (
+    site: InvoiceExecutionSite,
+  ): Promise<CustomerExecutionAddress> => {
+    const customerId = compactInvoiceValue(form.customerId);
+    if (!customerId) throw new Error("Bitte zuerst einen Kunden auswählen.");
+    const response = await fetch(
+      `/api/customers/${customerId}/execution-addresses/upsert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addressId: resolveInvoiceCustomerExecutionAddressIdV17_90L295(site),
+          siteName: compactInvoiceValue(site.siteName) || null,
+          siteAddress: compactInvoiceValue(site.siteAddress),
+          sitePlz: compactInvoiceValue(site.sitePlz),
+          siteCity: compactInvoiceValue(site.siteCity),
+          siteNote: compactInvoiceValue(site.siteNote) || null,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        payload?.error || "Ausführungsort konnte nicht gespeichert werden.",
+      );
+    }
+    const saved = payload as CustomerExecutionAddress;
+    setCustomers((current) =>
+      current.map((customer) => {
+        if (customer.id !== customerId) return customer;
+        const previous = customer.executionAddresses || [];
+        const next = previous.some((entry) => entry.id === saved.id)
+          ? previous.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...previous];
+        return { ...customer, executionAddresses: next };
+      }),
+    );
+    return saved;
   };
 
   const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
@@ -5033,15 +5117,79 @@ export default function RechnungenPage() {
     }
   };
 
-  const saveInvoiceExecutionAddress = async () => {
-    const saved = await saveEdit(false);
-    if (saved) {
-      const currentSite =
-        getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;
-      setExecutionAddressEditSnapshot(
-        serializeInvoiceExecutionSiteForEdit(currentSite),
+  const persistAndAcceptInvoiceExecutionSiteV17_90L295 = async (
+    targetKey?: string | null,
+  ) => {
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const site = targetKey
+      ? currentSites.find(
+          (entry) => invoiceGroupKeyForSite(entry) === targetKey,
+        )
+      : currentSites[0];
+    if (
+      !site ||
+      !compactInvoiceValue(site.siteAddress) ||
+      !compactInvoiceValue(site.sitePlz) ||
+      !compactInvoiceValue(site.siteCity)
+    ) {
+      toast.error("Bitte Strasse, PLZ und Ort des Ausführungsorts ausfüllen.");
+      return;
+    }
+
+    if (saveExecutionAddressInCustomerProfile) {
+      const savedCustomerAddress =
+        await persistInvoiceExecutionAddressInCustomerV17_90L295(site);
+      setNewInvoiceExecutionSite((current) =>
+        current &&
+        invoiceGroupKeyForSite(current) === invoiceGroupKeyForSite(site)
+          ? {
+              ...current,
+              customerExecutionAddressId: savedCustomerAddress.id,
+            }
+          : current,
       );
-      setEditingExecutionAddress(false);
+      setInvoiceExecutionSiteDrafts((current) =>
+        current.map((entry) =>
+          invoiceGroupKeyForSite(entry) === invoiceGroupKeyForSite(site)
+            ? {
+                ...entry,
+                customerExecutionAddressId: savedCustomerAddress.id,
+              }
+            : entry,
+        ),
+      );
+    }
+
+    const saved = editingInvoice
+      ? await saveEdit(false)
+      : await save(false);
+    if (!saved) return;
+    const updatedSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    setExecutionAddressEditSnapshot(
+      serializeInvoiceExecutionSiteForEdit(updatedSites[0] || null),
+    );
+    setEditingInvoiceSiteKey(null);
+    setEditingExecutionAddress(false);
+    toast.success(
+      saveExecutionAddressInCustomerProfile
+        ? "Ausführungsort übernommen und im Kundenprofil gespeichert."
+        : "Ausführungsort übernommen.",
+    );
+  };
+
+  const saveInvoiceExecutionAddress = async () => {
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    try {
+      await persistAndAcceptInvoiceExecutionSiteV17_90L295(
+        editingInvoiceSiteKey ||
+          (currentSites[0] ? invoiceGroupKeyForSite(currentSites[0]) : null),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Ausführungsort konnte nicht übernommen werden.",
+      );
     }
   };
 
@@ -7155,25 +7303,42 @@ export default function RechnungenPage() {
                               }
                             />
                           </div>
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={addInvoiceExecutionSite}
-                              disabled={saving}
-                            >
-                              <Plus className="mr-1 h-3.5 w-3.5" />
-                              Arbeitsort hinzufügen
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => void save(false)}
-                              disabled={saving}
-                            >
-                              {saving ? "Speichern..." : "Adresse speichern"}
-                            </Button>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={saveExecutionAddressInCustomerProfile}
+                                onChange={(event) =>
+                                  setSaveExecutionAddressInCustomerProfile(
+                                    event.target.checked,
+                                  )
+                                }
+                              />
+                              Im Kundenprofil speichern
+                            </label>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={addInvoiceExecutionSite}
+                                disabled={saving}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Arbeitsort hinzufügen
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void saveInvoiceExecutionAddress()}
+                                disabled={saving}
+                              >
+                                {saving
+                                  ? "Übernehmen..."
+                                  : "Ausführungsort übernehmen"}
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -7369,31 +7534,49 @@ export default function RechnungenPage() {
                                   }
                                 />
                               </div>
-                              <div className="sm:col-span-2 flex flex-wrap items-center justify-end gap-2 pt-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    addInvoiceExecutionSite();
-                                  }}
-                                  disabled={saving}
-                                >
-                                  <Plus className="mr-1 h-3.5 w-3.5" />
-                                  Arbeitsort hinzufügen
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void saveInvoiceExecutionAddress();
-                                  }}
-                                  disabled={saving}
-                                >
-                                  {saving ? "Speichern..." : "Adresse speichern"}
-                                </Button>
+                              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
+                                <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-input"
+                                    checked={saveExecutionAddressInCustomerProfile}
+                                    onChange={(event) =>
+                                      setSaveExecutionAddressInCustomerProfile(
+                                        event.target.checked,
+                                      )
+                                    }
+                                    onClick={(event) => event.stopPropagation()}
+                                  />
+                                  Im Kundenprofil speichern
+                                </label>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      addInvoiceExecutionSite();
+                                    }}
+                                    disabled={saving}
+                                  >
+                                    <Plus className="mr-1 h-3.5 w-3.5" />
+                                    Arbeitsort hinzufügen
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void saveInvoiceExecutionAddress();
+                                    }}
+                                    disabled={saving}
+                                  >
+                                    {saving
+                                      ? "Übernehmen..."
+                                      : "Ausführungsort übernehmen"}
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           ) : (
@@ -8179,15 +8362,39 @@ export default function RechnungenPage() {
                                           Löschen
                                         </Button>
                                       )}
+                                      <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                                        <input
+                                          type="checkbox"
+                                          className="h-4 w-4 rounded border-input"
+                                          checked={saveExecutionAddressInCustomerProfile}
+                                          onChange={(event) =>
+                                            setSaveExecutionAddressInCustomerProfile(
+                                              event.target.checked,
+                                            )
+                                          }
+                                        />
+                                        Im Kundenprofil speichern
+                                      </label>
                                       <Button
                                         type="button"
                                         size="sm"
                                         variant="outline"
                                         onClick={() =>
-                                          setEditingInvoiceSiteKey(null)
+                                          void persistAndAcceptInvoiceExecutionSiteV17_90L295(
+                                            group.key,
+                                          ).catch((error) =>
+                                            toast.error(
+                                              error instanceof Error
+                                                ? error.message
+                                                : "Ausführungsort konnte nicht übernommen werden.",
+                                            ),
+                                          )
                                         }
+                                        disabled={saving}
                                       >
-                                        Fertig
+                                        {saving
+                                          ? "Übernehmen..."
+                                          : "Ausführungsort übernehmen"}
                                       </Button>
                                     </div>
                                   </div>
