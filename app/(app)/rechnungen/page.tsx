@@ -8498,7 +8498,7 @@ export default function RechnungenPage() {
                                           variant="ghost"
                                           className="text-red-600 hover:text-red-700"
                                           onClick={() =>
-                                            void removeInvoiceExecutionSite(group.key)
+                                            removeInvoiceExecutionSite(group.key)
                                           }
                                         >
                                           Löschen
