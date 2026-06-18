@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
 // SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
 // SMARTFLOW_V17_90L310_YELLOW_SERVICE_CATALOG_MENU_ALL3
@@ -21136,6 +21137,12 @@ export default function AuftraegePage() {
                               ? `${value.slice(0, 147).trim()}…`
                               : value;
                           })();
+                          const isManualUserAddedItemV17_90L314 = Boolean(
+                            (item as any)._manualUserAdded,
+                          );
+                          const showBlockingReviewDecisionButtonsV17_90L314 = Boolean(
+                            isBlockingItemReview && !isManualUserAddedItemV17_90L314,
+                          );
                           const isMenuOpen = serviceActionMenuKey === item.key;
                           const hasCriticalItemReview = isBlockingItemReview;
                           const hasResolvedReviewCatalogAction =
@@ -21214,7 +21221,7 @@ export default function AuftraegePage() {
                               groupItems,
                               services || [],
                               currency,
-                              true,
+                              false,
                             );
                           const groupReviewBadges = (() => {
                             const badges: ReviewBadge[] = [];
@@ -22146,7 +22153,7 @@ export default function AuftraegePage() {
                                               </div>
                                             )}
 
-                                            {isBlockingItemReview && (
+                                            {showBlockingReviewDecisionButtonsV17_90L314 && (
                                               <div className="mt-2 flex flex-wrap gap-2">
                                                 <button
                                                   type="button"
