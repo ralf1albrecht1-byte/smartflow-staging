@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L325_INVOICE_APPOINTMENT_ICON_ONLY_CURRENT_TERMS
+// SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
 // SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
@@ -1244,6 +1244,19 @@ const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => 
   return getInvoiceAppointmentTimingV17_90L324(text) !== "past";
 };
 
+const isInvoiceAppointmentHintForChipV17_90L326 = (value: unknown): boolean => {
+  const text = compactInvoiceValue(value);
+  if (!text) return false;
+  return (
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(text) ||
+    /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(text) ||
+    /\b(?:heute|morgen|übermorgen|uebermorgen|nächsten?|naechsten?|kommenden?)\b/i.test(text) ||
+    /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(text) ||
+    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(text) ||
+    /\b(?:um|ab|bis|gegen)\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text)
+  );
+};
+
 function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
   summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
 ): string {
@@ -1255,14 +1268,12 @@ function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
       .trim();
     const key = normalizeInvoiceAppointmentKeyV17_90L177R(text);
     if (!text || !key || seen.has(key)) return;
-    if (
-      !/\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(text)
-    ) {
-      return;
-    }
-    // V17.90L324: Vergangene Rechnungs-Termine bleiben im Info-Chip,
-    // erzeugen außen aber keinen Terminchip mehr. Unklare/relative aktuelle
-    // Terminhinweise bleiben sichtbar.
+    // SMARTFLOW_V17_90L326: Termine aus WhatsApp/Intake können im Info-/Hinweistext
+    // bereits sauber stehen, aber ohne exakt das Wort "Termin". Für den
+    // Rechnungs-Kalenderchip werden deshalb auch Datum, relative Tagesangaben und
+    // Uhrzeit-Zeilen aus den wichtigen Informationen berücksichtigt. Vergangene
+    // Termine bleiben weiterhin nur im Info-Chip sichtbar.
+    if (!isInvoiceAppointmentHintForChipV17_90L326(text)) return;
     if (getInvoiceAppointmentTimingV17_90L324(text) === "past") return;
     seen.add(key);
     result.push(text);
@@ -1270,8 +1281,7 @@ function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
 
   // V17.90L323: Der Terminchip der Rechnung darf bei mehreren
   // Besonderheiten-Terminen nicht blind den ersten alten Termin anzeigen.
-  // Die Details bleiben im Info-Chip; der Terminchip zeigt dann neutral
-  // "Termine" und das Tooltip listet alle Terminhinweise.
+  // Die Details bleiben im Info-Chip; außen zeigt L325 nur das Kalender-Icon.
   summary.primaryHints.forEach(add);
   if (result.length === 0) return "";
   if (result.length === 1) return result[0];
