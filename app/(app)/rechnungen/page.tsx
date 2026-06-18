@@ -1166,6 +1166,21 @@ const stripInvoiceWorkSiteUiStateV17_90L287 = (
   return persisted;
 };
 
+const ensureInvoiceExecutionSiteUiKeysV17_90L302 = (
+  sites: InvoiceExecutionSite[],
+  seed: string,
+): InvoiceExecutionSite[] => {
+  const seen = new Set<string>();
+  return sites.map((site, index) => {
+    const rawKey = compactInvoiceValue(site._workSiteUiKey);
+    const stableKey = rawKey && !seen.has(rawKey)
+      ? rawKey
+      : `invoice-site-${seed || "draft"}-${index}`;
+    seen.add(stableKey);
+    return { ...site, _workSiteUiKey: stableKey };
+  });
+};
+
 // V17.90L292: Rechnungs-Arbeitsorte werden über die Positionen gespeichert.
 // Vor jedem Save wird deshalb der aktuelle sichtbare Arbeitsortzustand noch
 // einmal verbindlich in die zugeordneten Positionen geschrieben.
@@ -4048,7 +4063,10 @@ export default function RechnungenPage() {
       addSite(newInvoiceExecutionSite);
     }
     collected.forEach(addSite);
-    return result;
+    return ensureInvoiceExecutionSiteUiKeysV17_90L302(
+      result,
+      editingInvoice?.id || "invoice",
+    );
   };
 
   const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
@@ -4699,11 +4717,8 @@ export default function RechnungenPage() {
   };
 
   const removeInvoiceExecutionSite = async (groupKey: string) => {
-    const currentSitesBeforeDelete = getCurrentInvoiceExecutionSitesV17_90L284();
-    const groups = groupInvoiceItemsByExecutionSite(
-      items || [],
-      currentSitesBeforeDelete,
-    );
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const groups = groupInvoiceItemsByExecutionSite(items || [], currentSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
     if (group.site.sourceOrderId) {
@@ -4715,8 +4730,8 @@ export default function RechnungenPage() {
     const hasRealItems = group.entries.some(({ item }) =>
       Boolean(
         compactInvoiceValue(item.description) ||
-          Number(item.quantity || 0) > 0 ||
-          Number(item.unitPrice || 0) > 0,
+        Number(item.quantity || 0) > 0 ||
+        Number(item.unitPrice || 0) > 0,
       ),
     );
     if (hasRealItems) {
@@ -4726,22 +4741,20 @@ export default function RechnungenPage() {
       return;
     }
 
-    const nextDraftSites = invoiceExecutionSiteDrafts.filter(
+    const nextSites = currentSites.filter(
       (site) => invoiceGroupKeyForSite(site) !== groupKey,
     );
     const nextItems = items.filter(
-      (item) =>
-        invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
+      (item) => invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
     );
-    const nextExecutionSites = currentSitesBeforeDelete.filter(
-      (site) => invoiceGroupKeyForSite(site) !== groupKey,
-    );
-    const nextClearExecutionAddress =
-      nextExecutionSites.length === 0 ? true : executionAddressClearRequested;
 
-    setInvoiceExecutionSiteDrafts(nextDraftSites);
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.filter((site) => invoiceGroupKeyForSite(site) !== groupKey),
+    );
+    setNewInvoiceExecutionSite((current) =>
+      current && invoiceGroupKeyForSite(current) === groupKey ? null : current,
+    );
     setItems(nextItems);
-    setExecutionAddressClearRequested(nextClearExecutionAddress);
     setExpandedInvoiceSiteKeys((current) => {
       const next = new Set(current);
       next.delete(groupKey);
@@ -4751,24 +4764,13 @@ export default function RechnungenPage() {
     setNewInvoiceItemSiteKey("");
 
     if (!editingInvoice) return;
-
-    setSaving(true);
-    try {
-      const saved = await saveEdit(
-        false,
-        nextExecutionSites,
-        nextItems,
-        nextClearExecutionAddress,
-      );
-      if (saved) {
-        toast.success("Arbeitsort wurde gelöscht.");
-        await load();
-      }
-    } catch {
-      toast.error("Arbeitsort konnte nicht gelöscht werden.");
-    } finally {
-      setSaving(false);
-    }
+    const saved = await saveEdit(
+      false,
+      nextItems,
+      nextSites,
+      nextSites.length === 0,
+    );
+    if (saved) toast.success("Arbeitsort gelöscht und gespeichert.");
   };
 
   const toggleAllInvoiceSites = () => {
@@ -5039,20 +5041,26 @@ export default function RechnungenPage() {
     }));
   };
 
-  const save = async (closeAfterSave = true): Promise<boolean> => {
+  const save = async (
+    closeAfterSave = true,
+    itemsOverride?: InvoiceItem[],
+    executionSitesOverride?: InvoiceExecutionSite[],
+    forceClearExecutionAddressV17_90L302 = false,
+  ): Promise<boolean> => {
+    const sourceItems = itemsOverride ?? items;
     if (!form?.customerId) {
       toast.error("Bitte Kunde wählen");
       return false;
     }
-    if (!items?.some((item) => compactInvoiceValue(item.description))) {
+    if (!sourceItems?.some((item) => compactInvoiceValue(item.description))) {
       toast.error("Mindestens eine Leistung");
       return false;
     }
     const currentExecutionSites =
-      getCurrentInvoiceExecutionSitesV17_90L284();
+      executionSitesOverride ?? getCurrentInvoiceExecutionSitesV17_90L284();
     const itemsForCreateWithUiState =
       applyInvoiceExecutionSitesToItemsV17_90L292(
-        items,
+        sourceItems,
         currentExecutionSites,
       );
     const realItemsForCreateV17_90L292 = itemsForCreateWithUiState.filter(
@@ -5099,6 +5107,10 @@ export default function RechnungenPage() {
           ...form,
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           items: itemsForCreate,
+          clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
+          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
+          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
           vatRate,
           currency,
         }),
@@ -5158,19 +5170,17 @@ export default function RechnungenPage() {
 
   const saveEdit = async (
     closeAfterSave = true,
-    executionSitesOverrideV17_90L301?: InvoiceExecutionSite[],
-    itemsOverrideV17_90L301?: InvoiceItem[],
-    clearExecutionAddressOverrideV17_90L301?: boolean,
+    itemsOverride?: InvoiceItem[],
+    executionSitesOverride?: InvoiceExecutionSite[],
+    forceClearExecutionAddressV17_90L302 = false,
   ): Promise<boolean> => {
     if (!editingInvoice) return false;
+    const sourceItems = itemsOverride ?? items;
     const currentExecutionSitesV17_90L292 =
-      executionSitesOverrideV17_90L301 ?? getCurrentInvoiceExecutionSitesV17_90L284();
-    const sourceItemsV17_90L301 = itemsOverrideV17_90L301 ?? items;
-    const clearExecutionAddressForSaveV17_90L301 =
-      clearExecutionAddressOverrideV17_90L301 ?? executionAddressClearRequested;
+      executionSitesOverride ?? getCurrentInvoiceExecutionSitesV17_90L284();
     const itemsForEditWithUiStateV17_90L292 =
       applyInvoiceExecutionSitesToItemsV17_90L292(
-        sourceItemsV17_90L301,
+        sourceItems,
         currentExecutionSitesV17_90L292,
       );
     const realItemsForEditV17_90L292 = itemsForEditWithUiStateV17_90L292.filter(
@@ -5218,13 +5228,9 @@ export default function RechnungenPage() {
           items: itemsForEditWithUiStateV17_90L292.map(
             stripInvoiceWorkSiteUiStateV17_90L287,
           ),
-          clearExecutionAddress: clearExecutionAddressForSaveV17_90L301,
-          saveExecutionAddressInCustomerProfile: Boolean(
-            saveExecutionAddressInCustomerProfile,
-          ),
-          upsertCustomerExecutionAddress: Boolean(
-            saveExecutionAddressInCustomerProfile,
-          ),
+          clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
+          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
+          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
           skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
           vatRate,
           currency,
@@ -5274,9 +5280,18 @@ export default function RechnungenPage() {
       return;
     }
 
+    let currentSitesForSaveV17_90L302 = currentSites;
     if (saveExecutionAddressInCustomerProfile) {
       const savedCustomerAddress =
         await persistInvoiceExecutionAddressInCustomerV17_90L295(site);
+      currentSitesForSaveV17_90L302 = currentSites.map((entry) =>
+        invoiceGroupKeyForSite(entry) === invoiceGroupKeyForSite(site)
+          ? {
+              ...entry,
+              customerExecutionAddressId: savedCustomerAddress.id,
+            }
+          : entry,
+      );
       setNewInvoiceExecutionSite((current) =>
         current &&
         invoiceGroupKeyForSite(current) === invoiceGroupKeyForSite(site)
@@ -5299,8 +5314,8 @@ export default function RechnungenPage() {
     }
 
     const saved = editingInvoice
-      ? await saveEdit(false)
-      : await save(false);
+      ? await saveEdit(false, undefined, currentSitesForSaveV17_90L302)
+      : await save(false, undefined, currentSitesForSaveV17_90L302);
     if (!saved) return;
     const updatedSites = getCurrentInvoiceExecutionSitesV17_90L284();
     setExecutionAddressEditSnapshot(
@@ -5378,6 +5393,9 @@ export default function RechnungenPage() {
           dueDate: form.dueDate,
           items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
           clearExecutionAddress: executionAddressClearRequested,
+          saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
+          upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
           vatRate,
           currency,
         }),
@@ -8480,7 +8498,7 @@ export default function RechnungenPage() {
                                           variant="ghost"
                                           className="text-red-600 hover:text-red-700"
                                           onClick={() =>
-                                            removeInvoiceExecutionSite(group.key)
+                                            void removeInvoiceExecutionSite(group.key)
                                           }
                                         >
                                           Löschen

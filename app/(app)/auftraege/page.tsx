@@ -12082,17 +12082,24 @@ export default function AuftraegePage() {
         : o.workSites ?? [];
     const mayInferSingleSiteNameV17_90L285 =
       sourceWorkSitesForEditorV17_90L285.length === 1;
+    const seenEditorWorkSiteIdsV17_90L302 = new Set<string>();
     const nextWorkSites = sourceWorkSitesForEditorV17_90L285
       .map((site, index) => {
         const safeSiteName = isSameAddressPlaceholderV17_90L135H(site.siteName)
           ? ""
           : cleanWorkSiteDisplayName(site.siteName);
+        const rawSiteId = compactText(site.id);
+        const stableSiteId =
+          rawSiteId && !seenEditorWorkSiteIdsV17_90L302.has(rawSiteId)
+            ? rawSiteId
+            : `local-site-${o.id}-${index}`;
+        seenEditorWorkSiteIdsV17_90L302.add(stableSiteId);
         return mayInferSingleSiteNameV17_90L285 &&
           index === 0 &&
           !safeSiteName &&
           safeInferredSiteName
-          ? { ...site, siteName: safeInferredSiteName }
-          : { ...site, siteName: safeSiteName || null };
+          ? { ...site, id: stableSiteId, siteName: safeInferredSiteName }
+          : { ...site, id: stableSiteId, siteName: safeSiteName || null };
       })
       .slice()
       .sort(
@@ -14546,63 +14553,37 @@ export default function AuftraegePage() {
       return;
     }
 
-    const remainingWorkSites = formWorkSites
-      .filter((site) => site.id !== siteId)
-      .map((site, index) => ({
-        ...site,
-        isPrimary: index === 0,
-        sortOrder: index,
-      }));
-    const remainingItems = formItems.filter((item) => item.workSiteId !== siteId);
-    const nextPrimarySite = remainingWorkSites[0] || null;
-    const nextFormPatch = nextPrimarySite
-      ? {
-          siteAddressDifferent: true,
-          siteName: cleanWorkSiteDisplayName(nextPrimarySite.siteName) || "",
-          siteAddress: nextPrimarySite.siteAddress || "",
-          sitePlz: nextPrimarySite.sitePlz || "",
-          siteCity: nextPrimarySite.siteCity || "",
-          siteNote: nextPrimarySite.siteNote || "",
-        }
-      : {
-          siteAddressDifferent: false,
-          siteName: "",
-          siteAddress: "",
-          sitePlz: "",
-          siteCity: "",
-          siteNote: "",
-        };
+    const nextItems = formItems.filter((item) => item.workSiteId !== siteId);
+    const nextWorkSites = formWorkSites.filter((site) => site.id !== siteId);
 
-    setExecutionAddressClearRequested(remainingWorkSites.length === 0);
-    setForm((prev) => ({ ...prev, ...nextFormPatch }));
-    setFormItems(remainingItems);
-    setFormWorkSites(remainingWorkSites);
+    setFormItems(nextItems);
+    setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId((prev) => (prev === siteId ? null : prev));
-    setActiveWorkSiteId((prev) =>
-      prev === siteId ? nextPrimarySite?.id || null : prev,
-    );
+    setActiveWorkSiteId((prev) => (prev === siteId ? null : prev));
     setNewItemWorkSiteId((prev) => (prev === siteId ? "" : prev));
-    setExpandedWorkSiteIds((prev) =>
-      prev.filter((entry) => entry !== siteId),
-    );
+    setExpandedWorkSiteIds((prev) => prev.filter((entry) => entry !== siteId));
 
     if (!editId) return;
-
     setSaving(true);
     try {
       const saved = await saveOrder(
-        nextFormPatch,
-        remainingItems,
+        undefined,
+        nextItems,
         undefined,
         undefined,
-        remainingWorkSites,
+        nextWorkSites,
+        nextWorkSites.length === 0,
       );
-      if (saved) {
-        toast.success("Arbeitsort wurde gelöscht.");
-        await load();
-      }
+      if (!saved) return;
+      setOrders((previous) =>
+        previous.map((order) =>
+          order.id === saved.id ? { ...order, ...saved } : order,
+        ),
+      );
+      await load();
+      toast.success("Arbeitsort gelöscht und gespeichert.");
     } catch {
-      toast.error("Arbeitsort konnte nicht gelöscht werden.");
+      toast.error("Arbeitsort konnte nicht gelöscht gespeichert werden.");
     } finally {
       setSaving(false);
     }
@@ -15742,16 +15723,15 @@ export default function AuftraegePage() {
       discardedServiceNames?: Set<string>;
       acknowledgeResidualCurrency?: boolean;
     },
-    workSitesOverrideV17_90L301?: OrderWorkSite[],
+    workSitesOverride?: OrderWorkSite[],
+    forceClearExecutionAddressV17_90L302 = false,
   ): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
     const sourceFormItems = itemsOverride ?? formItems;
-    const sourceFormWorkSitesV17_90L301 =
-      workSitesOverrideV17_90L301 ?? formWorkSites;
-    const formForSaveV17_90L301 = { ...form, ...payloadOverrides };
+    const sourceFormWorkSites = workSitesOverride ?? formWorkSites;
     let validItems = mergeEquivalentFormItems(
       sourceFormItems.filter((i) => i.serviceName.trim()),
     );
@@ -15772,17 +15752,18 @@ export default function AuftraegePage() {
     // den aktuell sichtbaren Editorfeldern synchronisiert. So werden Strasse,
     // PLZ und Ort weder verworfen noch durch alte WorkSite-Werte überschrieben.
     const currentPrimaryWorkSiteForEditor =
-      sourceFormWorkSitesV17_90L301.find((site) => Boolean(site.isPrimary)) ||
-      sourceFormWorkSitesV17_90L301[0] ||
+      sourceFormWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      sourceFormWorkSites[0] ||
       null;
     const hasCurrentExecutionAddressEditorContent = Boolean(
-      formForSaveV17_90L301.siteAddressDifferent &&
+      form.siteAddressDifferent &&
+        sourceFormWorkSites.length <= 1 &&
         [
-          formForSaveV17_90L301.siteName,
-          formForSaveV17_90L301.siteAddress,
-          formForSaveV17_90L301.sitePlz,
-          formForSaveV17_90L301.siteCity,
-          formForSaveV17_90L301.siteNote,
+          form.siteName,
+          form.siteAddress,
+          form.sitePlz,
+          form.siteCity,
+          form.siteNote,
         ].some((value) => String(value || "").trim()),
     );
     const synchronizedFormWorkSites = hasCurrentExecutionAddressEditorContent
@@ -15793,37 +15774,29 @@ export default function AuftraegePage() {
           const synchronizedPrimary: OrderWorkSite = {
             ...(currentPrimaryWorkSiteForEditor || {}),
             id: primaryId,
-            siteName: cleanWorkSiteDisplayName(formForSaveV17_90L301.siteName) || null,
-            siteAddress: formForSaveV17_90L301.siteAddress?.trim() || null,
-            sitePlz: formForSaveV17_90L301.sitePlz?.trim() || null,
-            siteCity: formForSaveV17_90L301.siteCity?.trim() || null,
-            siteNote: formForSaveV17_90L301.siteNote?.trim() || null,
+            siteName: cleanWorkSiteDisplayName(form.siteName) || null,
+            siteAddress: form.siteAddress?.trim() || null,
+            sitePlz: form.sitePlz?.trim() || null,
+            siteCity: form.siteCity?.trim() || null,
+            siteNote: form.siteNote?.trim() || null,
             isPrimary: true,
             sortOrder: 0,
           };
 
           if (!currentPrimaryWorkSiteForEditor) {
-            return [
-              synchronizedPrimary,
-              ...sourceFormWorkSitesV17_90L301.map((site, index) => ({
-                ...site,
-                isPrimary: false,
-                sortOrder: index + 1,
-              })),
-            ];
+            return [synchronizedPrimary];
           }
 
-          return sourceFormWorkSitesV17_90L301.map((site, index) =>
+          return sourceFormWorkSites.map((site, index) =>
             site.id === currentPrimaryWorkSiteForEditor.id
               ? synchronizedPrimary
               : {
                   ...site,
-                  isPrimary: false,
                   sortOrder: Math.max(1, Number(site.sortOrder ?? index + 1)),
                 },
           );
         })()
-      : formWorkSites;
+      : sourceFormWorkSites;
 
     const cleanWorkSites = synchronizedFormWorkSites.filter(
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
@@ -16343,13 +16316,6 @@ export default function AuftraegePage() {
       description: desc,
       vatRate: orderVatRate,
       currency,
-      saveExecutionAddressInCustomerProfile: Boolean(
-        saveExecutionAddressInCustomerProfile,
-      ),
-      upsertCustomerExecutionAddress: Boolean(
-        saveExecutionAddressInCustomerProfile,
-      ),
-      skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
       // V17.14: Beim manuellen Bereinigen einer Mischwährung müssen die
       // sichtbaren Editorwerte als bestätigt gespeichert werden. Sonst ziehen
       // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
@@ -16369,10 +16335,13 @@ export default function AuftraegePage() {
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       clearExecutionAddress: Boolean(
-        editId && executionAddressClearRequested,
+        editId && (executionAddressClearRequested || forceClearExecutionAddressV17_90L302),
       ),
+      saveExecutionAddressInCustomerProfile: Boolean(saveExecutionAddressInCustomerProfile),
+      upsertCustomerExecutionAddress: Boolean(saveExecutionAddressInCustomerProfile),
+      skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfile,
       workSites:
-        editId && executionAddressClearRequested
+        editId && (executionAddressClearRequested || forceClearExecutionAddressV17_90L302)
           ? []
           : cleanWorkSites.length > 0
             ? (() => {
@@ -21699,7 +21668,7 @@ export default function AuftraegePage() {
                                             variant="ghost"
                                             className="text-red-600 hover:text-red-700"
                                             onClick={() =>
-                                              removeFormWorkSite(site.id)
+                                              void removeFormWorkSite(site.id)
                                             }
                                           >
                                             Löschen
