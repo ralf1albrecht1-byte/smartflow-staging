@@ -9388,18 +9388,6 @@ export default function AngebotePage() {
                                     onClick={(event) => event.stopPropagation()}
                                     className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
                                   >
-                                    {String(item?.description || "").trim() && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          saveOfferItemToServices(idx)
-                                        }
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                      >
-                                        <Plus className="h-3.5 w-3.5" />
-                                        In Leistungskatalog übernehmen
-                                      </button>
-                                    )}
                                     <button
                                       type="button"
                                       onClick={() => {

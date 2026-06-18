@@ -839,7 +839,13 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
 
     if (serviceName === "Anfahrt") {
       unit = "Pauschal";
-      quantity = 1;
+      // V17.90L297: Bei manuellen Editorwerten ist auch die Anfahrtsmenge
+      // Quelle der Wahrheit. Der API-Persistenzpfad darf sie nicht pauschal
+      // wieder auf 1 setzen; sonst stimmen Außenkarte und geöffneter Editor
+      // nach dem Speichern nicht mehr überein.
+      if (!trustClientItemValues && (!Number.isFinite(quantity) || quantity <= 0)) {
+        quantity = 1;
+      }
       // V17.14: Bei manueller Bereinigung bleibt der Editorwert maßgeblich.
       // Alte Textzeilen wie "Anfahrt CHF 50" dürfen einen bewusst gesetzten
       // Zielpreis in EUR/CHF nicht mehr überschreiben.
@@ -852,6 +858,14 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
         unitPrice = sourcePrice;
       }
     }
+
+    const calculatedItemTotalV17_90L297 =
+      Number.isFinite(quantity) &&
+      quantity > 0 &&
+      Number.isFinite(unitPrice) &&
+      unitPrice > 0
+        ? unitPrice * quantity
+        : 0;
 
     const amountBlocked =
       itemHasUnresolvedCurrencyMismatch ||
@@ -881,7 +895,9 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       quantity,
       totalPrice: amountBlocked
         ? 0
-        : Number(item?.totalPrice ?? unitPrice * quantity),
+        : trustClientItemValues && calculatedItemTotalV17_90L297 > 0
+          ? calculatedItemTotalV17_90L297
+          : Number(item?.totalPrice ?? calculatedItemTotalV17_90L297),
     };
   });
 

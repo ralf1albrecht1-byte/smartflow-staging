@@ -21802,37 +21802,6 @@ export default function AuftraegePage() {
                                             }}
                                             className="absolute right-0 top-9 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
                                           >
-                                            {hasMultipleEditWorkSites && (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setMovingItemKey(item.key);
-                                                  setActiveWorkSiteId(
-                                                    item.workSiteId ||
-                                                      activeWorkSiteId,
-                                                  );
-                                                  setServiceActionMenuKey(null);
-                                                }}
-                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                              >
-                                                📍 Arbeitsort ändern
-                                              </button>
-                                            )}
-
-                                            {hasCatalogActionMenu && (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  saveItemToServices(index);
-                                                  setServiceActionMenuKey(null);
-                                                }}
-                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                              >
-                                                <Plus className="h-3.5 w-3.5" />
-                                                In Leistungskatalog übernehmen
-                                              </button>
-                                            )}
-
                                             <button
                                               type="button"
                                               onClick={() => {
@@ -21964,14 +21933,12 @@ export default function AuftraegePage() {
                                       </div>
                                     </div>
 
-                                    {hasMultipleEditWorkSites &&
-                                      (movingItemKey === item.key ||
-                                        !item.workSiteId) && (
+                                    {hasMultipleEditWorkSites && !item.workSiteId && (
                                         <div className="flex justify-end">
                                           <div className="flex w-full items-end gap-2 sm:w-auto">
                                             <div className="min-w-0 flex-1 sm:w-72">
                                               <Label className="text-[10px] leading-none">
-                                                Arbeitsort ändern
+                                                Arbeitsort wählen
                                               </Label>
                                               <select
                                                 className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
