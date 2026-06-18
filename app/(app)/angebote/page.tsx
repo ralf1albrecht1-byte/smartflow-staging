@@ -8949,18 +8949,6 @@ export default function AngebotePage() {
                             : `Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`}
                         </Label>
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          {executionSites.length > 0 && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={addExecutionSite}
-                            >
-                              <Plus className="mr-1 h-3.5 w-3.5" />
-                              Arbeitsort hinzufügen
-                            </Button>
-                          )}
                           {executionSites.length > 1 && (
                             <Button
                               type="button"

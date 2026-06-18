@@ -7465,18 +7465,6 @@ export default function RechnungenPage() {
                                   : `Leistungen · ${items.filter((item: InvoiceItem) => String(item?.description || "").trim()).length} *`}
                               </Label>
                               <div className="flex flex-wrap items-center justify-end gap-2">
-                                {currentSites.length > 0 && (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    onClick={addInvoiceExecutionSite}
-                                  >
-                                    <Plus className="mr-1 h-3.5 w-3.5" />
-                                    Arbeitsort hinzufügen
-                                  </Button>
-                                )}
                                 {multiSite && (
                                   <Button
                                     type="button"

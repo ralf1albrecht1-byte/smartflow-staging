@@ -20242,18 +20242,6 @@ export default function AuftraegePage() {
                             )}
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          {currentEditWorkSites.length > 0 && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={addFormWorkSite}
-                              className="h-7 px-2 text-xs"
-                            >
-                              <Plus className="mr-1 h-3.5 w-3.5" />
-                              Arbeitsort hinzufügen
-                            </Button>
-                          )}
                           {hasMultipleEditWorkSites && (
                             <Button
                               type="button"
