@@ -4420,8 +4420,28 @@ export default function AngebotePage() {
           : item,
       ),
     );
-    setNewOfferItemSiteKey(siteKey);
-    setExpandedOfferSiteKeys((current) => new Set([...current, siteKey]));
+    const keepOfferItemOpenAfterSiteChange = () => {
+      setNewOfferItemSiteKey(siteKey);
+      setExpandedOfferSiteKeys((current) => new Set([...current, siteKey]));
+      setExpandedItemIndex(index);
+      setServiceActionMenuIndex(null);
+    };
+
+    keepOfferItemOpenAfterSiteChange();
+
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        keepOfferItemOpenAfterSiteChange();
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        document
+          .querySelector<HTMLInputElement>(
+            `[data-service-item-index="${index}"] input`,
+          )
+          ?.focus();
+      }, 0);
+    }
   };
 
   const addServiceItem = (svc: any) => {

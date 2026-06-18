@@ -3937,8 +3937,28 @@ export default function RechnungenPage() {
           : item,
       ),
     );
-    setNewInvoiceItemSiteKey(siteKey);
-    setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
+    const keepInvoiceItemOpenAfterSiteChange = () => {
+      setNewInvoiceItemSiteKey(siteKey);
+      setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
+      setExpandedItemIndex(index);
+      setServiceActionMenuIndex(null);
+    };
+
+    keepInvoiceItemOpenAfterSiteChange();
+
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        keepInvoiceItemOpenAfterSiteChange();
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        document
+          .querySelector<HTMLInputElement>(
+            `[data-service-item-index="${index}"] input`,
+          )
+          ?.focus();
+      }, 0);
+    }
   };
 
   const onItemServiceSelect = (

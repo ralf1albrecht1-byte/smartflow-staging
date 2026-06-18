@@ -21785,6 +21785,7 @@ export default function AuftraegePage() {
                               ) : (
                                 groupExpanded && (
                                   <details
+                                    data-smartflow-service-item-key={item.key}
                                     open={expandedServiceItemKeys.includes(item.key)}
                                     onToggle={(event) => {
                                       const isOpen = event.currentTarget.open;
@@ -21881,13 +21882,47 @@ export default function AuftraegePage() {
                                             className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                             value={item.workSiteId || ""}
                                             onChange={(e: any) => {
-                                              updateItem(
-                                                index,
-                                                "workSiteId",
-                                                e?.target?.value ?? "",
-                                              );
-                                              setMovingItemKey(null);
-                                            }}
+                                                  const nextWorkSiteId = e?.target?.value ?? "";
+
+                                                  updateItem(
+                                                    index,
+                                                    "workSiteId",
+                                                    nextWorkSiteId,
+                                                  );
+
+                                                  const keepItemOpenAfterWorkSiteChange = () => {
+                                                    if (nextWorkSiteId) {
+                                                      setActiveWorkSiteId(nextWorkSiteId);
+                                                      setExpandedWorkSiteIds((current) =>
+                                                        current.includes(nextWorkSiteId)
+                                                          ? current
+                                                          : [nextWorkSiteId, ...current],
+                                                      );
+                                                    } else {
+                                                      setExpandedWorkSiteIds((current) =>
+                                                        current.includes("__unassigned__")
+                                                          ? current
+                                                          : ["__unassigned__", ...current],
+                                                      );
+                                                    }
+
+                                                    setExpandedServiceItemKeys((current) =>
+                                                      current.includes(item.key)
+                                                        ? current
+                                                        : [item.key, ...current],
+                                                    );
+                                                  };
+
+                                                  keepItemOpenAfterWorkSiteChange();
+                                                  setMovingItemKey(nextWorkSiteId ? null : item.key);
+
+                                                  if (typeof window !== "undefined") {
+                                                    window.setTimeout(
+                                                      keepItemOpenAfterWorkSiteChange,
+                                                      0,
+                                                    );
+                                                  }
+                                                }}
                                           >
                                             <option value="">Arbeitsort wählen</option>
                                             {currentEditWorkSites.map((siteOption) => (
