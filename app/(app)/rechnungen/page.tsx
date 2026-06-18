@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L319_INVOICE_SPECIAL_NOTES_INFO_ONLY
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
 // SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
@@ -19,6 +20,7 @@ import {
   Volume2,
   ImageIcon,
   AlertTriangle,
+  Info,
   Search,
   MoreVertical,
   Archive,
@@ -638,6 +640,40 @@ const joinInvoicePdfText = (pdfTitle: string, notes: string) => {
   return body ? `Titel: ${title}\n\n${body}` : `Titel: ${title}`;
 };
 
+const OFFER_PDF_META_PREFIX_V17_90L319 = "[[SMARTFLOW_OFFER_PDF_V1]]";
+
+function decodeOfferInternalNotesForInvoiceV17_90L319(
+  value?: string | null,
+): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith(OFFER_PDF_META_PREFIX_V17_90L319)) return "";
+  try {
+    const parsed = JSON.parse(
+      raw.slice(OFFER_PDF_META_PREFIX_V17_90L319.length),
+    );
+    return String(parsed?.internalNotes ?? parsed?.specialNotes ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function splitInvoiceManualSpecialNoteLinesV17_90L319(
+  value?: string | null,
+): string[] {
+  return Array.from(
+    new Map(
+      String(value ?? "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => [normalizeInvoiceServiceName(line), line] as const)
+        .filter(([key]) => Boolean(key)),
+    ).values(),
+  );
+}
+
 const uniqueInvoiceLines = (values: Array<string | null | undefined>) =>
   Array.from(
     new Map(
@@ -906,6 +942,28 @@ function isInvoiceCanonicalDogLineV17_90L273(value: string): boolean {
   );
 }
 
+function isInvoiceSafetyLikeLineV17_90L319(value: string): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  return (
+    isInvoiceCanonicalDogLineV17_90L273(value) ||
+    /\b(?:vorsicht|achtung|gefahr|warnung|warnhinweis|rutschig|giftig|beissen|beisst|beißt|aggressiv|gefährlich|gefaehrlich)\b/.test(
+      key,
+    )
+  );
+}
+
+function parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(
+  value: unknown,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  const parsed = parseInvoiceCanonicalWorkflowRecordsV17_90L273(value);
+  if (parsed.length > 0) return parsed;
+  return splitInvoiceManualSpecialNoteLinesV17_90L319(String(value ?? ""))
+    .map((line) => ({
+      role: isInvoiceSafetyLikeLineV17_90L319(line) ? "safety" : "hint",
+      text: line,
+    }));
+}
+
 function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
   const key = normalizeInvoiceServiceName(value);
   if (!key) return false;
@@ -937,7 +995,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     fallbackSpecialNotes,
   ].filter(Boolean);
   const records = sources.flatMap((value) =>
-    parseInvoiceCanonicalWorkflowRecordsV17_90L273(value),
+    parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(value),
   );
   const explicitContact = extractDocumentContactFallback(
     ...sourceOrders.flatMap((order) => [
@@ -1019,6 +1077,37 @@ function collectInvoiceCanonicalSpecialNotesV17_90L237(
     .filter(Boolean)
     .join("\n");
   return canonical || String(fallback || "");
+}
+
+function buildInvoiceSpecialNotesSourceV17_90L319(
+  invoice: Invoice | null,
+  sourceOfferInternalNotes?: string | null,
+): string {
+  return [
+    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    sourceOfferInternalNotes,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function flattenInvoiceSpecialInfoLinesV17_90L319(
+  summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const text = String(value || "").trim();
+    const key = normalizeInvoiceServiceName(text);
+    if (!text || !key || seen.has(key)) return;
+    seen.add(key);
+    result.push(text);
+  };
+  summary.primaryHints.forEach(add);
+  summary.hazards.forEach(add);
+  summary.otherHints.forEach(add);
+  return result;
 }
 
 const cleanInvoiceCustomerMessage = (value?: string | null) =>
@@ -2971,6 +3060,8 @@ export default function RechnungenPage() {
   const [activeInvoiceServiceSheet, setActiveInvoiceServiceSheet] =
     useState<InvoiceMobileServiceSheetStateV17_90L174 | null>(null);
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
+  const [sourceOfferInternalNotesByIdV17_90L319, setSourceOfferInternalNotesByIdV17_90L319] =
+    useState<Record<string, string>>({});
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3409,6 +3500,53 @@ export default function RechnungenPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const sourceOfferIds = Array.from(
+      new Set(
+        invoices
+          .map((invoice) => compactInvoiceValue(invoice.sourceOfferId))
+          .filter(Boolean),
+      ),
+    ).filter(
+      (offerId) =>
+        !Object.prototype.hasOwnProperty.call(
+          sourceOfferInternalNotesByIdV17_90L319,
+          offerId,
+        ),
+    );
+    if (sourceOfferIds.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(
+      sourceOfferIds.map(async (offerId) => {
+        try {
+          const response = await fetch(`/api/offers/${offerId}`, {
+            cache: "no-store",
+          });
+          if (!response.ok) return [offerId, ""] as const;
+          const offer = await response.json();
+          return [
+            offerId,
+            decodeOfferInternalNotesForInvoiceV17_90L319(offer?.notes),
+          ] as const;
+        } catch {
+          return [offerId, ""] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setSourceOfferInternalNotesByIdV17_90L319((current) => {
+        const next = { ...current };
+        for (const [offerId, notes] of entries) next[offerId] = notes;
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [invoices, sourceOfferInternalNotesByIdV17_90L319]);
 
   useEffect(() => {
     const refreshVisibleList = () => {
@@ -6039,6 +6177,26 @@ export default function RechnungenPage() {
                       invoiceAppointmentDisplayLabel,
                     );
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
+                  const invoiceSourceOfferInternalNotesV17_90L319 =
+                    sourceOfferInternalNotesByIdV17_90L319[
+                      compactInvoiceValue(inv.sourceOfferId)
+                    ] || "";
+                  const invoiceSpecialNotesSourceV17_90L319 =
+                    buildInvoiceSpecialNotesSourceV17_90L319(
+                      inv,
+                      invoiceSourceOfferInternalNotesV17_90L319,
+                    );
+                  const invoiceSpecialSummaryV17_90L319 =
+                    buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+                      inv,
+                      invoiceSpecialNotesSourceV17_90L319,
+                    );
+                  const invoiceSpecialInfoLinesV17_90L319 =
+                    flattenInvoiceSpecialInfoLinesV17_90L319(
+                      invoiceSpecialSummaryV17_90L319,
+                    );
+                  const hasInvoiceSpecialInfoV17_90L319 =
+                    invoiceSpecialInfoLinesV17_90L319.length > 0;
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
                     (inv.orders || []) as any,
@@ -6111,6 +6269,45 @@ export default function RechnungenPage() {
                           compact
                           contactsOnly
                         />
+                      )}
+                      {hasInvoiceSpecialInfoV17_90L319 && (
+                        <button
+                          type="button"
+                          aria-label="Besonderheiten anzeigen"
+                          title="Besonderheiten"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        >
+                          <Info className="h-4 w-4" />
+                          <InvoiceViewportTooltip
+                            preferredWidth={360}
+                            mobileDismissOnInteraction
+                          >
+                            <span className="block space-y-2">
+                              <span className="flex items-center gap-2 text-sm font-bold text-blue-800 dark:text-blue-200">
+                                <Info className="h-4 w-4" />
+                                Besonderheiten
+                              </span>
+                              <span className="block space-y-1 text-[12px] leading-snug">
+                                {invoiceSpecialInfoLinesV17_90L319.map(
+                                  (line, index) => (
+                                    <span
+                                      key={`invoice-info-${inv.id}-${index}`}
+                                      className="block whitespace-pre-wrap break-words"
+                                    >
+                                      {line}
+                                    </span>
+                                  ),
+                                )}
+                              </span>
+                            </span>
+                          </InvoiceViewportTooltip>
+                        </button>
                       )}
                     </div>
                   );
@@ -8972,10 +9169,20 @@ export default function RechnungenPage() {
 
                   {editOrderCtx &&
                     (() => {
+                      const editingInvoiceSourceOfferInternalNotesV17_90L319 =
+                        sourceOfferInternalNotesByIdV17_90L319[
+                          compactInvoiceValue(editingInvoice?.sourceOfferId)
+                        ] || "";
+                      const editingInvoiceSpecialNotesSourceV17_90L319 =
+                        buildInvoiceSpecialNotesSourceV17_90L319(
+                          editingInvoice,
+                          editingInvoiceSourceOfferInternalNotesV17_90L319 ||
+                            editOrderCtx.specialNotes,
+                        );
                       const { hazards, primaryHints, otherHints } =
                         buildInvoiceCanonicalWorkflowSummaryV17_90L274(
                           editingInvoice,
-                          editOrderCtx.specialNotes,
+                          editingInvoiceSpecialNotesSourceV17_90L319,
                         );
                       const customerMessageBlocks = (
                         editingInvoice?.orders || []
