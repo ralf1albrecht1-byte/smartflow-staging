@@ -4,6 +4,7 @@
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
 // SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
 // SMARTFLOW_V17_90L310_YELLOW_SERVICE_CATALOG_MENU_ALL3
+// SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
 // SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
@@ -4431,6 +4432,7 @@ export default function AngebotePage() {
               siteCity: site.siteCity || null,
               siteNote: site.siteNote || null,
               sourceOrderId: site.sourceOrderId || null,
+              _workSiteUiKey: site._workSiteUiKey || null,
             }
           : item,
       ),
@@ -9468,6 +9470,38 @@ export default function AngebotePage() {
                         const hasCatalogActionMenu =
                           itemNeedsReview && !hasCriticalReview;
 
+                        // V17.90L320: Wie bei Aufträgen darf der Arbeitsort-Selector
+                        // nur bei wirklich nicht zugeordneten Leistungszeilen erscheinen.
+                        // Wird eine Leistung automatisch unter einem neu angelegten
+                        // Ausführungsort erstellt, ist sie bereits über den UI-Key
+                        // diesem Arbeitsort zugeordnet und braucht keinen zweiten
+                        // "Arbeitsort wählen"-Kasten.
+                        const itemWorkSiteUiKeyV17_90L320 = compactOfferValue(
+                          (item as any)._workSiteUiKey,
+                        );
+                        const itemHasCompleteSiteV17_90L320 = Boolean(
+                          compactOfferValue((item as OfferExecutionSite).siteAddress) &&
+                            compactOfferValue((item as OfferExecutionSite).sitePlz) &&
+                            compactOfferValue((item as OfferExecutionSite).siteCity),
+                        );
+                        const itemSourceOrderIdV17_90L320 = compactOfferValue(
+                          (item as OfferExecutionSite).sourceOrderId,
+                        );
+                        const assignedOfferSiteV17_90L320 = executionSites.find(
+                          (site) =>
+                            (itemWorkSiteUiKeyV17_90L320 &&
+                              compactOfferValue(site._workSiteUiKey) ===
+                                itemWorkSiteUiKeyV17_90L320) ||
+                            (itemHasCompleteSiteV17_90L320 &&
+                              offerSiteKey(site) ===
+                                offerSiteKey(item as OfferExecutionSite)) ||
+                            (itemSourceOrderIdV17_90L320 &&
+                              compactOfferValue(site.sourceOrderId) ===
+                                itemSourceOrderIdV17_90L320),
+                        );
+                        const shouldShowOfferWorkSiteSelectorV17_90L320 =
+                          executionSites.length > 1 && !assignedOfferSiteV17_90L320;
+
                         const isExpanded = expandedItemIndex === idx;
 
                         return (
@@ -9506,11 +9540,7 @@ export default function AngebotePage() {
                                 <div className="min-w-0">
                                   <span className="block truncate font-medium">
                                     {item?.description ||
-                                      (executionSites.length > 1 &&
-                                      !compactOfferValue((item as OfferExecutionSite).siteName) &&
-                                      !compactOfferValue((item as OfferExecutionSite).siteAddress) &&
-                                      !compactOfferValue((item as OfferExecutionSite).sitePlz) &&
-                                      !compactOfferValue((item as OfferExecutionSite).siteCity)
+                                      (shouldShowOfferWorkSiteSelectorV17_90L320
                                         ? "Ausführungsort und Leistung auswählen"
                                         : "Neue Leistung")}
                                   </span>
@@ -9630,7 +9660,7 @@ export default function AngebotePage() {
 
                             {isExpanded && (
                               <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                {executionSites.length > 1 && (
+                                {shouldShowOfferWorkSiteSelectorV17_90L320 && (
                                   <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                     <Label className="text-xs">Arbeitsort wählen</Label>
                                     <select

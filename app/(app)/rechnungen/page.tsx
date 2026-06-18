@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
 // SMARTFLOW_V17_90L319_INVOICE_SPECIAL_NOTES_INFO_ONLY
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
@@ -4076,6 +4077,7 @@ export default function RechnungenPage() {
               siteCity: site.siteCity || null,
               siteNote: site.siteNote || null,
               sourceOrderId: site.sourceOrderId || null,
+              _workSiteUiKey: site._workSiteUiKey || null,
             }
           : item,
       ),
@@ -8200,6 +8202,41 @@ export default function RechnungenPage() {
                             const isMenuOpen = serviceActionMenuIndex === idx;
                             const hasCatalogActionMenu =
                               itemNeedsReview && !hasMissingValues;
+                            // V17.90L320: Wie bei Aufträgen den Arbeitsort-Selector
+                            // nur anzeigen, wenn eine Leistungszeile wirklich keinem
+                            // Ausführungsort zugeordnet ist. Automatisch unter einem
+                            // neuen Ausführungsort erzeugte Leistungen sind über den
+                            // UI-Key bereits zugeordnet und brauchen keinen zweiten
+                            // "Arbeitsort wählen"-Kasten.
+                            const currentInvoiceSitesV17_90L320 =
+                              getCurrentInvoiceExecutionSitesV17_90L284();
+                            const itemWorkSiteUiKeyV17_90L320 = compactInvoiceValue(
+                              (item as any)._workSiteUiKey,
+                            );
+                            const itemHasCompleteSiteV17_90L320 = Boolean(
+                              compactInvoiceValue((item as InvoiceExecutionSite).siteAddress) &&
+                                compactInvoiceValue((item as InvoiceExecutionSite).sitePlz) &&
+                                compactInvoiceValue((item as InvoiceExecutionSite).siteCity),
+                            );
+                            const itemSourceOrderIdV17_90L320 = compactInvoiceValue(
+                              (item as InvoiceExecutionSite).sourceOrderId,
+                            );
+                            const assignedInvoiceSiteV17_90L320 =
+                              currentInvoiceSitesV17_90L320.find(
+                                (site) =>
+                                  (itemWorkSiteUiKeyV17_90L320 &&
+                                    compactInvoiceValue(site._workSiteUiKey) ===
+                                      itemWorkSiteUiKeyV17_90L320) ||
+                                  (itemHasCompleteSiteV17_90L320 &&
+                                    invoiceSiteKey(site) ===
+                                      invoiceSiteKey(item as InvoiceExecutionSite)) ||
+                                  (itemSourceOrderIdV17_90L320 &&
+                                    compactInvoiceValue(site.sourceOrderId) ===
+                                      itemSourceOrderIdV17_90L320),
+                              );
+                            const shouldShowInvoiceWorkSiteSelectorV17_90L320 =
+                              currentInvoiceSitesV17_90L320.length > 1 &&
+                              !assignedInvoiceSiteV17_90L320;
 
                             return (
                               <div
@@ -8237,11 +8274,7 @@ export default function RechnungenPage() {
                                     <div className="min-w-0">
                                       <span className="block truncate font-medium">
                                         {item?.description ||
-                                          (getCurrentInvoiceExecutionSitesV17_90L284().length > 1 &&
-                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteName) &&
-                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteAddress) &&
-                                          !compactInvoiceValue((item as InvoiceExecutionSite).sitePlz) &&
-                                          !compactInvoiceValue((item as InvoiceExecutionSite).siteCity)
+                                          (shouldShowInvoiceWorkSiteSelectorV17_90L320
                                             ? "Ausführungsort und Leistung auswählen"
                                             : "Neue Leistung")}
                                       </span>
@@ -8356,7 +8389,7 @@ export default function RechnungenPage() {
 
                                 {isExpanded && (
                                   <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                    {getCurrentInvoiceExecutionSitesV17_90L284().length > 1 && (
+                                    {shouldShowInvoiceWorkSiteSelectorV17_90L320 && (
                                       <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                         <Label className="text-xs">
                                           Arbeitsort wählen
