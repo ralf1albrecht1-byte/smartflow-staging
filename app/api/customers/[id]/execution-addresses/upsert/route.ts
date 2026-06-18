@@ -27,7 +27,13 @@ const addressKey = (value: any) =>
     .join("|");
 
 const fullIdentityKey = (value: any) =>
-  [value?.siteName, value?.siteAddress, value?.sitePlz, value?.siteCity]
+  [
+    value?.siteName,
+    value?.siteAddress,
+    value?.sitePlz,
+    value?.siteCity,
+    value?.siteNote,
+  ]
     .map(normalizeKeyPart)
     .join("|");
 
@@ -61,6 +67,7 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const addressId = compact(body?.addressId);
+    const saveMode = body?.saveMode === "update" ? "update" : "create";
     const siteName = compact(body?.siteName) || null;
     const siteAddress = compact(body?.siteAddress);
     const sitePlz = compact(body?.sitePlz);
@@ -95,30 +102,35 @@ export async function POST(
     };
 
     let existing: any = null;
-    if (addressId) {
+
+    if (saveMode === "update") {
+      if (!addressId) {
+        return NextResponse.json(
+          { error: "Der bestehende Ausführungsort konnte nicht eindeutig zugeordnet werden." },
+          { status: 400 },
+        );
+      }
       existing = await table.findFirst({
         where: { id: addressId, customerId, deletedAt: null },
       });
-    }
-
-    if (!existing) {
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Der bestehende Ausführungsort wurde nicht gefunden." },
+          { status: 404 },
+        );
+      }
+    } else {
       const rows = await table.findMany({
         where: { customerId, deletedAt: null },
         orderBy: [{ lastUsedAt: "desc" }, { updatedAt: "desc" }],
       });
       const incoming = { siteName, siteAddress, sitePlz, siteCity };
-      existing = rows.find((row: any) => fullIdentityKey(row) === fullIdentityKey(incoming));
 
-      // Beim Umbenennen ohne übertragene ID darf ein eindeutig passender
-      // Adressdatensatz aktualisiert werden. Bei mehreren gleich adressierten
-      // Objekten wird bewusst ein eigener Eintrag angelegt, damit verschiedene
-      // Objektbezeichnungen erhalten bleiben.
-      if (!existing) {
-        const sameAddressRows = rows.filter(
-          (row: any) => addressKey(row) === addressKey(incoming),
-        );
-        if (sameAddressRows.length === 1) existing = sameAddressRows[0];
-      }
+      // Sicherer Standard: Nur ein vollständig identischer Ort wird wiederverwendet.
+      // Gleiche Adresse mit anderer Bezeichnung wird als neuer Ausführungsort angelegt.
+      existing = rows.find(
+        (row: any) => fullIdentityKey(row) === fullIdentityKey(incoming),
+      );
     }
 
     const saved = existing

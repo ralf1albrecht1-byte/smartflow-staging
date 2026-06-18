@@ -3863,6 +3863,8 @@ export default function AngebotePage() {
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
     useState(true);
+  const [customerExecutionAddressSaveModeV17_90L296, setCustomerExecutionAddressSaveModeV17_90L296] =
+    useState<"create" | "update">("create");
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -4693,6 +4695,7 @@ export default function AngebotePage() {
     setExpandedOfferSiteKeys((current) =>
       new Set([...current, stableUiKey]),
     );
+    setCustomerExecutionAddressSaveModeV17_90L296("create");
     toast.success("Gespeicherter Ausführungsort übernommen.");
   };
 
@@ -4731,6 +4734,75 @@ export default function AngebotePage() {
     return addressMatches.length === 1 ? addressMatches[0]?.id || null : null;
   };
 
+  const getSelectedCustomerExecutionAddressV17_90L296 = (site: OfferExecutionSite) => {
+    const addressId = compactOfferValue(site.customerExecutionAddressId);
+    if (!addressId) return null;
+    const customer = customers.find(
+      (entry) => entry.id === compactOfferValue(form.customerId),
+    );
+    return (customer?.executionAddresses || []).find(
+      (entry) => entry.id === addressId,
+    ) || null;
+  };
+
+  const customerExecutionAddressChangedV17_90L296 = (site: OfferExecutionSite) => {
+    const stored = getSelectedCustomerExecutionAddressV17_90L296(site);
+    if (!stored) return false;
+    const normalize = (value: unknown) =>
+      compactOfferValue(value)
+        .toLocaleLowerCase("de-CH")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9äöüß]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    return [
+      site.siteName,
+      site.siteAddress,
+      site.sitePlz,
+      site.siteCity,
+      site.siteNote,
+    ].map(normalize).join("|") !== [
+      stored.siteName,
+      stored.siteAddress,
+      stored.sitePlz,
+      stored.siteCity,
+      stored.siteNote,
+    ].map(normalize).join("|");
+  };
+
+  const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OfferExecutionSite) => {
+    if (
+      !saveExecutionAddressInCustomerProfile ||
+      !customerExecutionAddressChangedV17_90L296(site)
+    ) return null;
+    return (
+      <div className="rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-xs dark:border-amber-800 dark:bg-amber-950/20">
+        <div className="mb-2 font-semibold">Gespeicherter Ausführungsort wurde geändert</div>
+        <div className="flex flex-col gap-1.5">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="customer-execution-address-save-mode-v17-90l296"
+              checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
+              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
+            />
+            Als neuen Ausführungsort speichern (sicherer Standard)
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="customer-execution-address-save-mode-v17-90l296"
+              checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
+              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
+            />
+            Bestehenden Ausführungsort aktualisieren
+          </label>
+        </div>
+      </div>
+    );
+  };
+
   const persistOfferExecutionAddressInCustomerV17_90L295 = async (
     site: OfferExecutionSite,
   ): Promise<CustomerExecutionAddress> => {
@@ -4742,7 +4814,17 @@ export default function AngebotePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          addressId: resolveOfferCustomerExecutionAddressIdV17_90L295(site),
+          addressId:
+            customerExecutionAddressChangedV17_90L296(site) &&
+            customerExecutionAddressSaveModeV17_90L296 === "create"
+              ? null
+              : compactOfferValue(site.customerExecutionAddressId) || null,
+          saveMode:
+            compactOfferValue(site.customerExecutionAddressId)
+              ? customerExecutionAddressChangedV17_90L296(site)
+                ? customerExecutionAddressSaveModeV17_90L296
+                : "update"
+              : "create",
           siteName: compactOfferValue(site.siteName) || null,
           siteAddress: compactOfferValue(site.siteAddress),
           sitePlz: compactOfferValue(site.sitePlz),
@@ -9042,7 +9124,10 @@ export default function AngebotePage() {
                           </div>
                         ))}
                         {editingExecutionAddress && (
-                          <div className="flex flex-wrap items-center justify-between gap-3">
+                          <>
+                            {executionSites[0] &&
+                              renderCustomerExecutionAddressSaveChoiceV17_90L296(executionSites[0])}
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                             <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                               <input
                                 type="checkbox"
@@ -9079,6 +9164,7 @@ export default function AngebotePage() {
                               </Button>
                             </div>
                           </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -9761,6 +9847,7 @@ export default function AngebotePage() {
                                       }
                                     />
                                   </div>
+                                  {renderCustomerExecutionAddressSaveChoiceV17_90L296(group.site)}
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="text-[11px] text-muted-foreground">
                                       Zugeordnet: {group.entries.length} Leistung(en)
