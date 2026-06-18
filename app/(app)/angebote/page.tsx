@@ -5165,7 +5165,13 @@ export default function AngebotePage() {
       // Arbeitsort entsteht eine neue leere Leistungszeile.
       if (isFirstExecutionSite) {
         const baseItems = current.length > 0 ? current : [getEmptyItem()];
-        return baseItems.map((item: OfferItem) => ({ ...item, ...site }));
+        return baseItems.map((item: OfferItem) => ({
+          ...item,
+          ...site,
+          _manualUserAdded:
+            Boolean((item as any)._manualUserAdded) ||
+            !compactOfferValue(item.description),
+        }));
       }
       return [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current];
     });

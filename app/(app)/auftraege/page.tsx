@@ -14446,6 +14446,7 @@ export default function AuftraegePage() {
     const blankItem = {
       ...createEmptyItem(),
       workSiteId: newId,
+      _manualUserAdded: true,
     };
 
     // V17.90L285: Sobald aus einem Einzel-Arbeitsort ein Multi-Site-Auftrag
@@ -21140,8 +21141,29 @@ export default function AuftraegePage() {
                           const isManualUserAddedItemV17_90L314 = Boolean(
                             (item as any)._manualUserAdded,
                           );
+                          // V17.90L315: Entscheidungsknöpfe gehören nur zu
+                          // echten Intake-/WhatsApp-/KI-Prüfbefunden. Rein
+                          // manuell erzeugte rote Entwurfszeilen werden über
+                          // den Papierkorb gelöscht und zeigen nur den Hinweis,
+                          // welche Pflichtfelder noch fehlen.
+                          const hasIntakeBackedBlockingReviewForActionsV17_90L315 = Boolean(
+                            compactBlockingReviewSourceV17_90L242 ||
+                              String(item.aiWarning || "").trim() ||
+                              String(item.sourceDescription || "").trim() ||
+                              String(item.pendingReviewSourceServiceName || "").trim() ||
+                              String(item.recognitionReviewKey || "").trim() ||
+                              hasPersistedBlockingItemReviewV17_90L243 ||
+                              hasExplicitBlockingReviewV17_90L241 ||
+                              hasPendingPriceUnclearReviewV17_90L245 ||
+                              showPriceContradictionReviewV17_90L234 ||
+                              unresolvedCurrencyItem ||
+                              Boolean(unitMissingInTextReason && !manualUnitConfirmed) ||
+                              Boolean(canonicalMutationReviewReasonV17_90L241),
+                          );
                           const showBlockingReviewDecisionButtonsV17_90L314 = Boolean(
-                            isBlockingItemReview && !isManualUserAddedItemV17_90L314,
+                            isBlockingItemReview &&
+                              !isManualUserAddedItemV17_90L314 &&
+                              hasIntakeBackedBlockingReviewForActionsV17_90L315,
                           );
                           const isMenuOpen = serviceActionMenuKey === item.key;
                           const hasCriticalItemReview = isBlockingItemReview;

@@ -4715,7 +4715,13 @@ export default function RechnungenPage() {
       // eine neue leere Leistungszeile.
       if (isFirstExecutionSite) {
         const baseItems = current.length > 0 ? current : [getEmptyItem()];
-        return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+        return baseItems.map((item: InvoiceItem) => ({
+          ...item,
+          ...site,
+          _manualUserAdded:
+            Boolean((item as any)._manualUserAdded) ||
+            !compactInvoiceValue(item.description),
+        }));
       }
       return [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current];
     });
