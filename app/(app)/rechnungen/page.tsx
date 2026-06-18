@@ -1216,7 +1216,12 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
       sitePlz: compactInvoiceValue(site.sitePlz) || null,
       siteCity: compactInvoiceValue(site.siteCity) || null,
       siteNote: compactInvoiceValue(site.siteNote) || null,
-      sourceOrderId: site.sourceOrderId || item.sourceOrderId || null,
+      // V17.90L293: Ein direkt in der Rechnung angelegter Arbeitsort
+      // ist dokumenteigene Zuordnung und darf nicht durch die alte
+      // Auftragsrolle beim erneuten Laden ausgeblendet werden.
+      sourceOrderId: compactInvoiceValue(site._workSiteUiKey)
+        ? null
+        : site.sourceOrderId || item.sourceOrderId || null,
     };
   });
 }
@@ -3773,12 +3778,41 @@ export default function RechnungenPage() {
   const setNewInvoiceExecutionAddressEnabled = (enabled: boolean) => {
     if (!enabled) {
       setNewInvoiceExecutionSite(null);
+      setItems((current: InvoiceItem[]) =>
+        current.map((item: InvoiceItem) => ({
+          ...item,
+          siteName: null,
+          siteAddress: null,
+          sitePlz: null,
+          siteCity: null,
+          siteNote: null,
+          _workSiteUiKey: null,
+        })),
+      );
+      setEditingInvoiceSiteKey(null);
+      setNewInvoiceItemSiteKey("");
+      setExpandedInvoiceSiteKeys(new Set());
       setEditingExecutionAddress(false);
       return;
     }
-    setNewInvoiceExecutionSite(
-      (current) => current || getEmptyInvoiceExecutionSite(),
-    );
+
+    const uiKey = `invoice-draft-site-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const site: InvoiceExecutionSite = {
+      ...getEmptyInvoiceExecutionSite(),
+      sourceOrderId: null,
+      _workSiteUiKey: uiKey,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    setNewInvoiceExecutionSite(site);
+    setItems((current: InvoiceItem[]) => {
+      const baseItems = current.length > 0 ? current : [getEmptyItem()];
+      return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+    });
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
     setEditingExecutionAddress(true);
   };
 
@@ -4305,8 +4339,8 @@ export default function RechnungenPage() {
       }
 
       setExecutionAddressClearRequested(true);
-      setItems((current) =>
-        current.map((item) => ({
+      setItems((current: InvoiceItem[]) =>
+        current.map((item: InvoiceItem) => ({
           ...item,
           siteName: null,
           siteAddress: null,
@@ -4341,13 +4375,15 @@ export default function RechnungenPage() {
       _workSiteUiKey: uiKey,
     };
     const key = invoiceGroupKeyForSite(site);
-    setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
-    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setInvoiceExecutionSiteDrafts([site]);
+    setItems((current: InvoiceItem[]) => {
+      const baseItems = current.length > 0 ? current : [getEmptyItem()];
+      return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+    });
     setEditingExecutionAddress(true);
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
-    setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
   };
 
@@ -4400,6 +4436,7 @@ export default function RechnungenPage() {
       toast.info("Neuen Arbeitsort und Leistung zuerst vollständig ausfüllen.");
       return;
     }
+
     const uiKey = `invoice-draft-site-${Math.random().toString(36).slice(2)}`;
     const site: InvoiceExecutionSite = {
       siteName: "",
@@ -4411,14 +4448,29 @@ export default function RechnungenPage() {
       _workSiteUiKey: uiKey,
     };
     const key = invoiceGroupKeyForSite(site);
-    const blankItem = { ...getEmptyItem(), ...site };
-    setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
-    setItems((current) => [blankItem, ...current]);
+    const isFirstExecutionSite = sites.length === 0;
+
+    if (!editingInvoice && isFirstExecutionSite) {
+      setNewInvoiceExecutionSite(site);
+    } else {
+      setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
+    }
+    setItems((current: InvoiceItem[]) => {
+      // V17.90L293: Der erste Arbeitsort übernimmt die vorhandenen
+      // Rechnungsleistungen. Nur weitere Arbeitsorte erhalten automatisch
+      // eine neue leere Leistungszeile.
+      if (isFirstExecutionSite) {
+        const baseItems = current.length > 0 ? current : [getEmptyItem()];
+        return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+      }
+      return [{ ...getEmptyItem(), ...site }, ...current];
+    });
     setEditingInvoiceSiteKey(key);
     setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
-    setExpandedItemIndex(0);
+    if (!isFirstExecutionSite) setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(true);
     focusInvoiceWorkSiteEditorV17_90L284();
   };
 

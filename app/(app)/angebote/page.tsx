@@ -729,7 +729,12 @@ function applyExecutionSitesToOfferItems(
       sitePlz: compactOfferValue(site.sitePlz) || null,
       siteCity: compactOfferValue(site.siteCity) || null,
       siteNote: compactOfferValue(site.siteNote) || null,
-      sourceOrderId: site.sourceOrderId || item.sourceOrderId || null,
+      // V17.90L293: Ein direkt im Angebot angelegter Arbeitsort ist eine
+      // dokumenteigene Zuordnung. Die alte Auftragsrolle darf ihn beim
+      // erneuten Laden nicht wieder ausblenden.
+      sourceOrderId: compactOfferValue(site._workSiteUiKey)
+        ? null
+        : site.sourceOrderId || item.sourceOrderId || null,
     });
   });
 }
@@ -4900,14 +4905,24 @@ export default function AngebotePage() {
       _workSiteUiKey: uiKey,
     };
     const key = offerGroupKeyForSite(site);
-    const blankItem = { ...getEmptyItem(), ...site };
+    const isFirstExecutionSite = executionSites.length === 0;
+
     setExecutionSites((current) => [site, ...current]);
-    setItems((current) => [blankItem, ...current]);
+    setItems((current: OfferItem[]) => {
+      // V17.90L293: Beim ersten Arbeitsort bleiben vorhandene Leistungen
+      // bestehen und werden diesem Ort zugeordnet. Erst ab dem zweiten
+      // Arbeitsort entsteht eine neue leere Leistungszeile.
+      if (isFirstExecutionSite) {
+        const baseItems = current.length > 0 ? current : [getEmptyItem()];
+        return baseItems.map((item: OfferItem) => ({ ...item, ...site }));
+      }
+      return [{ ...getEmptyItem(), ...site }, ...current];
+    });
     setEditingExecutionAddress(true);
     setEditingOfferSiteKey(key);
     setNewOfferItemSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
-    setExpandedItemIndex(0);
+    if (!isFirstExecutionSite) setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     focusNewestOfferExecutionSiteV17_90L284();
   };
@@ -5009,20 +5024,29 @@ export default function AngebotePage() {
   const setExecutionAddressEnabled = (enabled: boolean) => {
     if (enabled) {
       setExecutionAddressClearRequested(false);
-      setExecutionSites((current) =>
-        current.length > 0
-          ? current
-          : [
-              {
-                siteName: "",
-                siteAddress: "",
-                sitePlz: "",
-                siteCity: "",
-                siteNote: "",
-                sourceOrderId: fromOrderId || null,
-              },
-            ],
-      );
+      if (executionSites.length === 0) {
+        const uiKey = `offer-draft-site-${Math.random()
+          .toString(36)
+          .slice(2)}`;
+        const site: OfferExecutionSite = {
+          siteName: "",
+          siteAddress: "",
+          sitePlz: "",
+          siteCity: "",
+          siteNote: "",
+          sourceOrderId: null,
+          _workSiteUiKey: uiKey,
+        };
+        const key = offerGroupKeyForSite(site);
+        setExecutionSites([site]);
+        setItems((current: OfferItem[]) => {
+          const baseItems = current.length > 0 ? current : [getEmptyItem()];
+          return baseItems.map((item: OfferItem) => ({ ...item, ...site }));
+        });
+        setEditingOfferSiteKey(key);
+        setNewOfferItemSiteKey(key);
+        setExpandedOfferSiteKeys((current) => new Set([...current, key]));
+      }
       setEditingExecutionAddress(true);
       requestAnimationFrame(() =>
         executionAddressRef.current?.scrollIntoView({
