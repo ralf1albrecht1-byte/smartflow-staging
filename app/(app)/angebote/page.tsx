@@ -5342,33 +5342,38 @@ export default function AngebotePage() {
       toast.error("Bitte Kunde wählen");
       return null;
     }
-    if (!items?.length || !items[0]?.description?.trim()) {
+    if (!items?.some((item) => compactOfferValue(item.description))) {
       toast.error("Mindestens eine Position");
       return null;
     }
 
-    const unassignedExecutionSite =
-      executionSites.length > 1
-        ? executionSites.find((site) => {
-            const siteKey = offerGroupKeyForSite(site);
-            return !items.some((item) => {
-              const itemKey = offerGroupKeyForSite(item as OfferExecutionSite);
-              return (
-                itemKey === siteKey ||
-                (site.sourceOrderId &&
-                  item.sourceOrderId === site.sourceOrderId)
-              );
-            });
-          })
-        : null;
+    // V17.90L292: Vor dem Speichern werden die sichtbaren Arbeitsorte noch
+    // einmal verbindlich in die zugeordneten Leistungszeilen geschrieben.
+    // Angebot-Arbeitsorte werden über die Positionen persistiert; eine leere
+    // automatisch angelegte Position darf deshalb keinen erfolgreichen Save
+    // vortäuschen und danach kommentarlos verschwinden.
+    const itemsForSave = applyExecutionSitesToOfferItems(items, executionSites);
+    const completeExecutionSitesV17_90L292 = executionSites.filter(
+      (site) =>
+        Boolean(compactOfferValue(site.siteAddress)) &&
+        Boolean(compactOfferValue(site.sitePlz)) &&
+        Boolean(compactOfferValue(site.siteCity)),
+    );
+    const realItemsForSaveV17_90L292 = itemsForSave.filter((item) =>
+      Boolean(compactOfferValue(item.description)),
+    );
+    const unassignedExecutionSite = completeExecutionSitesV17_90L292.find(
+      (site) =>
+        !realItemsForSaveV17_90L292.some(
+          (item) => offerSiteKey(item) === offerSiteKey(site),
+        ),
+    );
     if (unassignedExecutionSite) {
       toast.error(
-        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
       );
       return null;
     }
-
-    const itemsForSave = applyExecutionSitesToOfferItems(items, executionSites);
 
     if (editOfferId) {
       const res = await fetch(`/api/offers/${editOfferId}`, {

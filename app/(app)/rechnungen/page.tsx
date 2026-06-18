@@ -1165,6 +1165,62 @@ const stripInvoiceWorkSiteUiStateV17_90L287 = (
   return persisted;
 };
 
+// V17.90L292: Rechnungs-Arbeitsorte werden über die Positionen gespeichert.
+// Vor jedem Save wird deshalb der aktuelle sichtbare Arbeitsortzustand noch
+// einmal verbindlich in die zugeordneten Positionen geschrieben.
+function applyInvoiceExecutionSitesToItemsV17_90L292(
+  sourceItems: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+): InvoiceItem[] {
+  const cleanSites = sites.filter(
+    (site) =>
+      Boolean(compactInvoiceValue(site.siteAddress)) &&
+      Boolean(compactInvoiceValue(site.sitePlz)) &&
+      Boolean(compactInvoiceValue(site.siteCity)),
+  );
+
+  if (cleanSites.length === 0) {
+    return sourceItems.map((item) => ({
+      ...item,
+      siteName: null,
+      siteAddress: null,
+      sitePlz: null,
+      siteCity: null,
+      siteNote: null,
+    }));
+  }
+
+  return sourceItems.map((item) => {
+    const sourceMatches = item.sourceOrderId
+      ? cleanSites.filter(
+          (candidate) => candidate.sourceOrderId === item.sourceOrderId,
+        )
+      : [];
+    const site =
+      cleanSites.find(
+        (candidate) =>
+          Boolean(compactInvoiceValue(candidate._workSiteUiKey)) &&
+          candidate._workSiteUiKey === item._workSiteUiKey,
+      ) ||
+      cleanSites.find(
+        (candidate) => invoiceSiteKey(candidate) === invoiceSiteKey(item),
+      ) ||
+      (sourceMatches.length === 1 ? sourceMatches[0] : undefined) ||
+      (cleanSites.length === 1 ? cleanSites[0] : undefined);
+
+    if (!site) return item;
+    return {
+      ...item,
+      siteName: compactInvoiceValue(site.siteName) || null,
+      siteAddress: compactInvoiceValue(site.siteAddress) || null,
+      sitePlz: compactInvoiceValue(site.sitePlz) || null,
+      siteCity: compactInvoiceValue(site.siteCity) || null,
+      siteNote: compactInvoiceValue(site.siteNote) || null,
+      sourceOrderId: site.sourceOrderId || item.sourceOrderId || null,
+    };
+  });
+}
+
 function groupInvoiceItemsByExecutionSite(
   sourceItems: InvoiceItem[],
   sites: InvoiceExecutionSite[] = [],
@@ -4729,43 +4785,36 @@ export default function RechnungenPage() {
       toast.error("Bitte Kunde wählen");
       return false;
     }
-    if (!items?.length || !items[0]?.description?.trim()) {
+    if (!items?.some((item) => compactInvoiceValue(item.description))) {
       toast.error("Mindestens eine Leistung");
       return false;
     }
     const currentExecutionSites =
       getCurrentInvoiceExecutionSitesV17_90L284();
-    const unassignedExecutionSite =
-      currentExecutionSites.length > 1
-        ? currentExecutionSites.find((site) => {
-            const siteKey = invoiceGroupKeyForSite(site);
-            const isPrimaryNewInvoiceSite = Boolean(
-              !editingInvoice &&
-                newInvoiceExecutionSite &&
-                siteKey === invoiceGroupKeyForSite(newInvoiceExecutionSite),
-            );
-            if (
-              isPrimaryNewInvoiceSite &&
-              items.some(
-                (item) =>
-                  !compactInvoiceValue(item.siteAddress) &&
-                  !compactInvoiceValue(item.sitePlz) &&
-                  !compactInvoiceValue(item.siteCity),
-              )
-            ) {
-              return false;
-            }
-            return !items.some((item) => {
-              const itemKey = invoiceGroupKeyForSite(
-                item as InvoiceExecutionSite,
-              );
-              return itemKey === siteKey;
-            });
-          })
-        : null;
+    const itemsForCreateWithUiState =
+      applyInvoiceExecutionSitesToItemsV17_90L292(
+        items,
+        currentExecutionSites,
+      );
+    const realItemsForCreateV17_90L292 = itemsForCreateWithUiState.filter(
+      (item) => Boolean(compactInvoiceValue(item.description)),
+    );
+    const unassignedExecutionSite = currentExecutionSites
+      .filter(
+        (site) =>
+          Boolean(compactInvoiceValue(site.siteAddress)) &&
+          Boolean(compactInvoiceValue(site.sitePlz)) &&
+          Boolean(compactInvoiceValue(site.siteCity)),
+      )
+      .find(
+        (site) =>
+          !realItemsForCreateV17_90L292.some(
+            (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
+          ),
+      );
     if (unassignedExecutionSite) {
       toast.error(
-        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
       );
       return false;
     }
@@ -4781,29 +4830,6 @@ export default function RechnungenPage() {
     }
     setSaving(true);
     try {
-      const itemsForCreateWithUiState = newInvoiceExecutionSite
-        ? items.map((item) => {
-            const hasAssignedExecutionSite = Boolean(
-              compactInvoiceValue(item.siteAddress) &&
-                compactInvoiceValue(item.sitePlz) &&
-                compactInvoiceValue(item.siteCity),
-            );
-            if (hasAssignedExecutionSite) return item;
-            return {
-              ...item,
-              siteName:
-                compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
-              siteAddress:
-                compactInvoiceValue(newInvoiceExecutionSite.siteAddress) || null,
-              sitePlz:
-                compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
-              siteCity:
-                compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
-              siteNote:
-                compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
-            };
-          })
-        : items;
       const itemsForCreate = itemsForCreateWithUiState.map(
         stripInvoiceWorkSiteUiStateV17_90L287,
       );
@@ -4873,25 +4899,32 @@ export default function RechnungenPage() {
 
   const saveEdit = async (closeAfterSave = true): Promise<boolean> => {
     if (!editingInvoice) return false;
-    const unassignedExecutionSite =
-      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
-        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
-            const siteKey = invoiceGroupKeyForSite(site);
-            return !items.some((item) => {
-              const itemKey = invoiceGroupKeyForSite(
-                item as InvoiceExecutionSite,
-              );
-              return (
-                itemKey === siteKey ||
-                (site.sourceOrderId &&
-                  item.sourceOrderId === site.sourceOrderId)
-              );
-            });
-          })
-        : null;
+    const currentExecutionSitesV17_90L292 =
+      getCurrentInvoiceExecutionSitesV17_90L284();
+    const itemsForEditWithUiStateV17_90L292 =
+      applyInvoiceExecutionSitesToItemsV17_90L292(
+        items,
+        currentExecutionSitesV17_90L292,
+      );
+    const realItemsForEditV17_90L292 = itemsForEditWithUiStateV17_90L292.filter(
+      (item) => Boolean(compactInvoiceValue(item.description)),
+    );
+    const unassignedExecutionSite = currentExecutionSitesV17_90L292
+      .filter(
+        (site) =>
+          Boolean(compactInvoiceValue(site.siteAddress)) &&
+          Boolean(compactInvoiceValue(site.sitePlz)) &&
+          Boolean(compactInvoiceValue(site.siteCity)),
+      )
+      .find(
+        (site) =>
+          !realItemsForEditV17_90L292.some(
+            (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
+          ),
+      );
     if (unassignedExecutionSite) {
       toast.error(
-        "Bitte dem neuen Arbeitsort mindestens eine Leistung zuordnen oder den Arbeitsort löschen.",
+        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
       );
       return false;
     }
@@ -4915,7 +4948,9 @@ export default function RechnungenPage() {
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
-          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
+          items: itemsForEditWithUiStateV17_90L292.map(
+            stripInvoiceWorkSiteUiStateV17_90L287,
+          ),
           clearExecutionAddress: executionAddressClearRequested,
           vatRate,
           currency,

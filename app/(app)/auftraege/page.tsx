@@ -15542,7 +15542,7 @@ export default function AuftraegePage() {
       return null;
     }
     const sourceFormItems = itemsOverride ?? formItems;
-    const validItems = mergeEquivalentFormItems(
+    let validItems = mergeEquivalentFormItems(
       sourceFormItems.filter((i) => i.serviceName.trim()),
     );
     if (validItems.length === 0) {
@@ -15618,6 +15618,41 @@ export default function AuftraegePage() {
     const cleanWorkSites = synchronizedFormWorkSites.filter(
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
+
+    // V17.90L292: Der sichtbare Arbeitsort muss vor dem Speichern verbindlich
+    // mit den gespeicherten Leistungszeilen verknüpft sein. Bei genau einem
+    // Arbeitsort werden noch unzugeordnete Leistungen diesem Ort zugewiesen.
+    // Bei mehreren Arbeitsorten bleibt die bewusste Zuordnung unverändert.
+    const canonicalPrimaryWorkSiteIdV17_90L292 =
+      cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
+      cleanWorkSites[0]?.id ||
+      null;
+    if (cleanWorkSites.length === 1 && canonicalPrimaryWorkSiteIdV17_90L292) {
+      const currentWorkSiteIdsV17_90L292 = new Set(
+        cleanWorkSites.map((site) => site.id),
+      );
+      validItems = validItems.map((item) =>
+        item.workSiteId && currentWorkSiteIdsV17_90L292.has(item.workSiteId)
+          ? item
+          : { ...item, workSiteId: canonicalPrimaryWorkSiteIdV17_90L292 },
+      );
+    }
+
+    const workSiteWithoutServiceV17_90L292 = cleanWorkSites.find(
+      (site) =>
+        !validItems.some(
+          (item) =>
+            item.workSiteId === site.id &&
+            Boolean(compactText(item.serviceName)),
+        ),
+    );
+    if (workSiteWithoutServiceV17_90L292) {
+      toast.error(
+        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
+      );
+      return null;
+    }
+
     const primaryWorkSiteForPayload =
       cleanWorkSites.find((site) => Boolean(site.isPrimary)) ||
       cleanWorkSites[0] ||
@@ -16122,7 +16157,7 @@ export default function AuftraegePage() {
       workSites:
         editId && executionAddressClearRequested
           ? []
-          : editId && cleanWorkSites.length > 0
+          : cleanWorkSites.length > 0
             ? (() => {
                 const canonicalPrimarySiteIdV17_90L285 =
                   cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
