@@ -21785,7 +21785,6 @@ export default function AuftraegePage() {
                               ) : (
                                 groupExpanded && (
                                   <details
-                                    data-smartflow-service-item-key={item.key}
                                     open={expandedServiceItemKeys.includes(item.key)}
                                     onToggle={(event) => {
                                       const isOpen = event.currentTarget.open;
@@ -21859,19 +21858,74 @@ export default function AuftraegePage() {
 
                                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-180" />
 
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          removeItem(index);
-                                        }}
-                                        className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
-                                        title="Leistung löschen"
-                                        aria-label="Leistung löschen"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
+                                      {hasCatalogActionMenu ? (
+                                        <div
+                                          className="relative shrink-0"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                          }}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              setServiceActionMenuKey(
+                                                isMenuOpen ? null : item.key,
+                                              );
+                                            }}
+                                            className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                            title="Leistungsaktionen"
+                                            aria-label="Leistungsaktionen"
+                                          >
+                                            <MoreVertical className="h-4 w-4" />
+                                          </button>
+                                          {isMenuOpen && (
+                                            <div className="absolute right-0 top-full z-[80] mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  setServiceActionMenuKey(null);
+                                                  removeItem(index);
+                                                }}
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                                Leistung löschen
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  void saveItemToServices(index);
+                                                }}
+                                              >
+                                                <Plus className="h-4 w-4" />
+                                                In Leistungskatalog übernehmen
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            removeItem(index);
+                                          }}
+                                          className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
+                                          title="Leistung löschen"
+                                          aria-label="Leistung löschen"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
                                     </summary>
 
                                     <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
@@ -21882,47 +21936,13 @@ export default function AuftraegePage() {
                                             className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                             value={item.workSiteId || ""}
                                             onChange={(e: any) => {
-                                                  const nextWorkSiteId = e?.target?.value ?? "";
-
-                                                  updateItem(
-                                                    index,
-                                                    "workSiteId",
-                                                    nextWorkSiteId,
-                                                  );
-
-                                                  const keepItemOpenAfterWorkSiteChange = () => {
-                                                    if (nextWorkSiteId) {
-                                                      setActiveWorkSiteId(nextWorkSiteId);
-                                                      setExpandedWorkSiteIds((current) =>
-                                                        current.includes(nextWorkSiteId)
-                                                          ? current
-                                                          : [nextWorkSiteId, ...current],
-                                                      );
-                                                    } else {
-                                                      setExpandedWorkSiteIds((current) =>
-                                                        current.includes("__unassigned__")
-                                                          ? current
-                                                          : ["__unassigned__", ...current],
-                                                      );
-                                                    }
-
-                                                    setExpandedServiceItemKeys((current) =>
-                                                      current.includes(item.key)
-                                                        ? current
-                                                        : [item.key, ...current],
-                                                    );
-                                                  };
-
-                                                  keepItemOpenAfterWorkSiteChange();
-                                                  setMovingItemKey(nextWorkSiteId ? null : item.key);
-
-                                                  if (typeof window !== "undefined") {
-                                                    window.setTimeout(
-                                                      keepItemOpenAfterWorkSiteChange,
-                                                      0,
-                                                    );
-                                                  }
-                                                }}
+                                              updateItem(
+                                                index,
+                                                "workSiteId",
+                                                e?.target?.value ?? "",
+                                              );
+                                              setMovingItemKey(null);
+                                            }}
                                           >
                                             <option value="">Arbeitsort wählen</option>
                                             {currentEditWorkSites.map((siteOption) => (
