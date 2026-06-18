@@ -1,6 +1,6 @@
 "use client";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   FileText,
@@ -161,6 +161,17 @@ interface Invoice {
   sourceOfferId?: string | null;
   sourceOfferNumber?: string | null;
 }
+interface CustomerExecutionAddress {
+  id: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
+
 interface Customer {
   id: string;
   name: string;
@@ -171,6 +182,7 @@ interface Customer {
   country?: string | null;
   phone?: string | null;
   email?: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
 }
 
 const INVOICE_HISTORICAL_STATUSES = new Set([
@@ -2938,6 +2950,36 @@ export default function RechnungenPage() {
   }, [editingExecutionAddress]);
 
   useEffect(() => {
+    const customerId = compactInvoiceValue(form.customerId);
+    if (!dialogOpen || !customerId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/customers/${customerId}/execution-addresses`,
+        );
+        if (!response.ok) return;
+        const executionAddresses = await response.json();
+        if (cancelled || !Array.isArray(executionAddresses)) return;
+        setCustomers((current) =>
+          current.map((customer) =>
+            customer.id === customerId
+              ? { ...customer, executionAddresses }
+              : customer,
+          ),
+        );
+      } catch {
+        // Manuelle Eingabe bleibt jederzeit möglich.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, form.customerId]);
+
+  useEffect(() => {
     if (serviceActionMenuIndex === null) return;
     const closeMenu = () => setServiceActionMenuIndex(null);
     document.addEventListener("click", closeMenu);
@@ -3912,6 +3954,183 @@ export default function RechnungenPage() {
     }
     collected.forEach(addSite);
     return result;
+  };
+
+  const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  }) =>
+    [site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactInvoiceValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+
+  const currentInvoiceExecutionSitesForSuggestionsV17_90L289 =
+    getCurrentInvoiceExecutionSitesV17_90L284();
+
+  const customerExecutionAddressSuggestionsV17_90L289 = useMemo(() => {
+    const customer = customers.find(
+      (entry) => entry.id === compactInvoiceValue(form.customerId),
+    );
+    const stored = Array.isArray(customer?.executionAddresses)
+      ? customer.executionAddresses
+      : [];
+    const usedKeys = new Set(
+      currentInvoiceExecutionSitesForSuggestionsV17_90L289
+        .map(normalizeCustomerExecutionAddressKeyV17_90L289)
+        .filter((key) => key && key !== "||"),
+    );
+    const seen = new Set<string>();
+
+    return stored
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.lastUsedAt || 0).getTime() -
+          new Date(left.lastUsedAt || 0).getTime(),
+      )
+      .filter((site) => {
+        if (
+          !compactInvoiceValue(site.siteAddress) ||
+          !compactInvoiceValue(site.sitePlz) ||
+          !compactInvoiceValue(site.siteCity)
+        )
+          return false;
+        const key = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+        if (!key || key === "||" || usedKeys.has(key) || seen.has(key))
+          return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 8);
+  }, [
+    customers,
+    form.customerId,
+    items,
+    invoiceExecutionSiteDrafts,
+    newInvoiceExecutionSite,
+    editingInvoice,
+    executionAddressClearRequested,
+  ]);
+
+  const applyCustomerExecutionAddressToInvoiceSiteV17_90L289 = (
+    targetKey: string,
+    suggestion: CustomerExecutionAddress,
+  ) => {
+    const target = currentInvoiceExecutionSitesForSuggestionsV17_90L289.find(
+      (site) => invoiceGroupKeyForSite(site) === targetKey,
+    );
+    if (!target) return;
+
+    const stableUiKey =
+      compactInvoiceValue(target._workSiteUiKey) ||
+      `invoice-site-${Math.random().toString(36).slice(2)}`;
+    const replacement = {
+      siteName: compactInvoiceValue(suggestion.siteName) || null,
+      siteAddress: compactInvoiceValue(suggestion.siteAddress) || null,
+      sitePlz: compactInvoiceValue(suggestion.sitePlz) || null,
+      siteCity: compactInvoiceValue(suggestion.siteCity) || null,
+      siteNote: compactInvoiceValue(suggestion.siteNote) || null,
+      _workSiteUiKey: stableUiKey,
+    };
+
+    setNewInvoiceExecutionSite((current) =>
+      current && invoiceGroupKeyForSite(current) === targetKey
+        ? { ...current, ...replacement }
+        : current,
+    );
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.map((site) =>
+        invoiceGroupKeyForSite(site) === targetKey
+          ? { ...site, ...replacement }
+          : site,
+      ),
+    );
+    setItems((current) =>
+      current.map((item) =>
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === targetKey
+          ? { ...item, ...replacement }
+          : item,
+      ),
+    );
+    setEditingInvoiceSiteKey(stableUiKey);
+    setNewInvoiceItemSiteKey(stableUiKey);
+    setExpandedInvoiceSiteKeys((current) =>
+      new Set([...current, stableUiKey]),
+    );
+    toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const renderInvoiceExecutionAddressSuggestionsV17_90L289 = (
+    targetKey: string,
+  ) => {
+    const target = currentInvoiceExecutionSitesForSuggestionsV17_90L289.find(
+      (site) => invoiceGroupKeyForSite(site) === targetKey,
+    );
+    const isNewInvoiceSite = Boolean(
+      !editingInvoice &&
+        newInvoiceExecutionSite &&
+        invoiceGroupKeyForSite(newInvoiceExecutionSite) === targetKey,
+    );
+    const isEditableDraft = Boolean(
+      compactInvoiceValue(target?._workSiteUiKey) || isNewInvoiceSite,
+    );
+    if (
+      customerExecutionAddressSuggestionsV17_90L289.length === 0 ||
+      !isEditableDraft
+    )
+      return null;
+
+    return (
+      <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+        <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
+          Gespeicherte Ausführungsorte
+        </div>
+        <div className="grid gap-1">
+          {customerExecutionAddressSuggestionsV17_90L289.map((suggestion) => {
+            const key =
+              normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
+            const title =
+              compactInvoiceValue(suggestion.siteName) ||
+              compactInvoiceValue(suggestion.siteAddress) ||
+              "Ausführungsort";
+            const address = [
+              compactInvoiceValue(suggestion.siteAddress),
+              [suggestion.sitePlz, suggestion.siteCity]
+                .map(compactInvoiceValue)
+                .filter(Boolean)
+                .join(" "),
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <button
+                key={`${targetKey}-${key}`}
+                type="button"
+                onClick={() =>
+                  applyCustomerExecutionAddressToInvoiceSiteV17_90L289(
+                    targetKey,
+                    suggestion,
+                  )
+                }
+                className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+              >
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {title}
+                </div>
+                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  {address}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   const setInvoiceExecutionAddressEnabledV17_90L288 = (
@@ -6663,6 +6882,9 @@ export default function RechnungenPage() {
                     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                       {editingExecutionAddress ? (
                         <div className="space-y-3">
+                          {renderInvoiceExecutionAddressSuggestionsV17_90L289(
+                            invoiceGroupKeyForSite(newInvoiceExecutionSite),
+                          )}
                           <div>
                             <Label className="text-xs">Objekt / Bereich</Label>
                             <Input
@@ -6896,6 +7118,11 @@ export default function RechnungenPage() {
                         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                           {editingExecutionAddress ? (
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                {renderInvoiceExecutionAddressSuggestionsV17_90L289(
+                                  invoiceGroupKeyForSite(executionSite),
+                                )}
+                              </div>
                               <div className="sm:col-span-2">
                                 <Label className="text-xs">
                                   Objekt / Bereich
@@ -7672,6 +7899,9 @@ export default function RechnungenPage() {
                                 }`}
                               >
                                 <div className="rounded-md border bg-background/80 p-2 space-y-2">
+                                  {renderInvoiceExecutionAddressSuggestionsV17_90L289(
+                                    group.key,
+                                  )}
                                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                     <div>
                                       <Label className="text-[10px]">Bezeichnung</Label>

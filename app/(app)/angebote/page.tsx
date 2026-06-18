@@ -1,6 +1,6 @@
 "use client";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   FileCheck,
@@ -177,6 +177,17 @@ interface Offer {
   validUntil: string | null;
   notes: string | null;
 }
+interface CustomerExecutionAddress {
+  id: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
+
 interface Customer {
   id: string;
   name: string;
@@ -187,6 +198,7 @@ interface Customer {
   country?: string | null;
   phone?: string | null;
   email?: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
 }
 
 const OFFER_HISTORICAL_STATUSES = new Set(["Gesendet", "Abgelehnt"]);
@@ -3863,6 +3875,36 @@ export default function AngebotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingExecutionAddress]);
 
+  useEffect(() => {
+    const customerId = compactOfferValue(form.customerId);
+    if (!dialogOpen || !customerId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/customers/${customerId}/execution-addresses`,
+        );
+        if (!response.ok) return;
+        const executionAddresses = await response.json();
+        if (cancelled || !Array.isArray(executionAddresses)) return;
+        setCustomers((current) =>
+          current.map((customer) =>
+            customer.id === customerId
+              ? { ...customer, executionAddresses }
+              : customer,
+          ),
+        );
+      } catch {
+        // Manuelle Eingabe bleibt jederzeit möglich.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, form.customerId]);
+
   // Block D: open the "Kunde bearbeiten" sheet for the currently-selected customer.
   // Used both by the inline ✏️ button and by clicking the customer summary box.
   // Optional `customerIdOverride` lets callers (e.g. the list-card chip
@@ -4549,6 +4591,165 @@ export default function AngebotePage() {
 
   const offerGroupKeyForSite = (site: OfferExecutionSite) =>
     offerWorkSiteGroupKeyV17_90L287(site);
+
+  const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  }) =>
+    [site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactOfferValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+
+  const customerExecutionAddressSuggestionsV17_90L289 = useMemo(() => {
+    const customer = customers.find(
+      (entry) => entry.id === compactOfferValue(form.customerId),
+    );
+    const stored = Array.isArray(customer?.executionAddresses)
+      ? customer.executionAddresses
+      : [];
+    const usedKeys = new Set(
+      executionSites
+        .map(normalizeCustomerExecutionAddressKeyV17_90L289)
+        .filter((key) => key && key !== "||"),
+    );
+    const seen = new Set<string>();
+
+    return stored
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.lastUsedAt || 0).getTime() -
+          new Date(left.lastUsedAt || 0).getTime(),
+      )
+      .filter((site) => {
+        if (
+          !compactOfferValue(site.siteAddress) ||
+          !compactOfferValue(site.sitePlz) ||
+          !compactOfferValue(site.siteCity)
+        )
+          return false;
+        const key = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+        if (!key || key === "||" || usedKeys.has(key) || seen.has(key))
+          return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 8);
+  }, [customers, form.customerId, executionSites]);
+
+  const applyCustomerExecutionAddressToOfferSiteV17_90L289 = (
+    targetKey: string,
+    suggestion: CustomerExecutionAddress,
+  ) => {
+    const target = executionSites.find(
+      (site) => offerGroupKeyForSite(site) === targetKey,
+    );
+    if (!target) return;
+
+    const stableUiKey =
+      compactOfferValue(target._workSiteUiKey) ||
+      `offer-site-${Math.random().toString(36).slice(2)}`;
+    const replacement = {
+      siteName: compactOfferValue(suggestion.siteName) || null,
+      siteAddress: compactOfferValue(suggestion.siteAddress) || null,
+      sitePlz: compactOfferValue(suggestion.sitePlz) || null,
+      siteCity: compactOfferValue(suggestion.siteCity) || null,
+      siteNote: compactOfferValue(suggestion.siteNote) || null,
+      _workSiteUiKey: stableUiKey,
+    };
+
+    setExecutionSites((current) =>
+      current.map((site) =>
+        offerGroupKeyForSite(site) === targetKey
+          ? { ...site, ...replacement }
+          : site,
+      ),
+    );
+    setItems((current) =>
+      current.map((item) =>
+        offerGroupKeyForSite(item as OfferExecutionSite) === targetKey
+          ? { ...item, ...replacement }
+          : item,
+      ),
+    );
+    setEditingOfferSiteKey(stableUiKey);
+    setNewOfferItemSiteKey(stableUiKey);
+    setExpandedOfferSiteKeys((current) =>
+      new Set([...current, stableUiKey]),
+    );
+    toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const renderOfferExecutionAddressSuggestionsV17_90L289 = (
+    targetKey: string,
+  ) => {
+    const target = executionSites.find(
+      (site) => offerGroupKeyForSite(site) === targetKey,
+    );
+    const targetIsIncomplete = Boolean(
+      target &&
+        (!compactOfferValue(target.siteAddress) ||
+          !compactOfferValue(target.sitePlz) ||
+          !compactOfferValue(target.siteCity)),
+    );
+    if (
+      customerExecutionAddressSuggestionsV17_90L289.length === 0 ||
+      (!targetIsIncomplete && editingOfferSiteKey !== targetKey)
+    )
+      return null;
+
+    return (
+      <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+        <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
+          Gespeicherte Ausführungsorte
+        </div>
+        <div className="grid gap-1">
+          {customerExecutionAddressSuggestionsV17_90L289.map((suggestion) => {
+            const key =
+              normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
+            const title =
+              compactOfferValue(suggestion.siteName) ||
+              compactOfferValue(suggestion.siteAddress) ||
+              "Ausführungsort";
+            const address = [
+              compactOfferValue(suggestion.siteAddress),
+              [suggestion.sitePlz, suggestion.siteCity]
+                .map(compactOfferValue)
+                .filter(Boolean)
+                .join(" "),
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <button
+                key={`${targetKey}-${key}`}
+                type="button"
+                onClick={() =>
+                  applyCustomerExecutionAddressToOfferSiteV17_90L289(
+                    targetKey,
+                    suggestion,
+                  )
+                }
+                className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+              >
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {title}
+                </div>
+                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  {address}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const addExecutionSite = () => {
     const unfinishedSiteIndex = executionSites.findIndex(
@@ -8432,6 +8633,9 @@ export default function AngebotePage() {
                           >
                             {editingExecutionAddress ? (
                               <div className="space-y-3">
+                                {renderOfferExecutionAddressSuggestionsV17_90L289(
+                                  offerGroupKeyForSite(site),
+                                )}
                                 <div>
                                   <Label className="text-xs">
                                     Objekt / Bereich
@@ -9190,6 +9394,9 @@ export default function AngebotePage() {
                                 }`}
                               >
                                 <div className="rounded-md border bg-background/80 p-2 space-y-2">
+                                  {renderOfferExecutionAddressSuggestionsV17_90L289(
+                                    group.key,
+                                  )}
                                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                     <div>
                                       <Label className="text-[10px]">Bezeichnung</Label>

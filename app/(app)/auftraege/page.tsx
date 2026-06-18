@@ -11672,7 +11672,9 @@ export default function AuftraegePage() {
     if (
       !dialogOpen ||
       !customerId ||
-      (!siteAddressEditing && !hasCurrentExecutionAddress)
+      (!siteAddressEditing &&
+        !hasCurrentExecutionAddress &&
+        !editingWorkSiteId)
     ) {
       return;
     }
@@ -11712,6 +11714,7 @@ export default function AuftraegePage() {
   }, [
     dialogOpen,
     siteAddressEditing,
+    editingWorkSiteId,
     form.customerId,
     form.siteAddressDifferent,
     form.siteAddress,
@@ -14603,11 +14606,23 @@ export default function AuftraegePage() {
 
     const seen = new Set<string>();
     const suggestions: OrderWorkSite[] = [];
-    const currentAddress = {
+    const usedAddressKeys = new Set<string>();
+
+    const registerUsedAddress = (site: {
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    }) => {
+      const key = normalizePersistentExecutionAddressKeyV17_68(site);
+      if (key && key !== "||") usedAddressKeys.add(key);
+    };
+
+    formWorkSites.forEach(registerUsedAddress);
+    registerUsedAddress({
       siteAddress: form.siteAddress,
       sitePlz: form.sitePlz,
       siteCity: form.siteCity,
-    };
+    });
 
     storedAddresses
       .slice()
@@ -14639,11 +14654,15 @@ export default function AuftraegePage() {
           return;
         }
 
-        if (isSameAddressPartsV17_63(normalizedSite, currentAddress)) return;
-
         const key =
           normalizePersistentExecutionAddressKeyV17_68(normalizedSite);
-        if (!key || key === "||" || seen.has(key)) return;
+        if (
+          !key ||
+          key === "||" ||
+          usedAddressKeys.has(key) ||
+          seen.has(key)
+        )
+          return;
         seen.add(key);
         suggestions.push(normalizedSite);
       });
@@ -14655,6 +14674,7 @@ export default function AuftraegePage() {
     form.siteAddress,
     form.sitePlz,
     form.siteCity,
+    formWorkSites,
   ]);
 
   const applyPersistentExecutionAddressSuggestionV17_68 = (
@@ -14707,6 +14727,48 @@ export default function AuftraegePage() {
     );
     setSiteAddressEditing(true);
     toast.success("Ausführungsadresse ausgewählt – Adresse speichern.");
+  };
+
+  const applyPersistentExecutionAddressSuggestionToWorkSiteV17_90L289 = (
+    targetSiteId: string,
+    suggestion: OrderWorkSite,
+  ) => {
+    const replacement = {
+      siteName: cleanWorkSiteDisplayName(suggestion.siteName) || null,
+      siteAddress: compactText(suggestion.siteAddress) || null,
+      sitePlz: compactText(suggestion.sitePlz) || null,
+      siteCity: compactText(suggestion.siteCity) || null,
+      siteNote: compactText(suggestion.siteNote) || null,
+    };
+
+    const target = formWorkSites.find((site) => site.id === targetSiteId);
+    setFormWorkSites((current) =>
+      current.map((site) =>
+        site.id === targetSiteId ? { ...site, ...replacement } : site,
+      ),
+    );
+
+    if (target?.isPrimary) {
+      setForm((current) => ({
+        ...current,
+        siteAddressDifferent: true,
+        siteName: replacement.siteName || "",
+        siteAddress: replacement.siteAddress || "",
+        sitePlz: replacement.sitePlz || "",
+        siteCity: replacement.siteCity || "",
+        siteNote: replacement.siteNote || "",
+      }));
+    }
+
+    setActiveWorkSiteId(targetSiteId);
+    setEditingWorkSiteId(targetSiteId);
+    setNewItemWorkSiteId(targetSiteId);
+    setExpandedWorkSiteIds((current) =>
+      current.includes(targetSiteId)
+        ? current
+        : [targetSiteId, ...current],
+    );
+    toast.success("Gespeicherter Ausführungsort übernommen.");
   };
 
   const deletePersistentExecutionAddressSuggestionV17_72 = async (
@@ -21114,6 +21176,59 @@ export default function AuftraegePage() {
                                       }
                                       className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
                                     >
+                                      {previousExecutionAddressSuggestionsV17_68.length > 0 && (
+                                        <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                                          <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
+                                            Gespeicherte Ausführungsorte
+                                          </div>
+                                          <div className="grid gap-1">
+                                            {previousExecutionAddressSuggestionsV17_68.map(
+                                              (suggestion) => {
+                                                const suggestionKey =
+                                                  normalizePersistentExecutionAddressKeyV17_68(
+                                                    suggestion,
+                                                  );
+                                                const suggestionTitle =
+                                                  formatWorkSiteTitle(suggestion);
+                                                const suggestionAddress = [
+                                                  compactText(
+                                                    suggestion.siteAddress,
+                                                  ),
+                                                  [
+                                                    suggestion.sitePlz,
+                                                    suggestion.siteCity,
+                                                  ]
+                                                    .map(compactText)
+                                                    .filter(Boolean)
+                                                    .join(" "),
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join(" · ");
+                                                return (
+                                                  <button
+                                                    key={`${site.id}-${suggestionKey}`}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      applyPersistentExecutionAddressSuggestionToWorkSiteV17_90L289(
+                                                        site.id,
+                                                        suggestion,
+                                                      )
+                                                    }
+                                                    className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+                                                  >
+                                                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                                                      {suggestionTitle}
+                                                    </div>
+                                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                                      {suggestionAddress}
+                                                    </div>
+                                                  </button>
+                                                );
+                                              },
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div>
                                           <Label className="text-[10px]">
