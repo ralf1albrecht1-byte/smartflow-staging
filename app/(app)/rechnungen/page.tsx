@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L324_INVOICE_APPOINTMENT_CHIP_CURRENT_ONLY
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
 // SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
@@ -1206,6 +1207,50 @@ function flattenInvoiceSpecialInfoLinesV17_90L319(
   return result;
 }
 
+type InvoiceAppointmentTimingV17_90L324 = "past" | "current" | "unknown";
+
+const getInvoiceAppointmentTimingV17_90L324 = (value: unknown): InvoiceAppointmentTimingV17_90L324 => {
+  const text = compactInvoiceValue(value).toLocaleLowerCase("de-CH");
+  if (!text) return "unknown";
+  if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) {
+    return "past";
+  }
+  if (/\b(?:heute|morgen|übermorgen|uebermorgen)\b/i.test(text)) {
+    return "current";
+  }
+
+  const dateMatch = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  if (!dateMatch) return "unknown";
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const rawYear = dateMatch[3];
+  const year = rawYear
+    ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear)
+    : currentYear;
+  const parsed = new Date(year, month - 1, day);
+  if (
+    !Number.isFinite(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return "unknown";
+  }
+
+  const todayStart = new Date(currentYear, now.getMonth(), now.getDate());
+  return parsed.getTime() < todayStart.getTime() ? "past" : "current";
+};
+
+const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => {
+  const text = compactInvoiceValue(value);
+  if (!text) return false;
+  if (/^Termine(?:\s*·\s*\d+)?/i.test(text)) return true;
+  return getInvoiceAppointmentTimingV17_90L324(text) !== "past";
+};
+
 function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
   summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
 ): string {
@@ -1222,6 +1267,10 @@ function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
     ) {
       return;
     }
+    // V17.90L324: Vergangene Rechnungs-Termine bleiben im Info-Chip,
+    // erzeugen außen aber keinen Terminchip mehr. Unklare/relative aktuelle
+    // Terminhinweise bleiben sichtbar.
+    if (getInvoiceAppointmentTimingV17_90L324(text) === "past") return;
     seen.add(key);
     result.push(text);
   };
@@ -1231,7 +1280,8 @@ function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
   // Die Details bleiben im Info-Chip; der Terminchip zeigt dann neutral
   // "Termine" und das Tooltip listet alle Terminhinweise.
   summary.primaryHints.forEach(add);
-  if (result.length <= 1) return "";
+  if (result.length === 0) return "";
+  if (result.length === 1) return result[0];
 
   return [
     `Termine · ${result.length}`,
@@ -6370,6 +6420,13 @@ export default function RechnungenPage() {
                   if (invoiceSpecialAppointmentDisplayLabelV17_90L323) {
                     invoiceAppointmentDisplayLabel =
                       invoiceSpecialAppointmentDisplayLabelV17_90L323;
+                  }
+                  if (
+                    !shouldShowInvoiceAppointmentChipV17_90L324(
+                      invoiceAppointmentDisplayLabel,
+                    )
+                  ) {
+                    invoiceAppointmentDisplayLabel = "";
                   }
                   const invoiceAppointmentChipLabels =
                     buildAdaptiveAppointmentLabels(
