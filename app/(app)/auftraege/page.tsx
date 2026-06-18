@@ -14693,9 +14693,9 @@ export default function AuftraegePage() {
         suggestions.push(normalizedSite);
       });
 
-    // V17.90L290: Auftrag, Angebot und Rechnung zeigen gleich viele
-    // gespeicherte Ausführungsorte an.
-    return suggestions.slice(0, 8);
+    // V17.90L291: Keine fachliche Begrenzung. Die Anzeige wird im
+    // Suchfeld scrollbar gehalten, aber alle unbenutzten Orte bleiben erreichbar.
+    return suggestions;
   }, [
     customers,
     form.customerId,
@@ -14797,6 +14797,130 @@ export default function AuftraegePage() {
         : [targetSiteId, ...current],
     );
     toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
+    compactText(value)
+      .toLocaleLowerCase("de-CH")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9äöüß]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const filterExecutionAddressSuggestionsV17_90L291 = (query: unknown) => {
+    const tokens = normalizeExecutionAddressSearchV17_90L291(query)
+      .split(" ")
+      .filter(Boolean);
+    if (tokens.length === 0) return previousExecutionAddressSuggestionsV17_68;
+
+    return previousExecutionAddressSuggestionsV17_68.filter((suggestion) => {
+      const searchable = normalizeExecutionAddressSearchV17_90L291(
+        [
+          suggestion.siteName,
+          suggestion.siteAddress,
+          suggestion.sitePlz,
+          suggestion.siteCity,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      return tokens.every((token) => searchable.includes(token));
+    });
+  };
+
+  const renderOrderExecutionAddressAutocompleteV17_90L291 = ({
+    inputKey,
+    value,
+    onChange,
+    onSelect,
+    label = "Objekt / Bereich",
+    labelClassName = "text-xs",
+    inputClassName = "",
+    placeholder = "z. B. Wohnpark Limmat, Serverraum",
+  }: {
+    inputKey: string;
+    value: string;
+    onChange: (value: string) => void;
+    onSelect: (suggestion: OrderWorkSite) => void;
+    label?: string;
+    labelClassName?: string;
+    inputClassName?: string;
+    placeholder?: string;
+  }) => {
+    const suggestions = filterExecutionAddressSuggestionsV17_90L291(value);
+
+    return (
+      <div className="group relative">
+        <Label className={labelClassName}>{label}</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className={`pl-8 ${inputClassName}`.trim()}
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-[140] mt-1 hidden max-h-64 overflow-y-auto rounded-md border border-cyan-200 bg-background p-1.5 shadow-xl group-focus-within:block dark:border-cyan-900/70">
+            {suggestions.map((suggestion) => {
+              const suggestionKey =
+                normalizePersistentExecutionAddressKeyV17_68(suggestion);
+              const title = formatWorkSiteTitle(suggestion);
+              const address = [
+                compactText(suggestion.siteAddress),
+                [suggestion.sitePlz, suggestion.siteCity]
+                  .map(compactText)
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+
+              return (
+                <div
+                  key={`${inputKey}-${suggestionKey}`}
+                  className="flex items-stretch gap-1 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-950/30"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-xs"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onSelect(suggestion)}
+                  >
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                      {title}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {address}
+                    </div>
+                  </button>
+                  {suggestion.customerExecutionAddressId && (
+                    <button
+                      type="button"
+                      className="m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                      title="Aus Kundenprofil entfernen"
+                      aria-label="Ausführungsort aus Kundenprofil entfernen"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deletePersistentExecutionAddressSuggestionV17_72(
+                          suggestion,
+                        );
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const deletePersistentExecutionAddressSuggestionV17_72 = async (
@@ -19959,92 +20083,19 @@ export default function AuftraegePage() {
                         </p>
                       </div>
 
-                      {previousExecutionAddressSuggestionsV17_68.length > 0 && (
-                        <div className="rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <div className="text-xs font-semibold text-cyan-900 dark:text-cyan-100">
-                              Gespeicherte Ausführungsorte
-                            </div>
-                            <div className="text-[10px] text-cyan-700 dark:text-cyan-300">
-                              Beim Kunden gespeichert
-                            </div>
-                          </div>
-                          <div className="grid gap-1.5">
-                            {previousExecutionAddressSuggestionsV17_68.map(
-                              (site) => {
-                                const title = formatWorkSiteTitle(site);
-                                const address = [
-                                  compactText(site.siteAddress),
-                                  [site.sitePlz, site.siteCity]
-                                    .map(compactText)
-                                    .filter(Boolean)
-                                    .join(" "),
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ");
-
-                                return (
-                                  <div
-                                    key={normalizePersistentExecutionAddressKeyV17_68(
-                                      site,
-                                    )}
-                                    className="flex items-stretch gap-1.5 rounded-md border border-cyan-200 bg-white text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        applyPersistentExecutionAddressSuggestionV17_68(
-                                          site,
-                                        )
-                                      }
-                                      className="min-w-0 flex-1 px-2 py-1.5 text-left"
-                                    >
-                                      <div className="font-semibold text-slate-900 dark:text-slate-100">
-                                        {title}
-                                      </div>
-                                      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                        {address}
-                                      </div>
-                                      {site.siteNote && (
-                                        <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
-                                          {site.siteNote}
-                                        </div>
-                                      )}
-                                    </button>
-                                    {site.customerExecutionAddressId && (
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          deletePersistentExecutionAddressSuggestionV17_72(
-                                            site,
-                                          );
-                                        }}
-                                        className="flex shrink-0 items-center justify-center px-2 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/30"
-                                        aria-label="Ausführungsort entfernen"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              },
-                            )}
-                          </div>
-                        </div>
-                      )}
-
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs">Objekt / Name</Label>
-                          <Input
-                            placeholder="z. B. Baustelle Tiefgarage"
-                            value={form.siteName}
-                            onChange={(e) =>
-                              setForm({ ...form, siteName: e.target.value })
-                            }
-                          />
-                        </div>
+                        {renderOrderExecutionAddressAutocompleteV17_90L291({
+                          inputKey: "primary-order-site",
+                          value: form.siteName,
+                          onChange: (value) =>
+                            setForm((current) => ({
+                              ...current,
+                              siteName: value,
+                            })),
+                          onSelect:
+                            applyPersistentExecutionAddressSuggestionV17_68,
+                          placeholder: "z. B. Baustelle Tiefgarage",
+                        })}
                         <div>
                           <Label className="text-xs">Strasse + Hausnr.</Label>
                           <Input
@@ -21199,77 +21250,26 @@ export default function AuftraegePage() {
                                       }
                                       className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
                                     >
-                                      {previousExecutionAddressSuggestionsV17_68.length > 0 && (
-                                        <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                                          <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
-                                            Gespeicherte Ausführungsorte
-                                          </div>
-                                          <div className="grid gap-1">
-                                            {previousExecutionAddressSuggestionsV17_68.map(
-                                              (suggestion) => {
-                                                const suggestionKey =
-                                                  normalizePersistentExecutionAddressKeyV17_68(
-                                                    suggestion,
-                                                  );
-                                                const suggestionTitle =
-                                                  formatWorkSiteTitle(suggestion);
-                                                const suggestionAddress = [
-                                                  compactText(
-                                                    suggestion.siteAddress,
-                                                  ),
-                                                  [
-                                                    suggestion.sitePlz,
-                                                    suggestion.siteCity,
-                                                  ]
-                                                    .map(compactText)
-                                                    .filter(Boolean)
-                                                    .join(" "),
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(" · ");
-                                                return (
-                                                  <button
-                                                    key={`${site.id}-${suggestionKey}`}
-                                                    type="button"
-                                                    onClick={() =>
-                                                      applyPersistentExecutionAddressSuggestionToWorkSiteV17_90L289(
-                                                        site.id,
-                                                        suggestion,
-                                                      )
-                                                    }
-                                                    className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
-                                                  >
-                                                    <div className="font-semibold text-slate-900 dark:text-slate-100">
-                                                      {suggestionTitle}
-                                                    </div>
-                                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                                      {suggestionAddress}
-                                                    </div>
-                                                  </button>
-                                                );
-                                              },
-                                            )}
-                                          </div>
-                                        </div>
-                                      )}
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div>
-                                          <Label className="text-[10px]">
-                                            Bezeichnung
-                                          </Label>
-                                          <Input
-                                            className="h-8 text-xs"
-                                            value={site.siteName || ""}
-                                            onChange={(e) =>
-                                              updateFormWorkSite(
-                                                site.id,
-                                                "siteName",
-                                                e.target.value,
-                                              )
-                                            }
-                                            placeholder="z. B. Haus A, EG rechts"
-                                          />
-                                        </div>
+                                        {renderOrderExecutionAddressAutocompleteV17_90L291({
+                                          inputKey: site.id,
+                                          value: site.siteName || "",
+                                          onChange: (value) =>
+                                            updateFormWorkSite(
+                                              site.id,
+                                              "siteName",
+                                              value,
+                                            ),
+                                          onSelect: (suggestion) =>
+                                            applyPersistentExecutionAddressSuggestionToWorkSiteV17_90L289(
+                                              site.id,
+                                              suggestion,
+                                            ),
+                                          label: "Objekt / Bereich",
+                                          labelClassName: "text-[10px]",
+                                          inputClassName: "h-8 text-xs",
+                                          placeholder: "z. B. Haus A, EG rechts",
+                                        })}
                                         <div>
                                           <Label className="text-[10px]">
                                             Strasse

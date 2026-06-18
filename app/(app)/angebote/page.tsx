@@ -4636,8 +4636,7 @@ export default function AngebotePage() {
           return false;
         seen.add(key);
         return true;
-      })
-      .slice(0, 8);
+      });
   }, [customers, form.customerId, executionSites]);
 
   const applyCustomerExecutionAddressToOfferSiteV17_90L289 = (
@@ -4683,68 +4682,175 @@ export default function AngebotePage() {
     toast.success("Gespeicherter Ausführungsort übernommen.");
   };
 
-  const renderOfferExecutionAddressSuggestionsV17_90L289 = (
-    targetKey: string,
+  const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
+    compactOfferValue(value)
+      .toLocaleLowerCase("de-CH")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9äöüß]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const filterCustomerExecutionAddressesV17_90L291 = (query: unknown) => {
+    const tokens = normalizeExecutionAddressSearchV17_90L291(query)
+      .split(" ")
+      .filter(Boolean);
+    if (tokens.length === 0)
+      return customerExecutionAddressSuggestionsV17_90L289;
+
+    return customerExecutionAddressSuggestionsV17_90L289.filter(
+      (suggestion) => {
+        const searchable = normalizeExecutionAddressSearchV17_90L291(
+          [
+            suggestion.siteName,
+            suggestion.siteAddress,
+            suggestion.sitePlz,
+            suggestion.siteCity,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        return tokens.every((token) => searchable.includes(token));
+      },
+    );
+  };
+
+  const deleteCustomerExecutionAddressV17_90L291 = async (
+    suggestion: CustomerExecutionAddress,
   ) => {
-    const target = executionSites.find(
-      (site) => offerGroupKeyForSite(site) === targetKey,
-    );
-    const targetIsIncomplete = Boolean(
-      target &&
-        (!compactOfferValue(target.siteAddress) ||
-          !compactOfferValue(target.sitePlz) ||
-          !compactOfferValue(target.siteCity)),
-    );
-    if (
-      customerExecutionAddressSuggestionsV17_90L289.length === 0 ||
-      (!targetIsIncomplete && editingOfferSiteKey !== targetKey)
-    )
-      return null;
+    const customerId = compactOfferValue(form.customerId);
+    const addressId = compactOfferValue(suggestion.id);
+    if (!customerId || !addressId) return;
+
+    const label =
+      compactOfferValue(suggestion.siteName) ||
+      compactOfferValue(suggestion.siteAddress) ||
+      "Ausführungsort";
+    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`))
+      return;
+
+    try {
+      const response = await fetch(
+        `/api/customers/${customerId}/execution-addresses/${addressId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        toast.error(
+          payload?.error || "Ausführungsort konnte nicht entfernt werden.",
+        );
+        return;
+      }
+      setCustomers((current) =>
+        current.map((customer) =>
+          customer.id === customerId
+            ? {
+                ...customer,
+                executionAddresses: (customer.executionAddresses || []).filter(
+                  (address) => address.id !== addressId,
+                ),
+              }
+            : customer,
+        ),
+      );
+      toast.success("Ausführungsort wurde aus dem Kundenprofil entfernt.");
+    } catch {
+      toast.error("Netzwerkfehler beim Entfernen des Ausführungsorts.");
+    }
+  };
+
+  const renderOfferExecutionAddressAutocompleteV17_90L291 = ({
+    targetKey,
+    value,
+    onChange,
+    labelClassName = "text-xs",
+    inputClassName = "",
+    placeholder = "z. B. Wohnpark Limmat, Serverraum",
+  }: {
+    targetKey: string;
+    value: string;
+    onChange: (value: string) => void;
+    labelClassName?: string;
+    inputClassName?: string;
+    placeholder?: string;
+  }) => {
+    const suggestions = filterCustomerExecutionAddressesV17_90L291(value);
 
     return (
-      <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-        <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
-          Gespeicherte Ausführungsorte
+      <div className="group relative">
+        <Label className={labelClassName}>Objekt / Bereich</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className={`pl-8 ${inputClassName}`.trim()}
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
         </div>
-        <div className="grid gap-1">
-          {customerExecutionAddressSuggestionsV17_90L289.map((suggestion) => {
-            const key =
-              normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
-            const title =
-              compactOfferValue(suggestion.siteName) ||
-              compactOfferValue(suggestion.siteAddress) ||
-              "Ausführungsort";
-            const address = [
-              compactOfferValue(suggestion.siteAddress),
-              [suggestion.sitePlz, suggestion.siteCity]
-                .map(compactOfferValue)
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-[140] mt-1 hidden max-h-64 overflow-y-auto rounded-md border border-cyan-200 bg-background p-1.5 shadow-xl group-focus-within:block dark:border-cyan-900/70">
+            {suggestions.map((suggestion) => {
+              const key =
+                normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
+              const title =
+                compactOfferValue(suggestion.siteName) ||
+                compactOfferValue(suggestion.siteAddress) ||
+                "Ausführungsort";
+              const address = [
+                compactOfferValue(suggestion.siteAddress),
+                [suggestion.sitePlz, suggestion.siteCity]
+                  .map(compactOfferValue)
+                  .filter(Boolean)
+                  .join(" "),
+              ]
                 .filter(Boolean)
-                .join(" "),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <button
-                key={`${targetKey}-${key}`}
-                type="button"
-                onClick={() =>
-                  applyCustomerExecutionAddressToOfferSiteV17_90L289(
-                    targetKey,
-                    suggestion,
-                  )
-                }
-                className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
-              >
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  {title}
+                .join(" · ");
+
+              return (
+                <div
+                  key={`${targetKey}-${key}`}
+                  className="flex items-stretch gap-1 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-950/30"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-xs"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      applyCustomerExecutionAddressToOfferSiteV17_90L289(
+                        targetKey,
+                        suggestion,
+                      )
+                    }
+                  >
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                      {title}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {address}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                    title="Aus Kundenprofil entfernen"
+                    aria-label="Ausführungsort aus Kundenprofil entfernen"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void deleteCustomerExecutionAddressV17_90L291(
+                        suggestion,
+                      );
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                  {address}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -8645,25 +8751,18 @@ export default function AngebotePage() {
                           >
                             {editingExecutionAddress ? (
                               <div className="space-y-3">
-                                {renderOfferExecutionAddressSuggestionsV17_90L289(
-                                  offerGroupKeyForSite(site),
-                                )}
-                                <div>
-                                  <Label className="text-xs">
-                                    Objekt / Bereich
-                                  </Label>
-                                  <Input
-                                    value={site.siteName || ""}
-                                    placeholder="z.B. Wohnpark Limmat, Serverraum"
-                                    onChange={(event) =>
-                                      updateExecutionSite(
-                                        index,
-                                        "siteName",
-                                        event.target.value,
-                                      )
-                                    }
-                                  />
-                                </div>
+                                {renderOfferExecutionAddressAutocompleteV17_90L291({
+                                  targetKey: offerGroupKeyForSite(site),
+                                  value: site.siteName || "",
+                                  onChange: (value) =>
+                                    updateExecutionSite(
+                                      index,
+                                      "siteName",
+                                      value,
+                                    ),
+                                  placeholder:
+                                    "z. B. Wohnpark Limmat, Serverraum",
+                                })}
                                 <div>
                                   <Label className="text-xs">
                                     Strasse + Hausnummer
@@ -9419,25 +9518,20 @@ export default function AngebotePage() {
                                 }`}
                               >
                                 <div className="rounded-md border bg-background/80 p-2 space-y-2">
-                                  {renderOfferExecutionAddressSuggestionsV17_90L289(
-                                    group.key,
-                                  )}
                                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                    <div>
-                                      <Label className="text-[10px]">Bezeichnung</Label>
-                                      <Input
-                                        className="h-8 text-xs"
-                                        value={group.site.siteName || ""}
-                                        placeholder="z. B. Haus A, EG rechts"
-                                        onChange={(event) =>
-                                          updateOfferGroupSite(
-                                            group.key,
-                                            "siteName",
-                                            event.target.value,
-                                          )
-                                        }
-                                      />
-                                    </div>
+                                    {renderOfferExecutionAddressAutocompleteV17_90L291({
+                                      targetKey: group.key,
+                                      value: group.site.siteName || "",
+                                      onChange: (value) =>
+                                        updateOfferGroupSite(
+                                          group.key,
+                                          "siteName",
+                                          value,
+                                        ),
+                                      labelClassName: "text-[10px]",
+                                      inputClassName: "h-8 text-xs",
+                                      placeholder: "z. B. Haus A, EG rechts",
+                                    })}
                                     <div>
                                       <Label className="text-[10px]">Strasse</Label>
                                       <Input

@@ -4003,8 +4003,7 @@ export default function RechnungenPage() {
           return false;
         seen.add(key);
         return true;
-      })
-      .slice(0, 8);
+      });
   }, [
     customers,
     form.customerId,
@@ -4063,70 +4062,175 @@ export default function RechnungenPage() {
     toast.success("Gespeicherter Ausführungsort übernommen.");
   };
 
-  const renderInvoiceExecutionAddressSuggestionsV17_90L289 = (
-    targetKey: string,
+  const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
+    compactInvoiceValue(value)
+      .toLocaleLowerCase("de-CH")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9äöüß]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const filterCustomerExecutionAddressesV17_90L291 = (query: unknown) => {
+    const tokens = normalizeExecutionAddressSearchV17_90L291(query)
+      .split(" ")
+      .filter(Boolean);
+    if (tokens.length === 0)
+      return customerExecutionAddressSuggestionsV17_90L289;
+
+    return customerExecutionAddressSuggestionsV17_90L289.filter(
+      (suggestion) => {
+        const searchable = normalizeExecutionAddressSearchV17_90L291(
+          [
+            suggestion.siteName,
+            suggestion.siteAddress,
+            suggestion.sitePlz,
+            suggestion.siteCity,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        return tokens.every((token) => searchable.includes(token));
+      },
+    );
+  };
+
+  const deleteCustomerExecutionAddressV17_90L291 = async (
+    suggestion: CustomerExecutionAddress,
   ) => {
-    const target = currentInvoiceExecutionSitesForSuggestionsV17_90L289.find(
-      (site) => invoiceGroupKeyForSite(site) === targetKey,
-    );
-    const isNewInvoiceSite = Boolean(
-      !editingInvoice &&
-        newInvoiceExecutionSite &&
-        invoiceGroupKeyForSite(newInvoiceExecutionSite) === targetKey,
-    );
-    const isEditableDraft = Boolean(
-      compactInvoiceValue(target?._workSiteUiKey) || isNewInvoiceSite,
-    );
-    if (
-      customerExecutionAddressSuggestionsV17_90L289.length === 0 ||
-      !isEditableDraft
-    )
-      return null;
+    const customerId = compactInvoiceValue(form.customerId);
+    const addressId = compactInvoiceValue(suggestion.id);
+    if (!customerId || !addressId) return;
+
+    const label =
+      compactInvoiceValue(suggestion.siteName) ||
+      compactInvoiceValue(suggestion.siteAddress) ||
+      "Ausführungsort";
+    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`))
+      return;
+
+    try {
+      const response = await fetch(
+        `/api/customers/${customerId}/execution-addresses/${addressId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        toast.error(
+          payload?.error || "Ausführungsort konnte nicht entfernt werden.",
+        );
+        return;
+      }
+      setCustomers((current) =>
+        current.map((customer) =>
+          customer.id === customerId
+            ? {
+                ...customer,
+                executionAddresses: (customer.executionAddresses || []).filter(
+                  (address) => address.id !== addressId,
+                ),
+              }
+            : customer,
+        ),
+      );
+      toast.success("Ausführungsort wurde aus dem Kundenprofil entfernt.");
+    } catch {
+      toast.error("Netzwerkfehler beim Entfernen des Ausführungsorts.");
+    }
+  };
+
+  const renderInvoiceExecutionAddressAutocompleteV17_90L291 = ({
+    targetKey,
+    value,
+    onChange,
+    labelClassName = "text-xs",
+    inputClassName = "",
+    placeholder = "z. B. Wohnpark Limmat, Serverraum",
+  }: {
+    targetKey: string;
+    value: string;
+    onChange: (value: string) => void;
+    labelClassName?: string;
+    inputClassName?: string;
+    placeholder?: string;
+  }) => {
+    const suggestions = filterCustomerExecutionAddressesV17_90L291(value);
 
     return (
-      <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-        <div className="mb-1.5 text-[11px] font-semibold text-cyan-900 dark:text-cyan-100">
-          Gespeicherte Ausführungsorte
+      <div className="group relative">
+        <Label className={labelClassName}>Objekt / Bereich</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className={`pl-8 ${inputClassName}`.trim()}
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
         </div>
-        <div className="grid gap-1">
-          {customerExecutionAddressSuggestionsV17_90L289.map((suggestion) => {
-            const key =
-              normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
-            const title =
-              compactInvoiceValue(suggestion.siteName) ||
-              compactInvoiceValue(suggestion.siteAddress) ||
-              "Ausführungsort";
-            const address = [
-              compactInvoiceValue(suggestion.siteAddress),
-              [suggestion.sitePlz, suggestion.siteCity]
-                .map(compactInvoiceValue)
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-[140] mt-1 hidden max-h-64 overflow-y-auto rounded-md border border-cyan-200 bg-background p-1.5 shadow-xl group-focus-within:block dark:border-cyan-900/70">
+            {suggestions.map((suggestion) => {
+              const key =
+                normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
+              const title =
+                compactInvoiceValue(suggestion.siteName) ||
+                compactInvoiceValue(suggestion.siteAddress) ||
+                "Ausführungsort";
+              const address = [
+                compactInvoiceValue(suggestion.siteAddress),
+                [suggestion.sitePlz, suggestion.siteCity]
+                  .map(compactInvoiceValue)
+                  .filter(Boolean)
+                  .join(" "),
+              ]
                 .filter(Boolean)
-                .join(" "),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <button
-                key={`${targetKey}-${key}`}
-                type="button"
-                onClick={() =>
-                  applyCustomerExecutionAddressToInvoiceSiteV17_90L289(
-                    targetKey,
-                    suggestion,
-                  )
-                }
-                className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
-              >
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  {title}
+                .join(" · ");
+
+              return (
+                <div
+                  key={`${targetKey}-${key}`}
+                  className="flex items-stretch gap-1 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-950/30"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-xs"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      applyCustomerExecutionAddressToInvoiceSiteV17_90L289(
+                        targetKey,
+                        suggestion,
+                      )
+                    }
+                  >
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                      {title}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {address}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                    title="Aus Kundenprofil entfernen"
+                    aria-label="Ausführungsort aus Kundenprofil entfernen"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void deleteCustomerExecutionAddressV17_90L291(
+                        suggestion,
+                      );
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                  {address}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -6895,22 +6999,17 @@ export default function RechnungenPage() {
                     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                       {editingExecutionAddress ? (
                         <div className="space-y-3">
-                          {renderInvoiceExecutionAddressSuggestionsV17_90L289(
-                            invoiceGroupKeyForSite(newInvoiceExecutionSite),
-                          )}
-                          <div>
-                            <Label className="text-xs">Objekt / Bereich</Label>
-                            <Input
-                              value={newInvoiceExecutionSite.siteName || ""}
-                              placeholder="z. B. Wohnpark Limmat, Serverraum"
-                              onChange={(event: any) =>
-                                updateNewInvoiceExecutionSite(
-                                  "siteName",
-                                  event?.target?.value ?? "",
-                                )
-                              }
-                            />
-                          </div>
+                          {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                            targetKey: invoiceGroupKeyForSite(
+                              newInvoiceExecutionSite,
+                            ),
+                            value: newInvoiceExecutionSite.siteName || "",
+                            onChange: (value) =>
+                              updateNewInvoiceExecutionSite(
+                                "siteName",
+                                value,
+                              ),
+                          })}
                           <div>
                             <Label className="text-xs">
                               Strasse + Hausnummer
@@ -7132,24 +7231,17 @@ export default function RechnungenPage() {
                           {editingExecutionAddress ? (
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <div className="sm:col-span-2">
-                                {renderInvoiceExecutionAddressSuggestionsV17_90L289(
-                                  invoiceGroupKeyForSite(executionSite),
-                                )}
-                              </div>
-                              <div className="sm:col-span-2">
-                                <Label className="text-xs">
-                                  Objekt / Bereich
-                                </Label>
-                                <Input
-                                  value={executionSite.siteName || ""}
-                                  onChange={(event: any) =>
+                                {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                                  targetKey:
+                                    invoiceGroupKeyForSite(executionSite),
+                                  value: executionSite.siteName || "",
+                                  onChange: (value) =>
                                     updateInvoiceGroupSite(
                                       invoiceGroupKeyForSite(executionSite),
                                       "siteName",
-                                      event?.target?.value ?? "",
-                                    )
-                                  }
-                                />
+                                      value,
+                                    ),
+                                })}
                               </div>
                               <div className="sm:col-span-2">
                                 <Label className="text-xs">Strasse</Label>
@@ -7917,25 +8009,20 @@ export default function RechnungenPage() {
                                 }`}
                               >
                                 <div className="rounded-md border bg-background/80 p-2 space-y-2">
-                                  {renderInvoiceExecutionAddressSuggestionsV17_90L289(
-                                    group.key,
-                                  )}
                                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                    <div>
-                                      <Label className="text-[10px]">Bezeichnung</Label>
-                                      <Input
-                                        className="h-8 text-xs"
-                                        value={group.site.siteName || ""}
-                                        placeholder="z. B. Haus A, EG rechts"
-                                        onChange={(event) =>
-                                          updateInvoiceGroupSite(
-                                            group.key,
-                                            "siteName",
-                                            event.target.value,
-                                          )
-                                        }
-                                      />
-                                    </div>
+                                    {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                                      targetKey: group.key,
+                                      value: group.site.siteName || "",
+                                      onChange: (value) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteName",
+                                          value,
+                                        ),
+                                      labelClassName: "text-[10px]",
+                                      inputClassName: "h-8 text-xs",
+                                      placeholder: "z. B. Haus A, EG rechts",
+                                    })}
                                     <div>
                                       <Label className="text-[10px]">Strasse</Label>
                                       <Input
