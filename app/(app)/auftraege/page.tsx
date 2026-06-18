@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
@@ -11227,7 +11228,7 @@ export default function AuftraegePage() {
   const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
     useState(true);
   const [customerExecutionAddressSaveModeV17_90L296, setCustomerExecutionAddressSaveModeV17_90L296] =
-    useState<"local" | "create" | "update">("local");
+    useState<"local" | "create">("local");
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -14917,6 +14918,8 @@ export default function AuftraegePage() {
     return customerExecutionAddressSaveModeV17_90L296 === "create";
   };
 
+  // V17.90L307: Dokumente dürfen Kundenprofil-Vorlagen nicht überschreiben.
+  // Erlaubt sind nur: lokal übernehmen oder als neue Kundenprofil-Vorlage speichern.
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: OrderWorkSite) => {
     const hasAddressContent = Boolean(
       compactText(site.siteName) ||
@@ -14949,7 +14952,7 @@ export default function AuftraegePage() {
           <label className="flex items-start gap-2">
             <input
               type="radio"
-              name="customer-execution-address-save-mode-v17-90l306"
+              name="customer-execution-address-save-mode-v17-90l307"
               className="mt-0.5"
               checked={customerExecutionAddressSaveModeV17_90L296 === "local"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("local")}
@@ -14962,7 +14965,7 @@ export default function AuftraegePage() {
           <label className="flex items-start gap-2">
             <input
               type="radio"
-              name="customer-execution-address-save-mode-v17-90l306"
+              name="customer-execution-address-save-mode-v17-90l307"
               className="mt-0.5"
               checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
@@ -14972,21 +14975,6 @@ export default function AuftraegePage() {
               <span className="block text-[11px] text-muted-foreground">Bestehende Vorlage bleibt erhalten.</span>
             </span>
           </label>
-          {knownCustomerAddressId && (
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="customer-execution-address-save-mode-v17-90l306"
-                className="mt-0.5"
-                checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
-                onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
-              />
-              <span>
-                <span className="font-medium">Bestehenden Ausführungsort im Kundenprofil aktualisieren</span>
-                <span className="block text-[11px] text-muted-foreground">Die gewählte Kundenprofil-Vorlage wird bewusst überschrieben.</span>
-              </span>
-            </label>
-          )}
         </div>
       </div>
     );
@@ -15003,19 +14991,8 @@ export default function AuftraegePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          addressId:
-            customerExecutionAddressChangedV17_90L296(site) &&
-            customerExecutionAddressSaveModeV17_90L296 === "create"
-              ? null
-              : compactText(site.customerExecutionAddressId) || null,
-          saveMode:
-            compactText(site.customerExecutionAddressId)
-              ? customerExecutionAddressChangedV17_90L296(site)
-                ? customerExecutionAddressSaveModeV17_90L296 === "update"
-                  ? "update"
-                  : "create"
-                : "update"
-              : "create",
+          addressId: null,
+          saveMode: "create",
           siteName: cleanWorkSiteDisplayName(site.siteName) || null,
           siteAddress: compactText(site.siteAddress),
           sitePlz: compactText(site.sitePlz),

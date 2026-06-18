@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
@@ -2941,7 +2942,7 @@ export default function RechnungenPage() {
   const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
     useState(true);
   const [customerExecutionAddressSaveModeV17_90L296, setCustomerExecutionAddressSaveModeV17_90L296] =
-    useState<"local" | "create" | "update">("local");
+    useState<"local" | "create">("local");
   const [executionAddressClearRequested, setExecutionAddressClearRequested] =
     useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
@@ -4277,6 +4278,8 @@ export default function RechnungenPage() {
     return customerExecutionAddressSaveModeV17_90L296 === "create";
   };
 
+  // V17.90L307: Dokumente dürfen Kundenprofil-Vorlagen nicht überschreiben.
+  // Erlaubt sind nur: lokal übernehmen oder als neue Kundenprofil-Vorlage speichern.
   const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: InvoiceExecutionSite) => {
     const hasAddressContent = Boolean(
       compactInvoiceValue(site.siteName) ||
@@ -4309,7 +4312,7 @@ export default function RechnungenPage() {
           <label className="flex items-start gap-2">
             <input
               type="radio"
-              name="customer-execution-address-save-mode-v17-90l306"
+              name="customer-execution-address-save-mode-v17-90l307"
               className="mt-0.5"
               checked={customerExecutionAddressSaveModeV17_90L296 === "local"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("local")}
@@ -4322,7 +4325,7 @@ export default function RechnungenPage() {
           <label className="flex items-start gap-2">
             <input
               type="radio"
-              name="customer-execution-address-save-mode-v17-90l306"
+              name="customer-execution-address-save-mode-v17-90l307"
               className="mt-0.5"
               checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
               onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
@@ -4332,21 +4335,6 @@ export default function RechnungenPage() {
               <span className="block text-[11px] text-muted-foreground">Bestehende Vorlage bleibt erhalten.</span>
             </span>
           </label>
-          {knownCustomerAddressId && (
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="customer-execution-address-save-mode-v17-90l306"
-                className="mt-0.5"
-                checked={customerExecutionAddressSaveModeV17_90L296 === "update"}
-                onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("update")}
-              />
-              <span>
-                <span className="font-medium">Bestehenden Ausführungsort im Kundenprofil aktualisieren</span>
-                <span className="block text-[11px] text-muted-foreground">Die gewählte Kundenprofil-Vorlage wird bewusst überschrieben.</span>
-              </span>
-            </label>
-          )}
         </div>
       </div>
     );
@@ -4363,19 +4351,8 @@ export default function RechnungenPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          addressId:
-            customerExecutionAddressChangedV17_90L296(site) &&
-            customerExecutionAddressSaveModeV17_90L296 === "create"
-              ? null
-              : compactInvoiceValue(site.customerExecutionAddressId) || null,
-          saveMode:
-            compactInvoiceValue(site.customerExecutionAddressId)
-              ? customerExecutionAddressChangedV17_90L296(site)
-                ? customerExecutionAddressSaveModeV17_90L296 === "update"
-                  ? "update"
-                  : "create"
-                : "update"
-              : "create",
+          addressId: null,
+          saveMode: "create",
           siteName: compactInvoiceValue(site.siteName) || null,
           siteAddress: compactInvoiceValue(site.siteAddress),
           sitePlz: compactInvoiceValue(site.sitePlz),
