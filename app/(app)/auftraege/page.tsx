@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L316_MANUAL_ORDER_NO_AUTO_APPOINTMENT_CHIP
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
 // SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
@@ -8356,6 +8357,28 @@ const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
   return !hasRealPhoneCallback;
 };
 
+// V17.90L316: Manuell erstellte Aufträge haben ein Auftragsdatum.
+// Dieses Datum ist kein Ausführungstermin und darf außen keinen 0:00-/Kalenderchip erzeugen.
+// Terminchips entstehen hier nur aus echten Text-/Intake-Hinweisen, nicht aus order.date/createdAt.
+const hasExplicitOrderAppointmentSourceV17_90L316 = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+) => {
+  const sources = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    order.description,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .flatMap((part) => String(part).split(/\n+|(?<=[.!?])\s+/g))
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  return sources.some((line) => hasExplicitAppointmentBadgeSignalV17_90L10(line));
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -8510,9 +8533,12 @@ const getBottomBadges = (
   // V17.90L179: Auftrag, Angebot und Rechnung verwenden dieselbe
   // read-only Terminquelle. Datumswerte werden nie als Uhrzeiten interpretiert
   // und jeder Termin bleibt dem Arbeitsort aus seiner Quellsektion zugeordnet.
-  const unifiedAppointmentEntries = collectMergedAppointmentEntries([
-    order as any,
-  ]);
+  const unifiedAppointmentEntries = hasExplicitOrderAppointmentSourceV17_90L316(
+    order,
+    parsedNotes,
+  )
+    ? collectMergedAppointmentEntries([order as any])
+    : [];
 
   if (unifiedAppointmentEntries.length > 0) {
     pushUniqueBadge(badges, {

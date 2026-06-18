@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L317_OFFER_MANUAL_SPECIAL_NOTES
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
 // SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
@@ -841,7 +842,7 @@ function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): st
 
 const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
 
-type OfferPdfMeta = { title: string; text: string };
+type OfferPdfMeta = { title: string; text: string; internalNotes: string };
 
 function OfferWhatsAppPdfIcon({
   className = "h-4 w-4",
@@ -933,28 +934,35 @@ type OfferOperationalChip = {
 
 function decodeOfferPdfMeta(value?: string | null): OfferPdfMeta {
   const raw = String(value ?? "").trim();
-  if (!raw) return { title: "", text: "" };
+  if (!raw) return { title: "", text: "", internalNotes: "" };
   if (!raw.startsWith(OFFER_PDF_META_PREFIX)) {
-    return { title: "", text: "" };
+    return { title: "", text: "", internalNotes: "" };
   }
   try {
     const parsed = JSON.parse(raw.slice(OFFER_PDF_META_PREFIX.length));
     return {
       title: String(parsed?.title ?? "").trim(),
       text: String(parsed?.text ?? "").trim(),
+      internalNotes: String(parsed?.internalNotes ?? parsed?.specialNotes ?? "").trim(),
     };
   } catch {
-    return { title: "", text: raw };
+    return { title: "", text: raw, internalNotes: "" };
   }
 }
 
-function encodeOfferPdfMeta(title?: string | null, text?: string | null): string {
+function encodeOfferPdfMeta(
+  title?: string | null,
+  text?: string | null,
+  internalNotes?: string | null,
+): string {
   const cleanTitle = String(title ?? "").trim();
   const cleanText = String(text ?? "").trim();
-  if (!cleanTitle && !cleanText) return "";
+  const cleanInternalNotes = String(internalNotes ?? "").trim();
+  if (!cleanTitle && !cleanText && !cleanInternalNotes) return "";
   return `${OFFER_PDF_META_PREFIX}${JSON.stringify({
     title: cleanTitle,
     text: cleanText,
+    internalNotes: cleanInternalNotes,
   })}`;
 }
 
@@ -3630,6 +3638,7 @@ export default function AngebotePage() {
     validDays: "14",
     pdfTitle: "",
     notes: "",
+    specialNotes: "",
     status: "Entwurf",
   });
   const historicalOfferCustomerLocked = Boolean(
@@ -4274,6 +4283,7 @@ export default function AngebotePage() {
         validDays: "14",
         pdfTitle: "",
         notes: "",
+        specialNotes: "",
         status: "Entwurf",
       };
       setForm(newForm);
@@ -5496,6 +5506,7 @@ export default function AngebotePage() {
       validDays: getOfferValidDays(off),
       pdfTitle: decodedPdfMeta.title,
       notes: cleanNotes,
+      specialNotes: decodedPdfMeta.internalNotes,
       status: off.status ?? "Entwurf",
     });
     if (off.items && off.items.length > 0) {
@@ -5632,6 +5643,7 @@ export default function AngebotePage() {
       validDays: "14",
       pdfTitle: "",
       notes: "",
+      specialNotes: "",
       status: "Entwurf",
     });
     setItems([getEmptyItem()]);
@@ -5711,7 +5723,7 @@ export default function AngebotePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
+          notes: encodeOfferPdfMeta(form.pdfTitle, form.notes, form.specialNotes),
           items: itemsForSave,
           clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
           saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
@@ -5731,7 +5743,7 @@ export default function AngebotePage() {
     } else {
       const payload: any = {
         ...form,
-        notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
+        notes: encodeOfferPdfMeta(form.pdfTitle, form.notes, form.specialNotes),
         items: itemsForSave,
         clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
         saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
@@ -6925,7 +6937,19 @@ export default function AngebotePage() {
                     (it: any) =>
                       (it.description ?? "").toLowerCase() === "sonstiges",
                   );
-                  const orderCtx = resolveCommunicationData(null, off.orders);
+                  const baseOrderCtx = resolveCommunicationData(null, off.orders);
+                  const offerManualSpecialNotes = decodeOfferPdfMeta(off.notes).internalNotes;
+                  const orderCtx = offerManualSpecialNotes
+                    ? ({
+                        ...baseOrderCtx,
+                        specialNotes: [baseOrderCtx.specialNotes, offerManualSpecialNotes]
+                          .filter(Boolean)
+                          .join("\n"),
+                        notes: [baseOrderCtx.notes, offerManualSpecialNotes]
+                          .filter(Boolean)
+                          .join("\n"),
+                      } as CommunicationData)
+                    : baseOrderCtx;
                   const offerExecutionSites = collectOfferExecutionSites(off);
                   const primaryExecutionSite = offerExecutionSites[0] || null;
                   const mergedCount = getOfferMergedCount(off);
@@ -10328,6 +10352,22 @@ export default function AngebotePage() {
                       <span className="text-xs text-muted-foreground">
                         Intern – nicht automatisch im Kunden-PDF
                       </span>
+                    </div>
+
+                    <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/50 p-3">
+                      <Label className="text-xs font-semibold">Besonderheiten im Angebot</Label>
+                      <textarea
+                        className="flex min-h-[82px] w-full resize-y rounded-md border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/60 dark:bg-slate-950"
+                        rows={3}
+                        placeholder="z. B. Vorsicht Hund, Zugang nur über Hintereingang, bitte vorher anrufen..."
+                        value={form.specialNotes}
+                        onChange={(event) =>
+                          setForm({ ...form, specialNotes: event.target.value })
+                        }
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        Intern. Daraus entstehen auf der Angebotskarte dieselben Hinweis-/Warnchips wie beim Auftrag.
+                      </div>
                     </div>
 
                     {linkedPrimaryHints.length > 0 && (
