@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L331_OFFER_TO_INVOICE_SPECIAL_NOTES_HANDOFF
 // SMARTFLOW_V17_90L337_OFFER_MANUAL_NOTES_ACCESS_CHIPS
 // SMARTFLOW_V17_90L335_OFFER_SPECIAL_NOTES_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L317_OFFER_MANUAL_SPECIAL_NOTES
@@ -1061,6 +1062,71 @@ function encodeOfferPdfMeta(
     title: cleanTitle,
     text: cleanText,
     internalNotes: cleanInternalNotes,
+  })}`;
+}
+
+const INVOICE_PDF_META_PREFIX_FOR_OFFER_HANDOFF_V17_90L331 =
+  "[[SMARTFLOW_INVOICE_PDF_V1]]";
+
+function splitOfferInvoiceSpecialNoteLineV17_90L331(value?: string | null): string[] {
+  const line = compactOfferValue(value);
+  if (!line) return [];
+  // V17.90L331: Anzeige-/Handoff-only. Alte zusammengezogene Hinweiszeilen
+  // aus Auftrag/Angebot werden vor der Rechnungsübergabe wieder in einzelne
+  // Fakten getrennt. Dadurch verliert Angebot -> Rechnung keine manuell
+  // ergänzten Hinweise wie Testzeilen, Schlüssel oder Terminbestätigung.
+  const splitLine = line
+    .replace(/\s+(?=test\s+(?:auftrag|angebot|rechnung)\s*\d+\b)/gi, "\n")
+    .replace(/\s+(?=(?:schlüssel|schluessel|schlussel)\b)/gi, "\n")
+    .replace(/\s+(?=(?:türcode|tuercode|turcode|tuerkode|turkode|code)\b)/gi, "\n")
+    .replace(/\s+(?=(?:seitentür|seitentuer|seiteneingang|hintereingang)\b)/gi, "\n")
+    .replace(/\s+(?=Termin\s+bitte\b)/gi, "\n")
+    .replace(
+      /\s+(?=Termin\s+(?:am|morgen|heute|übermorgen|uebermorgen|nächsten?|naechsten?|kommenden?)\b)/gi,
+      "\n",
+    );
+  return splitLine
+    .split(/\n+/g)
+    .map((entry) => compactOfferValue(entry.replace(/^\s*[-•*]+\s*/g, "")))
+    .filter(Boolean);
+}
+
+function buildOfferInvoiceInternalNotesForHandoffV17_90L331(input: {
+  manual?: string | null;
+  primary?: Array<string | null | undefined>;
+  safety?: Array<string | null | undefined>;
+  additional?: Array<string | null | undefined>;
+}): string {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const add = (value?: string | null) => {
+    for (const line of splitOfferInvoiceSpecialNoteLineV17_90L331(value)) {
+      const key = normalizeOfferHint(line);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(line);
+    }
+  };
+  String(input.manual || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .forEach(add);
+  (input.primary || []).forEach(add);
+  (input.safety || []).forEach(add);
+  (input.additional || []).forEach(add);
+  return result.join("\n");
+}
+
+function encodeOfferInvoicePdfMetaForHandoffV17_90L331(
+  internalNotes?: string | null,
+): string {
+  const specialNotes = String(internalNotes || "").trim();
+  if (!specialNotes) return "";
+  return `${INVOICE_PDF_META_PREFIX_FOR_OFFER_HANDOFF_V17_90L331}${JSON.stringify({
+    pdfTitle: "",
+    notes: "",
+    specialNotes,
   })}`;
 }
 
@@ -6148,6 +6214,14 @@ export default function AngebotePage() {
           ? linkedOrderIds
           : (currentOffer?.orders?.map((o) => o.id).filter(Boolean) ?? []);
 
+      const invoiceInternalSpecialNotesV17_90L331 =
+        buildOfferInvoiceInternalNotesForHandoffV17_90L331({
+          manual: form.specialNotes,
+          primary: linkedPrimaryHints,
+          safety: linkedSafetyWarnings,
+          additional: linkedJobHints,
+        });
+
       // Create invoice from offer data
       const invRes = await fetch("/api/invoices", {
         method: "POST",
@@ -6158,6 +6232,9 @@ export default function AngebotePage() {
           vatRate: saved.vatRate ?? vatRate,
           currency: saved.currency === "EUR" ? "EUR" : currency,
           sourceOfferId: offerId,
+          notes: encodeOfferInvoicePdfMetaForHandoffV17_90L331(
+            invoiceInternalSpecialNotesV17_90L331,
+          ),
           ...(allOrderIds.length > 0 ? { orderIds: allOrderIds } : {}),
         }),
       });
@@ -6461,6 +6538,54 @@ export default function AngebotePage() {
     try {
       // Carry over linked order IDs so intake time is preserved on the invoice
       const linkedOrderIds = off.orders?.map((o) => o.id).filter(Boolean) ?? [];
+      const offerMetaForInvoiceV17_90L331 = decodeOfferPdfMeta(off.notes);
+      const cardSourceOrdersV17_90L331 = (off.orders || []) as any[];
+      const cardSpecialSourceV17_90L331 = [
+        ...cardSourceOrdersV17_90L331.map((order) => order?.specialNotes),
+        offerMetaForInvoiceV17_90L331.internalNotes,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const cardDataForInvoiceV17_90L331 = {
+        ...(off as any),
+        specialNotes: cardSpecialSourceV17_90L331,
+        notes: [
+          ...cardSourceOrdersV17_90L331.map((order) => order?.notes),
+          offerMetaForInvoiceV17_90L331.internalNotes,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        audioTranscript: cardSourceOrdersV17_90L331
+          .map((order) => order?.audioTranscript)
+          .filter(Boolean)
+          .join("\n"),
+      } as CommunicationData;
+      const cardAppointmentLabelV17_90L331 =
+        resolveOfferAppointmentLabelV17_90L237(
+          cardSourceOrdersV17_90L331,
+          cardDataForInvoiceV17_90L331,
+          off.offerDate || off.createdAt,
+        );
+      const cardContactActionV17_90L331 = buildOfferContactAction(
+        cardDataForInvoiceV17_90L331,
+        off.customer || null,
+      );
+      const cardSummaryForInvoiceV17_90L331 = buildOfferInfoSummary(
+        cardDataForInvoiceV17_90L331,
+        splitSpecialNotes(cardDataForInvoiceV17_90L331.specialNotes),
+        cardAppointmentLabelV17_90L331,
+        cardContactActionV17_90L331,
+        cardSourceOrdersV17_90L331,
+        invoiceItems.map((item) => String(item?.description || "")),
+        true,
+      );
+      const invoiceInternalSpecialNotesV17_90L331 =
+        buildOfferInvoiceInternalNotesForHandoffV17_90L331({
+          manual: offerMetaForInvoiceV17_90L331.internalNotes,
+          primary: cardSummaryForInvoiceV17_90L331.primary,
+          safety: cardSummaryForInvoiceV17_90L331.safety,
+          additional: cardSummaryForInvoiceV17_90L331.additional,
+        });
       const invRes = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6470,6 +6595,9 @@ export default function AngebotePage() {
           vatRate: off.vatRate ?? defaultVatRate,
           currency: off.currency === "EUR" ? "EUR" : "CHF",
           sourceOfferId: off.id,
+          notes: encodeOfferInvoicePdfMetaForHandoffV17_90L331(
+            invoiceInternalSpecialNotesV17_90L331,
+          ),
           ...(linkedOrderIds.length > 0 ? { orderIds: linkedOrderIds } : {}),
         }),
       });

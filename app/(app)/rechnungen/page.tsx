@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L331_INVOICE_SPECIAL_NOTES_DATE_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
 // SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
 // SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
@@ -1188,6 +1189,36 @@ function invoiceCommunicationLineMatchesContactFallbackV17_90L328(
   return shorter.length >= 10 && longer.includes(shorter);
 }
 
+
+function compactInvoicePrimaryAppointmentLinesV17_90L331(
+  lines: string[],
+): string[] {
+  const appointmentDateKey = (value: string) => {
+    const stripped = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
+    const match = stripped.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+    if (!match) return "";
+    return `${match[1].padStart(2, "0")}.${match[2].padStart(2, "0")}`;
+  };
+  const hasConcreteTime = (value: string) =>
+    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(value) ||
+    /\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(value);
+  const detailedDateKeys = new Set(
+    lines
+      .filter(hasConcreteTime)
+      .map(appointmentDateKey)
+      .filter(Boolean),
+  );
+  return lines.filter((line) => {
+    const key = appointmentDateKey(line);
+    if (!key || hasConcreteTime(line)) return true;
+    const textKey = normalizeInvoiceServiceName(line);
+    const isAppointment =
+      /\b(?:termin|datum|zeitfenster|appointment)\b/.test(textKey) ||
+      Boolean(key);
+    return !(isAppointment && detailedDateKeys.has(key));
+  });
+}
+
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
@@ -1319,7 +1350,11 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     );
   });
 
-  return { hazards: cleanHazardsV17_90L322, primaryHints, otherHints };
+  return {
+    hazards: cleanHazardsV17_90L322,
+    primaryHints: compactInvoicePrimaryAppointmentLinesV17_90L331(primaryHints),
+    otherHints,
+  };
 }
 
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
