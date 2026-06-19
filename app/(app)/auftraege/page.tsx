@@ -15427,14 +15427,78 @@ export default function AuftraegePage() {
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n");
 
-  const normalSpecialNotesText = normalizeOrderSpecialNotesEditorTextV17_90L318B(
-    form.specialNotes,
-  );
+  // V17.90L327: Erkannte WhatsApp-/Intake-Hinweise bleiben im Auftrag
+  // erhalten, dürfen aber nicht als normal editierbarer Zusatztext im
+  // Besonderheiten-Textarea stehen. Der Nutzer bearbeitet nur seine eigenen
+  // zusätzlichen Hinweise; beim Speichern werden beide Teile wieder sauber
+  // zusammengeführt, damit Chips und Handoff unverändert weiter funktionieren.
+  const ORDER_SPECIAL_NOTE_MARKER_RE_V17_90L327 =
+    /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS|ACHTUNG)\]\s*(.*)$/i;
+
+  const trimOuterBlankLinesV17_90L327 = (lines: string[]) => {
+    let start = 0;
+    let end = lines.length;
+    while (start < end && !lines[start].trim()) start += 1;
+    while (end > start && !lines[end - 1].trim()) end -= 1;
+    return lines.slice(start, end).join("\n");
+  };
+
+  const splitOrderSpecialNotesEditorTextV17_90L327 = (value: unknown) => {
+    const protectedLines: string[] = [];
+    const manualLines: string[] = [];
+
+    normalizeOrderSpecialNotesEditorTextV17_90L318B(value)
+      .split("\n")
+      .forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          manualLines.push(line);
+          return;
+        }
+        if (ORDER_SPECIAL_NOTE_MARKER_RE_V17_90L327.test(trimmed)) {
+          protectedLines.push(trimmed);
+          return;
+        }
+        manualLines.push(line);
+      });
+
+    const visibleProtectedLines = Array.from(
+      new Set(
+        protectedLines
+          .map((line) => stripVisibleNoteMarkerV17_35(line))
+          .map((line) => line.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    return {
+      protectedLines,
+      visibleProtectedLines,
+      manualText: trimOuterBlankLinesV17_90L327(manualLines),
+    };
+  };
+
+  const orderSpecialNotesEditorPartsV17_90L327 =
+    splitOrderSpecialNotesEditorTextV17_90L327(form.specialNotes);
+
+  const normalSpecialNotesText = orderSpecialNotesEditorPartsV17_90L327.manualText;
+  const recognizedSpecialNoteLinesV17_90L327 =
+    orderSpecialNotesEditorPartsV17_90L327.visibleProtectedLines;
+
+  const mergeOrderSpecialNotesEditorTextV17_90L327 = (manualValue: string) => {
+    const manualText = normalizeOrderSpecialNotesEditorTextV17_90L318B(
+      manualValue,
+    ).replace(/^\n+|\n+$/g, "");
+    const protectedText = orderSpecialNotesEditorPartsV17_90L327.protectedLines
+      .join("\n")
+      .trim();
+    return [protectedText, manualText].filter(Boolean).join("\n\n");
+  };
 
   const updateNormalSpecialNotes = (value: string) => {
     setForm((prev) => ({
       ...prev,
-      specialNotes: normalizeOrderSpecialNotesEditorTextV17_90L318B(value),
+      specialNotes: mergeOrderSpecialNotesEditorTextV17_90L327(value),
     }));
   };
 
@@ -22450,19 +22514,34 @@ export default function AuftraegePage() {
                       </span>
                     </div>
 
+                    {recognizedSpecialNoteLinesV17_90L327.length > 0 && (
+                      <div className="space-y-1.5 rounded-lg border border-slate-300 bg-slate-50/70 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/35">
+                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                          Aus Nachricht übernommen
+                        </div>
+                        <ul className="list-disc space-y-1 pl-5 text-slate-700 dark:text-slate-200">
+                          {recognizedSpecialNoteLinesV17_90L327.map((line, index) => (
+                            <li key={`${line}-${index}`} className="whitespace-pre-wrap break-words">
+                              {line}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/50 p-3">
                       <Label className="text-xs font-semibold">
-                        Besonderheiten im Auftrag
+                        Zusätzliche Besonderheiten im Auftrag
                       </Label>
                       <textarea
                         className="flex min-h-[82px] w-full resize-y rounded-md border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/60 dark:bg-slate-950"
                         rows={3}
-                        placeholder="z. B. Vorsicht Hund, Zugang nur über Hintereingang, bitte vorher anrufen..."
+                        placeholder="Nur zusätzliche interne Hinweise eintragen, z. B. Schlüssel liegt im Briefkasten."
                         value={normalSpecialNotesText}
                         onChange={(e) => updateNormalSpecialNotes(e.target.value)}
                       />
                       <div className="text-xs text-muted-foreground">
-                        Intern. Daraus entstehen auf der Auftragskarte dieselben Hinweis-/Warnchips wie bisher.
+                        Wird mit den übernommenen Hinweisen zusammengeführt. Daraus entstehen auf der Auftragskarte dieselben Hinweis-/Warnchips wie bisher.
                       </div>
                     </div>
 
