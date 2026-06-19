@@ -367,6 +367,7 @@ export async function GET() {
 
 // POST: Incoming Twilio WhatsApp messages
 export async function POST(request: Request) {
+  const webhookStartMsV17_90L337 = Date.now();
   try {
     // Twilio sends form-encoded data
     const formData = await request.formData();
@@ -377,6 +378,9 @@ export async function POST(request: Request) {
 
     const messageSid = body.MessageSid || body.SmsSid || '';
     console.log(`[WhatsApp] Webhook received: SID=${messageSid} Body=${(body.Body || '').length}chars NumMedia=${body.NumMedia || '0'}`);
+    console.log(
+      `[WhatsAppPerf] webhook_received sid=${messageSid || "none"} bodyChars=${(body.Body || "").length} numMedia=${body.NumMedia || "0"} formParseMs=${Date.now() - webhookStartMsV17_90L337}`,
+    );
 
     // Phase 2 — env-based WhatsApp inbound guard.
     // Default (no flag) returns true → identical Production behaviour.
@@ -585,13 +589,17 @@ export async function POST(request: Request) {
       console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — enqueueing individually`);
 
       try {
-        await enqueueWhatsAppTextIntakeMessage({
+        const enqueueStartMsV17_90L337 = Date.now();
+        const queueResultV17_90L337 = await enqueueWhatsAppTextIntakeMessage({
           messageSid,
           phoneNumber,
           profileName,
           resolvedUserId,
           messageText,
         });
+        console.log(
+          `[WhatsAppPerf] text_enqueued sid=${messageSid || "none"} queued=${queueResultV17_90L337.queued} duplicate=${queueResultV17_90L337.duplicate} enqueueMs=${Date.now() - enqueueStartMsV17_90L337} webhookTotalMs=${Date.now() - webhookStartMsV17_90L337}`,
+        );
       } catch (queueErr) {
         console.error(`[WhatsApp] ❌ Text queue failed for ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars):`, queueErr);
         logAuditAsync({
@@ -607,6 +615,9 @@ export async function POST(request: Request) {
         });
       }
 
+      console.log(
+        `[WhatsAppPerf] webhook_responding sid=${messageSid || "none"} mode=text_queue totalMs=${Date.now() - webhookStartMsV17_90L337}`,
+      );
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 

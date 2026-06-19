@@ -113,6 +113,7 @@ export async function enqueueWhatsAppTextIntakeMessage(params: {
   resolvedUserId: string;
   messageText: string;
 }): Promise<{ queued: boolean; duplicate: boolean }> {
+  const enqueueStartedAtMsV17_90L337 = Date.now();
   const messageText = String(params.messageText || "").trim();
   if (!messageText) return { queued: false, duplicate: false };
 
@@ -143,8 +144,9 @@ export async function enqueueWhatsAppTextIntakeMessage(params: {
     return { queued: false, duplicate: true };
   }
 
+  let queuedMessageV17_90L337: { id: string } | null = null;
   try {
-    await prisma.intakeQueueMessage.create({
+    queuedMessageV17_90L337 = await prisma.intakeQueueMessage.create({
       data: {
         channel: CHANNEL,
         senderKey: queueKey,
@@ -191,11 +193,18 @@ export async function enqueueWhatsAppTextIntakeMessage(params: {
   console.log(
     `[WhatsAppQueue] Queued 1 text message for ${maskPhoneForLog(params.phoneNumber)}: ${messageText.length} chars delayMs=${delay}`,
   );
+  console.log(
+    `[WhatsAppPerf] queue_enqueued queueKey=${queueKey} id=${queuedMessageV17_90L337?.id || "unknown"} sid=${params.messageSid || "none"} chars=${messageText.length} delayMs=${delay} enqueueMs=${Date.now() - enqueueStartedAtMsV17_90L337} processAfter=${processAfter.toISOString()}`,
+  );
 
   // Always schedule the earliest pending item. If a new item arrives while an
   // earlier item is already waiting, this may reschedule the same worker, but
   // it still processes FIFO and never combines texts.
+  const scheduleStartMsV17_90L337 = Date.now();
   await scheduleNextPendingForSender(queueKey);
+  console.log(
+    `[WhatsAppPerf] queue_worker_scheduled queueKey=${queueKey} sid=${params.messageSid || "none"} scheduleMs=${Date.now() - scheduleStartMsV17_90L337} totalEnqueueMs=${Date.now() - enqueueStartedAtMsV17_90L337}`,
+  );
 
   return { queued: true, duplicate: false };
 }
@@ -273,11 +282,23 @@ async function processClaimedWhatsAppTextMessage(
     return;
   }
 
+  const processingStartedAtMsV17_90L337 = Date.now();
+  const createdAtMsV17_90L337 = message.createdAt
+    ? new Date(message.createdAt).getTime()
+    : null;
+  const processAfterMsV17_90L337 = message.processAfter
+    ? new Date(message.processAfter).getTime()
+    : null;
+
   console.log(
     `[WhatsAppQueue] Processing 1 text message for ${maskPhoneForLog(message.phoneNumber || "")}: ${text.length} chars`,
   );
+  console.log(
+    `[WhatsAppPerf] queue_processing_start queueKey=${message.senderKey || "unknown"} id=${message.id} sid=${message.messageSid || "none"} chars=${text.length} queuedAgeMs=${createdAtMsV17_90L337 ? processingStartedAtMsV17_90L337 - createdAtMsV17_90L337 : "unknown"} dueLagMs=${processAfterMsV17_90L337 ? processingStartedAtMsV17_90L337 - processAfterMsV17_90L337 : "unknown"}`,
+  );
 
   try {
+    const intakeStartedAtMsV17_90L337 = Date.now();
     const orderCreated = await processIncomingMessage({
       source: "WhatsApp",
       senderName: message.senderName || "Unbekannt",
@@ -291,6 +312,9 @@ async function processClaimedWhatsAppTextMessage(
       optimizedThumbnailPath: null,
       userId: message.userId || null,
     });
+    console.log(
+      `[WhatsAppPerf] queue_intake_done queueKey=${message.senderKey || "unknown"} id=${message.id} sid=${message.messageSid || "none"} durationMs=${Date.now() - intakeStartedAtMsV17_90L337} orderId=${orderCreated?.orderId || "none"}`,
+    );
 
     if (orderCreated?.orderId) {
       console.info(
@@ -342,6 +366,9 @@ async function processClaimedWhatsAppTextMessage(
         error: null,
       },
     });
+    console.log(
+      `[WhatsAppPerf] queue_processing_done queueKey=${message.senderKey || "unknown"} id=${message.id} sid=${message.messageSid || "none"} durationMs=${Date.now() - processingStartedAtMsV17_90L337} orderId=${orderCreated?.orderId || "none"}`,
+    );
 
     logAuditAsync({
       userId: message.userId || undefined,

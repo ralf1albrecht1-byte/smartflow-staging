@@ -163,6 +163,92 @@ function logIntakeDiagnosticTrace(
 }
 
 
+type OpenAiUsageSummaryV17_90L337 = {
+  promptTokens: number | null;
+  cachedInputTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  estimatedUsd: number | null;
+};
+
+function readOpenAiUsageNumberV17_90L337(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+}
+
+function estimateOpenAiCostUsdV17_90L337(
+  model: string,
+  usage: any,
+): number | null {
+  const promptTokens = readOpenAiUsageNumberV17_90L337(
+    usage?.prompt_tokens,
+  );
+  const completionTokens = readOpenAiUsageNumberV17_90L337(
+    usage?.completion_tokens,
+  );
+  if (promptTokens === null && completionTokens === null) return null;
+
+  const cachedInputTokens =
+    readOpenAiUsageNumberV17_90L337(
+      usage?.prompt_tokens_details?.cached_tokens,
+    ) || 0;
+  const uncachedInputTokens = Math.max((promptTokens || 0) - cachedInputTokens, 0);
+  const normalizedModel = String(model || "").toLowerCase();
+  const rates =
+    normalizedModel.includes("gpt-4.1-mini")
+      ? { inputPerMillion: 0.4, cachedInputPerMillion: 0.1, outputPerMillion: 1.6 }
+      : normalizedModel.includes("gpt-4.1")
+        ? { inputPerMillion: 2.0, cachedInputPerMillion: 0.5, outputPerMillion: 8.0 }
+        : { inputPerMillion: 0, cachedInputPerMillion: 0, outputPerMillion: 0 };
+
+  if (!rates.inputPerMillion && !rates.outputPerMillion) return null;
+
+  return (
+    (uncachedInputTokens * rates.inputPerMillion +
+      cachedInputTokens * rates.cachedInputPerMillion +
+      (completionTokens || 0) * rates.outputPerMillion) /
+    1_000_000
+  );
+}
+
+function summarizeOpenAiUsageV17_90L337(
+  model: string,
+  usage: any,
+): OpenAiUsageSummaryV17_90L337 {
+  return {
+    promptTokens: readOpenAiUsageNumberV17_90L337(usage?.prompt_tokens),
+    cachedInputTokens: readOpenAiUsageNumberV17_90L337(
+      usage?.prompt_tokens_details?.cached_tokens,
+    ),
+    completionTokens: readOpenAiUsageNumberV17_90L337(
+      usage?.completion_tokens,
+    ),
+    totalTokens: readOpenAiUsageNumberV17_90L337(usage?.total_tokens),
+    estimatedUsd: estimateOpenAiCostUsdV17_90L337(model, usage),
+  };
+}
+
+function logIntakePerfV17_90L337(
+  enabled: boolean,
+  traceId: string,
+  stage: string,
+  payload: Record<string, unknown>,
+): void {
+  if (!enabled) return;
+
+  try {
+    console.log(
+      `[INTAKE_PERF:${traceId}] ${stage} ${JSON.stringify(payload)}`,
+    );
+  } catch (error: any) {
+    console.warn(
+      `[INTAKE_PERF:${traceId}] ${stage} serialization_failed`,
+      error?.message || error,
+    );
+  }
+}
+
+
 type FinalAiStructuredRoleV17_90L215 =
   | "safety"
   | "access"
@@ -14952,7 +15038,32 @@ export async function processIncomingMessage(
   const dataScope = await getActiveDataScope(userId);
   const intakeDiagnosticTraceEnabled = dataScope === "TEST";
   const intakeDiagnosticTraceId = createIntakeDiagnosticTraceId();
+  const intakePerfTraceEnabledV17_90L337 = source === "WhatsApp";
   const _intakeStartTime = Date.now();
+  let _intakePerfLastMarkV17_90L337 = _intakeStartTime;
+  const markIntakePerfV17_90L337 = (
+    stage: string,
+    payload: Record<string, unknown> = {},
+  ): void => {
+    const now = Date.now();
+    logIntakePerfV17_90L337(
+      intakePerfTraceEnabledV17_90L337,
+      intakeDiagnosticTraceId,
+      stage,
+      {
+        elapsedMs: now - _intakeStartTime,
+        deltaMs: now - _intakePerfLastMarkV17_90L337,
+        ...payload,
+      },
+    );
+    _intakePerfLastMarkV17_90L337 = now;
+  };
+  markIntakePerfV17_90L337("01_start", {
+    source,
+    textLength: messageText.length,
+    hasImage: Boolean(imageBase64),
+    hasMedia: Boolean(savedMediaPath),
+  });
   const intakeAppointmentReferenceV17_90L271 =
     buildIntakeAppointmentReferenceV17_90L271(
       new Date(_intakeStartTime),
@@ -14983,6 +15094,9 @@ export async function processIncomingMessage(
       standard_preis: Number(s.defaultPrice),
     })),
   );
+  markIntakePerfV17_90L337("01a_services_loaded", {
+    serviceCount: services.length,
+  });
 
   // Load customers for matching (max 200).
   // Phase 2b: ONLY expose {id, name} to the LLM — never address/phone/email.
@@ -15011,6 +15125,9 @@ export async function processIncomingMessage(
   const customerListJson = JSON.stringify(
     allCustomers.map((c: any) => ({ id: c.id, name: c.name })),
   );
+  markIntakePerfV17_90L337("01b_customers_loaded", {
+    customerCount: allCustomers.length,
+  });
 
   // Fetch branche + hauptsprache from company settings
   const companySettings = userId
@@ -15022,6 +15139,11 @@ export async function processIncomingMessage(
   const intakeCurrency =
     detectedCurrency || (companySettings?.currency === "EUR" ? "EUR" : "CHF");
   const hauptsprache = (companySettings as any)?.hauptsprache || "Deutsch";
+  markIntakePerfV17_90L337("01c_settings_loaded", {
+    branche,
+    intakeCurrency,
+    hauptsprache,
+  });
 
   // V17.46 SEMANTIC_NORMALIZATION_BEFORE_MAIN_LLM:
   // Fremdsprache/Dialekt darf gar nicht erst als sichtbarer Leistungsname,
@@ -15041,6 +15163,10 @@ export async function processIncomingMessage(
   const translationText = intakeNormalization.translationText;
   const showTranslationInCustomerMessage =
     intakeNormalization.showTranslationInCustomerMessage;
+  markIntakePerfV17_90L337("02_normalization_done", {
+    hasTranslation: Boolean(translationText),
+    showTranslationInCustomerMessage,
+  });
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
@@ -15168,6 +15294,7 @@ export async function processIncomingMessage(
           : userContent,
     },
   ];
+  const intakeLlmModelV17_90L337 = hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini";
   const requestIntakeLlm = (maxTokens: number, compactRetry = false) =>
     fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -15176,7 +15303,7 @@ export async function processIncomingMessage(
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini",
+        model: intakeLlmModelV17_90L337,
         messages: compactRetry
           ? [
               ...baseLlmMessages,
@@ -15216,8 +15343,14 @@ export async function processIncomingMessage(
   // unparseable response), we fall back to creating a manual-review order so
   // no WhatsApp message gets silently dropped. See createFallbackOrderFromRawPayload.
   const _llmStartTime = Date.now();
+  markIntakePerfV17_90L337("03_main_llm_start", {
+    model: intakeLlmModelV17_90L337,
+    systemPromptChars: systemPrompt.length,
+    userContentChars: JSON.stringify(userContent).length,
+    maxTokens: initialLlmMaxTokens,
+  });
   console.log(
-    `[${source}] 🤖 Starting LLM analysis (model=${hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini"}, systemPrompt=${systemPrompt.length}chars, userContent=${JSON.stringify(userContent).length}chars)`,
+    `[${source}] 🤖 Starting LLM analysis (model=${intakeLlmModelV17_90L337}, systemPrompt=${systemPrompt.length}chars, userContent=${JSON.stringify(userContent).length}chars)`,
   );
   let llmResponse: Response;
   try {
@@ -15278,9 +15411,18 @@ export async function processIncomingMessage(
       "llm_response_parse_error",
     );
   }
+  const mainLlmDurationMsV17_90L337 = Date.now() - _llmStartTime;
   console.log(
-    `[${source}] 🤖 LLM analysis completed in ${Date.now() - _llmStartTime}ms`,
+    `[${source}] 🤖 LLM analysis completed in ${mainLlmDurationMsV17_90L337}ms`,
   );
+  markIntakePerfV17_90L337("03_main_llm_end", {
+    model: intakeLlmModelV17_90L337,
+    durationMs: mainLlmDurationMsV17_90L337,
+    usage: summarizeOpenAiUsageV17_90L337(
+      intakeLlmModelV17_90L337,
+      llmResult?.usage,
+    ),
+  });
   let content = llmResult?.choices?.[0]?.message?.content;
   let finishReason = String(llmResult?.choices?.[0]?.finish_reason || "");
   let parsed: any | null = parseIntakeJsonObject(content);
@@ -15290,9 +15432,22 @@ export async function processIncomingMessage(
       `[${source}] LLM output incomplete (finishReason=${finishReason || "unknown"}, chars=${String(content || "").length}); retrying once with max_tokens=${retryLlmMaxTokens}`,
     );
     try {
+      const retryStartMsV17_90L337 = Date.now();
+      markIntakePerfV17_90L337("03b_main_llm_retry_start", {
+        model: intakeLlmModelV17_90L337,
+        maxTokens: retryLlmMaxTokens,
+      });
       const retryResponse = await requestIntakeLlm(retryLlmMaxTokens, true);
       if (retryResponse.ok) {
         const retryResult = await retryResponse.json();
+        markIntakePerfV17_90L337("03b_main_llm_retry_end", {
+          model: intakeLlmModelV17_90L337,
+          durationMs: Date.now() - retryStartMsV17_90L337,
+          usage: summarizeOpenAiUsageV17_90L337(
+            intakeLlmModelV17_90L337,
+            retryResult?.usage,
+          ),
+        });
         const retryContent = retryResult?.choices?.[0]?.message?.content;
         const retryParsed = parseIntakeJsonObject(retryContent);
         const retryFinishReason = String(
@@ -15491,6 +15646,10 @@ export async function processIncomingMessage(
   // first-AI service row.
   // This is language-independent and intentionally contains no service/name
   // word lists.
+  markIntakePerfV17_90L337("03c_work_coverage_start", {
+    workItemCount: (firstAiWorkItemsSnapshotV17_90L213 as readonly any[]).length,
+  });
+  const workCoverageStartMsV17_90L337 = Date.now();
   const finalAiWorkCoverageV17_90L251 =
     await runReadOnlyWorkCoverageCheckerV17_90L251({
       originalText: messageText,
@@ -15599,6 +15758,11 @@ export async function processIncomingMessage(
         },
       ].filter((entry) => entry.text),
     });
+  markIntakePerfV17_90L337("03c_work_coverage_end", {
+    durationMs: Date.now() - workCoverageStartMsV17_90L337,
+    missingWorkCount: finalAiWorkCoverageV17_90L251.missingWork.length,
+    invalidItemCount: finalAiWorkCoverageV17_90L251.invalidItems.length,
+  });
 
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
@@ -18060,10 +18224,16 @@ export async function processIncomingMessage(
   // but none of its rewritten items or review reasons may enter the persisted
   // order. The first structured AI result plus deterministic technical guards
   // remain the only write path.
+  const shadowValidationStartMsV17_90L337 = Date.now();
   const shadowIntakeValidationV17_90L105 = validateAndRepairParsedOrderItems({
     items: finalOrderItems.map((item) => ({ ...item })),
     originalText: validationSourceText,
     fallbackCurrency: intakeCurrency,
+  });
+  markIntakePerfV17_90L337("05_shadow_validation_done", {
+    durationMs: Date.now() - shadowValidationStartMsV17_90L337,
+    itemCount: shadowIntakeValidationV17_90L105.items.length,
+    needsReview: shadowIntakeValidationV17_90L105.needsReview,
   });
 
   logIntakeDiagnosticTrace(
@@ -20019,6 +20189,11 @@ export async function processIncomingMessage(
   );
 
   // --- Create order ---
+  markIntakePerfV17_90L337("06_persist_start", {
+    itemCount: finalOrderItems.length,
+    needsReview,
+  });
+  const persistStartMsV17_90L337 = Date.now();
   let order = await prisma.order.create({
     data: {
       customerId,
@@ -20131,6 +20306,11 @@ export async function processIncomingMessage(
         : {}),
     },
     include: { customer: true, items: true },
+  });
+  markIntakePerfV17_90L337("06_persist_order_created", {
+    durationMs: Date.now() - persistStartMsV17_90L337,
+    orderId: order.id,
+    itemCount: order.items.length,
   });
 
   // V16.39: Final order path deliberately does not re-parse raw text for
@@ -20269,6 +20449,7 @@ export async function processIncomingMessage(
     );
   }
 
+  const totalIntakeDurationMsV17_90L337 = Date.now() - _intakeStartTime;
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
@@ -20277,9 +20458,14 @@ export async function processIncomingMessage(
       orderId: order.id,
       itemCount: order.items.length,
       items: summarizeIntakeDiagnosticItems(order.items),
-      durationMs: Date.now() - _intakeStartTime,
+      durationMs: totalIntakeDurationMsV17_90L337,
     },
   );
+  markIntakePerfV17_90L337("07_done", {
+    orderId: order.id,
+    itemCount: order.items.length,
+    totalDurationMs: totalIntakeDurationMsV17_90L337,
+  });
 
   console.log(
     `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
