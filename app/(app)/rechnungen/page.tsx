@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L354_INVOICE_PHONE_CONTACT_PHONE_SOURCE_FIX
 // SMARTFLOW_V17_90L353_INVOICE_PHONE_CONTACT_CHIP_ONLY
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
@@ -2650,7 +2651,20 @@ const extractInvoiceActionPhoneV17_90L352 = (
   invoice: Invoice,
   explicitContact: ReturnType<typeof extractDocumentContactFallback>,
   resolved: any,
+  fullSource?: string,
 ) => {
+  // SMARTFLOW_V17_90L354: Telefon-Anweisungen stehen oft in einer
+  // eigenen Zeile ("Bitte 20 Minuten vorher telefonisch anrufen."),
+  // während die eigentliche Nummer in einer separaten Tel:-Zeile der
+  // übernommenen Kundennachricht steht. Für den Telefon-Chip darf daher
+  // die Nummer aus einer klar beschrifteten Telefon-/Kontaktzeile des
+  // gesamten Quelltexts gelesen werden. Reine Datums-/Preis-/Adresszahlen
+  // bleiben ausgeschlossen, weil sie kein passendes Label haben.
+  const strictPhoneSource = `${source}\n${fullSource || ""}`;
+  const labelled =
+    strictPhoneSource.match(
+      /(?:tel\.?|telefon|phone|mobile|handy|natel|kontakt(?:\s+vor\s+ort)?|anruf(?:en)?|rueckruf|ruckruf)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] || "";
   const local = Array.from(source.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
     .map((match) => String(match[0] || "").trim())
     .find((candidate) => {
@@ -2658,7 +2672,8 @@ const extractInvoiceActionPhoneV17_90L352 = (
       return digits.length >= 7 && digits.length <= 15;
     });
   return normalizeInvoicePhoneForActionV17_90L352(
-    local ||
+    labelled ||
+      local ||
       explicitContact.phone ||
       resolved.phone ||
       resolved.customer?.phone ||
@@ -2750,6 +2765,7 @@ const resolveInvoiceCardCommunicationActionV17_90L352 = (
         invoice,
         explicitContact,
         resolved,
+        rawSource,
       ),
       email: extractInvoiceActionEmailV17_90L352(
         line,
