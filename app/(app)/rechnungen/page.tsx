@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L356_INVOICE_MOBILE_EXECUTION_SITE_POPOVER_ONLY
 // SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
 // SMARTFLOW_V17_90L354_INVOICE_PHONE_CONTACT_PHONE_SOURCE_FIX
 // SMARTFLOW_V17_90L353_INVOICE_PHONE_CONTACT_CHIP_ONLY
@@ -7997,6 +7998,7 @@ export default function RechnungenPage() {
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
+                                            if (useTouchChipPopovers) return;
                                             openEditInvoice(inv, { focusExecutionSites: true });
                                           }}
                                           className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
@@ -8216,6 +8218,7 @@ export default function RechnungenPage() {
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
+                                      if (useTouchChipPopovers) return;
                                       openEditInvoice(inv, { focusExecutionSites: true });
                                     }}
                                     className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
