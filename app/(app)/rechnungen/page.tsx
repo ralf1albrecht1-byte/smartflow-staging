@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
 // SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
 // SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
@@ -1239,9 +1240,10 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
       record.text,
     );
-    if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
-      continue;
-    }
+    // V17.90L329: Weitere Terminhinweise aus Angebot/Rechnungs-Besonderheiten
+    // nicht mehr pauschal ausblenden, nur weil bereits ein kanonischer
+    // Intake-Termin existiert. Sonst fehlen z. B. zusätzliche manuelle
+    // Termine aus dem Angebot in der Rechnung. Exakte Duplikate filtert add().
     if (
       explicitContact.title &&
       !isAppointmentRecord &&
