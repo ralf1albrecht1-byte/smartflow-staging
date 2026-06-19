@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L335_OFFER_SPECIAL_NOTES_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L317_OFFER_MANUAL_SPECIAL_NOTES
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
 // SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
@@ -768,44 +769,136 @@ function applyExecutionSitesToOfferItems(
   });
 }
 
-function extractOfferAppointmentLabel(value?: string | null): string {
+function parseOfferAppointmentBaseDateV17_90L335(
+  value?: string | null,
+): Date {
+  const source = String(value || "").trim();
+  const direct = source.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (direct) {
+    const parsed = new Date(
+      Number(direct[1]),
+      Number(direct[2]) - 1,
+      Number(direct[3]),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  const fallback = new Date();
+  return new Date(
+    fallback.getFullYear(),
+    fallback.getMonth(),
+    fallback.getDate(),
+  );
+}
+
+function formatOfferAppointmentDateV17_90L335(date: Date): string {
+  return `${String(date.getDate()).padStart(2, "0")}.${String(
+    date.getMonth() + 1,
+  ).padStart(2, "0")}.`;
+}
+
+function normalizeOfferAppointmentDateLabelV17_90L335(
+  value: string,
+  baseDateInput?: string | null,
+): string {
+  const raw = String(value || "").replace(/\s+/g, " ").trim();
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  if (dateMatch) {
+    const day = Number(dateMatch[1]);
+    const month = Number(dateMatch[2]);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.`;
+    }
+  }
+
+  const key = normalizeOfferHint(raw);
+  const base = parseOfferAppointmentBaseDateV17_90L335(baseDateInput);
+  const addDays = (days: number) => {
+    const next = new Date(base);
+    next.setDate(base.getDate() + days);
+    return formatOfferAppointmentDateV17_90L335(next);
+  };
+  if (/\b(?:morgen|tomorrow|demain|domani|manana)\b/.test(key)) return addDays(1);
+  if (/\b(?:uebermorgen|ubermorgen|übermorgen|day after tomorrow|apres demain|dopodomani)\b/.test(key)) return addDays(2);
+  return "";
+}
+
+function normalizeOfferAppointmentTimeLabelV17_90L335(value: string): string {
+  const rawWithoutDate = String(value || "")
+    .replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const colonOrDotTime = rawWithoutDate.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+  if (colonOrDotTime) {
+    return `${colonOrDotTime[1].padStart(2, "0")}:${colonOrDotTime[2]}`;
+  }
+  const hourMatch = rawWithoutDate.match(/\b(?:um\s*)?([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  if (hourMatch) return `${hourMatch[1].padStart(2, "0")}:00`;
+  return "";
+}
+
+function extractOfferAppointmentLinesV17_90L335(value?: string | null): string[] {
   const source = String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "");
-  const line = source
-    .split(/\n+/g)
-    .map((entry) => entry.trim())
-    .find((entry) =>
-      /\b(?:termin|datum|zeitfenster|appointment)\b/i.test(entry),
-    );
-  if (!line) return "";
-
-  const date = line.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
-  // A dot belongs to Swiss/German dates as well. Therefore only real clock
-  // values with a colon are accepted after the detected date was removed.
-  // This prevents 18.06.2026 from becoming the false time 18:06.
-  const lineWithoutDate = date ? line.replace(date[0], " ") : line;
-  const timeMatches = Array.from(
-    lineWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
-  );
-  const timeLabels = timeMatches
-    .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
-    .filter((time, index, all) => all.indexOf(time) === index);
-  const timeLabel =
-    timeLabels.length >= 2
-      ? `${timeLabels[0]}–${timeLabels[1]}`
-      : timeLabels[0] || "";
-
-  if (date) {
-    const dateLabel = `${date[1].padStart(2, "0")}.${date[2].padStart(2, "0")}.`;
-    return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
-  }
-
-  if (timeLabel) return `Termin ${timeLabel}`;
-  return line.length > 38 ? `${line.slice(0, 35).trim()}…` : line;
+    .replace(/\[(?:HINWEIS|NOTE|INFO|NOTIZ)\]\s*/gi, "\n");
+  if (!source.trim()) return [];
+  return source
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      const key = normalizeOfferHint(line);
+      if (!key) return false;
+      const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key);
+      const hasRelativeDay = /\b(?:morgen|uebermorgen|ubermorgen|übermorgen|tomorrow|demain|domani|manana)\b/.test(key);
+      const hasDate = /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(line);
+      const hasTime = /\b(?:um\s*)?(?:[01]?\d|2[0-3])(?::[0-5]\d|\.[0-5]\d|\s*(?:uhr|h))\b/i.test(line);
+      return hasAppointmentWord && (hasRelativeDay || hasDate || hasTime);
+    });
 }
 
+function extractOfferAppointmentLabelsV17_90L335(
+  value?: string | null,
+  baseDateInput?: string | null,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const line of extractOfferAppointmentLinesV17_90L335(value)) {
+    const date = normalizeOfferAppointmentDateLabelV17_90L335(line, baseDateInput);
+    const time = normalizeOfferAppointmentTimeLabelV17_90L335(line);
+    const clean = line.replace(/^\s*termin\s*:?\s*/i, "").trim();
+    const label = date || time
+      ? `Termin ${[date, time].filter(Boolean).join(" · ")}`
+      : clean.length > 38
+        ? `Termin ${clean.slice(0, 35).trim()}…`
+        : `Termin ${clean}`;
+    const key = normalizeOfferHint(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+  }
+  return result;
+}
+
+function formatOfferAppointmentLabelListV17_90L335(labels: string[]): string {
+  const unique = uniqueOfferInfoLinesV17_66(labels).filter(Boolean);
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0];
+  return [
+    `Termine · ${unique.length}`,
+    ...unique.map((label, index) =>
+      `${index + 1}. Termin — ${String(label || "").replace(/^Termin\s*/i, "").trim()}`,
+    ),
+  ].join("\n");
+}
+
+function extractOfferAppointmentLabel(
+  value?: string | null,
+  baseDateInput?: string | null,
+): string {
+  return formatOfferAppointmentLabelListV17_90L335(
+    extractOfferAppointmentLabelsV17_90L335(value, baseDateInput),
+  );
+}
 
 function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): string {
   const entries = (Array.isArray(orders) ? orders : [])
@@ -1384,28 +1477,32 @@ function extractOfferCommunicationInstructionLinesV17_90L265(
 function resolveOfferAppointmentLabelV17_90L237(
   orders: any[],
   fallbackData?: CommunicationData | null,
+  baseDateInput?: string | null,
 ): string {
-  // V17.90L264: Never derive a customer appointment from order.date,
-  // createdAt or document timestamps. Only explicit source text is eligible.
-  const candidates = [
-    ...(orders || []).map((order: any) =>
-      extractOfferAppointmentLabel(
-        [order?.specialNotes, order?.notes, order?.description, order?.audioTranscript]
-          .filter(Boolean)
-          .join("\n"),
+  // V17.90L335: Offer cards/editors must show all explicit appointment lines
+  // from the linked order snapshot and from manually added offer notes. Never
+  // derive appointments from document creation dates alone.
+  const labels: string[] = [];
+  for (const order of orders || []) {
+    const source = [order?.specialNotes, order?.notes, order?.description, order?.audioTranscript]
+      .filter(Boolean)
+      .join("\n");
+    labels.push(
+      ...extractOfferAppointmentLabelsV17_90L335(
+        source,
+        order?.date || order?.createdAt || baseDateInput,
       ),
-    ),
-    extractOfferAppointmentLabel(
+    );
+  }
+  labels.push(
+    ...extractOfferAppointmentLabelsV17_90L335(
       [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
         .filter(Boolean)
         .join("\n"),
+      baseDateInput,
     ),
-  ]
-    .map(compactOfferValue)
-    .filter(Boolean);
-  const concrete = candidates.find((value) => /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(value));
-  if (concrete) return concrete;
-  return candidates.find((value) => !/termin\s+klären|termin\s+klaeren/i.test(value)) || candidates[0] || "";
+  );
+  return formatOfferAppointmentLabelListV17_90L335(labels);
 }
 
 function compactOfferPrimaryInfoLinesV17_90L124(
@@ -1658,7 +1755,49 @@ function buildOfferInfoSummary(
   const canonicalWorkflowSummaryV17_90L274 =
     buildOfferCanonicalWorkflowSummaryV17_90L274(sourceOrders);
   if (preferCanonicalWorkflowV17_90L273) {
-    return canonicalWorkflowSummaryV17_90L274;
+    const manualSafety = uniqueOfferInfoLinesV17_66([
+      ...(parsedNotes.safetyWarnings || []),
+      ...(parsedNotes.jobHints || []).filter(isOfferDogHint),
+    ]).filter((line) => !isOfferParkingLineV17_90L101(line));
+    const manualPrimary = uniqueOfferInfoLinesV17_66([
+      ...(parsedNotes.jobHints || []).filter(
+        (line) =>
+          !isOfferDogHint(line) &&
+          !isOfferParkingLineV17_90L101(line) &&
+          (isOfferPrimaryInfoHint(line) || isOfferCanonicalPrimaryLineV17_90L273(line)),
+      ),
+      ...extractOfferAppointmentSnippets(data.specialNotes),
+      appointmentLabel,
+    ]).filter(
+      (line) => !manualSafety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
+    );
+    const manualAdditional = uniqueOfferInfoLinesV17_66([
+      ...(parsedNotes.jobHints || []).filter(
+        (line) =>
+          !isOfferDogHint(line) &&
+          !isOfferPrimaryInfoHint(line) &&
+          !isOfferCanonicalPrimaryLineV17_90L273(line),
+      ),
+    ]).filter(
+      (line) =>
+        !manualSafety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
+        !manualPrimary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
+    );
+    return {
+      safety: uniqueOfferInfoLinesV17_66([
+        ...canonicalWorkflowSummaryV17_90L274.safety,
+        ...manualSafety,
+      ]),
+      primary: uniqueOfferInfoLinesV17_66([
+        ...canonicalWorkflowSummaryV17_90L274.primary,
+        ...manualPrimary,
+      ]),
+      additional: uniqueOfferInfoLinesV17_66([
+        ...canonicalWorkflowSummaryV17_90L274.additional,
+        ...manualAdditional,
+      ]),
+      hasCanonicalMarkers: true,
+    } as OfferCanonicalWorkflowSummaryV17_90L273;
   }
 
   // V17.90L264: The canonical first-AI role snapshot is preferred for
@@ -4602,14 +4741,23 @@ export default function AngebotePage() {
     ) ?? 0;
   const vatAmount = subtotal * (vatRate / 100);
   const total = subtotal + vatAmount;
+  const linkedDataWithManualOfferNotesV17_90L335 = ({
+    ...(linkedOrderData || ({} as CommunicationData)),
+    specialNotes: [linkedOrderData?.specialNotes, form.specialNotes]
+      .filter(Boolean)
+      .join("\n"),
+    notes: [linkedOrderData?.notes, form.specialNotes]
+      .filter(Boolean)
+      .join("\n"),
+  } as CommunicationData);
   const parsedLinkedSpecialNotes = splitSpecialNotes(
-    linkedOrderData?.specialNotes,
+    linkedDataWithManualOfferNotesV17_90L335.specialNotes,
   );
   const linkedOfferCustomer = form.customerId
     ? customers.find((customer) => customer.id === form.customerId) || null
     : null;
   const linkedContactAction = buildOfferContactAction(
-    linkedOrderData || ({} as CommunicationData),
+    linkedDataWithManualOfferNotesV17_90L335,
     linkedOfferCustomer,
   );
   const linkedEditorOrdersV17_90L237 =
@@ -4620,10 +4768,11 @@ export default function AngebotePage() {
         : [];
   const linkedAppointmentLabelV17_90L237 = resolveOfferAppointmentLabelV17_90L237(
     linkedEditorOrdersV17_90L237,
-    linkedOrderData,
+    linkedDataWithManualOfferNotesV17_90L335,
+    form.offerDate || linkedOrderData?.createdAt || linkedOrderData?.date,
   );
   const linkedInfoSummary = buildOfferInfoSummary(
-    linkedOrderData || ({} as CommunicationData),
+    linkedDataWithManualOfferNotesV17_90L335,
     parsedLinkedSpecialNotes,
     linkedAppointmentLabelV17_90L237,
     linkedContactAction,
@@ -6966,6 +7115,7 @@ export default function AngebotePage() {
                   const appointmentLabel = resolveOfferAppointmentLabelV17_90L237(
                     (off.orders || []) as any[],
                     orderCtx,
+                    off.offerDate || off.createdAt,
                   );
                   const appointmentDisplayLabel = appointmentLabel;
                   const appointmentChipLabels =
@@ -6989,14 +7139,24 @@ export default function AngebotePage() {
                   );
                   const callbackChip = buildOfferCallbackChip(contactAction);
                   const operationalChips = buildOfferOperationalChips(
-                    parsedOfferNotes.safetyWarnings,
-                    parsedOfferNotes.jobHints,
+                    infoSummary.safety,
+                    uniqueOfferInfoLinesV17_66([
+                      ...parsedOfferNotes.jobHints,
+                      ...infoSummary.primary,
+                      ...infoSummary.additional,
+                    ]),
                   );
                   const dangerChips = operationalChips.filter(
                     (chip) => chip.tone === "danger",
                   );
                   const warningChips = operationalChips.filter(
                     (chip) => chip.tone === "warning",
+                  );
+                  const parkingChips = warningChips.filter(
+                    (chip) => chip.key === "parking",
+                  );
+                  const nonParkingWarningChips = warningChips.filter(
+                    (chip) => chip.key !== "parking",
                   );
                   const hasInfoTooltip =
                     infoSummary.safety.length > 0 ||
@@ -7294,7 +7454,37 @@ export default function AngebotePage() {
                         </button>
                       )}
 
-                      {dangerChips.map((chip) => (
+                      {parkingChips.map((chip) => (
+                        <button
+                          key={`compact_${chip.key}`}
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact:${chip.key}`,
+                                    text: chip.title,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget(
+                                  "details",
+                                  event,
+                                  chip.title,
+                                )
+                          }
+                          className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-blue-300 bg-blue-50 text-[17px] font-semibold text-blue-700"
+                          aria-label={chip.title}
+                        >
+                          {renderOfferOperationalChipIcon(chip)}
+                          {!useTouchChipPopovers && (
+                            <OfferOperationalTooltipV17_90L169 chip={chip} />
+                          )}
+                        </button>
+                      ))}
+{dangerChips.map((chip) => (
                         <button
                           key={`compact_${chip.key}`}
                           type="button"
@@ -7325,7 +7515,7 @@ export default function AngebotePage() {
                         </button>
                       ))}
 
-                      {warningChips.map((chip) => (
+                      {nonParkingWarningChips.map((chip) => (
                         <button
                           key={`compact_${chip.key}`}
                           type="button"
@@ -8077,6 +8267,37 @@ export default function AngebotePage() {
                                     </button>
                                   )}
 
+                                  {parkingChips.map((chip) => (
+                                    <button
+                                      key={`mobile_${chip.key}`}
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        useTouchChipPopovers
+                                          ? toggleOfferMobileTooltip(
+                                              {
+                                                key: `${off.id}:${chip.key}`,
+                                                text: chip.title,
+                                              },
+                                              event,
+                                            )
+                                          : openOfferChipTarget(
+                                              "details",
+                                              event,
+                                              chip.title,
+                                            )
+                                      }
+                                      className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-blue-300 bg-blue-50 text-[17px] font-semibold text-blue-700"
+                                      aria-label={chip.title}
+                                    >
+                                      {renderOfferOperationalChipIcon(chip)}
+                                      {!useTouchChipPopovers && (
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
+                                      )}
+                                    </button>
+                                  ))}
+
                                   {dangerChips.map((chip) => (
                                     <button
                                       key={`mobile_${chip.key}`}
@@ -8108,7 +8329,7 @@ export default function AngebotePage() {
                                     </button>
                                   ))}
 
-                                  {warningChips.map((chip) => (
+                                  {nonParkingWarningChips.map((chip) => (
                                     <button
                                       key={`mobile_${chip.key}`}
                                       type="button"
@@ -8493,6 +8714,22 @@ export default function AngebotePage() {
                                       </button>
                                     )}
 
+                                    {parkingChips.map((chip) => (
+                                      <button
+                                        key={chip.key}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(off, "details");
+                                        }}
+                                        className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-blue-300 bg-blue-50 text-[17px] font-semibold text-blue-700 outline-none hover:bg-blue-100 focus:ring-2 focus:ring-blue-300"
+                                        aria-label={chip.title}
+                                      >
+                                        {renderOfferOperationalChipIcon(chip)}
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
+                                      </button>
+                                    ))}
+
                                     {dangerChips.map((chip) => (
                                       <button
                                         key={chip.key}
@@ -8509,7 +8746,7 @@ export default function AngebotePage() {
                                       </button>
                                     ))}
 
-                                    {warningChips.map((chip) => (
+                                    {nonParkingWarningChips.map((chip) => (
                                       <button
                                         key={chip.key}
                                         type="button"
