@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L349_OFFER_BUILD_FIX_APPOINTMENT_SUMMARY_TYPE
 // SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
 // SMARTFLOW_V17_90L347_OFFER_BUILD_FIX_COMPACT_HELPER
@@ -1725,9 +1726,13 @@ function normalizeOfferDisplayAppointmentLineV17_90L348(value: unknown): string 
     .replace(/^termin\s*:?\s*/i, "");
   if (!raw) return "";
   const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  // SMARTFLOW_V17_90L350: Datum zuerst aus dem Suchtext entfernen. Sonst
+  // wird ein Datum wie "20.06" fälschlich als Uhrzeit "20:06" gelesen.
+  const rawWithoutDate = dateMatch ? raw.replace(dateMatch[0], " ") : raw;
   const timeMatch =
-    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
-    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+    rawWithoutDate.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
   const date = dateMatch
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}${
         dateMatch[3]
@@ -1752,9 +1757,13 @@ function offerAppointmentDisplaySignatureV17_90L348(value: unknown): string {
   }
   if (isOfferAppointmentSummaryDisplayLineV17_90L348(raw)) return "summary";
   const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  // SMARTFLOW_V17_90L350: Datum zuerst aus dem Suchtext entfernen. Sonst
+  // wird ein Datum wie "20.06" fälschlich als Uhrzeit "20:06" gelesen.
+  const rawWithoutDate = dateMatch ? raw.replace(dateMatch[0], " ") : raw;
   const timeMatch =
-    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
-    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+    rawWithoutDate.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
   const day = dateMatch ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}` : "";
   const time = timeMatch
     ? timeMatch[2]
