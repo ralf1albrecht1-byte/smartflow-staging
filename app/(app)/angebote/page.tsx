@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L347_OFFER_BUILD_FIX_COMPACT_HELPER
 // SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
 // SMARTFLOW_V17_90L331_OFFER_TO_INVOICE_SPECIAL_NOTES_HANDOFF
 // SMARTFLOW_V17_90L337_OFFER_MANUAL_NOTES_ACCESS_CHIPS
@@ -1698,7 +1699,7 @@ function isOfferCanonicalPrimaryLineV17_90L273(value: string): boolean {
 }
 
 function isOfferRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean {
-  const text = compactOfferText(value);
+  const text = compactOfferValue(value);
   if (text.length < 140) return false;
   const key = normalizeOfferHint(text);
   return (
