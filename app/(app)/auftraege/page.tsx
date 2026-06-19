@@ -11495,6 +11495,13 @@ export default function AuftraegePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  // V17.90L334: Das Besonderheiten-Textarea darf beim Tippen nicht aus dem
+  // zusammengefuehrten protected+manual Text neu aufgebaut werden. Sonst kann
+  // der Browser-Cursor bei Leerzeichen/Enter springen. Der sichtbare Editorwert
+  // bleibt deshalb als lokaler Draft stabil; form.specialNotes wird parallel
+  // fuer Chips, Speichern und Handoff aktualisiert.
+  const [orderSpecialNotesDraftV17_90L334, setOrderSpecialNotesDraftV17_90L334] =
+    useState<string | null>(null);
   const [siteAddressEditing, setSiteAddressEditing] = useState(false);
   const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
     useState(true);
@@ -15756,6 +15763,21 @@ export default function AuftraegePage() {
     splitOrderSpecialNotesEditorTextV17_90L327(form.specialNotes);
 
   const normalSpecialNotesText = orderSpecialNotesEditorPartsV17_90L327.manualText;
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      setOrderSpecialNotesDraftV17_90L334(null);
+      return;
+    }
+    setOrderSpecialNotesDraftV17_90L334(normalSpecialNotesText);
+    // Nur beim Oeffnen oder Wechsel des Auftrags initialisieren. Beim Tippen
+    // darf dieser Effekt nicht laufen, sonst springt der Cursor wieder.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen, editId]);
+
+  const effectiveNormalSpecialNotesTextV17_90L334 =
+    orderSpecialNotesDraftV17_90L334 ?? normalSpecialNotesText;
+
   const recognizedSpecialNoteLinesV17_90L327 =
     orderSpecialNotesEditorPartsV17_90L327.visibleProtectedLines;
 
@@ -15777,7 +15799,7 @@ export default function AuftraegePage() {
       return role === "parking" || role === "equipment" || role === "operational" || role === "unknown";
     });
   const manualSpecialNoteLinesV17_90L329 =
-    getManualOrderSpecialNoteLinesV17_90L329(normalSpecialNotesText);
+    getManualOrderSpecialNoteLinesV17_90L329(effectiveNormalSpecialNotesTextV17_90L334);
   const manualSpecialNoteGroupsV17_90L329 =
     groupManualOrderSpecialNotesV17_90L329(manualSpecialNoteLinesV17_90L329);
 
@@ -15826,6 +15848,10 @@ export default function AuftraegePage() {
   };
 
   const updateNormalSpecialNotes = (value: string) => {
+    // V17.90L334: Erst den sichtbaren Draft exakt setzen. Dadurch bleiben
+    // Leertaste, Enter, Cursorposition und leere Zeilen stabil, auch wenn die
+    // Chip-Auswertung parallel form.specialNotes neu berechnet.
+    setOrderSpecialNotesDraftV17_90L334(value);
     setForm((prev) => ({
       ...prev,
       specialNotes: mergeOrderSpecialNotesEditorTextV17_90L327(value),
@@ -22852,7 +22878,7 @@ export default function AuftraegePage() {
                         className="flex min-h-[82px] w-full resize-y rounded-md border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/60 dark:bg-slate-950"
                         rows={3}
                         placeholder="z. B. Schlüssel liegt im Briefkasten, Zugang nur über Hintereingang, bitte vorher anrufen..."
-                        value={normalSpecialNotesText}
+                        value={effectiveNormalSpecialNotesTextV17_90L334}
                         onChange={(e) => updateNormalSpecialNotes(e.target.value)}
                       />
                       <div className="text-xs text-muted-foreground">
