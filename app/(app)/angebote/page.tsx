@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L337_OFFER_MANUAL_NOTES_ACCESS_CHIPS
 // SMARTFLOW_V17_90L335_OFFER_SPECIAL_NOTES_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L317_OFFER_MANUAL_SPECIAL_NOTES
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
@@ -843,7 +844,10 @@ function extractOfferAppointmentLinesV17_90L335(value?: string | null): string[]
     .replace(/\[(?:HINWEIS|NOTE|INFO|NOTIZ)\]\s*/gi, "\n");
   if (!source.trim()) return [];
   return source
-    .split(/\n+|(?<=[.!?])\s+/g)
+    // V17.90L337: Nicht nach Satzpunkten splitten. Datumswerte wie
+    // `8.8. um 17 Uhr` wurden sonst in `8.8.` und `um 17 Uhr` getrennt;
+    // dadurch verlor der Angebots-Terminchip die Uhrzeit.
+    .split(/\n+|;\s+/g)
     .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
     .filter((line) => {
       const key = normalizeOfferHint(line);
@@ -1228,6 +1232,29 @@ function isOfferParkingLineV17_90L101(value?: string | null): boolean {
   );
 }
 
+function isOfferAccessLineV17_90L337(value?: string | null): boolean {
+  const text = normalizeOfferHint(value || "");
+  if (!text) return false;
+  return /\b(?:schluessel|schlussel|schluesselbox|schlusselbox|schluesselkasten|schlusselkasten|key|keybox|code|tuercode|turcode|tuerkode|turkode|tuercode|eingangscode|pin|zugang|zutritt|eingang|hintereingang|seiteneingang|seitentuer|seitentur|seitentüre|seitentur|seitentuer|seitenzugang|tuer|tur|door|access|entrance|side\s*door|back\s*door|cle|cles|boite\s+a\s+cles|acces|entree|chiave|codice|ingresso|llave|codigo|acceso)\b/.test(text);
+}
+
+function isOfferOperationalHintLineV17_90L337(value?: string | null): boolean {
+  const text = normalizeOfferHint(value || "");
+  if (!text) return false;
+  return (
+    isOfferAccessLineV17_90L337(value) ||
+    isOfferParkingLineV17_90L101(value) ||
+    isOfferDogHint(String(value || "")) ||
+    /\b(?:leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)
+  );
+}
+
+function extractOfferManualOperationalLinesV17_90L337(value?: string | null): string[] {
+  return uniqueOfferInfoLinesV17_66(
+    splitOfferSourceLinesV17_90L237(value).filter(isOfferOperationalHintLineV17_90L337),
+  );
+}
+
 // V17.90L237: Angebot/Rechnung erhalten Termin- und Zugangsdaten aus den
 // unveränderten Quellaufträgen. Rohtexte werden nur für klar erkennbare
 // Zugangssätze verwendet; Leistungszeilen bleiben aus Besonderheiten draußen.
@@ -1236,7 +1263,8 @@ function splitOfferSourceLinesV17_90L237(value: unknown): string[] {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
-    .split(/\n+|(?<=[.!?])\s+/g)
+    // V17.90L337: Datums-/Uhrzeit-Hinweise nicht an Punkten zerschneiden.
+    .split(/\n+|;\s+/g)
     .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
     .filter(Boolean);
 }
@@ -1305,7 +1333,7 @@ function extractOfferAccessLinesV17_90L237(
     result.push(clean);
   };
 
-  const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
+  const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|tuercode|türcode|code|pin|zugang|zutritt|seiteneingang|seitentuer|seitentür|seitentur|seitenzugang|hintereingang|eingang|tuer|tür|tur|eingangscode|key|keybox|key\s+box|door\s*code|side\s*door|back\s*door|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
   for (const order of orders || []) {
     // V17.90L264: first-AI canonical role text is the authoritative display
     // source. Raw/original text is fallback-only, preventing the same access
@@ -1806,8 +1834,17 @@ function buildOfferInfoSummary(
   const canonicalSource = String(data.specialNotes || "").trim();
   const source = canonicalSource || [data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const serviceEvidence = collectOfferServiceEvidenceLinesV17_90L237(sourceOrders);
-  const accessLines = extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames);
-  const parkingLines = extractOfferParkingLinesV17_90L264(sourceOrders);
+  const manualOperationalLinesV17_90L337 = extractOfferManualOperationalLinesV17_90L337(source);
+  const manualAccessLinesV17_90L337 = manualOperationalLinesV17_90L337.filter(isOfferAccessLineV17_90L337);
+  const manualParkingLinesV17_90L337 = manualOperationalLinesV17_90L337.filter(isOfferParkingLineV17_90L101);
+  const accessLines = uniqueOfferInfoLinesV17_66([
+    ...extractOfferAccessLinesV17_90L237(sourceOrders, serviceNames),
+    ...manualAccessLinesV17_90L337,
+  ]);
+  const parkingLines = uniqueOfferInfoLinesV17_66([
+    ...extractOfferParkingLinesV17_90L264(sourceOrders),
+    ...manualParkingLinesV17_90L337,
+  ]);
   const communicationLines =
     extractOfferCommunicationInstructionLinesV17_90L265(sourceOrders);
   const hasConcreteAppointment = /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(appointmentLabel);
@@ -1843,6 +1880,13 @@ function buildOfferInfoSummary(
   );
   const additional = uniqueOfferInfoLinesV17_66([
     ...parkingLines,
+    ...manualOperationalLinesV17_90L337.filter(
+      (line) =>
+        !isOfferDogHint(line) &&
+        !isOfferPrimaryInfoHint(line) &&
+        !isOfferAccessLineV17_90L337(line) &&
+        !isOfferParkingLineV17_90L101(line),
+    ),
     ...(parsedNotes.jobHints || []).filter(
       (line) =>
         !isOfferDogHint(line) &&
@@ -2109,11 +2153,11 @@ function buildOfferOperationalChips(
       pushOrMerge({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
       return;
     }
-    if (/\b(?:schluessel|schlussel|key|cle|chiave|llave|code|schluesselbox|schlusselbox)\b/.test(text)) {
+    if (/\b(?:schluessel|schlussel|key|cle|chiave|llave|code|pin|tuercode|turcode|tuercode|tuerkode|turkode|eingangscode|schluesselbox|schlusselbox)\b/.test(text)) {
       pushOrMerge({ key: "key", title: line, icon: "🔑", tone: "warning" });
       return;
     }
-    if (/\b(?:zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|porta|puerta)\b/.test(text)) {
+    if (/\b(?:zugang|zutritt|eingang|hintereingang|seiteneingang|seitentuer|seitentur|seitenzugang|tuer|tur|tor|door|side\s*door|back\s*door|access|entree|porta|puerta)\b/.test(text)) {
       pushOrMerge({ key: "access", title: line, icon: "🚪", tone: "warning" });
     }
   });
