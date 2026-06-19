@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L343_INVOICE_INFO_AND_APPOINTMENT_CHIPS_POPOVER_ONLY
 // SMARTFLOW_V17_90L342_INVOICE_APPOINTMENT_CHIP_POPOVER_ONLY
 // SMARTFLOW_V17_90L341_INVOICE_SMS_CONTACT_TRANSPORT_PREFIX_FIX
 // SMARTFLOW_V17_90L340_INVOICE_SMS_CONTACT_OVERRIDES_DERIVED_WHATSAPP
@@ -7140,14 +7141,17 @@ export default function RechnungenPage() {
                       {hasInvoiceSpecialInfoV17_90L319 && (
                         <button
                           type="button"
+                          data-card-toggle-ignore="true"
                           aria-label="Besonderheiten anzeigen"
                           title="Besonderheiten"
                           onPointerDown={(event) => event.stopPropagation()}
+                          onPointerUp={(event) => event.stopPropagation()}
                           onTouchStart={(event) => event.stopPropagation()}
+                          onTouchEnd={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            openEditInvoice(inv, { focusSpecialNotes: true });
                           }}
                           className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
                         >
@@ -7395,6 +7399,7 @@ export default function RechnungenPage() {
                               onTouchStart={(event) => event.stopPropagation()}
                               onTouchEnd={(event) => event.stopPropagation()}
                               onMouseDown={(event) => event.stopPropagation()}
+                              onMouseUp={(event) => event.stopPropagation()}
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -7686,6 +7691,9 @@ export default function RechnungenPage() {
                                                     event.stopPropagation()
                                                   }
                                                   onMouseDown={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onMouseUp={(event) =>
                                                     event.stopPropagation()
                                                   }
                                                   onClick={(event) => {
@@ -7985,6 +7993,9 @@ export default function RechnungenPage() {
                                               event.stopPropagation()
                                             }
                                             onMouseDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onMouseUp={(event) =>
                                               event.stopPropagation()
                                             }
                                             onClick={(event) => {
