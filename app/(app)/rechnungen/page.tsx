@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
 // SMARTFLOW_V17_90L345_INVOICE_MOBILE_CHIP_POPOVER_ONLY
 // SMARTFLOW_V17_90L344_INVOICE_CHIP_CLICK_JUMP_RESTORE
 // SMARTFLOW_V17_90L343_INVOICE_INFO_AND_APPOINTMENT_CHIPS_POPOVER_ONLY
@@ -1268,23 +1269,25 @@ function cleanInvoiceRawCustomerMessageForCommunicationOverrideV17_90L341(
     .trim();
 }
 
+function isInvoiceRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean {
+  const text = compactInvoiceValue(value);
+  if (text.length < 140) return false;
+  const key = normalizeInvoiceServiceName(text);
+  return (
+    /\b(?:neuer auftrag|rechnungsadresse|arbeitsort\s*\d|ausfuehrungsort\s*\d)\b/.test(key) &&
+    /\b(?:chf|pauschal|quadratmeter|stueck|stuck|m2|m²|einzelpreis|gesamt)\b/.test(key)
+  );
+}
+
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
 ): InvoiceCanonicalWorkflowSummaryV17_90L273 {
   const sourceOrders = invoice?.orders || [];
-  const siteContexts = buildDocumentSiteOperationalContexts(
-    sourceOrders as any[],
-  );
-  if (siteContexts.length > 1) {
-    return {
-      hazards: [],
-      primaryHints: siteContexts.map(
-        (context) => `${context.label}\n${context.text}`,
-      ),
-      otherHints: [],
-    };
-  }
+  // SMARTFLOW_V17_90L346: Multi-Ausführungsort-Anzeigen dürfen nicht mehr
+  // rohe WhatsApp-/Auftragstexte pro Arbeitsort ausgeben. Die Anzeige nutzt
+  // wie der Auftrag nur kanonische, deduplizierte Hinweiszeilen; Arbeitsorte,
+  // Leistungen, PDF, Summen und gespeicherte Daten bleiben unverändert.
 
   const sources = [
     ...sourceOrders.map((order) => order?.specialNotes),
@@ -1378,6 +1381,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
 
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
+    if (isInvoiceRawCustomerMessageDisplayLeakV17_90L346(text)) return;
     const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
     if (!text || !key) return;
 

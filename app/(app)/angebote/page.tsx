@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
 // SMARTFLOW_V17_90L331_OFFER_TO_INVOICE_SPECIAL_NOTES_HANDOFF
 // SMARTFLOW_V17_90L337_OFFER_MANUAL_NOTES_ACCESS_CHIPS
 // SMARTFLOW_V17_90L335_OFFER_SPECIAL_NOTES_CHIPS_APPOINTMENTS
@@ -1696,23 +1697,23 @@ function isOfferCanonicalPrimaryLineV17_90L273(value: string): boolean {
   );
 }
 
+function isOfferRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean {
+  const text = compactOfferText(value);
+  if (text.length < 140) return false;
+  const key = normalizeOfferHint(text);
+  return (
+    /\b(?:neuer auftrag|rechnungsadresse|arbeitsort\s*\d|ausfuehrungsort\s*\d)\b/.test(key) &&
+    /\b(?:chf|pauschal|quadratmeter|stueck|stuck|m2|m²|einzelpreis|gesamt)\b/.test(key)
+  );
+}
+
 function buildOfferCanonicalWorkflowSummaryV17_90L274(
   sourceOrders: any[],
 ): OfferCanonicalWorkflowSummaryV17_90L273 {
-  const siteContexts = buildDocumentSiteOperationalContexts(sourceOrders);
-  if (siteContexts.length > 1) {
-    // V17.90L279: Bei verbundenen Aufträgen bleiben Termin, Kommunikation,
-    // Zugang und weitere Hinweise exakt beim ursprünglichen Arbeitsort. Die
-    // Originaltexte werden nur lesend gruppiert und nicht neu interpretiert.
-    return {
-      safety: [],
-      primary: siteContexts.map(
-        (context) => `${context.label}\n${context.text}`,
-      ),
-      additional: [],
-      hasCanonicalMarkers: true,
-    };
-  }
+  // SMARTFLOW_V17_90L346: Multi-Ausführungsort-Anzeigen dürfen nicht mehr
+  // rohe WhatsApp-/Auftragstexte pro Arbeitsort ausgeben. Die Anzeige nutzt
+  // wie der Auftrag nur kanonische, deduplizierte Hinweiszeilen; Arbeitsorte,
+  // Leistungen, PDF, Summen und gespeicherte Daten bleiben unverändert.
 
   const records = (sourceOrders || []).flatMap((order) =>
     parseOfferCanonicalWorkflowRecordsV17_90L273(order?.specialNotes),
@@ -1759,6 +1760,7 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
 
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
+    if (isOfferRawCustomerMessageDisplayLeakV17_90L346(text)) return;
     const key = normalizeOfferHint(text).replace(/^termin\s+/, "");
     if (!text || !key || seen.has(key)) return;
     seen.add(key);
