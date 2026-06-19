@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L330_ORDER_PAGE_LOAD_FIX_MANUAL_NOTES_CHIPS
 // SMARTFLOW_V17_90L329_ORDER_MANUAL_SPECIAL_NOTES_CARD_CHIPS
 // SMARTFLOW_V17_90L328_ORDER_SPECIAL_NOTES_OFFER_STYLE_DISPLAY
 // SMARTFLOW_V17_90L318B_ORDER_SPECIAL_NOTES_TEXTAREA_MATCH_OFFER
@@ -4503,6 +4504,14 @@ const getOperationalBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
+  const orderBadgeContext = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .map((part) => compactText(part))
+    .filter(Boolean)
+    .join(" | ");
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
     const info = canonicalOrderInfoForOrderV17_90L252(
@@ -4664,15 +4673,6 @@ const getOperationalBadges = (
       focusTarget: "specialNotes",
     }];
   }
-  const orderBadgeContext = [
-    order.specialNotes,
-    order.notes,
-    order.audioTranscript,
-  ]
-    .map((part) => compactText(part))
-    .filter(Boolean)
-    .join(" | ");
-
   const redWarningClass = "bg-red-100 text-red-700 border border-red-300";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-300";
   const greenInfoClass =
