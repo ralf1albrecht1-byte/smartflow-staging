@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
 // SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
@@ -2591,6 +2592,190 @@ function getInvoiceMergedCount(invoice: Invoice): number {
   return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
 }
 
+type InvoiceCardCommunicationChannelV17_90L352 = "sms" | "whatsapp" | "mail";
+
+type InvoiceCardCommunicationActionV17_90L352 = {
+  channel: InvoiceCardCommunicationChannelV17_90L352;
+  phone: string;
+  email: string;
+  minutesBefore: number | null;
+  sourceText: string;
+};
+
+const normalizeInvoiceContactTextV17_90L352 = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/whats\s+app/g, "whatsapp")
+    .replace(/e\s*mail/g, "email")
+    .replace(/[^a-z0-9+@.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isInvoiceChannelNegatedV17_90L352 = (
+  text: string,
+  tokenPattern: string,
+) =>
+  new RegExp(
+    `\\b(?:kein|keine|keinen|nicht|ohne|nie|no|not|never|ned|nid|nit|n[oö]d|noed|nod)\\b.{0,24}\\b(?:${tokenPattern})\\b`,
+    "i",
+  ).test(text) ||
+  new RegExp(
+    `\\b(?:${tokenPattern})\\b.{0,24}\\b(?:nicht|keine?|keinen|ohne|no|not|never|gesperrt|verboten)\\b`,
+    "i",
+  ).test(text);
+
+const isInvoiceExplicitChannelInstructionLineV17_90L352 = (value: string) =>
+  /\b(?:nur|only|ausschliesslich|ausschließlich|per|via|ueber|über|kontakt|melden|schreiben|informieren|senden|benachrichtigen|vorher|zuerst|erst|minuten|minute|message|nachricht|reicht|bevorzugt)\b/i.test(
+    value,
+  );
+
+const normalizeInvoicePhoneForActionV17_90L352 = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const hasPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 6) return "";
+  return `${hasPlus ? "+" : ""}${digits}`;
+};
+
+const extractInvoiceActionPhoneV17_90L352 = (
+  source: string,
+  invoice: Invoice,
+  explicitContact: ReturnType<typeof extractDocumentContactFallback>,
+  resolved: any,
+) => {
+  const local = Array.from(source.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
+    .map((match) => String(match[0] || "").trim())
+    .find((candidate) => {
+      const digits = candidate.replace(/\D/g, "");
+      return digits.length >= 7 && digits.length <= 15;
+    });
+  return normalizeInvoicePhoneForActionV17_90L352(
+    local ||
+      explicitContact.phone ||
+      resolved.phone ||
+      resolved.customer?.phone ||
+      invoice.customer?.phone ||
+      "",
+  );
+};
+
+const extractInvoiceActionEmailV17_90L352 = (
+  source: string,
+  invoice: Invoice,
+  explicitContact: ReturnType<typeof extractDocumentContactFallback>,
+  resolved: any,
+) => {
+  const local = source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  return String(
+    local ||
+      explicitContact.email ||
+      resolved.email ||
+      resolved.customer?.email ||
+      invoice.customer?.email ||
+      "",
+  ).trim();
+};
+
+const resolveInvoiceCardCommunicationActionV17_90L352 = (
+  invoice: Invoice,
+  resolved: any,
+): InvoiceCardCommunicationActionV17_90L352 | null => {
+  const rawSource = (invoice.orders || [])
+    .flatMap((order) => [order?.specialNotes, order?.notes, order?.audioTranscript])
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!rawSource.trim()) return null;
+
+  const explicitContact = extractDocumentContactFallback(
+    ...(invoice.orders || []).flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+  );
+
+  const lines = rawSource
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) =>
+      compactInvoiceValue(
+        line
+          .replace(/^\s*(?:WhatsApp|Telegram|SMS|Kundennachricht)\s*:\s*/i, "")
+          .replace(/^\s*[-•*]+\s*/g, ""),
+      ),
+    )
+    .filter(Boolean);
+
+  const candidates: InvoiceCardCommunicationActionV17_90L352[] = [];
+  for (const line of lines) {
+    if (!isInvoiceExplicitChannelInstructionLineV17_90L352(line)) continue;
+    const normalized = normalizeInvoiceContactTextV17_90L352(line);
+    const hasSms = /\bsms\b/.test(normalized);
+    const hasWhatsApp = /\bwhatsapp\b/.test(normalized);
+    const hasMail = /\b(?:email|mail)\b/.test(normalized);
+    const smsNegated = hasSms && isInvoiceChannelNegatedV17_90L352(normalized, "sms");
+    const whatsappNegated =
+      hasWhatsApp && isInvoiceChannelNegatedV17_90L352(normalized, "whatsapp");
+    const mailNegated =
+      hasMail && isInvoiceChannelNegatedV17_90L352(normalized, "email|mail");
+
+    let channel: InvoiceCardCommunicationChannelV17_90L352 | null = null;
+    if (hasSms && !smsNegated) channel = "sms";
+    else if (hasMail && !mailNegated) channel = "mail";
+    else if (hasWhatsApp && !whatsappNegated) channel = "whatsapp";
+    if (!channel) continue;
+
+    const minutesMatch = line.match(/\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i);
+    candidates.push({
+      channel,
+      phone: extractInvoiceActionPhoneV17_90L352(
+        line,
+        invoice,
+        explicitContact,
+        resolved,
+      ),
+      email: extractInvoiceActionEmailV17_90L352(
+        line,
+        invoice,
+        explicitContact,
+        resolved,
+      ),
+      minutesBefore: minutesMatch ? Number(minutesMatch[1]) : null,
+      sourceText: line,
+    });
+  }
+
+  return candidates.sort((left, right) => {
+    const leftTarget = left.channel === "mail" ? left.email : left.phone;
+    const rightTarget = right.channel === "mail" ? right.email : right.phone;
+    return Number(Boolean(rightTarget)) - Number(Boolean(leftTarget));
+  })[0] || null;
+};
+
+const buildInvoiceCommunicationChipContextV17_90L352 = (
+  action: InvoiceCardCommunicationActionV17_90L352,
+) => {
+  const timing = action.minutesBefore
+    ? ` ${action.minutesBefore} Minuten vorher.`
+    : "";
+  if (action.channel === "sms") {
+    return `Nur SMS${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  if (action.channel === "whatsapp") {
+    return `Nur WhatsApp${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  return `Nur E-Mail${action.email ? ` an ${action.email}` : ""}.`;
+};
+
 function buildInvoiceCommunicationData(invoice: Invoice) {
   const resolved = resolveCommunicationData(null, invoice.orders || []);
   const explicitContact = extractDocumentContactFallback(
@@ -2600,33 +2785,53 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
       order?.specialNotes,
     ]),
   );
-  const targetPhone = explicitContact.phone || resolved.phone || null;
-  const targetEmail = explicitContact.email || resolved.email || null;
-  const communicationContext =
-    explicitContact.title ||
-    String((resolved as any).communicationContext || resolved.notes || "").trim();
+  const action = resolveInvoiceCardCommunicationActionV17_90L352(
+    invoice,
+    resolved,
+  );
+  const emptyCustomer = {
+    ...(resolved.customer || {}),
+    name:
+      explicitContact.name ||
+      resolved.customer?.name ||
+      invoice.customer?.name ||
+      null,
+    phone: null,
+    email: null,
+  };
 
-  // V17.90L278: Vor-Ort-Kontaktdaten bleiben read-only am Dokument und
-  // werden nur als Ziel der Kommunikationschips verwendet. Der Kundenstamm
-  // wird dabei nicht verändert.
+  // Kein Kontakt-Aktionschip ohne ausdrückliche Kundenanweisung. Ein
+  // WhatsApp-Transport-Präfix darf keine grüne WhatsApp-Schaltfläche erzeugen.
+  if (!action || (action.channel === "whatsapp" && !action.phone)) {
+    return {
+      ...resolved,
+      customer: emptyCustomer,
+      phone: null,
+      contactPhone: null,
+      email: null,
+      specialNotes: "",
+      communicationContext: "",
+      notes: "",
+      audioTranscript: "",
+    };
+  }
+
+  const context = buildInvoiceCommunicationChipContextV17_90L352(action);
+  const targetPhone = action.channel === "mail" ? null : action.phone || null;
+  const targetEmail = action.channel === "mail" ? action.email || null : null;
   return {
     ...resolved,
     customer: {
-      ...(resolved.customer || {}),
-      name:
-        explicitContact.name ||
-        resolved.customer?.name ||
-        invoice.customer?.name ||
-        null,
-      phone: targetPhone || invoice.customer?.phone || null,
-      email: targetEmail || invoice.customer?.email || null,
+      ...emptyCustomer,
+      phone: targetPhone,
+      email: targetEmail,
     },
-    phone: targetPhone || invoice.customer?.phone || null,
-    contactPhone: targetPhone || invoice.customer?.phone || null,
-    email: targetEmail || invoice.customer?.email || null,
+    phone: targetPhone,
+    contactPhone: targetPhone,
+    email: targetEmail,
     specialNotes: "",
-    communicationContext,
-    notes: communicationContext,
+    communicationContext: context,
+    notes: context,
     audioTranscript: "",
   };
 }

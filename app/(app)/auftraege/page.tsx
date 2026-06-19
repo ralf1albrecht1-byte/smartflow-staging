@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L336_ORDER_WORKSITE_SPACE_KEY_FIX
 // SMARTFLOW_V17_90L333_ORDER_MANUAL_APPOINTMENT_DATE_TIME_NORMALIZE
 // SMARTFLOW_V17_90L332_ORDER_SPECIAL_NOTES_TEXTAREA_EMPTY_LINES_FIX
@@ -9033,6 +9034,183 @@ const buildCompactCommunicationContextV17_90L123 = (
     : "";
 };
 
+
+
+type OrderCardCommunicationChannelV17_90L352 = "sms" | "whatsapp" | "mail";
+
+type OrderCardCommunicationActionV17_90L352 = {
+  channel: OrderCardCommunicationChannelV17_90L352;
+  phone: string;
+  email: string;
+  minutesBefore: number | null;
+  sourceText: string;
+};
+
+const isOrderChannelNegatedV17_90L352 = (
+  text: string,
+  tokenPattern: string,
+) =>
+  new RegExp(
+    `\\b(?:kein|keine|keinen|nicht|ohne|nie|no|not|never|ned|nid|nit|n[oö]d|noed|nod)\\b.{0,24}\\b(?:${tokenPattern})\\b`,
+    "i",
+  ).test(text) ||
+  new RegExp(
+    `\\b(?:${tokenPattern})\\b.{0,24}\\b(?:nicht|keine?|keinen|ohne|no|not|never|gesperrt|verboten)\\b`,
+    "i",
+  ).test(text);
+
+const isOrderExplicitChannelInstructionLineV17_90L352 = (text: string) =>
+  /\b(?:nur|only|ausschliesslich|ausschließlich|per|via|ueber|über|kontakt|melden|schreiben|informieren|senden|benachrichtigen|vorher|zuerst|erst|minuten|minute|message|nachricht|reicht|bevorzugt)\b/i.test(
+    text,
+  );
+
+const resolveOrderCardCommunicationActionV17_90L352 = (
+  order: Order,
+): OrderCardCommunicationActionV17_90L352 | null => {
+  const rawSource = [order.specialNotes, order.notes, order.audioTranscript]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!rawSource.trim()) return null;
+
+  const lines = rawSource
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) =>
+      compactText(
+        line
+          .replace(/^\s*(?:WhatsApp|Telegram|SMS|Kundennachricht)\s*:\s*/i, "")
+          .replace(/^\s*[-•*]+\s*/g, ""),
+      ),
+    )
+    .filter(Boolean);
+
+  const scored: OrderCardCommunicationActionV17_90L352[] = [];
+  for (const line of lines) {
+    const normalized = normalizeForMatch(line);
+    if (!normalized || !isOrderExplicitChannelInstructionLineV17_90L352(line)) {
+      continue;
+    }
+
+    const hasSms = /\bsms\b/.test(normalized);
+    const hasWhatsApp = /\bwhatsapp\b/.test(normalized);
+    const hasMail = /\b(?:e mail|email|mail)\b/.test(normalized);
+    const smsNegated = hasSms && isOrderChannelNegatedV17_90L352(normalized, "sms");
+    const whatsappNegated =
+      hasWhatsApp && isOrderChannelNegatedV17_90L352(normalized, "whatsapp");
+    const mailNegated =
+      hasMail && isOrderChannelNegatedV17_90L352(normalized, "e mail|email|mail");
+
+    let channel: OrderCardCommunicationChannelV17_90L352 | null = null;
+    // SMS hat bewusst Vorrang vor WhatsApp. Beispiel: "nur SMS, kein WhatsApp".
+    if (hasSms && !smsNegated) channel = "sms";
+    else if (hasMail && !mailNegated) channel = "mail";
+    else if (hasWhatsApp && !whatsappNegated) channel = "whatsapp";
+    if (!channel) continue;
+
+    const explicitContact = extractDocumentContactFallback(
+      order.notes,
+      order.audioTranscript,
+      order.specialNotes,
+    );
+    const phone = normalizeStoredPhoneForTelHrefV17_90K6(
+      extractOperationalPhoneForHrefV17_90L85(
+        order.specialNotes,
+        order.notes,
+        order.audioTranscript,
+      ) ||
+        explicitContact.phone ||
+        order.customer?.phone ||
+        (order as any).phone ||
+        (order as any).customerPhone ||
+        (order as any).contactPhone ||
+        "",
+    );
+    const email = String(
+      explicitContact.email ||
+        extractOrderContactEmailForCustomerDisplayV17_90K(order) ||
+        order.customer?.email ||
+        (order as any).email ||
+        "",
+    ).trim();
+    const minutesMatch = line.match(/\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i);
+
+    scored.push({
+      channel,
+      phone,
+      email,
+      minutesBefore: minutesMatch ? Number(minutesMatch[1]) : null,
+      sourceText: line,
+    });
+  }
+
+  return scored.sort((left, right) => {
+    const leftTarget = left.channel === "mail" ? left.email : left.phone;
+    const rightTarget = right.channel === "mail" ? right.email : right.phone;
+    return Number(Boolean(rightTarget)) - Number(Boolean(leftTarget));
+  })[0] || null;
+};
+
+const buildOrderCommunicationChipContextV17_90L352 = (
+  action: OrderCardCommunicationActionV17_90L352,
+) => {
+  const timing = action.minutesBefore
+    ? ` ${action.minutesBefore} Minuten vorher.`
+    : "";
+  if (action.channel === "sms") {
+    return `Nur SMS${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  if (action.channel === "whatsapp") {
+    return `Nur WhatsApp${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  return `Nur E-Mail${action.email ? ` an ${action.email}` : ""}.`;
+};
+
+const applyOrderCommunicationActionGuardV17_90L352 = (
+  order: Order,
+  data: any,
+): any => {
+  const action = resolveOrderCardCommunicationActionV17_90L352(order);
+  const empty = {
+    ...data,
+    phone: "",
+    customerPhone: "",
+    contactPhone: "",
+    email: "",
+    customer: data.customer
+      ? { ...data.customer, phone: "", email: "" }
+      : data.customer,
+    specialNotes: "",
+    communicationContext: "",
+    notes: "",
+    audioTranscript: "",
+  };
+
+  if (!action) return empty;
+
+  // Kein aktiver grüner WhatsApp-Chip ohne echte Telefonnummer.
+  if (action.channel === "whatsapp" && !action.phone) return empty;
+
+  const context = buildOrderCommunicationChipContextV17_90L352(action);
+  const phone = action.channel === "mail" ? "" : action.phone;
+  const email = action.channel === "mail" ? action.email : "";
+  return {
+    ...data,
+    phone,
+    customerPhone: phone,
+    contactPhone: phone,
+    email,
+    customer: data.customer
+      ? { ...data.customer, phone, email }
+      : data.customer,
+    specialNotes: "",
+    communicationContext: context,
+    notes: context,
+    audioTranscript: "",
+  };
+};
+
 const buildCommunicationChipDataV17_52 = (order: Order): any => {
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
@@ -9048,7 +9226,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
       communication.targetEmail || explicitContact.email || "";
     const communicationContext =
       explicitContact.title || communication.communicationContext || "";
-    return {
+    return applyOrderCommunicationActionGuardV17_90L352(order, {
       ...order,
       phone: targetPhone,
       customerPhone: canonicalSnapshotV2.customer.phone || "",
@@ -9066,7 +9244,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
         communication.channel === "call" ? "" : communicationContext,
       notes: communication.channel === "call" ? "" : communicationContext,
       audioTranscript: "",
-    };
+    });
   }
   if (isIntakeV2Order(order)) {
     return {
@@ -9108,7 +9286,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
   // explicit communication intent; a stored phone number alone must not create a
   // generic phone chip. This keeps chips clickable when a later message says
   // "Bitte SMS/WhatsApp" without repeating the number.
-  return {
+  return applyOrderCommunicationActionGuardV17_90L352(order, {
     ...order,
     phone: (order as any).phone || order.customer?.phone || "",
     customerPhone: order.customer?.phone || "",
@@ -9133,7 +9311,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     communicationContext: canonicalCommunicationContext,
     notes: canonicalCommunicationContext,
     audioTranscript: "",
-  };
+  });
 };
 
 const extractOrderContactPhoneForCustomerDisplayV17_90K = (order?: Order | null) => {
