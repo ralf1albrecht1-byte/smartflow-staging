@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L344_INVOICE_CHIP_CLICK_JUMP_RESTORE
 // SMARTFLOW_V17_90L343_INVOICE_INFO_AND_APPOINTMENT_CHIPS_POPOVER_ONLY
 // SMARTFLOW_V17_90L342_INVOICE_APPOINTMENT_CHIP_POPOVER_ONLY
 // SMARTFLOW_V17_90L341_INVOICE_SMS_CONTACT_TRANSPORT_PREFIX_FIX
@@ -7152,6 +7153,7 @@ export default function RechnungenPage() {
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
+                            openEditInvoice(inv, { focusSpecialNotes: true });
                           }}
                           className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
                         >
@@ -7403,6 +7405,7 @@ export default function RechnungenPage() {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
+                                openEditInvoice(inv, { focusSpecialNotes: true });
                               }}
                               className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                               aria-label={invoiceAppointmentDisplayLabel}
