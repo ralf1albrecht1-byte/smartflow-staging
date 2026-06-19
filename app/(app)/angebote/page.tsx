@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L351_OFFER_APPOINTMENT_DUPLICATE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L349_OFFER_BUILD_FIX_APPOINTMENT_SUMMARY_TYPE
 // SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
@@ -1773,6 +1774,42 @@ function offerAppointmentDisplaySignatureV17_90L348(value: unknown): string {
   return day || time ? `${day}|${time}` : "";
 }
 
+function cleanOfferPrimaryInfoLinesV17_90L351(lines: string[]): string[] {
+  // SMARTFLOW_V17_90L351: Anzeige-only-Dedupe für Angebotstermine.
+  // Der kanonische Termin aus Auftrag/Intake bleibt erhalten; daraus
+  // abgeleitete Kurzzeilen wie "Termin 20.06. · 13:00" werden nicht
+  // zusätzlich unter "Wichtige Informationen" angezeigt. Keine Chip-,
+  // Hover-, PDF-, Leistungs-, Summen- oder Arbeitsortlogik wird geändert.
+  const result: string[] = [];
+  const seenAppointments = new Set<string>();
+  const seenNormal = new Set<string>();
+
+  for (const line of lines || []) {
+    const raw = compactOfferValue(line);
+    if (!raw) continue;
+
+    const appointmentSignature = offerAppointmentDisplaySignatureV17_90L348(raw);
+    if (appointmentSignature === "summary") continue;
+    if (appointmentSignature) {
+      if (seenAppointments.has(appointmentSignature)) continue;
+      seenAppointments.add(appointmentSignature);
+      const normalized = normalizeOfferDisplayAppointmentLineV17_90L348(raw);
+      const key = normalizeOfferHint(normalized).replace(/^termin\s+/, "");
+      if (!key || seenNormal.has(key)) continue;
+      seenNormal.add(key);
+      result.push(normalized);
+      continue;
+    }
+
+    const key = normalizeOfferHint(raw);
+    if (!key || seenNormal.has(key)) continue;
+    seenNormal.add(key);
+    result.push(raw);
+  }
+
+  return result;
+}
+
 function buildOfferCanonicalWorkflowSummaryV17_90L274(
   sourceOrders: any[],
 ): OfferCanonicalWorkflowSummaryV17_90L273 {
@@ -1970,10 +2007,12 @@ function buildOfferInfoSummary(
         ...canonicalWorkflowSummaryV17_90L274.safety,
         ...manualSafety,
       ]),
-      primary: uniqueOfferInfoLinesV17_66([
-        ...canonicalWorkflowSummaryV17_90L274.primary,
-        ...manualPrimary,
-      ]),
+      primary: cleanOfferPrimaryInfoLinesV17_90L351(
+        uniqueOfferInfoLinesV17_66([
+          ...canonicalWorkflowSummaryV17_90L274.primary,
+          ...manualPrimary,
+        ]),
+      ),
       additional: uniqueOfferInfoLinesV17_66([
         ...canonicalWorkflowSummaryV17_90L274.additional,
         ...manualAdditional,
@@ -2064,7 +2103,11 @@ function buildOfferInfoSummary(
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
-  return { safety, primary: compactPrimary, additional };
+  return {
+    safety,
+    primary: cleanOfferPrimaryInfoLinesV17_90L351(compactPrimary),
+    additional,
+  };
 }
 
 function isOfferDogHint(value: string): boolean {
