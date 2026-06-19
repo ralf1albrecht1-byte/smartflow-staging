@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L334_INVOICE_MANUAL_NOTES_TEXTAREA_AND_DEDUPE
 // SMARTFLOW_V17_90L333_INVOICE_APPOINTMENT_CHIP_REAL_TERMS_ONLY
 // SMARTFLOW_V17_90L332_INVOICE_SPECIAL_NOTES_DISPLAY_LINE_LOCAL
 // SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
@@ -449,9 +450,13 @@ const normalizeInvoiceAppointmentDisplayKey = (value: unknown) =>
     .trim();
 
 const getInvoiceAppointmentDayKey = (value: unknown): string => {
-  const label = compactInvoiceValue(value);
+  // SMARTFLOW_V17_90L334: Datum auch dann erkennen, wenn die Zeile mit
+  // "Termin:" beginnt. Vorher wurde nur am Zeilenanfang gesucht; dadurch
+  // blieben Halbduplikate wie "Termin: 12.08" neben "Termin: 12.08 · 10:30"
+  // in Rechnungsanzeige und Terminpopover sichtbar.
+  const label = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
   const dateMatch = label.match(
-    /^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?/,
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
   );
   if (dateMatch) {
     const day = dateMatch[1].padStart(2, "0");
@@ -460,7 +465,7 @@ const getInvoiceAppointmentDayKey = (value: unknown): string => {
     return `${day}.${month}${year ? `.${year}` : ""}`;
   }
   const relativeMatch = label.match(
-    /^(heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))/i,
+    /\b(heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
   );
   return normalizeInvoiceAppointmentDisplayKey(relativeMatch?.[1] || "");
 };
@@ -923,6 +928,28 @@ function isInvoiceCommunicationLikeLineV17_90L266(
   );
 }
 
+function invoiceCommunicationChannelKeyV17_90L334(value?: string | null): string {
+  const key = normalizeInvoiceServiceName(value || "");
+  if (/\bwhatsapp\b/.test(key)) return "whatsapp";
+  if (/\bsms\b/.test(key)) return "sms";
+  if (/\be ?mail|email|mail\b/.test(key)) return "email";
+  if (/\btelefon|telefonisch|anruf|anrufen|rueckruf|ruckruf\b/.test(key)) return "phone";
+  return "";
+}
+
+function preferInvoiceCommunicationLineV17_90L334(
+  current: string,
+  next: string,
+): string {
+  const currentKey = normalizeInvoiceServiceName(current);
+  const nextKey = normalizeInvoiceServiceName(next);
+  const currentIsSpecific = /\b(?:kontakt vor ort|ausschliesslich|ausschließlich|nur|kein|keine)\b/.test(currentKey);
+  const nextIsSpecific = /\b(?:kontakt vor ort|ausschliesslich|ausschließlich|nur|kein|keine)\b/.test(nextKey);
+  if (nextIsSpecific && !currentIsSpecific) return next;
+  if (currentIsSpecific && !nextIsSpecific) return current;
+  return next.length > current.length ? next : current;
+}
+
 function extractInvoiceCommunicationLinesV17_90L265(
   invoice: Invoice | null,
 ): string[] {
@@ -1273,6 +1300,26 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
     if (!text || !key) return;
 
+    // SMARTFLOW_V17_90L334: Gleichartige Kontaktzeilen in der Rechnung nicht
+    // doppelt anzeigen, z. B. "Kontakt vor Ort: nur WhatsApp" und
+    // "Kontakt per WhatsApp". Die spezifischere Zeile bleibt erhalten.
+    if (target === primaryHints && isInvoiceCommunicationLikeLineV17_90L266(text)) {
+      const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+      if (channelKey) {
+        const existingContactIndex = target.findIndex(
+          (entry) => invoiceCommunicationChannelKeyV17_90L334(entry) === channelKey,
+        );
+        if (existingContactIndex >= 0) {
+          target[existingContactIndex] = preferInvoiceCommunicationLineV17_90L334(
+            target[existingContactIndex],
+            text,
+          );
+          seen.add(key);
+          return;
+        }
+      }
+    }
+
     // SMARTFLOW_V17_90L332: Reine Datumsfragmente nicht zusätzlich anzeigen,
     // wenn derselbe Termin bereits mit Uhrzeit vorhanden ist. Betrifft nur
     // Anzeige/Dedupe der Rechnungs-Besonderheiten.
@@ -1398,6 +1445,41 @@ function buildInvoiceSpecialNotesSourceV17_90L319(
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
+    .join("\n");
+}
+
+function buildInvoiceManualTextareaValueV17_90L334(
+  invoice: Invoice | null,
+  storedInvoiceSpecialNotes?: string | null,
+  sourceOfferInternalNotes?: string | null,
+): string {
+  // SMARTFLOW_V17_90L334: Das Textfeld "Besonderheiten in der Rechnung"
+  // zeigt nur echte manuelle Rechnungsergänzungen. Übernommene Hinweise aus
+  // Auftrag/Angebot/Intake werden darunter strukturiert angezeigt, dürfen aber
+  // nicht als editierbarer Rechnungstext im Textarea auftauchen.
+  const storedLines = splitInvoiceManualSpecialNoteLinesV17_90L319(
+    storedInvoiceSpecialNotes,
+  );
+  if (storedLines.length === 0) return "";
+
+  const inheritedKeys = new Set(
+    [
+      ...(invoice?.orders || []).flatMap((order) =>
+        splitInvoiceManualSpecialNoteLinesV17_90L319(order?.specialNotes),
+      ),
+      ...splitInvoiceManualSpecialNoteLinesV17_90L319(
+        sourceOfferInternalNotes,
+      ),
+    ]
+      .map(normalizeInvoiceServiceName)
+      .filter(Boolean),
+  );
+
+  return storedLines
+    .filter((line) => {
+      const key = normalizeInvoiceServiceName(line);
+      return Boolean(key) && !inheritedKeys.has(key);
+    })
     .join("\n");
 }
 
@@ -4291,7 +4373,13 @@ export default function RechnungenPage() {
       paymentDays: String(defaultPaymentDays),
       pdfTitle: invoicePdfText.pdfTitle,
       notes: invoicePdfText.notes,
-      specialNotes: invoicePdfText.specialNotes,
+      specialNotes: buildInvoiceManualTextareaValueV17_90L334(
+        inv,
+        invoicePdfText.specialNotes,
+        sourceOfferInternalNotesByIdV17_90L319[
+          compactInvoiceValue(inv.sourceOfferId)
+        ] || "",
+      ),
       orderIds: [],
     });
     setExpandedItemIndex(null);
