@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L340_INVOICE_SMS_CONTACT_OVERRIDES_DERIVED_WHATSAPP
 // SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
 // SMARTFLOW_V17_90L338_INVOICE_DISPLAY_OPERATIONAL_FRAGMENT_DEDUPE
 // SMARTFLOW_V17_90L336_INVOICE_MANUAL_TEXTAREA_INHERITED_FRAGMENT_FILTER
@@ -1285,15 +1286,19 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   // verlangt. Der Fallback aus dem Eingangskanal wird nur unterdrückt; echte
   // strukturierte Kontaktzeilen aus specialNotes/Quelle bleiben unverändert.
   const explicitSourceCommunicationChannelsV17_90L339 = new Set<string>();
-  const collectSourceCommunicationChannelV17_90L339 = (value: unknown) => {
+  const explicitRawCustomerCommunicationChannelsV17_90L340 = new Set<string>();
+  const collectSourceCommunicationChannelV17_90L339 = (
+    value: unknown,
+    target: Set<string> = explicitSourceCommunicationChannelsV17_90L339,
+  ) => {
     const key = normalizeInvoiceServiceName(value);
     if (!key) return;
-    if (/\bsms\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("sms");
-    if (/\b(?:e ?mail|email|mail)\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("email");
+    if (/\bsms\b/.test(key)) target.add("sms");
+    if (/\b(?:e ?mail|email|mail)\b/.test(key)) target.add("email");
     if (/\b(?:telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf)\b/.test(key)) {
-      explicitSourceCommunicationChannelsV17_90L339.add("phone");
+      target.add("phone");
     }
-    if (/\bwhatsapp\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("whatsapp");
+    if (/\bwhatsapp\b/.test(key)) target.add("whatsapp");
   };
   [
     ...sourceOrders.flatMap((order) => [
@@ -1302,7 +1307,19 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       order?.specialNotes,
     ]),
     fallbackSpecialNotes,
-  ].forEach(collectSourceCommunicationChannelV17_90L339);
+  ].forEach((value) => collectSourceCommunicationChannelV17_90L339(value));
+  // SMARTFLOW_V17_90L340: Für die Konfliktentscheidung zählt nur die
+  // eigentliche Kundennachricht/Transkription. `specialNotes` können bereits
+  // abgeleitete Fallbacks wie "Kontakt vor Ort: nur WhatsApp" enthalten und
+  // dürfen eine ausdrückliche SMS-Anweisung nicht wieder überschreiben.
+  sourceOrders
+    .flatMap((order) => [order?.notes, order?.audioTranscript])
+    .forEach((value) =>
+      collectSourceCommunicationChannelV17_90L339(
+        value,
+        explicitRawCustomerCommunicationChannelsV17_90L340,
+      ),
+    );
   const explicitContactTitleV17_90L339 = compactInvoiceValue(explicitContact.title);
   const explicitContactChannelV17_90L339 = invoiceCommunicationChannelKeyV17_90L334(
     explicitContactTitleV17_90L339,
@@ -1312,6 +1329,11 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     !explicitSourceCommunicationChannelsV17_90L339.has("whatsapp") &&
     ["sms", "email", "phone"].some((channel) =>
       explicitSourceCommunicationChannelsV17_90L339.has(channel),
+    );
+  const suppressDerivedWhatsAppContactV17_90L340 =
+    !explicitRawCustomerCommunicationChannelsV17_90L340.has("whatsapp") &&
+    ["sms", "email", "phone"].some((channel) =>
+      explicitRawCustomerCommunicationChannelsV17_90L340.has(channel),
     );
   const canonicalAppointmentLinesV17_90L276 = sourceOrders
     .map((order) => {
@@ -1342,6 +1364,13 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     // "Kontakt per WhatsApp". Die spezifischere Zeile bleibt erhalten.
     if (target === primaryHints && isInvoiceCommunicationLikeLineV17_90L266(text)) {
       const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+      // SMARTFLOW_V17_90L340: Wenn die echte Kundennachricht ausdrücklich
+      // SMS/E-Mail/Telefon verlangt und kein WhatsApp erwähnt, werden
+      // abgeleitete WhatsApp-Fallbackzeilen in der Rechnungsanzeige entfernt.
+      // Die echte SMS-Zeile bleibt sichtbar.
+      if (channelKey === "whatsapp" && suppressDerivedWhatsAppContactV17_90L340) {
+        return;
+      }
       if (channelKey) {
         const existingContactIndex = target.findIndex(
           (entry) => invoiceCommunicationChannelKeyV17_90L334(entry) === channelKey,
