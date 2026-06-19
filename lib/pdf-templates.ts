@@ -1,3 +1,4 @@
+// SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
 export type DocumentTemplate = "classic" | "modern" | "minimal" | "elegant";
 
 export interface CompanyInfo {
@@ -104,9 +105,27 @@ type InvoicePdfMeta = {
   text: string;
 };
 
+const INVOICE_PDF_META_PREFIX = "[[SMARTFLOW_INVOICE_PDF_V1]]";
+
 function decodeInvoicePdfMeta(value: unknown): InvoicePdfMeta {
   const raw = String(value ?? "").trim();
   if (!raw) return { title: "", text: "" };
+
+  // SMARTFLOW_V17_90L339: Rechnungs-Besonderheiten sind intern. Das
+  // technische Meta-JSON darf nie im Kunden-PDF erscheinen. Nur explizite
+  // PDF-Felder (pdfTitle/notes bzw. title/text) werden gerendert.
+  if (raw.startsWith(INVOICE_PDF_META_PREFIX)) {
+    try {
+      const parsed = JSON.parse(raw.slice(INVOICE_PDF_META_PREFIX.length));
+      return {
+        title: String(parsed?.pdfTitle ?? parsed?.title ?? "").trim(),
+        text: String(parsed?.notes ?? parsed?.text ?? "").trim(),
+      };
+    } catch {
+      return { title: "", text: "" };
+    }
+  }
+
   const marker = "Titel: ";
   if (!raw.startsWith(marker)) return { title: "", text: raw };
   const [firstLine, ...rest] = raw.split(/\r?\n/);

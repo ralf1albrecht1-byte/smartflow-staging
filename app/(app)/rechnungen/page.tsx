@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
 // SMARTFLOW_V17_90L338_INVOICE_DISPLAY_OPERATIONAL_FRAGMENT_DEDUPE
 // SMARTFLOW_V17_90L336_INVOICE_MANUAL_TEXTAREA_INHERITED_FRAGMENT_FILTER
 // SMARTFLOW_V17_90L335_INVOICE_MANUAL_TEXTAREA_STRICT_MANUAL_ONLY
@@ -1279,6 +1280,39 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       order?.specialNotes,
     ]),
   );
+  // SMARTFLOW_V17_90L339: Direkter Auftrag→Rechnung darf keinen
+  // WhatsApp-Kontakt erfinden, wenn die Quelle ausdrücklich SMS/E-Mail/Telefon
+  // verlangt. Der Fallback aus dem Eingangskanal wird nur unterdrückt; echte
+  // strukturierte Kontaktzeilen aus specialNotes/Quelle bleiben unverändert.
+  const explicitSourceCommunicationChannelsV17_90L339 = new Set<string>();
+  const collectSourceCommunicationChannelV17_90L339 = (value: unknown) => {
+    const key = normalizeInvoiceServiceName(value);
+    if (!key) return;
+    if (/\bsms\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("sms");
+    if (/\b(?:e ?mail|email|mail)\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("email");
+    if (/\b(?:telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf)\b/.test(key)) {
+      explicitSourceCommunicationChannelsV17_90L339.add("phone");
+    }
+    if (/\bwhatsapp\b/.test(key)) explicitSourceCommunicationChannelsV17_90L339.add("whatsapp");
+  };
+  [
+    ...sourceOrders.flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+    fallbackSpecialNotes,
+  ].forEach(collectSourceCommunicationChannelV17_90L339);
+  const explicitContactTitleV17_90L339 = compactInvoiceValue(explicitContact.title);
+  const explicitContactChannelV17_90L339 = invoiceCommunicationChannelKeyV17_90L334(
+    explicitContactTitleV17_90L339,
+  );
+  const suppressWhatsAppFallbackContactV17_90L339 =
+    explicitContactChannelV17_90L339 === "whatsapp" &&
+    !explicitSourceCommunicationChannelsV17_90L339.has("whatsapp") &&
+    ["sms", "email", "phone"].some((channel) =>
+      explicitSourceCommunicationChannelsV17_90L339.has(channel),
+    );
   const canonicalAppointmentLinesV17_90L276 = sourceOrders
     .map((order) => {
       const snapshot = getCanonicalIntakeV2(order);
@@ -1407,7 +1441,9 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   canonicalAppointmentLinesV17_90L276.forEach((line) =>
     add(primaryHints, line),
   );
-  if (explicitContact.title) add(primaryHints, explicitContact.title);
+  if (explicitContactTitleV17_90L339 && !suppressWhatsAppFallbackContactV17_90L339) {
+    add(primaryHints, explicitContactTitleV17_90L339);
+  }
 
   for (const record of records) {
     const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
