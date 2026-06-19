@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
 // SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
 // SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
 // SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
@@ -545,18 +546,34 @@ const parseInvoiceAppointmentTooltipV17_90L169 = (
   const dateMatch = source.match(
     /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
   );
+  const relativeMatch = source.match(
+    /\b(?:heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+  );
   const date = dateMatch
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
         dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
       }`
-    : "";
-  const sourceWithoutDate = dateMatch
+    : compactInvoiceValue(relativeMatch?.[0] || "");
+  let sourceWithoutDate = dateMatch
     ? source.replace(dateMatch[0], " ")
     : source;
+  if (!dateMatch && relativeMatch) {
+    sourceWithoutDate = sourceWithoutDate.replace(relativeMatch[0], " ");
+  }
+
+  // V17.90L330: Termin-Popover nur Anzeige. Uhrzeiten wie "15 Uhr" dürfen
+  // nicht als Resttext "um 15" im Popover landen, sondern werden als 15:00 Uhr
+  // formatiert. Datum, relative Tagesangabe und Uhrzeit bleiben zusammen.
   const clockMatches = Array.from(
-    sourceWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
-  ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
-  const uniqueTimes = Array.from(new Set(clockMatches));
+    sourceWithoutDate.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+    ),
+  ).map((match) =>
+    match[1]
+      ? `${match[1].padStart(2, "0")}:${match[2]}`
+      : `${String(match[3] || "").padStart(2, "0")}:00`,
+  );
+  const uniqueTimes = Array.from(new Set(clockMatches.filter(Boolean)));
   const time =
     uniqueTimes.length >= 2
       ? `${uniqueTimes[0]}–${uniqueTimes[1]} Uhr`
@@ -565,13 +582,14 @@ const parseInvoiceAppointmentTooltipV17_90L169 = (
         : "";
   let note = source;
   if (dateMatch) note = note.replace(dateMatch[0], " ");
+  if (!dateMatch && relativeMatch) note = note.replace(relativeMatch[0], " ");
   note = note
     .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
-    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Uhr)\b/gi, " ")
+    .replace(/\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/gi, " ")
+    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Datum|Zeitfenster|Appointment|Uhr|am|um|ab|gegen|von|bis)\b/gi, " ")
     .replace(/[·•|]+/g, " ")
     .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/^(?:um|von|bis)\s+/i, "")
     .replace(/[,:;\-–—.\s]+$/g, "")
     .replace(/^[,:;\-–—.\s]+/g, "")
     .trim();
@@ -1411,38 +1429,91 @@ const isInvoiceAppointmentHintForChipV17_90L326 = (value: unknown): boolean => {
   );
 };
 
+type InvoiceSpecialAppointmentDisplayEntryV17_90L330 = {
+  text: string;
+  key: string;
+  dayKey: string;
+  hasTime: boolean;
+};
+
+function buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(
+  value: unknown,
+): InvoiceSpecialAppointmentDisplayEntryV17_90L330 | null {
+  const text = compactInvoiceValue(value)
+    .replace(/^Termin\s*:\s*/i, "")
+    .trim();
+  if (!text || !isInvoiceAppointmentHintForChipV17_90L326(text)) return null;
+  if (getInvoiceAppointmentTimingV17_90L324(text) === "past") return null;
+
+  const dateMatch = text.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/,
+  );
+  const relativeMatch = text.match(
+    /\b(?:heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+  );
+  const dayKey = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
+        dateMatch[3] ? String(dateMatch[3]).padStart(4, "20") : ""
+      }`
+    : normalizeInvoiceAppointmentKeyV17_90L177R(relativeMatch?.[0] || "");
+  const times = Array.from(
+    text.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+    ),
+  )
+    .map((match) =>
+      match[1]
+        ? `${match[1].padStart(2, "0")}:${match[2]}`
+        : `${String(match[3] || "").padStart(2, "0")}:00`,
+    )
+    .filter(Boolean);
+  const timeKey = Array.from(new Set(times)).join("-");
+  const key = [dayKey, timeKey, normalizeInvoiceAppointmentKeyV17_90L177R(text)]
+    .filter(Boolean)
+    .join("|");
+  return { text, key, dayKey, hasTime: Boolean(timeKey) };
+}
+
 function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
   summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
 ): string {
-  const result: string[] = [];
+  const result: InvoiceSpecialAppointmentDisplayEntryV17_90L330[] = [];
   const seen = new Set<string>();
   const add = (value: unknown) => {
-    const text = compactInvoiceValue(value)
-      .replace(/^Termin\s*:\s*/i, "")
-      .trim();
-    const key = normalizeInvoiceAppointmentKeyV17_90L177R(text);
-    if (!text || !key || seen.has(key)) return;
-    // SMARTFLOW_V17_90L326: Termine aus WhatsApp/Intake können im Info-/Hinweistext
-    // bereits sauber stehen, aber ohne exakt das Wort "Termin". Für den
-    // Rechnungs-Kalenderchip werden deshalb auch Datum, relative Tagesangaben und
-    // Uhrzeit-Zeilen aus den wichtigen Informationen berücksichtigt. Vergangene
-    // Termine bleiben weiterhin nur im Info-Chip sichtbar.
-    if (!isInvoiceAppointmentHintForChipV17_90L326(text)) return;
-    if (getInvoiceAppointmentTimingV17_90L324(text) === "past") return;
-    seen.add(key);
-    result.push(text);
+    const entry = buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(value);
+    if (!entry || seen.has(entry.key)) return;
+
+    // V17.90L330: Datum-only-Duplikate wie "Termin: 08.07" werden im
+    // Rechnungschip unterdrückt, wenn derselbe Tag bereits mit Uhrzeit vorhanden
+    // ist. Dadurch bleiben alle echten Zusatztermine erhalten, aber der Chip
+    // zeigt keine Halbduplikate.
+    const sameDayIndex = entry.dayKey
+      ? result.findIndex((current) => current.dayKey === entry.dayKey)
+      : -1;
+    if (sameDayIndex >= 0) {
+      const current = result[sameDayIndex];
+      if (current.hasTime && !entry.hasTime) return;
+      if (!current.hasTime && entry.hasTime) {
+        seen.add(entry.key);
+        result[sameDayIndex] = entry;
+        return;
+      }
+    }
+
+    seen.add(entry.key);
+    result.push(entry);
   };
 
-  // V17.90L323: Der Terminchip der Rechnung darf bei mehreren
+  // V17.90L323/L330: Der Terminchip der Rechnung darf bei mehreren
   // Besonderheiten-Terminen nicht blind den ersten alten Termin anzeigen.
   // Die Details bleiben im Info-Chip; außen zeigt L325 nur das Kalender-Icon.
   summary.primaryHints.forEach(add);
   if (result.length === 0) return "";
-  if (result.length === 1) return result[0];
+  if (result.length === 1) return result[0].text;
 
   return [
     `Termine · ${result.length}`,
-    ...result.map((line, index) => `${index + 1}. ${line}`),
+    ...result.map((entry, index) => `${index + 1}. ${entry.text}`),
   ].join("\n");
 }
 
@@ -2118,7 +2189,7 @@ function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
   );
   if (!line) return "";
   if (
-    !/\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(
+    !/\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin|uhr)\b/i.test(
       line,
     )
   ) {
@@ -2130,11 +2201,17 @@ function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
   );
   const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
   const timeMatches = Array.from(
-    lineWithoutDate.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+    lineWithoutDate.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+    ),
   );
   const times = timeMatches
-    .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
-    .filter((time, index, all) => all.indexOf(time) === index);
+    .map((match) =>
+      match[1]
+        ? `${match[1].padStart(2, "0")}:${match[2]}`
+        : `${String(match[3] || "").padStart(2, "0")}:00`,
+    )
+    .filter((time, index, all) => time && all.indexOf(time) === index);
   const timeLabel =
     times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
 
@@ -2648,19 +2725,26 @@ function InvoiceAppointmentTooltipContentV17_90L169({
   const multiple = /^Termine\s*·\s*\d+/i.test(lines[0] || "");
 
   if (multiple) {
-    const entries = lines.slice(1).map((line, index) => {
+    const entries = lines.slice(1).map((line) => {
       const cleaned = line.replace(/^\d+\.\s*/, "").trim();
-      const [sitePart, ...appointmentParts] = cleaned.split(/\s+—\s+/);
-      return {
-        site:
-          appointmentParts.length > 0
-            ? sitePart.trim()
-            : `Arbeitsort ${index + 1}`,
-        appointment:
-          appointmentParts.length > 0
-            ? appointmentParts.join(" — ").trim()
-            : cleaned,
-      };
+      const dashParts = cleaned.split(/\s+—\s+/);
+      let site = "";
+      let appointment = cleaned;
+      if (dashParts.length > 1) {
+        site = dashParts[0].trim();
+        appointment = dashParts.slice(1).join(" — ").trim();
+      } else {
+        const colonSiteMatch = cleaned.match(/^(.+?):\s+(Termin\b.+)$/i);
+        if (
+          colonSiteMatch &&
+          normalizeInvoiceAppointmentKeyV17_90L177R(colonSiteMatch[1]) !== "termin"
+        ) {
+          site = colonSiteMatch[1].trim();
+          appointment = colonSiteMatch[2].trim();
+        }
+      }
+      if (/^arbeitsort\s+\d+$/i.test(site)) site = "";
+      return { site, appointment };
     });
 
     return (
@@ -2674,17 +2758,21 @@ function InvoiceAppointmentTooltipContentV17_90L169({
             const parts = parseInvoiceAppointmentTooltipV17_90L169(
               entry.appointment,
             );
+            const appointmentLabel =
+              [parts.date, parts.time].filter(Boolean).join(" · ") ||
+              parts.fallback;
             return (
               <span
                 key={`${entry.site}-${entry.appointment}-${index}`}
                 className="block rounded-lg border border-violet-200 bg-white/80 p-2.5 dark:border-violet-800/60 dark:bg-slate-950/25"
               >
-                <span className="block break-words text-[12px] font-extrabold leading-tight">
-                  {index + 1}. {entry.site}
-                </span>
-                <span className="mt-1.5 block text-[12px] font-semibold leading-relaxed">
-                  {[parts.date, parts.time].filter(Boolean).join(" · ") ||
-                    parts.fallback}
+                {entry.site && (
+                  <span className="mb-1 block break-words text-[11px] font-bold leading-tight text-violet-900 dark:text-violet-100">
+                    {entry.site}
+                  </span>
+                )}
+                <span className="block break-words text-[12px] font-extrabold leading-relaxed">
+                  {index + 1}. {appointmentLabel}
                 </span>
                 {parts.note && (
                   <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-600 dark:text-slate-300">
