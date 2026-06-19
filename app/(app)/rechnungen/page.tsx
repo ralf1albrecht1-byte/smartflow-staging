@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L331_INVOICE_SPECIAL_NOTES_DATE_DEDUPE_DISPLAY_ONLY
+// SMARTFLOW_V17_90L332_INVOICE_SPECIAL_NOTES_DISPLAY_LINE_LOCAL
 // SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
 // SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
 // SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
@@ -1027,13 +1027,38 @@ function isInvoiceSafetyLikeLineV17_90L319(value: string): boolean {
 function parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(
   value: unknown,
 ): InvoiceCanonicalWorkflowRecordV17_90L273[] {
-  const parsed = parseInvoiceCanonicalWorkflowRecordsV17_90L273(value);
-  if (parsed.length > 0) return parsed;
-  return splitInvoiceManualSpecialNoteLinesV17_90L319(String(value ?? ""))
-    .map((line) => ({
-      role: isInvoiceSafetyLikeLineV17_90L319(line) ? "safety" : "hint",
-      text: line,
-    }));
+  // SMARTFLOW_V17_90L332: Gemischte Quellen aus Auftrag/Angebot/Rechnung
+  // zeilenlokal auswerten. Ein einzelner technischer Marker wie [HINWEIS]
+  // darf nachfolgende manuelle Angebots-/Rechnungszeilen nicht mehr
+  // verschlucken oder mit Parkplatz/Termin zu einem Anzeige-Mischsatz verbinden.
+  const source = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const records: InvoiceCanonicalWorkflowRecordV17_90L273[] = [];
+  const addPlainLine = (line: string) => {
+    for (const plainLine of splitInvoiceManualSpecialNoteLinesV17_90L319(line)) {
+      records.push({
+        role: isInvoiceSafetyLikeLineV17_90L319(plainLine) ? "safety" : "hint",
+        text: plainLine,
+      });
+    }
+  };
+
+  for (const rawLine of source.split(/\n+/g)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const parsedLine = parseInvoiceCanonicalWorkflowRecordsV17_90L273(line);
+    if (parsedLine.length > 0) {
+      records.push(...parsedLine);
+      continue;
+    }
+    addPlainLine(line);
+  }
+
+  return records;
 }
 
 function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
@@ -1189,36 +1214,6 @@ function invoiceCommunicationLineMatchesContactFallbackV17_90L328(
   return shorter.length >= 10 && longer.includes(shorter);
 }
 
-
-function compactInvoicePrimaryAppointmentLinesV17_90L331(
-  lines: string[],
-): string[] {
-  const appointmentDateKey = (value: string) => {
-    const stripped = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
-    const match = stripped.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
-    if (!match) return "";
-    return `${match[1].padStart(2, "0")}.${match[2].padStart(2, "0")}`;
-  };
-  const hasConcreteTime = (value: string) =>
-    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(value) ||
-    /\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(value);
-  const detailedDateKeys = new Set(
-    lines
-      .filter(hasConcreteTime)
-      .map(appointmentDateKey)
-      .filter(Boolean),
-  );
-  return lines.filter((line) => {
-    const key = appointmentDateKey(line);
-    if (!key || hasConcreteTime(line)) return true;
-    const textKey = normalizeInvoiceServiceName(line);
-    const isAppointment =
-      /\b(?:termin|datum|zeitfenster|appointment)\b/.test(textKey) ||
-      Boolean(key);
-    return !(isAppointment && detailedDateKeys.has(key));
-  });
-}
-
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
@@ -1275,7 +1270,29 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const add = (target: string[], raw: string) => {
     const text = String(raw || "").replace(/\s+/g, " ").trim();
     const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
-    if (!text || !key || seen.has(key)) return;
+    if (!text || !key) return;
+
+    // SMARTFLOW_V17_90L332: Reine Datumsfragmente nicht zusätzlich anzeigen,
+    // wenn derselbe Termin bereits mit Uhrzeit vorhanden ist. Betrifft nur
+    // Anzeige/Dedupe der Rechnungs-Besonderheiten.
+    const dayKey = getInvoiceAppointmentDayKey(text);
+    const isAppointmentLike = /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(text);
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+    if (isAppointmentLike && dayKey) {
+      const existingIndex = target.findIndex((entry) => {
+        const existingDayKey = getInvoiceAppointmentDayKey(entry);
+        if (!existingDayKey || existingDayKey !== dayKey) return false;
+        return /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(entry);
+      });
+      if (existingIndex >= 0 && !hasTime) return;
+      if (existingIndex >= 0 && hasTime) {
+        target[existingIndex] = text;
+        seen.add(key);
+        return;
+      }
+    }
+
+    if (seen.has(key)) return;
     seen.add(key);
     target.push(text);
   };
@@ -1350,11 +1367,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     );
   });
 
-  return {
-    hazards: cleanHazardsV17_90L322,
-    primaryHints: compactInvoicePrimaryAppointmentLinesV17_90L331(primaryHints),
-    otherHints,
-  };
+  return { hazards: cleanHazardsV17_90L322, primaryHints, otherHints };
 }
 
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
