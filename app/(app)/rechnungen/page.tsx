@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L341_INVOICE_SMS_CONTACT_TRANSPORT_PREFIX_FIX
 // SMARTFLOW_V17_90L340_INVOICE_SMS_CONTACT_OVERRIDES_DERIVED_WHATSAPP
 // SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
 // SMARTFLOW_V17_90L338_INVOICE_DISPLAY_OPERATIONAL_FRAGMENT_DEDUPE
@@ -1247,6 +1248,22 @@ function invoiceCommunicationLineMatchesContactFallbackV17_90L328(
   return shorter.length >= 10 && longer.includes(shorter);
 }
 
+function cleanInvoiceRawCustomerMessageForCommunicationOverrideV17_90L341(
+  value: unknown,
+): string {
+  // SMARTFLOW_V17_90L341: Für SMS/WhatsApp-Konflikte zählt der Inhalt der
+  // Kundennachricht, nicht der technische Eingangskanal. Alte Notizen können
+  // mit "WhatsApp:" beginnen; dieser Transport-Präfix darf eine ausdrückliche
+  // SMS-Anweisung nicht als WhatsApp-Wunsch überschreiben.
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/^\s*(?:WhatsApp|Telegram)\s*:\s*/i, "")
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)[0]
+    .replace(/^\s*\[META\].*$/gim, "")
+    .trim();
+}
+
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
@@ -1314,6 +1331,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   // dürfen eine ausdrückliche SMS-Anweisung nicht wieder überschreiben.
   sourceOrders
     .flatMap((order) => [order?.notes, order?.audioTranscript])
+    .map(cleanInvoiceRawCustomerMessageForCommunicationOverrideV17_90L341)
     .forEach((value) =>
       collectSourceCommunicationChannelV17_90L339(
         value,
@@ -1539,7 +1557,16 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     );
   });
 
-  return { hazards: cleanHazardsV17_90L322, primaryHints, otherHints };
+  const cleanPrimaryHintsV17_90L341 = primaryHints.filter((line) => {
+    if (!suppressDerivedWhatsAppContactV17_90L340) return true;
+    return invoiceCommunicationChannelKeyV17_90L334(line) !== "whatsapp";
+  });
+
+  return {
+    hazards: cleanHazardsV17_90L322,
+    primaryHints: cleanPrimaryHintsV17_90L341,
+    otherHints,
+  };
 }
 
 function collectInvoiceCanonicalSpecialNotesV17_90L237(
