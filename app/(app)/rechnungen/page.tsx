@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L342_INVOICE_APPOINTMENT_CHIP_POPOVER_ONLY
 // SMARTFLOW_V17_90L341_INVOICE_SMS_CONTACT_TRANSPORT_PREFIX_FIX
 // SMARTFLOW_V17_90L340_INVOICE_SMS_CONTACT_OVERRIDES_DERIVED_WHATSAPP
 // SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
@@ -7388,8 +7389,12 @@ export default function RechnungenPage() {
                           {invoiceAppointmentDisplayLabel && (
                             <button
                               type="button"
+                              data-card-toggle-ignore="true"
                               onPointerDown={(event) => event.stopPropagation()}
+                              onPointerUp={(event) => event.stopPropagation()}
                               onTouchStart={(event) => event.stopPropagation()}
+                              onTouchEnd={(event) => event.stopPropagation()}
+                              onMouseDown={(event) => event.stopPropagation()}
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -7667,10 +7672,20 @@ export default function RechnungenPage() {
                                               {invoiceAppointmentDisplayLabel && (
                                                 <button
                                                   type="button"
+                                                  data-card-toggle-ignore="true"
                                                   onPointerDown={(event) =>
                                                     event.stopPropagation()
                                                   }
+                                                  onPointerUp={(event) =>
+                                                    event.stopPropagation()
+                                                  }
                                                   onTouchStart={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onTouchEnd={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onMouseDown={(event) =>
                                                     event.stopPropagation()
                                                   }
                                                   onClick={(event) => {
@@ -7956,10 +7971,20 @@ export default function RechnungenPage() {
                                         {invoiceAppointmentDisplayLabel && (
                                           <button
                                             type="button"
+                                            data-card-toggle-ignore="true"
                                             onPointerDown={(event) =>
                                               event.stopPropagation()
                                             }
+                                            onPointerUp={(event) =>
+                                              event.stopPropagation()
+                                            }
                                             onTouchStart={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onTouchEnd={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onMouseDown={(event) =>
                                               event.stopPropagation()
                                             }
                                             onClick={(event) => {
