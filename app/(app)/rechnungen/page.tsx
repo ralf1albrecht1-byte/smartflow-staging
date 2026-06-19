@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L336_INVOICE_MANUAL_TEXTAREA_INHERITED_FRAGMENT_FILTER
 // SMARTFLOW_V17_90L335_INVOICE_MANUAL_TEXTAREA_STRICT_MANUAL_ONLY
 // SMARTFLOW_V17_90L334_INVOICE_MANUAL_NOTES_TEXTAREA_AND_DEDUPE
 // SMARTFLOW_V17_90L333_INVOICE_APPOINTMENT_CHIP_REAL_TERMS_ONLY
@@ -1482,6 +1483,19 @@ function invoiceLineMatchesInheritedSpecialNoteV17_90L335(
       if (hasTime === candidateHasTime || candidateHasTime) return true;
     }
 
+    // SMARTFLOW_V17_90L336: Bereits geerbte Hinweise können in alten/
+    // kontaminierten Rechnungen als Bruchstücke im manuellen Textfeld liegen
+    // (z. B. "Zugang über" + "Hintereingang" statt "Zugang über Hintereingang").
+    // Solche operativen Fragmente gehören weiterhin nur in die strukturierten
+    // Informationsblöcke und dürfen nicht als manueller Rechnungstext erscheinen.
+    const inheritedOperationalFragment =
+      key.length >= 6 &&
+      candidateKey.includes(key) &&
+      /\b(?:zugang|zutritt|hintereingang|seiteneingang|eingang|tor|tuer|tur|tür|code|tuercode|turcode|türcode|schluessel|schlussel|schlüssel|parkplatz|parking|hund|whatsapp|sms|kontakt)\b/.test(
+        key,
+      );
+    if (inheritedOperationalFragment) return true;
+
     // Exakte Fakten, die nur unterschiedlich mit Marker/Präfix kommen,
     // zuverlässig ausblenden; freie manuelle Rechnungszusätze bleiben stehen.
     const shorter = key.length <= candidateKey.length ? key : candidateKey;
@@ -1524,9 +1538,28 @@ function buildInvoiceManualTextareaValueV17_90L334(
   ]);
 
   return storedLines
-    .filter((line) =>
-      !invoiceLineMatchesInheritedSpecialNoteV17_90L335(line, inheritedLines),
-    )
+    .filter((line, index) => {
+      if (invoiceLineMatchesInheritedSpecialNoteV17_90L335(line, inheritedLines)) {
+        return false;
+      }
+      const nextLine = storedLines[index + 1] || "";
+      const previousLine = storedLines[index - 1] || "";
+      const joinedWithNext = nextLine ? compactInvoiceValue(`${line} ${nextLine}`) : "";
+      const joinedWithPrevious = previousLine ? compactInvoiceValue(`${previousLine} ${line}`) : "";
+      return (
+        !joinedWithNext ||
+        !invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+          joinedWithNext,
+          inheritedLines,
+        )
+      ) && (
+        !joinedWithPrevious ||
+        !invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+          joinedWithPrevious,
+          inheritedLines,
+        )
+      );
+    })
     .join("\n");
 }
 

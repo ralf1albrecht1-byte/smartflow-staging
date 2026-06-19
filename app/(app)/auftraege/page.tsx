@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L336_ORDER_WORKSITE_SPACE_KEY_FIX
 // SMARTFLOW_V17_90L333_ORDER_MANUAL_APPOINTMENT_DATE_TIME_NORMALIZE
 // SMARTFLOW_V17_90L332_ORDER_SPECIAL_NOTES_TEXTAREA_EMPTY_LINES_FIX
 // SMARTFLOW_V17_90L331_ORDER_MANUAL_NOTES_ALL_CARD_CHIPS_APPOINTMENTS
@@ -14543,6 +14544,14 @@ export default function AuftraegePage() {
   const normalizeWorkSiteText = (value?: string | null) =>
     compactText(value).toLowerCase();
 
+  const isOrderInteractiveKeyboardTargetV17_90L336 = (target: EventTarget | null) =>
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "button,input,select,textarea,a,[contenteditable='true'],[role='combobox']",
+      ),
+    );
+
   const escapeWorkSiteRegExp = (value: string) =>
     value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -20652,6 +20661,7 @@ export default function AuftraegePage() {
                       toggleOrderExecutionAddressEditor();
                     }}
                     onKeyDown={(event) => {
+                      if (isOrderInteractiveKeyboardTargetV17_90L336(event.target)) return;
                       if (
                         form.siteAddressDifferent &&
                         (event.key === "Enter" || event.key === " ")
@@ -21852,6 +21862,7 @@ export default function AuftraegePage() {
                                     toggleWorkSiteGroup(site);
                                   }}
                                   onKeyDown={(event) => {
+                                    if (isOrderInteractiveKeyboardTargetV17_90L336(event.target)) return;
                                     if (
                                       event.key === "Enter" ||
                                       event.key === " "
@@ -21999,6 +22010,9 @@ export default function AuftraegePage() {
                                     <div
                                       data-work-site-editor-id={site.id}
                                       onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onKeyDown={(event) =>
                                         event.stopPropagation()
                                       }
                                       className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
