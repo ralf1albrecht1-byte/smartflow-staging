@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
 // SMARTFLOW_V17_90L354_INVOICE_PHONE_CONTACT_PHONE_SOURCE_FIX
 // SMARTFLOW_V17_90L353_INVOICE_PHONE_CONTACT_CHIP_ONLY
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
@@ -58,12 +59,14 @@ import {
   MessageCircle,
   MapPin,
   Pencil,
+  Phone,
   X,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
   CommunicationBlock,
   CommunicationChips,
+  ContactActionChip,
   buildMergedContactReviewEntries,
   resolveCommunicationData,
   stripForwardedMessage,
@@ -7395,6 +7398,14 @@ export default function RechnungenPage() {
                   let invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel;
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
+                  const invoicePhoneContactActionV17_90L355 =
+                    resolveInvoiceCardCommunicationActionV17_90L352(
+                      inv,
+                      resolveCommunicationData(null, inv.orders || []),
+                    );
+                  const shouldRenderInvoicePhoneChipV17_90L355 =
+                    invoicePhoneContactActionV17_90L355?.channel === "phone" &&
+                    Boolean(invoicePhoneContactActionV17_90L355.phone);
                   const invoiceSourceOfferInternalNotesV17_90L319 =
                     sourceOfferInternalNotesByIdV17_90L319[
                       compactInvoiceValue(inv.sourceOfferId)
@@ -7507,6 +7518,26 @@ export default function RechnungenPage() {
                           contactsOnly
                         />
                       )}
+                      {!hasMergedContactReview &&
+                        shouldRenderInvoicePhoneChipV17_90L355 && (
+                          <ContactActionChip
+                            icon={Phone}
+                            label="Telefon"
+                            color="blue"
+                            href={`tel:${invoicePhoneContactActionV17_90L355.phone}`}
+                            title={[
+                              `Anrufen: ${invoicePhoneContactActionV17_90L355.phone}`,
+                              invoicePhoneContactActionV17_90L355.sourceText,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                            compact
+                            contactHeading="Telefonkontakt"
+                            contactName={inv.customer?.name || "Kunde"}
+                            contactValue={invoicePhoneContactActionV17_90L355.phone}
+                            contactHint="Antippen oder anklicken, um anzurufen."
+                          />
+                        )}
                       {hasInvoiceSpecialInfoV17_90L319 && (
                         <button
                           type="button"
