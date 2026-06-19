@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L333_INVOICE_APPOINTMENT_CHIP_REAL_TERMS_ONLY
 // SMARTFLOW_V17_90L332_INVOICE_SPECIAL_NOTES_DISPLAY_LINE_LOCAL
 // SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
 // SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
@@ -1467,14 +1468,19 @@ const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => 
 const isInvoiceAppointmentHintForChipV17_90L326 = (value: unknown): boolean => {
   const text = compactInvoiceValue(value);
   if (!text) return false;
-  return (
-    /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(text) ||
-    /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(text) ||
-    /\b(?:heute|morgen|übermorgen|uebermorgen|nächsten?|naechsten?|kommenden?)\b/i.test(text) ||
-    /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(text) ||
+
+  // SMARTFLOW_V17_90L333: Der Rechnungs-Kalenderchip darf nur echte
+  // Ausführungstermine anzeigen. Reine Hinweis-/To-do-Zeilen wie
+  // "Termin bitte nochmals bestätigen" gehören in den Infochip, nicht in
+  // den Kalenderchip. Deshalb reicht das Wort "Termin" alleine nicht aus.
+  const hasConcreteDate = /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(text);
+  const hasRelativeDay = /\b(?:heute|morgen|übermorgen|uebermorgen)\b/i.test(text);
+  const hasWeekday = /\b(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(text);
+  const hasClockTime =
     /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(text) ||
-    /\b(?:um|ab|bis|gegen)\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text)
-  );
+    /\b(?:um|ab|bis|gegen|von)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+
+  return hasConcreteDate || hasRelativeDay || hasWeekday || hasClockTime;
 };
 
 type InvoiceSpecialAppointmentDisplayEntryV17_90L330 = {
@@ -1500,9 +1506,17 @@ function buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(
     /\b(?:heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
   );
   const dayKey = dateMatch
-    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
-        dateMatch[3] ? String(dateMatch[3]).padStart(4, "20") : ""
-      }`
+    ? [
+        dateMatch[1].padStart(2, "0"),
+        dateMatch[2].padStart(2, "0"),
+        dateMatch[3]
+          ? String(dateMatch[3]).length === 2
+            ? `20${dateMatch[3]}`
+            : String(dateMatch[3])
+          : "",
+      ]
+        .filter(Boolean)
+        .join(".")
     : normalizeInvoiceAppointmentKeyV17_90L177R(relativeMatch?.[0] || "");
   const times = Array.from(
     text.matchAll(
@@ -1516,7 +1530,12 @@ function buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(
     )
     .filter(Boolean);
   const timeKey = Array.from(new Set(times)).join("-");
-  const key = [dayKey, timeKey, normalizeInvoiceAppointmentKeyV17_90L177R(text)]
+  if (!dayKey && !timeKey) return null;
+
+  // SMARTFLOW_V17_90L333: Dedupe nach tatsächlichem Termin-Fakt
+  // statt nach Volltext. So wird "08.07" entfernt, sobald "08.07 · 09:30"
+  // existiert; unterschiedliche Uhrzeiten am selben Tag bleiben erhalten.
+  const key = [dayKey || "ohne-datum", timeKey || "ohne-uhrzeit"]
     .filter(Boolean)
     .join("|");
   return { text, key, dayKey, hasTime: Boolean(timeKey) };
