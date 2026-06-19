@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L332_ORDER_SPECIAL_NOTES_TEXTAREA_EMPTY_LINES_FIX
 // SMARTFLOW_V17_90L331_ORDER_MANUAL_NOTES_ALL_CARD_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L330_ORDER_PAGE_LOAD_FIX_MANUAL_NOTES_CHIPS
 // SMARTFLOW_V17_90L329_ORDER_MANUAL_SPECIAL_NOTES_CARD_CHIPS
@@ -15661,13 +15662,12 @@ export default function AuftraegePage() {
   const ORDER_SPECIAL_NOTE_MARKER_RE_V17_90L327 =
     /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS|ACHTUNG)\]\s*(.*)$/i;
 
-  const trimOuterBlankLinesV17_90L327 = (lines: string[]) => {
-    let start = 0;
-    let end = lines.length;
-    while (start < end && !lines[start].trim()) start += 1;
-    while (end > start && !lines[end - 1].trim()) end -= 1;
-    return lines.slice(start, end).join("\n");
-  };
+  // V17.90L332: Während der Eingabe darf das Textarea keine leeren Zeilen
+  // verschlucken. Besonders am Anfang oder direkt nach einer Leerzeile muss
+  // Enter sichtbar bleiben. Deshalb werden nur Zeilenenden normalisiert, aber
+  // keine äußeren Leerzeilen im Editorwert entfernt.
+  const keepOrderSpecialNotesEditorLinesV17_90L332 = (lines: string[]) =>
+    lines.join("\n");
 
   const splitOrderSpecialNotesEditorTextV17_90L327 = (value: unknown) => {
     const protectedLines: string[] = [];
@@ -15700,7 +15700,7 @@ export default function AuftraegePage() {
     return {
       protectedLines,
       visibleProtectedLines,
-      manualText: trimOuterBlankLinesV17_90L327(manualLines),
+      manualText: keepOrderSpecialNotesEditorLinesV17_90L332(manualLines),
     };
   };
 
@@ -15763,13 +15763,18 @@ export default function AuftraegePage() {
   );
 
   const mergeOrderSpecialNotesEditorTextV17_90L327 = (manualValue: string) => {
+    // V17.90L332: Nicht trimmen. Sonst verschwindet ein gerade eingegebenes
+    // Enter am Anfang, am Ende oder in einer leeren Zeile sofort wieder aus
+    // dem kontrollierten Textarea.
     const manualText = normalizeOrderSpecialNotesEditorTextV17_90L318B(
       manualValue,
-    ).replace(/^\n+|\n+$/g, "");
+    );
     const protectedText = orderSpecialNotesEditorPartsV17_90L327.protectedLines
       .join("\n")
       .trim();
-    return [protectedText, manualText].filter(Boolean).join("\n\n");
+    return [protectedText, manualText]
+      .filter((part) => part.length > 0)
+      .join("\n\n");
   };
 
   const updateNormalSpecialNotes = (value: string) => {
