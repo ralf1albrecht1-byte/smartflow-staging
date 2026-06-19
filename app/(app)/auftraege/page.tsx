@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L329_ORDER_MANUAL_SPECIAL_NOTES_CARD_CHIPS
 // SMARTFLOW_V17_90L328_ORDER_SPECIAL_NOTES_OFFER_STYLE_DISPLAY
 // SMARTFLOW_V17_90L318B_ORDER_SPECIAL_NOTES_TEXTAREA_MATCH_OFFER
 // SMARTFLOW_V17_90L316_MANUAL_ORDER_NO_AUTO_APPOINTMENT_CHIP
@@ -4363,6 +4364,77 @@ const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
   return result;
 };
 
+// V17.90L329: Manuell im Auftrag ergänzte Besonderheiten bleiben als normaler
+// Text editierbar, müssen aber trotzdem die Außenchips und Info-Popover speisen.
+// Geschützte Intake-Zeilen mit [HINWEIS]/[GEFAHR] bleiben davon getrennt.
+const ORDER_SPECIAL_NOTE_MARKER_RE_V17_90L329 =
+  /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS|ACHTUNG)\]\s*/i;
+
+const getManualOrderSpecialNoteLinesV17_90L329 = (value?: unknown) => {
+  const lines = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => compactText(line))
+    .filter((line) => line && !ORDER_SPECIAL_NOTE_MARKER_RE_V17_90L329.test(line));
+
+  const unique: string[] = [];
+  lines.forEach((line) => {
+    if (
+      !unique.some((existing) => orderInfoLinesEquivalentV17_66(existing, line))
+    ) {
+      unique.push(line);
+    }
+  });
+  return unique;
+};
+
+type ManualOrderSpecialNoteGroupsV17_90L329 = {
+  safety: string[];
+  primary: string[];
+  additional: string[];
+};
+
+const groupManualOrderSpecialNotesV17_90L329 = (
+  lines: string[],
+): ManualOrderSpecialNoteGroupsV17_90L329 => {
+  const groups: ManualOrderSpecialNoteGroupsV17_90L329 = {
+    safety: [],
+    primary: [],
+    additional: [],
+  };
+
+  lines.forEach((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    const kind = getSemanticBadgeKind(line);
+
+    if (role === "safety" || kind === "warning" || kind === "dog") {
+      groups.safety.push(line);
+      return;
+    }
+
+    if (
+      role === "communication" ||
+      role === "appointment" ||
+      role === "access" ||
+      kind === "key" ||
+      kind === "access" ||
+      kind === "appointment"
+    ) {
+      groups.primary.push(line);
+      return;
+    }
+
+    groups.additional.push(line);
+  });
+
+  return {
+    safety: uniqueOrderInfoLinesV17_66(groups.safety),
+    primary: uniqueOrderInfoLinesV17_66(groups.primary),
+    additional: uniqueOrderInfoLinesV17_66(groups.additional),
+  };
+};
+
 // V17.90L175: The red dog chip contains dog information only. Contact
 // numbers/channels accidentally attached to a dog sentence stay in the
 // communication chips and must not be repeated in the danger popover.
@@ -4437,10 +4509,39 @@ const getOperationalBadges = (
       order,
       canonicalSnapshotV2,
     );
+    const manualSpecialNoteLinesV17_90L329 =
+      getManualOrderSpecialNoteLinesV17_90L329(order.specialNotes);
+    const manualSpecialNoteGroupsV17_90L329 =
+      groupManualOrderSpecialNotesV17_90L329(manualSpecialNoteLinesV17_90L329);
+    const summarySafetyLinesV17_90L329 = uniqueOrderInfoLinesV17_66([
+      ...info.safety,
+      ...manualSpecialNoteGroupsV17_90L329.safety,
+    ]);
+    const summaryPrimaryLinesV17_90L329 = uniqueOrderInfoLinesV17_66([
+      ...info.primary,
+      ...manualSpecialNoteGroupsV17_90L329.primary,
+    ]).filter(
+      (line) =>
+        !summarySafetyLinesV17_90L329.some((warning) =>
+          orderInfoLinesEquivalentV17_66(warning, line),
+        ),
+    );
+    const summaryAdditionalLinesV17_90L329 = uniqueOrderInfoLinesV17_66([
+      ...info.additional,
+      ...manualSpecialNoteGroupsV17_90L329.additional,
+    ]).filter(
+      (line) =>
+        !summarySafetyLinesV17_90L329.some((warning) =>
+          orderInfoLinesEquivalentV17_66(warning, line),
+        ) &&
+        !summaryPrimaryLinesV17_90L329.some((hint) =>
+          orderInfoLinesEquivalentV17_66(hint, line),
+        ),
+    );
     const summaryTooltip = [
-      info.safety.length ? ["Gefahr / Achtung", ...info.safety].join("\n") : "",
-      info.primary.length ? ["Wichtige Informationen", ...info.primary].join("\n") : "",
-      info.additional.length ? ["Weitere Besonderheiten", ...info.additional].join("\n") : "",
+      summarySafetyLinesV17_90L329.length ? ["Gefahr / Achtung", ...summarySafetyLinesV17_90L329].join("\n") : "",
+      summaryPrimaryLinesV17_90L329.length ? ["Wichtige Informationen", ...summaryPrimaryLinesV17_90L329].join("\n") : "",
+      summaryAdditionalLinesV17_90L329.length ? ["Weitere Besonderheiten", ...summaryAdditionalLinesV17_90L329].join("\n") : "",
     ].filter(Boolean).join("\n---\n");
     if (summaryTooltip) {
       pushUniqueBadge(badges, {
@@ -4516,6 +4617,37 @@ const getOperationalBadges = (
         className: isPositiveSemanticHint(line)
           ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
           : "bg-amber-100 text-amber-700 border border-amber-300",
+        tooltip: line,
+        focusTarget: "specialNotes",
+      });
+    });
+    manualSpecialNoteLinesV17_90L329.forEach((line) => {
+      if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
+      const kind = getSemanticBadgeKind(line);
+      const label = kind ? badgeLabelByKind[kind] : "";
+      if (!kind || !label || kind === "appointment") return;
+
+      if (kind === "warning" || kind === "dog") {
+        const dangerLabel = dangerBadgeLabel(line);
+        pushUniqueBadge(badges, {
+          key: dangerLabel === "Hund" ? "danger_dog" : "danger_warning",
+          label: dangerLabel === "Hund" ? "Hund" : "Achtung",
+          className: "bg-red-100 text-red-700 border border-red-300",
+          icon: true,
+          tooltip: dangerLabel === "Hund" ? sanitizeDogOnlyTooltipV17_90L175(line) : line,
+          focusTarget: "specialNotes",
+        });
+        return;
+      }
+
+      pushUniqueBadge(badges, {
+        key: `manual_${kind}`,
+        label,
+        className: isPositiveSemanticHint(line)
+          ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+          : kind === "parking"
+            ? "bg-blue-50 text-blue-700 border border-blue-300"
+            : "bg-amber-100 text-amber-700 border border-amber-300",
         tooltip: line,
         focusTarget: "specialNotes",
       });
@@ -15506,14 +15638,20 @@ export default function AuftraegePage() {
       const role = classifySpecialNoteRoleV17_90L93(line);
       return role === "parking" || role === "equipment" || role === "operational" || role === "unknown";
     });
+  const manualSpecialNoteLinesV17_90L329 =
+    getManualOrderSpecialNoteLinesV17_90L329(normalSpecialNotesText);
+  const manualSpecialNoteGroupsV17_90L329 =
+    groupManualOrderSpecialNotesV17_90L329(manualSpecialNoteLinesV17_90L329);
 
   const displayDangerNoteLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
     ...dangerNoteLines,
     ...recognizedDangerNoteLinesV17_90L328,
+    ...manualSpecialNoteGroupsV17_90L329.safety,
   ]);
   const displayPrimaryInfoLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
     ...compactPrimaryInfoLines,
     ...recognizedPrimaryInfoLinesV17_90L328,
+    ...manualSpecialNoteGroupsV17_90L329.primary,
   ]).filter(
     (line) =>
       !displayDangerNoteLinesV17_90L328.some((warning) =>
@@ -15523,6 +15661,7 @@ export default function AuftraegePage() {
   const displayAdditionalInfoLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
     ...baseAdditionalInfoLinesV17_90L328,
     ...recognizedAdditionalInfoLinesV17_90L328,
+    ...manualSpecialNoteGroupsV17_90L329.additional,
   ]).filter(
     (line) =>
       !displayDangerNoteLinesV17_90L328.some((warning) =>
