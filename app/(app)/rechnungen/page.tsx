@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
 // SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
 // SMARTFLOW_V17_90L345_INVOICE_MOBILE_CHIP_POPOVER_ONLY
 // SMARTFLOW_V17_90L344_INVOICE_CHIP_CLICK_JUMP_RESTORE
@@ -1279,6 +1280,80 @@ function isInvoiceRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boole
   );
 }
 
+function isInvoiceAppointmentSummaryDisplayLineV17_90L348(value: unknown): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  return /^termine\s+\d+\b/.test(key) || /\b1\s+termin\b.*\b2\s+termin\b/.test(key);
+}
+
+function normalizeInvoiceDisplayAppointmentLineV17_90L348(value: unknown): string {
+  const raw = compactInvoiceValue(value)
+    .replace(/[’']/g, "")
+    .replace(/^Termin\s*:?\s*/i, "");
+  if (!raw) return "";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  const timeMatch =
+    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
+    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}${
+        dateMatch[3]
+          ? `.${String(dateMatch[3]).length === 2 ? `20${dateMatch[3]}` : dateMatch[3]}`
+          : ""
+      }`
+    : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  if (!date && !time) return compactInvoiceValue(value);
+  return `Termin: ${[date, time].filter(Boolean).join(" · ")}`;
+}
+
+function invoiceAppointmentDisplaySignatureV17_90L348(value: unknown): string {
+  const raw = compactInvoiceValue(value).replace(/[’']/g, "");
+  const key = normalizeInvoiceServiceName(raw);
+  if (!/\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key)) {
+    return "";
+  }
+  if (isInvoiceAppointmentSummaryDisplayLineV17_90L348(raw)) return "summary";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  const timeMatch =
+    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
+    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const day = dateMatch ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}` : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  return day || time ? `${day}|${time}` : "";
+}
+
+function invoiceAppointmentMonthDayKeyV17_90L348(value: unknown): string {
+  const match = compactInvoiceValue(value)
+    .replace(/[’']/g, "")
+    .match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  return match ? `${match[1].padStart(2, "0")}.${match[2].padStart(2, "0")}` : "";
+}
+
+function hasConcreteInvoiceContactIdentityV17_90L348(
+  contact?: {
+    title?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null,
+): boolean {
+  const title = compactInvoiceValue(contact?.title);
+  return Boolean(
+    compactInvoiceValue(contact?.name) ||
+      compactInvoiceValue(contact?.phone) ||
+      compactInvoiceValue(contact?.email) ||
+      /\b(?:\+?\d[\d\s()./-]{6,}\d|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i.test(title),
+  );
+}
+
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   invoice: Invoice | null,
   fallbackSpecialNotes?: string | null,
@@ -1346,6 +1421,8 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       ),
     );
   const explicitContactTitleV17_90L339 = compactInvoiceValue(explicitContact.title);
+  const explicitContactHasIdentityV17_90L348 =
+    hasConcreteInvoiceContactIdentityV17_90L348(explicitContact as any);
   const explicitContactChannelV17_90L339 = invoiceCommunicationChannelKeyV17_90L334(
     explicitContactTitleV17_90L339,
   );
@@ -1378,10 +1455,16 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const primaryHints: string[] = [];
   const otherHints: string[] = [];
   const seen = new Set<string>();
+  const seenAppointmentsV17_90L348 = new Set<string>();
 
   const add = (target: string[], raw: string) => {
-    const text = String(raw || "").replace(/\s+/g, " ").trim();
-    if (isInvoiceRawCustomerMessageDisplayLeakV17_90L346(text)) return;
+    const rawText = String(raw || "").replace(/\s+/g, " ").trim();
+    if (!rawText || isInvoiceRawCustomerMessageDisplayLeakV17_90L346(rawText)) return;
+    const appointmentSignature = invoiceAppointmentDisplaySignatureV17_90L348(rawText);
+    if (appointmentSignature === "summary") return;
+    const text = appointmentSignature
+      ? normalizeInvoiceDisplayAppointmentLineV17_90L348(rawText)
+      : rawText;
     const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
     if (!text || !key) return;
 
@@ -1390,6 +1473,12 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     // "Kontakt per WhatsApp". Die spezifischere Zeile bleibt erhalten.
     if (target === primaryHints && isInvoiceCommunicationLikeLineV17_90L266(text)) {
       const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+      // SMARTFLOW_V17_90L348: Ein reiner WhatsApp-Transport/Fallback ohne
+      // Name, Telefonnummer oder E-Mail ist keine aktive Kontaktregel für die
+      // Rechnungsanzeige.
+      if (channelKey === "whatsapp" && !explicitContactHasIdentityV17_90L348) {
+        return;
+      }
       // SMARTFLOW_V17_90L340: Wenn die echte Kundennachricht ausdrücklich
       // SMS/E-Mail/Telefon verlangt und kein WhatsApp erwähnt, werden
       // abgeleitete WhatsApp-Fallbackzeilen in der Rechnungsanzeige entfernt.
@@ -1488,6 +1577,21 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       }
     }
 
+    if (appointmentSignature) {
+      const dayOnly = appointmentSignature.split("|")[0] || "";
+      const duplicateAppointment =
+        seenAppointmentsV17_90L348.has(appointmentSignature) ||
+        (dayOnly &&
+          Array.from(seenAppointmentsV17_90L348).some(
+            (existing) =>
+              existing.startsWith(`${dayOnly}|`) &&
+              existing.split("|")[1] &&
+              !appointmentSignature.split("|")[1],
+          ));
+      if (duplicateAppointment) return;
+      seenAppointmentsV17_90L348.add(appointmentSignature);
+    }
+
     if (seen.has(key)) return;
     seen.add(key);
     target.push(text);
@@ -1496,7 +1600,11 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   canonicalAppointmentLinesV17_90L276.forEach((line) =>
     add(primaryHints, line),
   );
-  if (explicitContactTitleV17_90L339 && !suppressWhatsAppFallbackContactV17_90L339) {
+  if (
+    explicitContactTitleV17_90L339 &&
+    explicitContactHasIdentityV17_90L348 &&
+    !suppressWhatsAppFallbackContactV17_90L339
+  ) {
     add(primaryHints, explicitContactTitleV17_90L339);
   }
 
@@ -1636,6 +1744,16 @@ function invoiceLineMatchesInheritedSpecialNoteV17_90L335(
 
     const candidateDayKey = getInvoiceAppointmentDayKey(candidate);
     if (dayKey && candidateDayKey && dayKey === candidateDayKey) {
+      const candidateHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(candidate);
+      if (hasTime === candidateHasTime || candidateHasTime) return true;
+    }
+
+    // SMARTFLOW_V17_90L348: Geerbte Termine auch dann aus dem manuellen
+    // Rechnungs-Textarea entfernen, wenn eine Quelle das Jahr enthält und die
+    // andere nicht, z. B. "20.06.2026" vs. "20.06.".
+    const monthDayKey = invoiceAppointmentMonthDayKeyV17_90L348(text);
+    const candidateMonthDayKey = invoiceAppointmentMonthDayKeyV17_90L348(candidate);
+    if (monthDayKey && candidateMonthDayKey && monthDayKey === candidateMonthDayKey) {
       const candidateHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(candidate);
       if (hasTime === candidateHasTime || candidateHasTime) return true;
     }

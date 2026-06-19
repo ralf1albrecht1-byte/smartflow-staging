@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
 // SMARTFLOW_V17_90L347_OFFER_BUILD_FIX_COMPACT_HELPER
 // SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
 // SMARTFLOW_V17_90L331_OFFER_TO_INVOICE_SPECIAL_NOTES_HANDOFF
@@ -1674,18 +1675,22 @@ function parseOfferCanonicalWorkflowRecordsV17_90L273(
       index + 1 < matches.length
         ? Number(matches[index + 1].index || source.length)
         : source.length;
-    const text = source
-      .slice(start, end)
-      .replace(/^\s*[-•*]+\s*/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!text) continue;
-    records.push({
-      role: /^(?:GEFAHR|WARNUNG|WARNHINWEIS)$/i.test(String(match[1] || ""))
+    // SMARTFLOW_V17_90L348: Marker-Blöcke zeilenlokal erhalten.
+    // Sonst wird z. B. "Archivraum bitte nicht reinigen" mit einem späteren
+    // manuellen Auftragshinweis zu einer einzigen Anzeigezeile verklebt.
+    const role: "safety" | "hint" =
+      /^(?:GEFAHR|WARNUNG|WARNHINWEIS)$/i.test(String(match[1] || ""))
         ? "safety"
-        : "hint",
-      text,
-    });
+        : "hint";
+    const blockLines = source
+      .slice(start, end)
+      .replace(/^\s*[-•*]+\s*/gm, "")
+      .split(/\n+/g)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    for (const text of blockLines) {
+      records.push({ role, text });
+    }
   }
   return records;
 }
@@ -1706,6 +1711,56 @@ function isOfferRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean
     /\b(?:neuer auftrag|rechnungsadresse|arbeitsort\s*\d|ausfuehrungsort\s*\d)\b/.test(key) &&
     /\b(?:chf|pauschal|quadratmeter|stueck|stuck|m2|m²|einzelpreis|gesamt)\b/.test(key)
   );
+}
+
+function isOfferAppointmentSummaryDisplayLineV17_90L348(value: unknown): boolean {
+  const key = normalizeOfferHint(value || "");
+  return /^termine\s+\d+\b/.test(key) || /\b1\s+termin\b.*\b2\s+termin\b/.test(key);
+}
+
+function normalizeOfferDisplayAppointmentLineV17_90L348(value: unknown): string {
+  const raw = compactOfferValue(value)
+    .replace(/[’']/g, "")
+    .replace(/^termin\s*:?\s*/i, "");
+  if (!raw) return "";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  const timeMatch =
+    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
+    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}${
+        dateMatch[3]
+          ? `.${String(dateMatch[3]).length === 2 ? `20${dateMatch[3]}` : dateMatch[3]}`
+          : ""
+      }`
+    : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  if (!date && !time) return compactOfferValue(value);
+  return `Termin: ${[date, time].filter(Boolean).join(" · ")}`;
+}
+
+function offerAppointmentDisplaySignatureV17_90L348(value: unknown): string {
+  const raw = compactOfferValue(value).replace(/[’']/g, "");
+  const key = normalizeOfferHint(raw);
+  if (!/\b(?:termin|datum|zeitfenster|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key)) {
+    return "";
+  }
+  if (isOfferAppointmentSummaryDisplayLineV17_90L348(raw)) return "summary";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  const timeMatch =
+    raw.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/) ||
+    raw.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const day = dateMatch ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}` : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  return day || time ? `${day}|${time}` : "";
 }
 
 function buildOfferCanonicalWorkflowSummaryV17_90L274(
@@ -1758,12 +1813,32 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   const primary: string[] = [];
   const additional: string[] = [];
   const seen = new Set<string>();
+  const seenAppointmentsV17_90L348 = new Set<string>();
 
   const add = (target: string[], raw: string) => {
-    const text = String(raw || "").replace(/\s+/g, " ").trim();
-    if (isOfferRawCustomerMessageDisplayLeakV17_90L346(text)) return;
+    const rawText = String(raw || "").replace(/\s+/g, " ").trim();
+    if (!rawText || isOfferRawCustomerMessageDisplayLeakV17_90L346(rawText)) return;
+    const appointmentSignature = offerAppointmentDisplaySignatureV17_90L348(rawText);
+    if (appointmentSignature === "summary") return;
+    const text = appointmentSignature
+      ? normalizeOfferDisplayAppointmentLineV17_90L348(rawText)
+      : rawText;
     const key = normalizeOfferHint(text).replace(/^termin\s+/, "");
     if (!text || !key || seen.has(key)) return;
+    if (appointmentSignature) {
+      const dayOnly = appointmentSignature.split("|")[0] || "";
+      const duplicateAppointment =
+        seenAppointmentsV17_90L348.has(appointmentSignature) ||
+        (dayOnly &&
+          Array.from(seenAppointmentsV17_90L348).some(
+            (existing) =>
+              existing.startsWith(`${dayOnly}|`) &&
+              existing.split("|")[1] &&
+              !appointmentSignature.split("|")[1],
+          ));
+      if (duplicateAppointment) return;
+      seenAppointmentsV17_90L348.add(appointmentSignature);
+    }
     seen.add(key);
     target.push(text);
   };
