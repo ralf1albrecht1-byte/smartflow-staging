@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L327_INVOICE_SPECIAL_NOTES_APPOINTMENT_MERGE_FIX
+// SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
 // SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
@@ -1019,16 +1019,154 @@ function parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(
 function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
   const key = normalizeInvoiceServiceName(value);
   if (!key) return false;
-  return (
-    /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
-      key,
-    ) ||
-    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(key) ||
-    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(key) ||
-    /\b(?:heute|morgen|uebermorgen|übermorgen|naechsten?|nächsten?|kommenden?|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(
-      key,
-    )
+  return /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
+    key,
   );
+}
+
+// V17.90L328: Anzeige-only-Splitting für Rechnungs-Besonderheiten.
+// Gespeicherte Texte/Payloads bleiben unverändert; nur die angezeigten Info-,
+// Warn- und Terminzeilen werden aus zusammengeklebten Hinweistexten sauber
+// getrennt. Dadurch landet im Terminchip ausschließlich Termininhalt.
+type InvoiceDisplayFactMatchV17_90L328 = {
+  index: number;
+  end: number;
+  role: "safety" | "hint";
+  text: string;
+};
+
+function cleanInvoiceDisplayFactTextV17_90L328(value: unknown): string {
+  let text = compactInvoiceValue(value)
+    .replace(/^[•*\-–—]+\s*/g, "")
+    .replace(/[,:;\-–—\s]+$/g, "")
+    .trim();
+  if (!text) return "";
+  text = text
+    .replace(/^türcode\b/i, "Türcode")
+    .replace(/^tuercode\b/i, "Türcode")
+    .replace(/^turcode\b/i, "Türcode")
+    .replace(/^türkode\b/i, "Türcode")
+    .replace(/^tuerkode\b/i, "Türcode")
+    .replace(/^turkode\b/i, "Türcode")
+    .replace(/^seitentür\b/i, "Seitentür")
+    .replace(/^seitentuer\b/i, "Seitentür")
+    .replace(/^schlüssel\b/i, "Schlüssel")
+    .replace(/^schluessel\b/i, "Schlüssel")
+    .replace(/^schlussel\b/i, "Schlüssel")
+    .replace(/^parkplatz\b/i, "Parkplatz")
+    .replace(/^kontakt\b/i, "Kontakt")
+    .replace(/^bitte\b/i, "Bitte")
+    .replace(/^termin\b/i, "Termin");
+  return text;
+}
+
+function uniqueInvoiceDisplayFactsV17_90L328(
+  matches: InvoiceDisplayFactMatchV17_90L328[],
+): InvoiceDisplayFactMatchV17_90L328[] {
+  const sorted = matches
+    .map((match) => ({
+      ...match,
+      text: cleanInvoiceDisplayFactTextV17_90L328(match.text),
+    }))
+    .filter((match) => Boolean(match.text))
+    .sort((a, b) => a.index - b.index || b.end - b.index - (a.end - a.index));
+
+  const accepted: InvoiceDisplayFactMatchV17_90L328[] = [];
+  for (const candidate of sorted) {
+    const overlaps = accepted.some(
+      (current) => candidate.index < current.end && candidate.end > current.index,
+    );
+    if (overlaps) continue;
+    const key = normalizeInvoiceServiceName(candidate.text);
+    if (!key) continue;
+    const duplicate = accepted.some((current) => {
+      const existing = normalizeInvoiceServiceName(current.text);
+      if (existing === key) return true;
+      const shorter = existing.length <= key.length ? existing : key;
+      const longer = existing.length > key.length ? existing : key;
+      return shorter.length >= 10 && longer.includes(shorter);
+    });
+    if (duplicate) continue;
+    accepted.push(candidate);
+  }
+  return accepted.sort((a, b) => a.index - b.index);
+}
+
+function splitInvoiceDisplayFactRecordsV17_90L328(
+  record: InvoiceCanonicalWorkflowRecordV17_90L273,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  const source = compactInvoiceValue(record.text);
+  if (!source) return [];
+
+  const matches: InvoiceDisplayFactMatchV17_90L328[] = [];
+  const addMatches = (
+    regex: RegExp,
+    role: "safety" | "hint",
+    mapText?: (match: RegExpMatchArray) => string,
+  ) => {
+    for (const match of source.matchAll(regex)) {
+      const text = cleanInvoiceDisplayFactTextV17_90L328(
+        mapText ? mapText(match) : match[0],
+      );
+      if (!text) continue;
+      const index = Number(match.index || 0);
+      matches.push({ index, end: index + match[0].length, role, text });
+    }
+  };
+
+  addMatches(
+    /\b(?:Termin|Appointment|Ausführungstermin|Ausfuehrungstermin)\s*:?(?:\s+am)?\s+(?:\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))(?:\s*[.·,;\-–—]*\s*(?:(?:um|ab|gegen|von)\s*)?(?:[01]?\d|2[0-3])(?:[:.]\d{2}|\s*Uhr))?(?:\s*(?:bis|[-–—])\s*(?:[01]?\d|2[0-3])(?:[:.]\d{2}|\s*Uhr))?/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Bitte\s+)?(?:vorher\s+|kurz\s+|vor\s+Ort\s+)?(?:per\s+)?(?:WhatsApp|SMS|E-?Mail|Mail)\s+(?:melden|kontaktieren|schreiben|informieren)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\bKontakt\s+vor\s+Ort\s*:?(?:\s+nur)?\s+(?:WhatsApp|SMS|telefonisch|Telefon|E-?Mail|Mail)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Türcode|Tuercode|Turcode|Türkode|Tuerkode|Turkode|Code)\s*(?:Tor|Tür|Tuer)?\s*[:#-]?\s*[A-Za-z0-9-]{2,}\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Schlüssel|Schluessel|Schlussel)\s+(?:beim|bei|am|in|unter)\s+.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Türkode|Tuerkode|Turkode|Code|Seitentür|Seitentuer|Parkplatz|Parking|Hund|Hunde)\b|$)/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Seitentür|Seitentuer|Seiteneingang|Hintereingang)\s+(?:benutzen|nehmen|verwenden)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Parkplatz|Parking|Tiefgarage|Stellplatz)\b.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Code|Schlüssel|Schluessel|Schlussel|Seitentür|Seitentuer|Hund|Hunde|Kontakt|Bitte)\b|$)/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Hund|Hunde|Dog|Dogs|Chien|Chiens|Cane|Cani|Perro|Perros)\b.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Code|Schlüssel|Schluessel|Schlussel|Parkplatz|Parking|Kontakt|Bitte)\b|$)/gi,
+    "safety",
+  );
+
+  const accepted = uniqueInvoiceDisplayFactsV17_90L328(matches);
+  if (accepted.length === 0) return [record];
+
+  return accepted.map((match) => ({
+    role: match.role === "safety" || record.role === "safety" ? match.role : "hint",
+    text: match.text,
+  }));
+}
+
+function invoiceCommunicationLineMatchesContactFallbackV17_90L328(
+  line: string,
+  contactTitle: string,
+): boolean {
+  const lineKey = normalizeInvoiceServiceName(line);
+  const contactKey = normalizeInvoiceServiceName(contactTitle);
+  if (!lineKey || !contactKey) return false;
+  if (lineKey === contactKey) return true;
+  const shorter = lineKey.length <= contactKey.length ? lineKey : contactKey;
+  const longer = lineKey.length > contactKey.length ? lineKey : contactKey;
+  return shorter.length >= 10 && longer.includes(shorter);
 }
 
 function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
@@ -1039,18 +1177,25 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const siteContexts = buildDocumentSiteOperationalContexts(
     sourceOrders as any[],
   );
-  const siteContextHintsV17_90L327 =
-    siteContexts.length > 1
-      ? siteContexts.map((context) => `${context.label}\n${context.text}`)
-      : [];
+  if (siteContexts.length > 1) {
+    return {
+      hazards: [],
+      primaryHints: siteContexts.map(
+        (context) => `${context.label}\n${context.text}`,
+      ),
+      otherHints: [],
+    };
+  }
 
   const sources = [
     ...sourceOrders.map((order) => order?.specialNotes),
     fallbackSpecialNotes,
   ].filter(Boolean);
-  const records = sources.flatMap((value) =>
-    parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(value),
-  );
+  const records = sources
+    .flatMap((value) =>
+      parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(value),
+    )
+    .flatMap(splitInvoiceDisplayFactRecordsV17_90L328);
   const explicitContact = extractDocumentContactFallback(
     ...sourceOrders.flatMap((order) => [
       order?.notes,
@@ -1085,46 +1230,26 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     target.push(text);
   };
 
-  siteContextHintsV17_90L327.forEach((line) => add(primaryHints, line));
   canonicalAppointmentLinesV17_90L276.forEach((line) =>
     add(primaryHints, line),
   );
   if (explicitContact.title) add(primaryHints, explicitContact.title);
 
   for (const record of records) {
-    const isAppointmentRecord =
-      /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
-        record.text,
-      ) || isInvoiceAppointmentHintForChipV17_90L326(record.text);
-    const recordAppointmentSignatureV17_90L327 = isAppointmentRecord
-      ? invoiceAppointmentSignatureV17_90L265(record.text)
-      : "";
-    const duplicateCanonicalAppointmentV17_90L327 =
-      isAppointmentRecord &&
-      canonicalAppointmentLinesV17_90L276.some((line) => {
-        const canonicalSignature = invoiceAppointmentSignatureV17_90L265(line);
-        if (
-          recordAppointmentSignatureV17_90L327 &&
-          canonicalSignature &&
-          recordAppointmentSignatureV17_90L327 === canonicalSignature
-        ) {
-          return true;
-        }
-        const recordKey = normalizeInvoiceAppointmentKeyV17_90L177R(
-          record.text.replace(/^Termin\s*:?\s*/i, ""),
-        );
-        const canonicalKey = normalizeInvoiceAppointmentKeyV17_90L177R(
-          line.replace(/^Termin\s*:?\s*/i, ""),
-        );
-        return Boolean(recordKey && canonicalKey && recordKey === canonicalKey);
-      });
-    if (duplicateCanonicalAppointmentV17_90L327) {
+    const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
+      record.text,
+    );
+    if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
       continue;
     }
     if (
       explicitContact.title &&
       !isAppointmentRecord &&
-      isInvoiceCommunicationLikeLineV17_90L266(record.text)
+      isInvoiceCommunicationLikeLineV17_90L266(record.text) &&
+      invoiceCommunicationLineMatchesContactFallbackV17_90L328(
+        record.text,
+        explicitContact.title,
+      )
     ) {
       continue;
     }
