@@ -4769,7 +4769,7 @@ export default function AngebotePage() {
   const linkedAppointmentLabelV17_90L237 = resolveOfferAppointmentLabelV17_90L237(
     linkedEditorOrdersV17_90L237,
     linkedDataWithManualOfferNotesV17_90L335,
-    form.offerDate || linkedOrderData?.createdAt || linkedOrderData?.date,
+    form.offerDate || (linkedOrderData as any)?.createdAt || (linkedOrderData as any)?.date,
   );
   const linkedInfoSummary = buildOfferInfoSummary(
     linkedDataWithManualOfferNotesV17_90L335,
