@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L335_INVOICE_MANUAL_TEXTAREA_STRICT_MANUAL_ONLY
 // SMARTFLOW_V17_90L334_INVOICE_MANUAL_NOTES_TEXTAREA_AND_DEDUPE
 // SMARTFLOW_V17_90L333_INVOICE_APPOINTMENT_CHIP_REAL_TERMS_ONLY
 // SMARTFLOW_V17_90L332_INVOICE_SPECIAL_NOTES_DISPLAY_LINE_LOCAL
@@ -1448,38 +1449,84 @@ function buildInvoiceSpecialNotesSourceV17_90L319(
     .join("\n");
 }
 
+function invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+  line: string,
+  inheritedLines: string[],
+): boolean {
+  const text = compactInvoiceValue(line);
+  const key = normalizeInvoiceServiceName(text);
+  if (!text || !key) return true;
+
+  const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+  const dayKey = getInvoiceAppointmentDayKey(text);
+  const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+
+  return inheritedLines.some((candidateRaw) => {
+    const candidate = compactInvoiceValue(candidateRaw);
+    const candidateKey = normalizeInvoiceServiceName(candidate);
+    if (!candidate || !candidateKey) return false;
+    if (candidateKey === key) return true;
+
+    // SMARTFLOW_V17_90L335: Abgeleitete Kommunikationszeilen wie
+    // "Kontakt per WhatsApp" sind geerbte Auftrag-/Angebotsinformation und
+    // dürfen nicht im manuellen Rechnungs-Textarea auftauchen, wenn derselbe
+    // Kanal bereits strukturiert übernommen wurde.
+    const candidateChannelKey = invoiceCommunicationChannelKeyV17_90L334(candidate);
+    if (channelKey && candidateChannelKey && channelKey === candidateChannelKey) {
+      return true;
+    }
+
+    const candidateDayKey = getInvoiceAppointmentDayKey(candidate);
+    if (dayKey && candidateDayKey && dayKey === candidateDayKey) {
+      const candidateHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(candidate);
+      if (hasTime === candidateHasTime || candidateHasTime) return true;
+    }
+
+    // Exakte Fakten, die nur unterschiedlich mit Marker/Präfix kommen,
+    // zuverlässig ausblenden; freie manuelle Rechnungszusätze bleiben stehen.
+    const shorter = key.length <= candidateKey.length ? key : candidateKey;
+    const longer = key.length > candidateKey.length ? key : candidateKey;
+    return shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.82;
+  });
+}
+
 function buildInvoiceManualTextareaValueV17_90L334(
   invoice: Invoice | null,
   storedInvoiceSpecialNotes?: string | null,
   sourceOfferInternalNotes?: string | null,
 ): string {
-  // SMARTFLOW_V17_90L334: Das Textfeld "Besonderheiten in der Rechnung"
-  // zeigt nur echte manuelle Rechnungsergänzungen. Übernommene Hinweise aus
-  // Auftrag/Angebot/Intake werden darunter strukturiert angezeigt, dürfen aber
-  // nicht als editierbarer Rechnungstext im Textarea auftauchen.
+  // SMARTFLOW_V17_90L335: Das Textfeld "Besonderheiten in der Rechnung"
+  // ist strikt manual-only. Es zeigt nur Hinweise, die wirklich in der
+  // Rechnung selbst ergänzt wurden. Alle geerbten Auftrag-/Angebot-/Intake-
+  // Fakten bleiben darunter strukturiert sichtbar und werden beim Speichern
+  // weiter mitgeführt, erscheinen aber nicht als editierbarer Text.
   const storedLines = splitInvoiceManualSpecialNoteLinesV17_90L319(
     storedInvoiceSpecialNotes,
   );
   if (storedLines.length === 0) return "";
 
-  const inheritedKeys = new Set(
-    [
-      ...(invoice?.orders || []).flatMap((order) =>
-        splitInvoiceManualSpecialNoteLinesV17_90L319(order?.specialNotes),
-      ),
-      ...splitInvoiceManualSpecialNoteLinesV17_90L319(
-        sourceOfferInternalNotes,
-      ),
-    ]
-      .map(normalizeInvoiceServiceName)
-      .filter(Boolean),
+  const inheritedSource = [
+    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    sourceOfferInternalNotes,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  const inheritedSummary = buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+    invoice,
+    inheritedSource,
   );
+  const inheritedLines = uniqueInvoiceLines([
+    inheritedSource,
+    inheritedSummary.primaryHints.join("\n"),
+    inheritedSummary.hazards.join("\n"),
+    inheritedSummary.otherHints.join("\n"),
+  ]);
 
   return storedLines
-    .filter((line) => {
-      const key = normalizeInvoiceServiceName(line);
-      return Boolean(key) && !inheritedKeys.has(key);
-    })
+    .filter((line) =>
+      !invoiceLineMatchesInheritedSpecialNoteV17_90L335(line, inheritedLines),
+    )
     .join("\n");
 }
 
