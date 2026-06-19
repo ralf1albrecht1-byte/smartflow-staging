@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L333_ORDER_MANUAL_APPOINTMENT_DATE_TIME_NORMALIZE
 // SMARTFLOW_V17_90L332_ORDER_SPECIAL_NOTES_TEXTAREA_EMPTY_LINES_FIX
 // SMARTFLOW_V17_90L331_ORDER_MANUAL_NOTES_ALL_CARD_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L330_ORDER_PAGE_LOAD_FIX_MANUAL_NOTES_CHIPS
@@ -2804,13 +2805,57 @@ const normalizeAppointmentDateLabel = (value: string) => {
 };
 
 const normalizeAppointmentTimeLabel = (value: string) => {
+  // V17.90L333: Kalenderdaten wie "8.8." dürfen nie als Uhrzeit 08:08
+  // gelesen werden. Erst Datumsfragmente entfernen, dann echte Uhrzeiten suchen.
+  const sourceWithoutDates = String(value || "").replace(
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/g,
+    " ",
+  );
   const match =
-    value.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
-    value.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)?\b/i) ||
-    value.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+    sourceWithoutDates.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
+    sourceWithoutDates.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)\b/i) ||
+    sourceWithoutDates.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
 
   if (!match) return "";
   return formatAppointmentTime(match[1], match[2]);
+};
+
+const normalizeManualAppointmentDetailLabelV17_90L333 = (
+  value: string,
+  baseDateInput?: string | null,
+) => {
+  const raw = compactText(value);
+  if (!raw) return "";
+
+  const explicitDate = normalizeAppointmentDateLabel(raw);
+  const text = normalizeForMatch(raw);
+  const baseDate = parseAppointmentBaseDate(baseDateInput);
+
+  let date = explicitDate;
+  if (!date) {
+    const relativeOffset = /\b(?:heute|today|aujourd'hui|hoy|oggi)\b/i.test(text)
+      ? 0
+      : /\b(?:morgen|tomorrow|demain|mañana|manana|domani)\b/i.test(text)
+        ? 1
+        : /\b(?:uebermorgen|übermorgen)\b/i.test(text)
+          ? 2
+          : null;
+    if (relativeOffset !== null) {
+      date = formatAppointmentDate(addDays(baseDate, relativeOffset));
+    }
+  }
+
+  const time = normalizeAppointmentTimeLabel(raw);
+  const dayPart = /vormittag|morning|matin/.test(text)
+    ? "vormittags"
+    : /nachmittag|afternoon|apres midi|après-midi/.test(text)
+      ? "nachmittags"
+      : /abend|evening|soir/.test(text)
+        ? "abends"
+        : "";
+
+  if (!date && !time) return "";
+  return [date, time || (date ? dayPart : "")].filter(Boolean).join(" · ");
 };
 
 const extractAppointmentDetailLabel = (value: string) => {
@@ -8499,9 +8544,6 @@ const buildManualAwareOrderAppointmentBadgeV17_90L331 = (
 
   if (manualAppointmentLines.length === 0) return null;
 
-  const alreadyMerged = getMultipleAppointmentBadge(order, parsedNotes);
-  if (alreadyMerged) return alreadyMerged;
-
   const details: AppointmentDetail[] = [];
   const canonicalSource = compactText(
     canonicalAppointment?.tooltip || canonicalAppointment?.label,
@@ -8521,13 +8563,19 @@ const buildManualAwareOrderAppointmentBadgeV17_90L331 = (
   manualAppointmentLines.forEach((line) => {
     const visual = extractAppointmentBadge(line, order.date, order.status);
     if (!visual) return;
-    const label = compactText(visual.label)
+    const normalizedManualLabel = normalizeManualAppointmentDetailLabelV17_90L333(
+      line,
+      order.date,
+    );
+    const visualLabel = compactText(visual.label)
       .replace(/^Termin\s+/i, "")
+      .replace(/^Morgen\s+/i, "")
+      .replace(/^Heute\s+/i, "")
       .trim();
     details.push({
       site: "",
       address: "",
-      label: label || compactText(line),
+      label: normalizedManualLabel || visualLabel || compactText(line),
       reason: line,
     });
   });
