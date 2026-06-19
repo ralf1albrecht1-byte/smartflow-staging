@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L357D_ORDER_REVIEW_TAKEOVER_DIRECT_PAGE_FILE
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L336_ORDER_WORKSITE_SPACE_KEY_FIX
 // SMARTFLOW_V17_90L333_ORDER_MANUAL_APPOINTMENT_DATE_TIME_NORMALIZE
@@ -5064,7 +5065,16 @@ const recognitionReviewReasonKeyV17_90L70 = (reason?: string | null) => {
 const formatRecognitionReviewLineV17_90L69 = (
   detail: RecognitionReviewPayloadV17_90L69,
 ) => {
+  // SMARTFLOW_V17_90L357D: For non-canonical recognition findings, show the
+  // actual source/evidence text as the actionable title. This prevents invented
+  // labels such as "Verschmutzung entfernen" from becoming the visible review
+  // title when the customer text only says e.g. "komisches Zeug machen".
+  const actionableSourceTitle =
+    detail.kind && detail.kind !== "missing_work"
+      ? recognitionReviewTakeoverTextV17_90L253(detail)
+      : "";
   const serviceName =
+    actionableSourceTitle ||
     canonicalServiceNameForOrderItem(detail.serviceName) ||
     compactText(detail.serviceName) ||
     "Mögliche Leistung";
@@ -13828,20 +13838,41 @@ export default function AuftraegePage() {
   const takeOverRecognitionReviewDetailV17_90L70 = (
     detail: RecognitionReviewPayloadV17_90L69,
   ) => {
-    if (detail.kind && detail.kind !== "missing_work") {
-      const key = recognitionReviewDetailKeyV17_90L70(detail);
+    const recognitionReviewKey = recognitionReviewDetailKeyV17_90L70(detail);
+    const hasActionableRecognitionEvidenceV17_90L357D = Boolean(
+      compactText(detail.relatedRoleText) || compactText(detail.sourceText),
+    );
+
+    // SMARTFLOW_V17_90L357D: A non-missing recognition finding may still be an
+    // actionable missing extra job. If the finding carries source evidence, the
+    // user's explicit "Übernehmen" must create/open a red editable service row
+    // instead of only dismissing the top review box.
+    if (
+      detail.kind &&
+      detail.kind !== "missing_work" &&
+      !hasActionableRecognitionEvidenceV17_90L357D
+    ) {
       setDiscardedRecognitionReviewKeys((previous) =>
-        previous.includes(key) ? previous : [...previous, key],
+        previous.includes(recognitionReviewKey)
+          ? previous
+          : [...previous, recognitionReviewKey],
       );
       toast.success("Prüfung bestätigt. Bitte Auftrag speichern.");
       return;
     }
 
     if (
-      formItems.some((item) =>
-        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      formItems.some(
+        (item) =>
+          item.recognitionReviewKey === recognitionReviewKey ||
+          recognitionReviewDetailMatchesItemV17_90L69(detail, item),
       )
     ) {
+      setDiscardedRecognitionReviewKeys((previous) =>
+        previous.includes(recognitionReviewKey)
+          ? previous
+          : [...previous, recognitionReviewKey],
+      );
       toast.info("Leistung ist bereits vorhanden.");
       return;
     }
@@ -13882,7 +13913,7 @@ export default function AuftraegePage() {
       manualReviewConfirmed: false,
       pendingManualReviewDecision: true,
       pendingReviewSourceServiceName: serviceName,
-      recognitionReviewKey: recognitionReviewDetailKeyV17_90L70(detail),
+      recognitionReviewKey,
       sourceDescription,
       workSiteId: defaultWorkSiteId,
     };
@@ -13896,6 +13927,11 @@ export default function AuftraegePage() {
           item.quantity.trim(),
       ),
     ]);
+    setDiscardedRecognitionReviewKeys((previous) =>
+      previous.includes(recognitionReviewKey)
+        ? previous
+        : [...previous, recognitionReviewKey],
+    );
     setExpandedServiceItemKeys([newItemKey]);
     if (defaultWorkSiteId) {
       setActiveWorkSiteId(defaultWorkSiteId);
