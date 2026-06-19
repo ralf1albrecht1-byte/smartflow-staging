@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L327_INVOICE_SPECIAL_NOTES_APPOINTMENT_MERGE_FIX
 // SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
 // SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
 // SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
@@ -1018,8 +1019,15 @@ function parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(
 function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
   const key = normalizeInvoiceServiceName(value);
   if (!key) return false;
-  return /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
-    key,
+  return (
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
+      key,
+    ) ||
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(key) ||
+    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(key) ||
+    /\b(?:heute|morgen|uebermorgen|übermorgen|naechsten?|nächsten?|kommenden?|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(
+      key,
+    )
   );
 }
 
@@ -1031,15 +1039,10 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   const siteContexts = buildDocumentSiteOperationalContexts(
     sourceOrders as any[],
   );
-  if (siteContexts.length > 1) {
-    return {
-      hazards: [],
-      primaryHints: siteContexts.map(
-        (context) => `${context.label}\n${context.text}`,
-      ),
-      otherHints: [],
-    };
-  }
+  const siteContextHintsV17_90L327 =
+    siteContexts.length > 1
+      ? siteContexts.map((context) => `${context.label}\n${context.text}`)
+      : [];
 
   const sources = [
     ...sourceOrders.map((order) => order?.specialNotes),
@@ -1082,16 +1085,40 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     target.push(text);
   };
 
+  siteContextHintsV17_90L327.forEach((line) => add(primaryHints, line));
   canonicalAppointmentLinesV17_90L276.forEach((line) =>
     add(primaryHints, line),
   );
   if (explicitContact.title) add(primaryHints, explicitContact.title);
 
   for (const record of records) {
-    const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
-      record.text,
-    );
-    if (isAppointmentRecord && canonicalAppointmentLinesV17_90L276.length > 0) {
+    const isAppointmentRecord =
+      /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
+        record.text,
+      ) || isInvoiceAppointmentHintForChipV17_90L326(record.text);
+    const recordAppointmentSignatureV17_90L327 = isAppointmentRecord
+      ? invoiceAppointmentSignatureV17_90L265(record.text)
+      : "";
+    const duplicateCanonicalAppointmentV17_90L327 =
+      isAppointmentRecord &&
+      canonicalAppointmentLinesV17_90L276.some((line) => {
+        const canonicalSignature = invoiceAppointmentSignatureV17_90L265(line);
+        if (
+          recordAppointmentSignatureV17_90L327 &&
+          canonicalSignature &&
+          recordAppointmentSignatureV17_90L327 === canonicalSignature
+        ) {
+          return true;
+        }
+        const recordKey = normalizeInvoiceAppointmentKeyV17_90L177R(
+          record.text.replace(/^Termin\s*:?\s*/i, ""),
+        );
+        const canonicalKey = normalizeInvoiceAppointmentKeyV17_90L177R(
+          line.replace(/^Termin\s*:?\s*/i, ""),
+        );
+        return Boolean(recordKey && canonicalKey && recordKey === canonicalKey);
+      });
+    if (duplicateCanonicalAppointmentV17_90L327) {
       continue;
     }
     if (
