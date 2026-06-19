@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L353_INVOICE_PHONE_CONTACT_CHIP_ONLY
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
@@ -2592,7 +2593,7 @@ function getInvoiceMergedCount(invoice: Invoice): number {
   return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
 }
 
-type InvoiceCardCommunicationChannelV17_90L352 = "sms" | "whatsapp" | "mail";
+type InvoiceCardCommunicationChannelV17_90L352 = "sms" | "whatsapp" | "mail" | "phone";
 
 type InvoiceCardCommunicationActionV17_90L352 = {
   channel: InvoiceCardCommunicationChannelV17_90L352;
@@ -2722,16 +2723,23 @@ const resolveInvoiceCardCommunicationActionV17_90L352 = (
     const hasSms = /\bsms\b/.test(normalized);
     const hasWhatsApp = /\bwhatsapp\b/.test(normalized);
     const hasMail = /\b(?:email|mail)\b/.test(normalized);
+    const hasPhone = /\b(?:telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf|call)\b/.test(normalized);
     const smsNegated = hasSms && isInvoiceChannelNegatedV17_90L352(normalized, "sms");
     const whatsappNegated =
       hasWhatsApp && isInvoiceChannelNegatedV17_90L352(normalized, "whatsapp");
     const mailNegated =
       hasMail && isInvoiceChannelNegatedV17_90L352(normalized, "email|mail");
+    const phoneNegated =
+      hasPhone && isInvoiceChannelNegatedV17_90L352(
+        normalized,
+        "telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf|call",
+      );
 
     let channel: InvoiceCardCommunicationChannelV17_90L352 | null = null;
     if (hasSms && !smsNegated) channel = "sms";
     else if (hasMail && !mailNegated) channel = "mail";
     else if (hasWhatsApp && !whatsappNegated) channel = "whatsapp";
+    else if (hasPhone && !phoneNegated) channel = "phone";
     if (!channel) continue;
 
     const minutesMatch = line.match(/\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i);
@@ -2773,6 +2781,9 @@ const buildInvoiceCommunicationChipContextV17_90L352 = (
   if (action.channel === "whatsapp") {
     return `Nur WhatsApp${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
   }
+  if (action.channel === "phone") {
+    return `Telefonisch anrufen${action.phone ? `: ${action.phone}` : ""}.${timing}`;
+  }
   return `Nur E-Mail${action.email ? ` an ${action.email}` : ""}.`;
 };
 
@@ -2802,7 +2813,11 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
 
   // Kein Kontakt-Aktionschip ohne ausdrückliche Kundenanweisung. Ein
   // WhatsApp-Transport-Präfix darf keine grüne WhatsApp-Schaltfläche erzeugen.
-  if (!action || (action.channel === "whatsapp" && !action.phone)) {
+  if (
+    !action ||
+    ((action.channel === "whatsapp" || action.channel === "phone") &&
+      !action.phone)
+  ) {
     return {
       ...resolved,
       customer: emptyCustomer,
