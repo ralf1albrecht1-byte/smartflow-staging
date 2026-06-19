@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L328_ORDER_SPECIAL_NOTES_OFFER_STYLE_DISPLAY
 // SMARTFLOW_V17_90L318B_ORDER_SPECIAL_NOTES_TEXTAREA_MATCH_OFFER
 // SMARTFLOW_V17_90L316_MANUAL_ORDER_NO_AUTO_APPOINTMENT_CHIP
 // SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
@@ -15417,6 +15418,9 @@ export default function AuftraegePage() {
   const compactPrimaryInfoLines: string[] = canonicalFormInfoV2
     ? [...primaryInfoLines]
     : compactImportantInfoLinesV17_90L73(primaryInfoLines);
+  const baseAdditionalInfoLinesV17_90L328 = formInfoSummary.additional.filter(
+    (line) => !isRecognitionReviewSpecialNoteV17_90L262(line),
+  );
   // V17.90L318B: Das Auftrags-Besonderheitenfeld soll sich wie das
   // Angebotsfeld verhalten. Deshalb wird der Text hier nicht mehr bei jeder
   // Eingabe in strukturierte Hinweiszeilen zerlegt; Leerzeilen und
@@ -15484,6 +15488,50 @@ export default function AuftraegePage() {
   const normalSpecialNotesText = orderSpecialNotesEditorPartsV17_90L327.manualText;
   const recognizedSpecialNoteLinesV17_90L327 =
     orderSpecialNotesEditorPartsV17_90L327.visibleProtectedLines;
+
+  // V17.90L328: Auftrags-Besonderheiten werden wie beim Angebot angezeigt:
+  // Eingabefeld zuerst, darunter die ausgewerteten Gruppen. Die aus der
+  // Nachricht übernommenen geschützten Zeilen bleiben gespeichert, werden aber
+  // nicht mehr als eigene Box über dem Textfeld angezeigt. Stattdessen fließen
+  // sie in Wichtige Informationen / Gefahren / Weitere Besonderheiten ein.
+  const recognizedDangerNoteLinesV17_90L328 = recognizedSpecialNoteLinesV17_90L327
+    .filter((line) => classifySpecialNoteRoleV17_90L93(line) === "safety");
+  const recognizedPrimaryInfoLinesV17_90L328 = recognizedSpecialNoteLinesV17_90L327
+    .filter((line) => {
+      const role = classifySpecialNoteRoleV17_90L93(line);
+      return role === "communication" || role === "appointment" || role === "access";
+    });
+  const recognizedAdditionalInfoLinesV17_90L328 = recognizedSpecialNoteLinesV17_90L327
+    .filter((line) => {
+      const role = classifySpecialNoteRoleV17_90L93(line);
+      return role === "parking" || role === "equipment" || role === "operational" || role === "unknown";
+    });
+
+  const displayDangerNoteLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
+    ...dangerNoteLines,
+    ...recognizedDangerNoteLinesV17_90L328,
+  ]);
+  const displayPrimaryInfoLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
+    ...compactPrimaryInfoLines,
+    ...recognizedPrimaryInfoLinesV17_90L328,
+  ]).filter(
+    (line) =>
+      !displayDangerNoteLinesV17_90L328.some((warning) =>
+        orderInfoLinesEquivalentV17_66(warning, line),
+      ),
+  );
+  const displayAdditionalInfoLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
+    ...baseAdditionalInfoLinesV17_90L328,
+    ...recognizedAdditionalInfoLinesV17_90L328,
+  ]).filter(
+    (line) =>
+      !displayDangerNoteLinesV17_90L328.some((warning) =>
+        orderInfoLinesEquivalentV17_66(warning, line),
+      ) &&
+      !displayPrimaryInfoLinesV17_90L328.some((hint) =>
+        orderInfoLinesEquivalentV17_66(hint, line),
+      ),
+  );
 
   const mergeOrderSpecialNotesEditorTextV17_90L327 = (manualValue: string) => {
     const manualText = normalizeOrderSpecialNotesEditorTextV17_90L318B(
@@ -22503,7 +22551,7 @@ export default function AuftraegePage() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Label className="font-semibold">Besonderheiten</Label>
-                        {dangerNoteLines.length > 0 && (
+                        {displayDangerNoteLinesV17_90L328.length > 0 && (
                           <Badge className="border border-red-300 bg-red-100 text-red-700">
                             Gefahr / Achtung
                           </Badge>
@@ -22514,42 +22562,27 @@ export default function AuftraegePage() {
                       </span>
                     </div>
 
-                    {recognizedSpecialNoteLinesV17_90L327.length > 0 && (
-                      <div className="space-y-1.5 rounded-lg border border-slate-300 bg-slate-50/70 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/35">
-                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                          Aus Nachricht übernommen
-                        </div>
-                        <ul className="list-disc space-y-1 pl-5 text-slate-700 dark:text-slate-200">
-                          {recognizedSpecialNoteLinesV17_90L327.map((line, index) => (
-                            <li key={`${line}-${index}`} className="whitespace-pre-wrap break-words">
-                              {line}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
                     <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/50 p-3">
                       <Label className="text-xs font-semibold">
-                        Zusätzliche Besonderheiten im Auftrag
+                        Besonderheiten im Auftrag
                       </Label>
                       <textarea
                         className="flex min-h-[82px] w-full resize-y rounded-md border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-300/60 dark:bg-slate-950"
                         rows={3}
-                        placeholder="Nur zusätzliche interne Hinweise eintragen, z. B. Schlüssel liegt im Briefkasten."
+                        placeholder="z. B. Schlüssel liegt im Briefkasten, Zugang nur über Hintereingang, bitte vorher anrufen..."
                         value={normalSpecialNotesText}
                         onChange={(e) => updateNormalSpecialNotes(e.target.value)}
                       />
                       <div className="text-xs text-muted-foreground">
-                        Wird mit den übernommenen Hinweisen zusammengeführt. Daraus entstehen auf der Auftragskarte dieselben Hinweis-/Warnchips wie bisher.
+                        Intern. Wird mit den übernommenen Hinweisen zusammengeführt. Daraus entstehen auf der Auftragskarte dieselben Hinweis-/Warnchips wie bisher.
                       </div>
                     </div>
 
-                    {compactPrimaryInfoLines.length > 0 && (
+                    {displayPrimaryInfoLinesV17_90L328.length > 0 && (
                       <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
                         <div className="mb-1 flex items-center gap-2 font-semibold"><Info className="h-4 w-4" /> Wichtige Informationen</div>
                         <div className="space-y-1">
-                          {compactPrimaryInfoLines.map((line, index) => {
+                          {displayPrimaryInfoLinesV17_90L328.map((line, index) => {
                             const [label, ...valueParts] = line.split(/:\s+/);
                             const value = valueParts.join(": ").trim();
                             return (
@@ -22563,17 +22596,28 @@ export default function AuftraegePage() {
                       </div>
                     )}
 
-                    {dangerNoteLines.length > 0 && (
+                    {displayDangerNoteLinesV17_90L328.length > 0 && (
                       <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
                         <div className="flex items-center gap-2 font-semibold">
                           <AlertTriangle className="h-4 w-4" />
                           Wichtige Gefahren / Warnhinweise
                         </div>
                         <ul className="list-disc pl-5">
-                          {dangerNoteLines.map((line, index) => (
+                          {displayDangerNoteLinesV17_90L328.map((line, index) => (
                             <li key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {displayAdditionalInfoLinesV17_90L328.length > 0 && (
+                      <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                        <div className="font-semibold">Weitere Besonderheiten</div>
+                        <div className="space-y-1">
+                          {displayAdditionalInfoLinesV17_90L328.map((line, index) => (
+                            <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
