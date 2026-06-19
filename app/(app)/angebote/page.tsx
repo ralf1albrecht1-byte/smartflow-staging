@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L349_OFFER_BUILD_FIX_APPOINTMENT_SUMMARY_TYPE
 // SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
 // SMARTFLOW_V17_90L347_OFFER_BUILD_FIX_COMPACT_HELPER
 // SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
@@ -1456,7 +1457,7 @@ function extractOfferParkingLinesV17_90L264(orders: any[]): string[] {
 }
 
 function isOfferLowInformationHintV17_90L265(value?: string | null): boolean {
-  const key = normalizeOfferHint(value || "");
+  const key = normalizeOfferHint(String(value ?? ""));
   return [
     "anruf",
     "rueckruf",
@@ -1475,7 +1476,7 @@ function isOfferLowInformationHintV17_90L265(value?: string | null): boolean {
 function isOfferAppointmentCommunicationLineV17_90L266(
   value?: string | null,
 ): boolean {
-  const key = normalizeOfferHint(value || "");
+  const key = normalizeOfferHint(String(value ?? ""));
   if (!key) return false;
   const hasAppointmentMarker =
     /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/.test(
@@ -1512,7 +1513,7 @@ function hasConcreteOfferContactIdentityV17_90L282(
 function isOfferReviewOnlyUnconfirmedWorkLineV17_90L282(
   value?: string | null,
 ): boolean {
-  const key = normalizeOfferHint(value || "");
+  const key = normalizeOfferHint(String(value ?? ""));
   if (!key) return false;
 
   // Operational roles must remain visible even when they contain words such
@@ -1714,7 +1715,7 @@ function isOfferRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean
 }
 
 function isOfferAppointmentSummaryDisplayLineV17_90L348(value: unknown): boolean {
-  const key = normalizeOfferHint(value || "");
+  const key = normalizeOfferHint(String(value ?? ""));
   return /^termine\s+\d+\b/.test(key) || /\b1\s+termin\b.*\b2\s+termin\b/.test(key);
 }
 
