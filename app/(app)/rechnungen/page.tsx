@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L338_INVOICE_DISPLAY_OPERATIONAL_FRAGMENT_DEDUPE
 // SMARTFLOW_V17_90L336_INVOICE_MANUAL_TEXTAREA_INHERITED_FRAGMENT_FILTER
 // SMARTFLOW_V17_90L335_INVOICE_MANUAL_TEXTAREA_STRICT_MANUAL_ONLY
 // SMARTFLOW_V17_90L334_INVOICE_MANUAL_NOTES_TEXTAREA_AND_DEDUPE
@@ -1339,6 +1340,62 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
         target[existingIndex] = text;
         seen.add(key);
         return;
+      }
+    }
+
+    // SMARTFLOW_V17_90L338: Anzeige-only-Dedupe für operative
+    // Fragmentzeilen. Geerbte Alt-/Mischdaten können z. B. zusätzlich
+    // "Zugang über" und "Hintereingang" liefern, obwohl bereits
+    // "Zugang über Hintereingang" strukturiert vorhanden ist. Solche
+    // Bruchstücke werden nur in der Rechnungsanzeige unterdrückt; gespeicherte
+    // Texte, PDF-Felder, Termine, Leistungen und Summen bleiben unverändert.
+    const operationalFragmentPatternV17_90L338 =
+      /\b(?:zugang|zutritt|uber|ueber|hintereingang|seiteneingang|eingang|tor|tur|tuer|tür|code|tuercode|turcode|türcode|tuerkode|turkode|schluessel|schlussel|schlüssel|key|parkplatz|parking|whatsapp|sms|kontakt|hund)\b/;
+    const isOperationalFragmentCoveredV17_90L338 = (
+      existingLine: string,
+      candidateKey: string,
+    ): boolean => {
+      const existingKey = normalizeInvoiceServiceName(existingLine).replace(
+        /^termin\s+/,
+        "",
+      );
+      if (!existingKey || existingKey === candidateKey) return false;
+      if (!operationalFragmentPatternV17_90L338.test(candidateKey)) {
+        return false;
+      }
+      if (candidateKey.length >= 4 && existingKey.includes(candidateKey)) {
+        return true;
+      }
+      const candidateTokens = candidateKey
+        .split(/\s+/g)
+        .filter((token) => token.length >= 3);
+      return (
+        candidateTokens.length >= 2 &&
+        candidateTokens.every((token) => existingKey.includes(token))
+      );
+    };
+
+    if (
+      target.some((entry) =>
+        isOperationalFragmentCoveredV17_90L338(entry, key),
+      )
+    ) {
+      return;
+    }
+
+    for (let index = target.length - 1; index >= 0; index -= 1) {
+      const existingKey = normalizeInvoiceServiceName(target[index]).replace(
+        /^termin\s+/,
+        "",
+      );
+      if (
+        existingKey &&
+        existingKey.length + 3 <= key.length &&
+        key.includes(existingKey) &&
+        operationalFragmentPatternV17_90L338.test(existingKey)
+      ) {
+        seen.delete(existingKey);
+        target.splice(index, 1);
       }
     }
 
