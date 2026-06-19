@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L331_ORDER_MANUAL_NOTES_ALL_CARD_CHIPS_APPOINTMENTS
 // SMARTFLOW_V17_90L330_ORDER_PAGE_LOAD_FIX_MANUAL_NOTES_CHIPS
 // SMARTFLOW_V17_90L329_ORDER_MANUAL_SPECIAL_NOTES_CARD_CHIPS
 // SMARTFLOW_V17_90L328_ORDER_SPECIAL_NOTES_OFFER_STYLE_DISPLAY
@@ -1671,7 +1672,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (
-    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|klingeln|lift|badge|besucherausweis/.test(
+    /zugang|zutritt|torcode|tuercode|türcode|zugangscode|\bcode\b|\bpin\b|schluesselbox|schlusselbox|schlüsselbox|briefkasten|klingeln|lift|badge|besucherausweis|hintereingang|seiteneingang|nebeneingang|rezeption|empfang/.test(
       text,
     )
   )
@@ -8478,6 +8479,86 @@ const hasExplicitOrderAppointmentSourceV17_90L316 = (
   return sources.some((line) => hasExplicitAppointmentBadgeSignalV17_90L10(line));
 };
 
+// V17.90L331: Manuelle Zusatz-Besonderheiten im Auftrag müssen dieselbe
+// sichtbare Kartenlogik auslösen wie die ursprünglichen Intake-Hinweise.
+// Für Termine ist das in der kanonischen V2-Verzweigung besonders wichtig,
+// weil dort bisher sofort der versiegelte Intake-Termin zurückgegeben wurde.
+// Manuelle Termine werden deshalb mit dem kanonischen Termin zu einem
+// Mehrfachtermin-Chip zusammengeführt, ohne Intake, Leistungen oder Summen zu ändern.
+const buildManualAwareOrderAppointmentBadgeV17_90L331 = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+  canonicalAppointment?: { label?: string | null; tooltip?: string | null } | null,
+): ReviewBadge | null => {
+  const manualAppointmentLines = uniqueOrderInfoLinesV17_66(
+    getManualOrderSpecialNoteLinesV17_90L329(order.specialNotes).filter((line) =>
+      Boolean(extractAppointmentBadge(line, order.date, order.status)),
+    ),
+  );
+
+  if (manualAppointmentLines.length === 0) return null;
+
+  const alreadyMerged = getMultipleAppointmentBadge(order, parsedNotes);
+  if (alreadyMerged) return alreadyMerged;
+
+  const details: AppointmentDetail[] = [];
+  const canonicalSource = compactText(
+    canonicalAppointment?.tooltip || canonicalAppointment?.label,
+  );
+  if (canonicalSource) {
+    details.push({
+      site: "",
+      address: "",
+      label:
+        cleanVisibleTooltipTextV17_35(canonicalSource) ||
+        compactText(canonicalAppointment?.label) ||
+        canonicalSource,
+      reason: canonicalSource,
+    });
+  }
+
+  manualAppointmentLines.forEach((line) => {
+    const visual = extractAppointmentBadge(line, order.date, order.status);
+    if (!visual) return;
+    const label = compactText(visual.label)
+      .replace(/^Termin\s+/i, "")
+      .trim();
+    details.push({
+      site: "",
+      address: "",
+      label: label || compactText(line),
+      reason: line,
+    });
+  });
+
+  const uniqueDetails = dedupeAppointmentDetails(details);
+  if (uniqueDetails.length > 1) {
+    return {
+      key: "appointments_multiple",
+      label: `Termine · ${uniqueDetails.length}`,
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
+      tooltip: formatAppointmentDetailsTooltip(uniqueDetails),
+    };
+  }
+
+  const only = uniqueDetails[0];
+  if (!only) return null;
+
+  const canonicalKey = normalizeForMatch(canonicalSource);
+  const onlyKey = normalizeForMatch([only.label, only.reason].filter(Boolean).join(" "));
+  if (canonicalKey && onlyKey && (canonicalKey.includes(onlyKey) || onlyKey.includes(canonicalKey))) {
+    return null;
+  }
+
+  const visual = extractAppointmentBadge(only.reason || only.label, order.date, order.status);
+  return {
+    key: "appointment",
+    label: visual?.label || `Termin ${only.label}`,
+    className: visual?.className || "bg-violet-100 text-violet-700 border border-violet-300",
+    tooltip: only.reason || only.label,
+  };
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -8497,7 +8578,16 @@ const getBottomBadges = (
       });
     }
     const appointment = canonicalAppointmentBadgeV2(canonicalSnapshotV2);
-    if (appointment) {
+    const manualAwareAppointmentBadgeV17_90L331 =
+      buildManualAwareOrderAppointmentBadgeV17_90L331(
+        order,
+        parsedNotes,
+        appointment,
+      );
+
+    if (manualAwareAppointmentBadgeV17_90L331) {
+      pushUniqueBadge(badges, manualAwareAppointmentBadgeV17_90L331);
+    } else if (appointment) {
       pushUniqueBadge(badges, {
         key: "appointment",
         label: appointment.label,
