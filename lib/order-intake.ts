@@ -34,6 +34,8 @@ import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/
 import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
 import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
 
+// SMARTFLOW_V17_90L361_POST_AI_FIREWALL_CUSTOMER_SERVICE_ADDRESS
+
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
 // No business rule is changed here. The trace only records how service names,
@@ -2257,7 +2259,10 @@ function cleanBillingCustomerNameCandidate(
 
   if (candidate.length < 2 || candidate.length > 80) return null;
   if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
-  if (/\d/.test(candidate)) return null;
+  // V17.90L361: Company names can legitimately contain digits (e.g.
+  // "Test 4 GmbH", "3M Schweiz AG"). Digits remain blocked for
+  // non-company name candidates so address lines are still rejected.
+  if (/\d/.test(candidate) && !hasStrongCompanySuffix) return null;
 
   // INTAKE_CUSTOMER_NAME_SAFE_EMPTY_V12
   // Lieber leer lassen als Füllwörter oder Satzreste als Kundenname speichern.
@@ -3165,7 +3170,11 @@ function cleanAiStructuredBillingName(value: any): string | null {
   if (!candidate) return null;
 
   if (/@/.test(candidate)) return null;
-  if (/\d/.test(candidate)) return null;
+  const hasStructuredCompanySuffixV17_90L361 =
+    /\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b/i.test(
+      candidate,
+    );
+  if (/\d/.test(candidate) && !hasStructuredCompanySuffixV17_90L361) return null;
   if (
     /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       candidate,
@@ -17300,12 +17309,95 @@ export async function processIncomingMessage(
       ),
   );
 
+  // V17.90L361: A first-AI placeholder row is not a business service.
+  // It is the same class of unresolved recognition as a missing-work finding:
+  // keep the exact source text as a red "Leistung nicht erkannt" block, but
+  // never persist placeholders such as "Leistung prüfen" as OrderItem rows.
+  const isFirstAiReviewOnlyPlaceholderItemV17_90L361 = (rawItem: any): boolean => {
+    const rawServiceName = compactExactSourceTextV17_90L251(
+      rawItem?.serviceName ??
+        rawItem?.name ??
+        rawItem?.action_name ??
+        rawItem?.service_name ??
+        rawItem?.matched_service_name,
+    );
+    const serviceKey = normalizeUnitText(rawServiceName);
+    const reviewReason = normalizeUnitText(
+      rawItem?.reviewReason ?? rawItem?.review_reason ?? "",
+    );
+    const confidence = normalizeUnitText(
+      rawItem?.confidence ?? rawItem?.service_confidence ?? "",
+    );
+    const rawUnit = compactExactSourceTextV17_90L251(
+      rawItem?.unit ?? rawItem?.einheit,
+    );
+    const quantity = Number(rawItem?.quantity ?? rawItem?.menge ?? 0);
+    const unitPrice = Number(
+      rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
+    );
+    const sourceText = compactExactSourceTextV17_90L251(
+      rawItem?.sourceText ??
+        rawItem?.source_text ??
+        rawItem?.evidence ??
+        rawItem?.raw ??
+        rawItem?.description,
+    );
+
+    const placeholderName =
+      !rawServiceName ||
+      isInternalReviewServiceNameV17_90L(rawServiceName) ||
+      serviceKey === "unbekannte leistung" ||
+      serviceKey === "unbekannt";
+    const explicitPlaceholderReason =
+      reviewReason === "service name missing" ||
+      reviewReason === "service_name_missing" ||
+      reviewReason === "unbekannte_leistung_pruefen" ||
+      reviewReason === "unbekannte leistung pruefen" ||
+      reviewReason === "unbekannte leistung prüfen";
+    const valuesStillOpen =
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      !Number.isFinite(unitPrice) ||
+      unitPrice <= 0 ||
+      !rawUnit ||
+      isReviewUnitV17_90L(rawUnit) ||
+      confidence === "niedrig" ||
+      confidence === "low";
+
+    return Boolean(
+      sourceText &&
+        (explicitPlaceholderReason || placeholderName) &&
+        (placeholderName || valuesStillOpen),
+    );
+  };
+
+  const reviewOnlyFirstAiItemIndexesV17_90L361 = new Set(
+    aiWorkItemsRaw
+      .map((rawItem, index) =>
+        isFirstAiReviewOnlyPlaceholderItemV17_90L361(rawItem)
+          ? index + 1
+          : null,
+      )
+      .filter(
+        (itemIndex): itemIndex is number =>
+          Number.isInteger(itemIndex) &&
+          itemIndex !== null &&
+          itemIndex >= 1 &&
+          itemIndex <= aiWorkItemsRaw.length,
+      ),
+  );
+
+  const unsupportedFirstAiItemIndexesV17_90L361 = new Set([
+    ...invalidFirstAiItemIndexesV17_90L338,
+    ...reviewOnlyFirstAiItemIndexesV17_90L361,
+  ]);
+
   // No parser fallback may manufacture workItems when the first AI returned
   // none. Unsupported first-AI rows are removed from the write path and kept
   // only as fail-closed recognition review findings until the user explicitly
   // accepts them in the editor.
   const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw.filter(
-    (_item, index) => !invalidFirstAiItemIndexesV17_90L338.has(index + 1),
+    (_item, index) => !unsupportedFirstAiItemIndexesV17_90L361.has(index + 1),
   );
 
   // V17.90L252: The second AI and every rescue/validator after the first AI
@@ -17329,10 +17421,18 @@ export async function processIncomingMessage(
       )}`;
     });
 
+  const invalidFindingReasonByIndexV17_90L361 = new Map(
+    finalAiWorkCoverageV17_90L251.invalidItems.map((finding) => [
+      Number(finding.itemIndex),
+      finding.reason,
+    ]),
+  );
+
   const invalidFirstAiItemReviewReasonsV17_90L252 =
-    finalAiWorkCoverageV17_90L251.invalidItems
-      .map((finding) => {
-        const rawItem = aiWorkItemsRaw[finding.itemIndex - 1] as any;
+    Array.from(unsupportedFirstAiItemIndexesV17_90L361)
+      .sort((left, right) => left - right)
+      .map((itemIndex) => {
+        const rawItem = aiWorkItemsRaw[itemIndex - 1] as any;
         if (!rawItem) return null;
         const rawSourceText = compactExactSourceTextV17_90L251(
           rawItem?.sourceText ??
@@ -17341,6 +17441,7 @@ export async function processIncomingMessage(
             rawItem?.raw ??
             rawItem?.description,
         );
+        if (!rawSourceText) return null;
         const fallbackServiceName = compactExactSourceTextV17_90L251(
           rawItem?.serviceName ??
             rawItem?.name ??
@@ -17356,14 +17457,17 @@ export async function processIncomingMessage(
         const unitPriceValue = Number(
           rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
         );
+        const wasInvalidItem = invalidFirstAiItemIndexesV17_90L338.has(itemIndex);
         const payload = {
           // Unsupported first-AI rows are presented as user-resolvable missing
           // work because the real persisted item was deliberately removed above.
           // The source quote stays exact; no invented service label is exposed
           // or used as the accept target.
           kind: "missing_work",
-          originalKind: "invalid_item",
-          findingId: `invalid_item_${finding.itemIndex}`,
+          originalKind: wasInvalidItem ? "invalid_item" : "placeholder_item",
+          findingId: wasInvalidItem
+            ? `invalid_item_${itemIndex}`
+            : `placeholder_item_${itemIndex}`,
           serviceName,
           quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
           unit: compactExactSourceTextV17_90L251(
@@ -17372,7 +17476,9 @@ export async function processIncomingMessage(
           unitPrice: Number.isFinite(unitPriceValue) ? unitPriceValue : 0,
           sourceText: rawSourceText,
           relatedRoleText: null,
-          reason: finding.reason,
+          reason:
+            invalidFindingReasonByIndexV17_90L361.get(itemIndex) ||
+            "First-AI-Platzhalter ist keine echte Leistung und wurde als Reviewblock gesichert.",
         };
         return `${RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252}${encodeURIComponent(
           JSON.stringify(payload),
@@ -18212,7 +18318,7 @@ export async function processIncomingMessage(
   const allFirstAiRowsWereInvalidV17_90L338 =
     aiWorkItemsRaw.length > 0 &&
     aiWorkItems.length === 0 &&
-    invalidFirstAiItemIndexesV17_90L338.size > 0;
+    unsupportedFirstAiItemIndexesV17_90L361.size > 0;
 
   let finalOrderItems: Array<{
     serviceName: string;
@@ -19388,6 +19494,34 @@ export async function processIncomingMessage(
       bCity: executionAddressCustomerContext.customerCity,
     })
   ) {
+    extractedExecutionAddress = null;
+  }
+
+  // V17.90L361: A normal top billing block such as
+  // "Neuer Auftrag für: Firma / Strasse / PLZ Ort" must not later become an
+  // execution address just because the work text contains local area words
+  // like Eingang, Archiv, Nebenraum or Lagerraum. Without an explicit execution
+  // marker, a same-as-billing execution object is a false positive even when
+  // the AI populated siteName with the customer name.
+  const hasExplicitExecutionAddressMarkerV17_90L361 = Boolean(
+    hasExecutionAddressDirectiveV17_61(validationSourceText) ||
+      hasSameAddressInstructionV17_90L28(validationSourceText),
+  );
+  if (
+    extractedExecutionAddress &&
+    !hasExplicitExecutionAddressMarkerV17_90L361 &&
+    sameStructuredAddress({
+      aStreet: extractedExecutionAddress.siteAddress,
+      aPlz: extractedExecutionAddress.sitePlz,
+      aCity: extractedExecutionAddress.siteCity,
+      bStreet: executionAddressCustomerContext.customerAddress,
+      bPlz: executionAddressCustomerContext.customerPlz,
+      bCity: executionAddressCustomerContext.customerCity,
+    })
+  ) {
+    console.warn(
+      `[${source}] 🔒 same-as-billing execution address without explicit marker suppressed`,
+    );
     extractedExecutionAddress = null;
   }
 
