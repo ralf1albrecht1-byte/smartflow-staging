@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
 // SMARTFLOW_V17_90L364_MERGED_ORDER_MEDIA_CHIPS_RESTORE
@@ -18213,7 +18214,6 @@ export default function AuftraegePage() {
             type="button"
             data-card-toggle-ignore="true"
             aria-label="Bild öffnen"
-            title="Bild öffnen"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
@@ -18225,11 +18225,10 @@ export default function AuftraegePage() {
             className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
           >
             {imagePreviewUrl ? (
-              <img
-                src={imagePreviewUrl}
-                alt=""
+              <span
                 aria-hidden="true"
-                className="h-full w-full object-cover"
+                className="block h-full w-full bg-cover bg-center bg-no-repeat"
+                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
               />
             ) : (
               <ImageIcon className="h-4 w-4" />
