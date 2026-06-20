@@ -1,4 +1,7 @@
 "use client";
+// SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
+// SMARTFLOW_V17_90L368_MERGED_IMAGE_CHIP_HOVER_PREVIEW
+// SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
 // SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
@@ -18184,6 +18187,8 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
+    // V17.90L369: merged image chip must behave like the normal image chip:
+    // stable blue icon on the card, desktop hover preview, click/tap opens gallery.
     const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
       "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
@@ -18210,30 +18215,43 @@ export default function AuftraegePage() {
           </button>
         )}
         {hasImage && (
-          <button
-            type="button"
+          <span
+            className="group relative inline-flex h-8 w-8 shrink-0 overflow-visible"
             data-card-toggle-ignore="true"
-            aria-label="Bild öffnen"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void openOrderImageMediaV17_90L364(o);
-            }}
-            className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            onClick={(event) => event.stopPropagation()}
           >
-            {imagePreviewUrl ? (
+            <button
+              type="button"
+              data-card-toggle-ignore="true"
+              aria-label="Bilder ansehen"
+              title="Bilder ansehen"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void openOrderImageMediaV17_90L364(o);
+              }}
+              className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+            {imagePreviewUrl && (
               <span
                 aria-hidden="true"
-                className="block h-full w-full bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
-              />
-            ) : (
-              <ImageIcon className="h-4 w-4" />
+                className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-2 text-left shadow-xl group-hover:block group-focus-within:block dark:border-slate-700 dark:bg-slate-950"
+              >
+                <span
+                  className="block h-24 w-full rounded-lg bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+                />
+                <span className="mt-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Anklicken zum Öffnen
+                </span>
+              </span>
             )}
-          </button>
+          </span>
         )}
       </>
     );
