@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import {
   Settings, Save, Loader2, Sparkles, Building2, CreditCard, ChevronDown, ChevronUp,
   FlaskConical, RotateCcw, AlertTriangle, Phone, LifeBuoy, Trash2, LogOut, KeyRound,
-  Eye, EyeOff, FileText, Languages, User2, ShieldCheck, UploadCloud, Image as ImageIcon,
+  Eye, EyeOff, FileText, User2, ShieldCheck, UploadCloud, Image as ImageIcon,
   CheckCircle2, XCircle, Palette, ScrollText, Database, Send, FileX, Lock, Globe, Info,
   Download, Clock, AlertCircle, ExternalLink, Rocket,
 } from 'lucide-react';
@@ -79,8 +79,6 @@ currency: 'CHF',
 };
 
 const branchenOptionen = ['Gartenbau', 'Maler', 'Elektriker', 'Bau', 'Reinigung', 'Sonstiges'];
-const sprachOptionen = ['Deutsch', 'Englisch', 'Französisch', 'Italienisch', 'Türkisch', 'Russisch', 'Spanisch', 'Portugiesisch', 'Arabisch'];
-
 const TEMPLATES: Array<{ key: string; label: string; tagline: string; swatch: string }> = [
   { key: 'classic', label: 'Klassisch', tagline: 'Grüner Akzent · aktuelles Standard-Layout', swatch: '#059669' },
   { key: 'modern',  label: 'Modern',    tagline: 'Dunkler Kopfbalken · sachlich',              swatch: '#0f172a' },
@@ -92,7 +90,6 @@ const SECTIONS = [
   { key: 'daten',           label: 'Meine Daten',                icon: User2 },
   { key: 'telefon',         label: 'WhatsApp Eingang',           icon: Phone },
   { key: 'dokumente',       label: 'Dokumente & Rechnungen',     icon: FileText },
-  { key: 'sprache',         label: 'Sprache & Kommunikation',    icon: Languages },
   { key: 'support',         label: 'Tool-Support',               icon: LifeBuoy },
   { key: 'nummern',         label: 'Testmodus & Livebetrieb',      icon: FlaskConical },
   { key: 'konto',           label: 'Konto & Sicherheit',         icon: ShieldCheck },
@@ -188,7 +185,7 @@ export default function EinstellungenPage() {
   // Section navigation (desktop: side-nav; mobile: accordion)
   const [activeSection, setActiveSection] = useState<SectionKey>('daten');
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
-    daten: false, telefon: false, dokumente: false, nummern: false, sprache: false, support: false, konto: false,
+    daten: false, telefon: false, dokumente: false, nummern: false, support: false, konto: false,
     datenschutz: false, daten_kuendigung: false,
   });
 // Letterhead upload state
@@ -1621,26 +1618,6 @@ const storedValue = finalUrl;
   </div>
 </div>
           </SectionShell>
-          {/* SECTION: SPRACHE & KOMMUNIKATION */}
-          <SectionShell id="sprache" sectionKey="sprache" activeSection={activeSection} open={openSections.sprache} toggle={() => setOpenSections(p => ({ ...p, sprache: !p.sprache }))} title="Sprache &amp; Kommunikation" icon={Languages}>
-            <div>
-              <Label>Hauptsprache</Label>
-              <p className="text-xs text-muted-foreground mb-1.5">
-                Eingehende Nachrichten in anderen Sprachen werden automatisch in diese Sprache übersetzt.
-              </p>
-              <select
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={form.hauptsprache}
-                onChange={(e) => updateField('hauptsprache', e.target.value)}
-              >
-                {sprachOptionen.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="mt-4 text-[11px] text-muted-foreground bg-muted/40 rounded p-3">
-              Weitere Sprach-Einstellungen (mehrsprachige Dokumente, automatische Übersetzungen pro Kunde) folgen in einem späteren Update.
-            </div>
-          </SectionShell>
-
           {/* SECTION: SUPPORT */}
           <SectionShell id="support" sectionKey="support" activeSection={activeSection} open={openSections.support} toggle={() => setOpenSections(p => ({ ...p, support: !p.support }))} title="Tool-Support" icon={LifeBuoy}>
             <p className="text-xs text-muted-foreground">
