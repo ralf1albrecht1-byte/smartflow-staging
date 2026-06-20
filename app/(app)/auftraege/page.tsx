@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
 // SMARTFLOW_V17_90L364_MERGED_ORDER_MEDIA_CHIPS_RESTORE
 // SMARTFLOW_V17_90L360_ORDER_RECOGNITION_REVIEW_SIMPLE_LABEL
 // SMARTFLOW_V17_90L358_ORDER_RECOGNITION_SOURCE_LOCK
@@ -1535,8 +1536,12 @@ const hasOrderImage = (order: Order) => {
 };
 
 const getOrderImagePathsV17_90L364 = (order?: Order | null): string[] => {
-  const imageUrls = Array.isArray(order?.imageUrls)
-    ? order?.imageUrls.filter(Boolean)
+  const rawImageUrls = order?.imageUrls;
+  const imageUrls: string[] = Array.isArray(rawImageUrls)
+    ? rawImageUrls.filter(
+        (url): url is string =>
+          typeof url === "string" && url.trim().length > 0,
+      )
     : [];
   if (imageUrls.length > 0) return imageUrls;
   return order?.mediaUrl && order.mediaType === "image" ? [order.mediaUrl] : [];
