@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L370_OFFER_MERGED_MEDIA_CHIPS_ONLY
 // SMARTFLOW_V17_90L351_OFFER_APPOINTMENT_DUPLICATE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L349_OFFER_BUILD_FIX_APPOINTMENT_SUMMARY_TYPE
@@ -2368,6 +2369,66 @@ function renderOfferOperationalChipIcon(chip: OfferOperationalChip) {
   return chip.icon;
 }
 
+
+const OUTER_OFFER_OPERATIONAL_CHIPS_HIDDEN_V17_90L370 = new Set([
+  "parking",
+  "key",
+  "access",
+]);
+
+type OfferMergedMediaSourcesV17_90L370 = {
+  imageGalleryPaths: string[];
+  imagePreviewPath: string;
+  audioPath: string;
+  audioTranscript: string;
+};
+
+const uniqueOfferMediaPathsV17_90L370 = (values: unknown[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map((value) => compactOfferValue(value))
+    .filter(Boolean)
+    .forEach((value) => {
+      if (seen.has(value)) return;
+      seen.add(value);
+      result.push(value);
+    });
+  return result;
+};
+
+const collectOfferMergedMediaSourcesV17_90L370 = (
+  offer?: Offer | null,
+): OfferMergedMediaSourcesV17_90L370 => {
+  const orders = Array.isArray(offer?.orders) ? offer?.orders || [] : [];
+  const imageGalleryPaths = uniqueOfferMediaPathsV17_90L370(
+    orders.flatMap((order: any) => [
+      Array.isArray(order?.imageUrls) ? order.imageUrls : [],
+      order?.mediaType === "image" ? order?.mediaUrl : null,
+    ]),
+  );
+  const imagePreviewPath =
+    uniqueOfferMediaPathsV17_90L370(
+      orders.flatMap((order: any) => [
+        Array.isArray(order?.thumbnailUrls) ? order.thumbnailUrls : [],
+        Array.isArray(order?.imageUrls) ? order.imageUrls : [],
+        order?.mediaType === "image" ? order?.mediaUrl : null,
+      ]),
+    )[0] || "";
+  const audioPath =
+    orders
+      .map((order: any) =>
+        order?.mediaType === "audio" ? compactOfferValue(order?.mediaUrl) : "",
+      )
+      .find(Boolean) || "";
+  const audioTranscript = uniqueOfferInfoLinesV17_66(
+    orders.map((order: any) => compactOfferValue(order?.audioTranscript)),
+  ).join("\n\n");
+
+  return { imageGalleryPaths, imagePreviewPath, audioPath, audioTranscript };
+};
+
 type OfferContactChannel = "phone" | "whatsapp" | "sms" | "mail";
 
 type OfferContactAction = {
@@ -4484,8 +4545,11 @@ export default function AngebotePage() {
   const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<string | null>(null);
+  const [mediaTranscript, setMediaTranscript] = useState<string | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
+  const [offerMediaPreviewUrlsV17_90L370, setOfferMediaPreviewUrlsV17_90L370] =
+    useState<Record<string, string>>({});
   // Native action menus avoid a full offer-list render on every open/close.
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -4527,6 +4591,7 @@ export default function AngebotePage() {
     if (type === "audio") {
       const url = await resolveS3Url(cloudPath);
       setMediaUrl(url);
+      setMediaTranscript(null);
       setMediaType("audio");
       setGalleryUrls([]);
       setMediaDialogOpen(true);
@@ -4537,6 +4602,7 @@ export default function AngebotePage() {
     setGalleryIdx(0);
     setMediaType("image");
     setMediaUrl(null);
+    setMediaTranscript(null);
     setMediaDialogOpen(true);
   };
 
@@ -4546,7 +4612,135 @@ export default function AngebotePage() {
     setGalleryIdx(0);
     setMediaType("image");
     setMediaUrl(null);
+    setMediaTranscript(null);
     setMediaDialogOpen(true);
+  };
+
+
+  useEffect(() => {
+    let cancelled = false;
+    const candidates = (offers || [])
+      .map((offer) => ({
+        id: String(offer?.id || ""),
+        path: collectOfferMergedMediaSourcesV17_90L370(offer).imagePreviewPath,
+      }))
+      .filter((entry) => entry.id && entry.path);
+
+    if (candidates.length === 0) {
+      setOfferMediaPreviewUrlsV17_90L370({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.all(
+      candidates.map(async ({ id, path }) => {
+        try {
+          return [id, await resolveS3Url(path)] as const;
+        } catch {
+          return [id, path] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      entries.forEach(([id, url]) => {
+        if (url) next[id] = url;
+      });
+      setOfferMediaPreviewUrlsV17_90L370(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [offers]);
+
+  const openOfferMergedAudioV17_90L370 = async (sources: OfferMergedMediaSourcesV17_90L370) => {
+    if (sources.audioPath) {
+      await openMedia(sources.audioPath, "audio");
+      return;
+    }
+    if (sources.audioTranscript) {
+      setMediaUrl(null);
+      setGalleryUrls([]);
+      setMediaTranscript(sources.audioTranscript);
+      setMediaType("audio_transcript");
+      setMediaDialogOpen(true);
+    }
+  };
+
+  const renderOfferMergedMediaChipsV17_90L370 = (offer: Offer) => {
+    const sources = collectOfferMergedMediaSourcesV17_90L370(offer);
+    const hasImage = sources.imageGalleryPaths.length > 0;
+    const hasAudio = Boolean(sources.audioPath || sources.audioTranscript);
+    if (!hasImage && !hasAudio) return null;
+
+    const imagePreviewUrl = offerMediaPreviewUrlsV17_90L370[offer.id] || "";
+    const baseClass =
+      "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
+
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5" data-card-toggle-ignore="true">
+        {hasAudio && (
+          <button
+            type="button"
+            data-card-toggle-ignore="true"
+            aria-label="Sprachnachricht öffnen"
+            title="Sprachnachricht öffnen"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openOfferMergedAudioV17_90L370(sources);
+            }}
+            className={`${baseClass} border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60`}
+          >
+            <Volume2 className="h-4 w-4" />
+          </button>
+        )}
+        {hasImage && (
+          <span
+            className="group relative inline-flex h-8 w-8 shrink-0 overflow-visible"
+            data-card-toggle-ignore="true"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              data-card-toggle-ignore="true"
+              aria-label="Bilder ansehen"
+              title="Bilder ansehen"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void openImageGallery(sources.imageGalleryPaths);
+              }}
+              className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+            {imagePreviewUrl && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-2 text-left shadow-xl group-hover:block group-focus-within:block dark:border-slate-700 dark:bg-slate-950"
+              >
+                <span
+                  className="block h-24 w-full rounded-lg bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+                />
+                <span className="mt-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Anklicken zum Öffnen
+                </span>
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+    );
   };
 
   const load = async (options?: { background?: boolean }) => {
@@ -7455,11 +7649,15 @@ export default function AngebotePage() {
                   const warningChips = operationalChips.filter(
                     (chip) => chip.tone === "warning",
                   );
-                  const parkingChips = warningChips.filter(
-                    (chip) => chip.key === "parking",
-                  );
+                  // V17.90L370: Angebot außen nicht mit operativen Einzelchips
+                  // für Parkplatz/Schlüssel/Zugang überladen. Diese Hinweise
+                  // bleiben im Infochip/Detailbereich erhalten.
+                  const parkingChips: OfferOperationalChip[] = [];
                   const nonParkingWarningChips = warningChips.filter(
-                    (chip) => chip.key !== "parking",
+                    (chip) =>
+                      !OUTER_OFFER_OPERATIONAL_CHIPS_HIDDEN_V17_90L370.has(
+                        chip.key,
+                      ),
                   );
                   const hasInfoTooltip =
                     infoSummary.safety.length > 0 ||
@@ -7665,6 +7863,8 @@ export default function AngebotePage() {
                           />
                         )}
                       </div>
+
+                      {renderOfferMergedMediaChipsV17_90L370(off)}
 
                       {!hasMergedContactReview && callbackChip && (
                         <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
@@ -8479,6 +8679,8 @@ export default function AngebotePage() {
                                     )}
                                   </div>
 
+                                  {renderOfferMergedMediaChipsV17_90L370(off)}
+
                                   {!hasMergedContactReview && callbackChip && (
                                     <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
                                       {callbackChip.href ? (
@@ -8954,6 +9156,8 @@ export default function AngebotePage() {
                                       />
                                       )}
                                     </div>
+
+                                    {renderOfferMergedMediaChipsV17_90L370(off)}
 
                                     {!hasMergedContactReview && callbackChip && (
                                       <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
@@ -11412,6 +11616,19 @@ export default function AngebotePage() {
         urls={galleryUrls}
         initialIndex={galleryIdx}
       />
+      <Dialog
+        open={mediaDialogOpen && mediaType === "audio_transcript"}
+        onOpenChange={setMediaDialogOpen}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sprachnachricht</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border bg-slate-50 p-3 text-sm leading-relaxed text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+            {mediaTranscript || "Kein Transkript vorhanden."}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm action dialog */}
       <Dialog
