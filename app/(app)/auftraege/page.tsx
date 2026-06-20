@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
 // SMARTFLOW_V17_90L364_MERGED_ORDER_MEDIA_CHIPS_RESTORE
 // SMARTFLOW_V17_90L360_ORDER_RECOGNITION_REVIEW_SIMPLE_LABEL
@@ -6607,13 +6608,7 @@ const buildOrderServiceReviewGroupsV17_90L135G = (
   services: ServiceDef[],
   includeBlockers = false,
 ): OrderServiceReviewGroup[] => {
-  const sites = Array.isArray(order.workSites)
-    ? [...order.workSites].sort(
-        (a, b) =>
-          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
-          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
-      )
-    : [];
+  const sites = getVisibleOrderWorkSitesV17_90L365(order);
   if (sites.length <= 1) return [];
 
   const result: OrderServiceReviewGroup[] = [];
@@ -6951,14 +6946,45 @@ const repairOrderWorkSiteNamesForDisplayV17_90L176 = (
   };
 };
 
-const formatExecutionAddressTooltip = (order: Order) => {
-  const workSites = (order.workSites ?? [])
-    .slice()
+const hasStoredWorkSiteContentV17_90L365 = (site?: OrderWorkSite | null) =>
+  Boolean(
+    compactText(site?.siteName) ||
+      compactText(site?.siteAddress) ||
+      compactText(site?.sitePlz) ||
+      compactText(site?.siteCity) ||
+      compactText(site?.siteNote),
+  );
+
+const hasOrderItemAssignedToWorkSiteV17_90L365 = (
+  order?: Order | null,
+  siteId?: string | null,
+) =>
+  Boolean(siteId) &&
+  Boolean(
+    order?.items?.some(
+      (item) => item.workSiteId === siteId || item.workSite?.id === siteId,
+    ),
+  );
+
+const getVisibleOrderWorkSitesV17_90L365 = (
+  order?: Order | null,
+): OrderWorkSite[] => {
+  const sites = Array.isArray(order?.workSites) ? [...order!.workSites!] : [];
+  return sites
+    .filter(
+      (site) =>
+        hasStoredWorkSiteContentV17_90L365(site) ||
+        hasOrderItemAssignedToWorkSiteV17_90L365(order, site.id),
+    )
     .sort(
       (a, b) =>
-        Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
-        Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+        Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+        Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
     );
+};
+
+const formatExecutionAddressTooltip = (order: Order) => {
+  const workSites = getVisibleOrderWorkSitesV17_90L365(order);
 
   const formatStoredWorkSiteLines = (
     site: {
@@ -7823,12 +7849,11 @@ const getSystemBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
-  const workSiteCount = Array.isArray(order.workSites)
-    ? order.workSites.length
-    : 0;
+  const visibleWorkSitesV17_90L365 = getVisibleOrderWorkSitesV17_90L365(order);
+  const workSiteCount = visibleWorkSitesV17_90L365.length;
   const primaryWorkSite =
-    (order.workSites ?? []).find((site) => Boolean(site?.isPrimary)) ||
-    (order.workSites ?? [])[0] ||
+    visibleWorkSitesV17_90L365.find((site) => Boolean(site?.isPrimary)) ||
+    visibleWorkSitesV17_90L365[0] ||
     null;
   const explicitExecutionSiteTitle =
     cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
@@ -12041,6 +12066,8 @@ export default function AuftraegePage() {
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [customerMessageImagePreviewUrls, setCustomerMessageImagePreviewUrls] =
     useState<string[]>([]);
+  const [mergedOrderImagePreviewUrlsV17_90L365, setMergedOrderImagePreviewUrlsV17_90L365] =
+    useState<Record<string, string>>({});
 
   // Native action menus do not touch React state. This keeps large lists from
   // re-rendering when the three-dot menu is opened.
@@ -18057,6 +18084,47 @@ export default function AuftraegePage() {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const candidates = orders
+      .map((order) => ({
+        id: order.id,
+        path: getOrderImagePathsV17_90L364(order)[0],
+      }))
+      .filter(
+        (entry): entry is { id: string; path: string } =>
+          typeof entry.path === "string" && entry.path.trim().length > 0,
+      );
+
+    if (candidates.length === 0) {
+      setMergedOrderImagePreviewUrlsV17_90L365({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.all(
+      candidates.map(async ({ id, path }) => {
+        try {
+          return [id, await resolveS3Url(path)] as const;
+        } catch {
+          return [id, path] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      entries.forEach(([id, url]) => {
+        if (url) next[id] = url;
+      });
+      setMergedOrderImagePreviewUrlsV17_90L365(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orders]);
+
   const openOrderImageMediaV17_90L364 = async (o: Order) => {
     const paths = getOrderImagePathsV17_90L364(o);
     if (paths.length === 0) {
@@ -18115,8 +18183,9 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
+    const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
-      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
+      "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
 
     return (
       <>
@@ -18155,7 +18224,16 @@ export default function AuftraegePage() {
             }}
             className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
           >
-            <ImageIcon className="h-4 w-4" />
+            {imagePreviewUrl ? (
+              <img
+                src={imagePreviewUrl}
+                alt=""
+                aria-hidden="true"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
+            )}
           </button>
         )}
       </>
