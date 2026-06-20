@@ -1,5 +1,7 @@
 "use client";
+// SMARTFLOW_V17_90L360_ORDER_RECOGNITION_REVIEW_SIMPLE_LABEL
 // SMARTFLOW_V17_90L358_ORDER_RECOGNITION_SOURCE_LOCK
+// SMARTFLOW_V17_90L359_ORDER_RECOGNITION_UNRESOLVED_REVIEW_UI
 // SMARTFLOW_V17_90L357D_ORDER_REVIEW_TAKEOVER_DIRECT_PAGE_FILE
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L336_ORDER_WORKSITE_SPACE_KEY_FIX
@@ -5066,36 +5068,27 @@ const recognitionReviewReasonKeyV17_90L70 = (reason?: string | null) => {
 const formatRecognitionReviewLineV17_90L69 = (
   detail: RecognitionReviewPayloadV17_90L69,
 ) => {
-  // SMARTFLOW_V17_90L358: The visible review title is source-locked. The
-  // payload serviceName is only shown when the source visibly supports it.
-  const serviceName =
+  // SMARTFLOW_V17_90L360: Recognition findings are shown in customer language.
+  // No technical reason suffix and no invented service label is displayed here.
+  const text =
+    compactText(detail.sourceText) ||
+    compactText(detail.relatedRoleText) ||
     recognitionReviewTakeoverTextV17_90L253(detail) ||
-    "Mögliche Leistung";
-  const quantity = Number(detail.quantity || 0);
-  const unit = compactText(detail.unit);
-  const unitPrice = Number(detail.unitPrice || 0);
-  const amount =
-    detail.kind === "invalid_item"
-      ? "Leistungszuordnung prüfen"
-      : detail.kind === "open_price"
-        ? "Preis offen"
-        : quantity > 0 && unitPrice > 0
-          ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
-          : "Werte unklar";
-  return `• ${serviceName} — ${amount}`;
+    "Leistung nicht erkannt";
+  return `• ${text}`;
 };
 
 const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
   const details = getActiveRecognitionReviewDetailsV17_90L80(order);
-  const lines = ["Erkennung prüfen"];
+  const lines = ["Leistung nicht erkannt"];
 
   if (details.length > 0) {
     lines.push(...details.slice(0, 8).map(formatRecognitionReviewLineV17_90L69));
   } else {
-    lines.push("• Mögliche fehlende oder falsch zugeordnete Leistung.");
+    lines.push("• Leistung nicht erkannt.");
   }
 
-  lines.push("Auftrag öffnen und Vorschlag übernehmen oder verwerfen.");
+  lines.push("Auftrag öffnen und übernehmen oder verwerfen.");
   return lines.join("\n");
 };
 
@@ -5302,6 +5295,80 @@ const recognitionReviewTakeoverTextV17_90L253 = (
   }
 
   return "Zusätzliche Arbeit prüfen";
+};
+
+
+const recognitionReviewDisplayTextV17_90L359 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) => {
+  // SMARTFLOW_V17_90L360: The visible red review block must show the original
+  // customer wording once, not a cleaned service proposal and not a technical
+  // "Quelle" duplication. The cleaned takeover label is used only after
+  // clicking Übernehmen.
+  const sourceText = compactText(detail?.sourceText);
+  if (sourceText && !isInternalReviewServiceName(sourceText)) return sourceText;
+
+  const relatedRoleText = compactText(detail?.relatedRoleText);
+  if (relatedRoleText && !isInternalReviewServiceName(relatedRoleText)) {
+    return relatedRoleText;
+  }
+
+  return recognitionReviewTakeoverTextV17_90L253(detail);
+};
+
+const recognitionReviewSourceMatchesItemV17_90L359 = (
+  detail: RecognitionReviewPayloadV17_90L69,
+  item: {
+    serviceName?: string | null;
+    aiWarning?: string | null;
+    description?: string | null;
+    sourceDescription?: string | null;
+    recognitionReviewKey?: string | null;
+  },
+) => {
+  const reviewKey = recognitionReviewDetailKeyV17_90L70(detail);
+  if (item.recognitionReviewKey && item.recognitionReviewKey === reviewKey) {
+    return true;
+  }
+
+  const expectedSource = normalizeForMatch(
+    compactText(detail.sourceText) || compactText(detail.relatedRoleText),
+  );
+  if (!expectedSource) return false;
+
+  const itemEvidence = normalizeForMatch(
+    [item.sourceDescription, item.aiWarning, item.description]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\bText:\s*/gi, " "),
+  );
+  return Boolean(
+    itemEvidence &&
+      (itemEvidence === expectedSource ||
+        itemEvidence.includes(expectedSource) ||
+        expectedSource.includes(itemEvidence)),
+  );
+};
+
+const isUnresolvedRecognitionReviewPlaceholderItemV17_90L359 = (
+  detail: RecognitionReviewPayloadV17_90L69,
+  item: FormItem,
+) => {
+  if (!recognitionReviewSourceMatchesItemV17_90L359(detail, item)) {
+    return false;
+  }
+
+  const visibleName = compactText(item.serviceName);
+  const supportedName = recognitionReviewSourceSupportsServiceNameV17_90L358({
+    ...detail,
+    serviceName: visibleName,
+  });
+
+  return Boolean(
+    isInternalReviewServiceName(visibleName) ||
+      (!supportedName &&
+        (Number(item.quantity || 0) <= 0 || Number(item.unitPrice || 0) <= 0)),
+  );
 };
 
 const recognitionReviewHasSeparateDisplayTextV17_90L253 = (
@@ -7092,7 +7159,7 @@ const conciseRedReviewReasonV17_90L245 = (
   if (badge.key === "price_contradiction") return "Preiswiderspruch";
   if (badge.key === "currency_review") return "Währung prüfen";
   if (badge.key === "canonical_mutation") return "Erfassung prüfen";
-  if (badge.key === "recognition_review") return "Erkennung prüfen";
+  if (badge.key === "recognition_review") return "Leistung nicht erkannt";
   if (badge.key === "unit_conflict") return "Einheit prüfen";
 
   const normalizedDetail = compactText(detail)
@@ -8037,7 +8104,7 @@ const getSystemBadges = (
   if (hasRecognitionReviewV17_90L69(order)) {
     pushUniqueBadge(badges, {
       key: "recognition_review",
-      label: "Erkennung prüfen",
+      label: "Leistung nicht erkannt",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
       tooltip: formatRecognitionReviewTooltipV17_90L69(order),
@@ -11491,7 +11558,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     !getCanonicalIntakeV2(order) &&
     reviewReasons.some(isRecognitionReviewReasonV17_90L69)
   ) {
-    blockers.push("Erkennung prüfen");
+    blockers.push("Leistung nicht erkannt");
   }
 
   if (reviewReasons.includes("total_unrealistic_check")) {
@@ -13879,6 +13946,21 @@ export default function AuftraegePage() {
         allCurrentRecognitionReviewDetailsV17_90L69.length === 0),
   );
 
+  const visibleFormItemsWithIndexesV17_90L359 = formItems
+    .map((item, index) => ({ item, index }))
+    .filter(
+      ({ item }) =>
+        !currentRecognitionReviewDetailsV17_90L69.some((detail) =>
+          isUnresolvedRecognitionReviewPlaceholderItemV17_90L359(detail, item),
+        ),
+    );
+  const visibleFormItemsV17_90L359 = visibleFormItemsWithIndexesV17_90L359.map(
+    ({ item }) => item,
+  );
+  const visibleServiceItemCountV17_90L359 = visibleFormItemsV17_90L359.filter(
+    (item) => item.serviceName.trim(),
+  ).length;
+
   const takeOverRecognitionReviewDetailV17_90L70 = (
     detail: RecognitionReviewPayloadV17_90L69,
   ) => {
@@ -13906,41 +13988,27 @@ export default function AuftraegePage() {
     }
 
     const serviceName = recognitionReviewTakeoverTextV17_90L253(detail);
-    const unit = compactText(detail.unit) || "Einheit prüfen";
-    const quantity = Number(detail.quantity || 0);
-    const unitPrice = Number(detail.unitPrice || 0);
+    const shouldKeepStructuredValuesV17_90L359 = detail.kind === "missing_work";
+    const unit = shouldKeepStructuredValuesV17_90L359
+      ? compactText(detail.unit) || "Einheit prüfen"
+      : "Einheit prüfen";
+    const quantity = shouldKeepStructuredValuesV17_90L359
+      ? Number(detail.quantity || 0)
+      : 0;
+    const unitPrice = shouldKeepStructuredValuesV17_90L359
+      ? Number(detail.unitPrice || 0)
+      : 0;
     const originalSourceText = compactText(detail.sourceText);
     const displayEvidenceText = compactText(detail.relatedRoleText);
     const sourceDescription = originalSourceText || displayEvidenceText;
     const existingRecognitionReviewItemIndex = formItems.findIndex(
-      (item) =>
-        item.recognitionReviewKey === recognitionReviewKey ||
-        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      (item) => item.recognitionReviewKey === recognitionReviewKey,
     );
 
     if (existingRecognitionReviewItemIndex >= 0) {
-      // SMARTFLOW_V17_90L358: Übernehmen darf nie wie Verwerfen wirken. If a
-      // stale/invented row is already present, keep the row red and source-lock
-      // its visible service name instead of only dismissing the top review box.
-      setFormItems((previous) =>
-        previous.map((item, index) =>
-          index === existingRecognitionReviewItemIndex
-            ? {
-                ...item,
-                serviceName: serviceName || item.serviceName,
-                aiWarning: sourceDescription
-                  ? `Text: ${sourceDescription}`
-                  : item.aiWarning,
-                pendingManualReviewDecision: true,
-                manualReviewConfirmed: false,
-                pendingReviewSourceServiceName:
-                  serviceName || item.pendingReviewSourceServiceName,
-                recognitionReviewKey,
-                sourceDescription: sourceDescription || item.sourceDescription,
-              }
-            : item,
-        ),
-      );
+      // SMARTFLOW_V17_90L359: Nur eine bereits exakt über diese Review-ID
+      // erzeugte Zeile darf als vorhanden gelten. Andere rote Zeilen sind
+      // eigenständige Leistungen und werden niemals umgeschrieben.
       setDiscardedRecognitionReviewKeys((previous) =>
         previous.includes(recognitionReviewKey)
           ? previous
@@ -13987,9 +14055,13 @@ export default function AuftraegePage() {
       nextItem,
       ...previous.filter(
         (item) =>
-          item.serviceName.trim() ||
-          item.unitPrice.trim() ||
-          item.quantity.trim(),
+          (item.serviceName.trim() ||
+            item.unitPrice.trim() ||
+            item.quantity.trim()) &&
+          !isUnresolvedRecognitionReviewPlaceholderItemV17_90L359(
+            detail,
+            item,
+          ),
       ),
     ]);
     setDiscardedRecognitionReviewKeys((previous) =>
@@ -15775,8 +15847,8 @@ export default function AuftraegePage() {
 
   const getWorkSiteGroupItems = (site?: OrderWorkSite | null) =>
     site
-      ? getWorkSiteItems(site.id)
-      : formItems.filter((item) => !item.workSiteId);
+      ? visibleFormItemsV17_90L359.filter((item) => item.workSiteId === site.id)
+      : visibleFormItemsV17_90L359.filter((item) => !item.workSiteId);
 
   const isWorkSiteGroupExpanded = (site?: OrderWorkSite | null) =>
     !hasMultipleEditWorkSites ||
@@ -15816,8 +15888,7 @@ export default function AuftraegePage() {
 
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
-        ...formItems
-          .map((item, index) => ({ item, index }))
+        ...visibleFormItemsWithIndexesV17_90L359
           .filter(({ item }) => !item.workSiteId)
           .map(({ item, index }, siteItemIndex) => ({
             item,
@@ -15827,8 +15898,7 @@ export default function AuftraegePage() {
             isEmptySitePlaceholder: false,
           })),
         ...currentEditWorkSites.flatMap((site) => {
-          const siteRows = formItems
-            .map((item, index) => ({ item, index }))
+          const siteRows = visibleFormItemsWithIndexesV17_90L359
             .filter(({ item }) => item.workSiteId === site.id);
 
           if (siteRows.length === 0) {
@@ -15856,7 +15926,7 @@ export default function AuftraegePage() {
           }));
         }),
       ]
-    : formItems.map((item, index) => ({
+    : visibleFormItemsWithIndexesV17_90L359.map(({ item, index }) => ({
         item,
         index,
         site: null as OrderWorkSite | null,
@@ -15881,7 +15951,7 @@ export default function AuftraegePage() {
     return unit || "–";
   };
 
-  const liveOverviewRows = formItems
+  const liveOverviewRows = visibleFormItemsV17_90L359
     .filter((item) => item.serviceName.trim())
     .map((item, index) => {
       const quantity = Number(item.quantity || 0);
@@ -21180,7 +21250,7 @@ export default function AuftraegePage() {
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
                   <span>
-                    {formItems.filter((i) => i.serviceName).length} Leistung(en)
+                    {visibleServiceItemCountV17_90L359} Leistung(en)
                     · {formatCurrency(itemsTotal, currency)} ·{" "}
                     {form.date || "–"} · {form.status}
                   </span>
@@ -21201,7 +21271,7 @@ export default function AuftraegePage() {
                           <Label className="whitespace-nowrap text-base font-semibold">
                             {hasMultipleEditWorkSites
                               ? "Arbeitsorte & Leistungen"
-                              : `Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`}
+                              : `Leistungen · ${visibleServiceItemCountV17_90L359} *`}
                           </Label>
                           {currentEditMergedHeaderBadge &&
                             currentEditExecutionHeaderBadge &&
@@ -21257,7 +21327,7 @@ export default function AuftraegePage() {
                       {hasMultipleEditWorkSites ? (
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span className="min-w-0 truncate">
-                            {currentEditWorkSites.length} Arbeitsorte · {formItems.filter((item) => item.serviceName.trim()).length} Leistungen
+                            {currentEditWorkSites.length} Arbeitsorte · {visibleServiceItemCountV17_90L359} Leistungen
                           </span>
                           <span className="shrink-0 font-mono font-medium text-foreground">
                             {formatCurrency(itemsTotal, currency)}
@@ -21272,7 +21342,7 @@ export default function AuftraegePage() {
 
                     {hasCurrentRecognitionReviewV17_90L69 && (
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
-                        <div className="font-semibold">⚠ Erkennung prüfen</div>
+                        <div className="font-semibold">⚠ Leistung nicht erkannt</div>
                         {currentRecognitionReviewDetailsV17_90L69.length > 0 ? (
                           <div className="mt-2 space-y-2">
                             {currentRecognitionReviewDetailsV17_90L69
@@ -21283,29 +21353,11 @@ export default function AuftraegePage() {
                                   className="rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50"
                                 >
                                   <div className="font-semibold leading-snug">
-                                    {formatRecognitionReviewLineV17_90L69(detail).replace(/^•\s*/, "")}
-                                  </div>
-                                  {detail.kind === "missing_work" &&
-                                    recognitionReviewHasSeparateDisplayTextV17_90L253(
-                                      detail,
-                                    ) && (
-                                      <div className="mt-1 text-[11px] font-bold leading-snug text-red-900 dark:text-red-100">
-                                        {compactRecognitionReviewSourceV17_90L262(
-                                          recognitionReviewTakeoverTextV17_90L253(detail),
-                                          108,
-                                        )}
-                                      </div>
+                                    {compactRecognitionReviewSourceV17_90L262(
+                                      recognitionReviewDisplayTextV17_90L359(detail),
+                                      140,
                                     )}
-                                  {compactText(detail.sourceText) && (
-                                    <div className="mt-1 text-[11px] font-semibold leading-snug text-red-800 dark:text-red-100">
-                                      <span className="font-bold">Quelle:</span>{" "}
-                                      <span className="font-bold">
-                                        {compactRecognitionReviewSourceV17_90L262(
-                                          detail.sourceText,
-                                        )}
-                                      </span>
-                                    </div>
-                                  )}
+                                  </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     <Button
                                       type="button"
@@ -21339,7 +21391,7 @@ export default function AuftraegePage() {
                         ) : (
                           <div className="mt-2 rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50">
                             <div className="font-medium">
-                              Mögliche fehlende oder falsch zugeordnete Leistung.
+                              Leistung nicht erkannt.
                             </div>
                             <Button
                               type="button"
@@ -22818,11 +22870,8 @@ export default function AuftraegePage() {
                                           <div className="space-y-1">
                                             <div>{compactBlockingReviewMessageV17_90L242}</div>
                                             {compactBlockingReviewSourceV17_90L242 && (
-                                              <div>
-                                                Quelle:{" "}
-                                                <span className="font-medium">
-                                                  {compactBlockingReviewSourceV17_90L242}
-                                                </span>
+                                              <div className="font-medium">
+                                                {compactBlockingReviewSourceV17_90L242}
                                               </div>
                                             )}
 
