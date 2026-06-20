@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L364_MERGED_ORDER_MEDIA_CHIPS_RESTORE
 // SMARTFLOW_V17_90L360_ORDER_RECOGNITION_REVIEW_SIMPLE_LABEL
 // SMARTFLOW_V17_90L358_ORDER_RECOGNITION_SOURCE_LOCK
 // SMARTFLOW_V17_90L359_ORDER_RECOGNITION_UNRESOLVED_REVIEW_UI
@@ -1532,6 +1533,55 @@ const hasOrderImage = (order: Order) => {
     (Boolean(order.mediaUrl) && order.mediaType === "image")
   );
 };
+
+const getOrderImagePathsV17_90L364 = (order?: Order | null): string[] => {
+  const imageUrls = Array.isArray(order?.imageUrls)
+    ? order?.imageUrls.filter(Boolean)
+    : [];
+  if (imageUrls.length > 0) return imageUrls;
+  return order?.mediaUrl && order.mediaType === "image" ? [order.mediaUrl] : [];
+};
+
+const getMergedOrderMediaSourceTextV17_90L364 = (order?: Order | null) =>
+  [
+    order?.notes,
+    order?.description,
+    order?.audioTranscript,
+    order?.specialNotes,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+const hasMergedOrderImageEvidenceV17_90L364 = (order?: Order | null) =>
+  getOrderImagePathsV17_90L364(order).length > 0 ||
+  /\b(?:kundenbild|bild\s*\d+|image\s*\d+|photo\s*\d+|foto\s*\d+)\b/i.test(
+    getMergedOrderMediaSourceTextV17_90L364(order),
+  );
+
+const extractMergedOrderAudioTranscriptV17_90L364 = (
+  order?: Order | null,
+): string => {
+  const explicit = String(order?.audioTranscript || "").trim();
+  if (explicit) return explicit;
+
+  const source = getMergedOrderMediaSourceTextV17_90L364(order)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const markerMatch = source.match(/\[Transkription\]\s*:?\s*([\s\S]+)/i);
+  if (markerMatch?.[1]) {
+    return markerMatch[1]
+      .split(/\n?[-─]{3,}\s*Zusammengeführt\s+mit\s*:?/i)[0]
+      .trim();
+  }
+  return "";
+};
+
+const hasMergedOrderAudioEvidenceV17_90L364 = (order?: Order | null) =>
+  Boolean(order?.mediaUrl && order.mediaType === "audio") ||
+  Boolean(extractMergedOrderAudioTranscriptV17_90L364(order)) ||
+  /\b(?:sprachnachricht|audio|transkript|transkription|dauer\s*:\s*\d)/i.test(
+    getMergedOrderMediaSourceTextV17_90L364(order),
+  );
 
 // CARD_BADGE_SEMANTIC_SPECIAL_NOTES_V14
 // Card chips are now based on cleaned semantic specialNotes only.
@@ -11981,6 +12031,7 @@ export default function AuftraegePage() {
   const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<string | null>(null);
+  const [mediaTranscript, setMediaTranscript] = useState<string | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [customerMessageImagePreviewUrls, setCustomerMessageImagePreviewUrls] =
@@ -18001,36 +18052,109 @@ export default function AuftraegePage() {
     }
   };
 
-  const openMedia = async (o: Order) => {
-    const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
+  const openOrderImageMediaV17_90L364 = async (o: Order) => {
+    const paths = getOrderImagePathsV17_90L364(o);
+    if (paths.length === 0) {
+      openEdit(o);
+      setTimeout(() => setCustomerMessagesExpanded(true), 0);
+      return;
+    }
 
-    if (!o.mediaUrl && !hasImageUrls) return;
+    const resolved = await Promise.all(paths.map((path) => resolveS3Url(path)));
+    setGalleryUrls(resolved);
+    setGalleryIdx(0);
+    setMediaTranscript(null);
+    setMediaType("image");
+    setMediaUrl(null);
+    setMediaDialogOpen(true);
+  };
 
+  const openOrderAudioMediaV17_90L364 = async (o: Order) => {
     if (o.mediaUrl && o.mediaType === "audio") {
       const url = await resolveS3Url(o.mediaUrl);
       setMediaUrl(url);
+      setMediaTranscript(null);
       setMediaType("audio");
       setGalleryUrls([]);
       setMediaDialogOpen(true);
       return;
     }
 
-    const paths =
-      hasImageUrls && o.imageUrls
-        ? o.imageUrls
-        : o.mediaUrl
-          ? [o.mediaUrl]
-          : [];
+    const transcript = extractMergedOrderAudioTranscriptV17_90L364(o);
+    if (transcript) {
+      setMediaUrl(null);
+      setGalleryUrls([]);
+      setMediaTranscript(transcript);
+      setMediaType("audio_transcript");
+      setMediaDialogOpen(true);
+      return;
+    }
 
-    if (paths.length === 0) return;
+    openEdit(o);
+    setTimeout(() => setCustomerMessagesExpanded(true), 0);
+  };
 
-    const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
+  const openMedia = async (o: Order) => {
+    if (o.mediaUrl && o.mediaType === "audio") {
+      await openOrderAudioMediaV17_90L364(o);
+      return;
+    }
 
-    setGalleryUrls(resolved);
-    setGalleryIdx(0);
-    setMediaType("image");
-    setMediaUrl(null);
-    setMediaDialogOpen(true);
+    if (hasOrderImage(o)) {
+      await openOrderImageMediaV17_90L364(o);
+    }
+  };
+
+  const renderMergedOrderMediaChipsV17_90L364 = (o: Order) => {
+    const hasImage = hasMergedOrderImageEvidenceV17_90L364(o);
+    const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
+    if (!hasImage && !hasAudio) return null;
+
+    const baseClass =
+      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
+
+    return (
+      <>
+        {hasAudio && (
+          <button
+            type="button"
+            data-card-toggle-ignore="true"
+            aria-label="Sprachnachricht öffnen"
+            title="Sprachnachricht öffnen"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openOrderAudioMediaV17_90L364(o);
+            }}
+            className={`${baseClass} border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60`}
+          >
+            <Volume2 className="h-4 w-4" />
+          </button>
+        )}
+        {hasImage && (
+          <button
+            type="button"
+            data-card-toggle-ignore="true"
+            aria-label="Bild öffnen"
+            title="Bild öffnen"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openOrderImageMediaV17_90L364(o);
+            }}
+            className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+          >
+            <ImageIcon className="h-4 w-4" />
+          </button>
+        )}
+      </>
+    );
   };
 
   useEffect(() => {
@@ -19751,11 +19875,17 @@ export default function AuftraegePage() {
                                 )}
 
                                 {hasMultipleMergedData && (
-                                  <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                                  <span
+                                    className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <MergedContactReviewChip
                                       records={[cardOrderForChips as any]}
                                       compact
                                     />
+                                    {renderMergedOrderMediaChipsV17_90L364(o)}
                                   </span>
                                 )}
 
@@ -19971,11 +20101,17 @@ export default function AuftraegePage() {
                           )}
 
                           {hasMultipleMergedData && (
-                            <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                            <span
+                              className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) => event.stopPropagation()}
+                            >
                               <MergedContactReviewChip
                                 records={[cardOrderForChips as any]}
                                 compact
                               />
+                              {renderMergedOrderMediaChipsV17_90L364(o)}
                             </span>
                           )}
 
@@ -20188,11 +20324,17 @@ export default function AuftraegePage() {
                             )}
 
                             {hasMultipleMergedData && (
-                              <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                              <span
+                                className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onTouchStart={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 <MergedContactReviewChip
                                   records={[cardOrderForChips as any]}
                                   compact
                                 />
+                                {renderMergedOrderMediaChipsV17_90L364(o)}
                               </span>
                             )}
 
@@ -23821,6 +23963,19 @@ export default function AuftraegePage() {
               <track kind="captions" />
             </audio>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={mediaDialogOpen && mediaType === "audio_transcript"}
+        onOpenChange={setMediaDialogOpen}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sprachnachricht</DialogTitle>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed whitespace-pre-wrap">
+            {mediaTranscript || "Transkript vorhanden."}
+          </div>
         </DialogContent>
       </Dialog>
       {/* Image viewer with touch zoom/pan */}
