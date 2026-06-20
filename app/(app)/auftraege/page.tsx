@@ -1,5 +1,4 @@
 "use client";
-// SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
 // SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
@@ -18185,9 +18184,7 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
-    // V17.90L367: merged image chip must not swap after hydration.
-    // Keep the stable compact image icon on the card; click/tap still opens
-    // the real image gallery via openOrderImageMediaV17_90L364.
+    const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
       "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
 
@@ -18227,7 +18224,15 @@ export default function AuftraegePage() {
             }}
             className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
           >
-            <ImageIcon className="h-4 w-4" />
+            {imagePreviewUrl ? (
+              <span
+                aria-hidden="true"
+                className="block h-full w-full bg-cover bg-center bg-no-repeat"
+                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+              />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
+            )}
           </button>
         )}
       </>
