@@ -17260,16 +17260,53 @@ export async function processIncomingMessage(
       ? String(parsed.auftrag.beschreibung)
       : messageText;
 
+  const buildReviewServiceNameFromSourceV17_90L338 = (
+    sourceTextValue: unknown,
+    fallbackValue: unknown,
+  ): string => {
+    const sourceTextCompact = compactExactSourceTextV17_90L251(sourceTextValue);
+    const fallbackCompact = compactExactSourceTextV17_90L251(fallbackValue);
+    const withoutTrailingClarification = sourceTextCompact
+      .replace(
+        /\s*[,;–—-]\s*(?:preis|kosten|betrag|menge|anzahl|einheit|price|cost|amount|quantity|unit)\b.*$/iu,
+        "",
+      )
+      .trim();
+    const candidate = withoutTrailingClarification || sourceTextCompact || fallbackCompact;
+    const normalized = candidate.replace(/\s+/g, " ").trim();
+    if (normalized.length >= 4 && normalized.length <= 140) return normalized;
+    if (normalized.length > 140) return normalized.slice(0, 140).trim();
+    return "Leistung prüfen";
+  };
+
   // V17.90L252: The second AI is review-only. It may flag an existing first-AI
   // row, but it must never rename, replace or otherwise rewrite that row.
   const aiWorkItemsRaw: AiWorkItem[] = (
     firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[]
   ).map((item) => ({ ...item }));
 
+  // V17.90L338: If the read-only coverage checker proves that a first-AI row
+  // is not line-locally supported, that row must not enter the canonical
+  // service list at all. It remains available only as an encoded red
+  // recognition review below. This prevents invented labels such as
+  // "Unbekannte Substanz entfernen" from being persisted as real work.
+  const invalidFirstAiItemIndexesV17_90L338 = new Set(
+    finalAiWorkCoverageV17_90L251.invalidItems
+      .map((finding) => Number(finding.itemIndex))
+      .filter((itemIndex) =>
+        Number.isInteger(itemIndex) &&
+        itemIndex >= 1 &&
+        itemIndex <= aiWorkItemsRaw.length,
+      ),
+  );
+
   // No parser fallback may manufacture workItems when the first AI returned
-  // none. The separate recognition review finding is the only permitted
-  // fail-closed result until the user explicitly accepts it.
-  const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw;
+  // none. Unsupported first-AI rows are removed from the write path and kept
+  // only as fail-closed recognition review findings until the user explicitly
+  // accepts them in the editor.
+  const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw.filter(
+    (_item, index) => !invalidFirstAiItemIndexesV17_90L338.has(index + 1),
+  );
 
   // V17.90L252: The second AI and every rescue/validator after the first AI
   // are strictly review-only. Missing work becomes an encoded red control
@@ -17297,19 +17334,35 @@ export async function processIncomingMessage(
       .map((finding) => {
         const rawItem = aiWorkItemsRaw[finding.itemIndex - 1] as any;
         if (!rawItem) return null;
-        const serviceName = compactExactSourceTextV17_90L251(
+        const rawSourceText = compactExactSourceTextV17_90L251(
+          rawItem?.sourceText ??
+            rawItem?.source_text ??
+            rawItem?.evidence ??
+            rawItem?.raw ??
+            rawItem?.description,
+        );
+        const fallbackServiceName = compactExactSourceTextV17_90L251(
           rawItem?.serviceName ??
             rawItem?.name ??
             rawItem?.action_name ??
             rawItem?.service_name ??
             rawItem?.matched_service_name,
-        ) || "Leistung prüfen";
+        );
+        const serviceName = buildReviewServiceNameFromSourceV17_90L338(
+          rawSourceText,
+          fallbackServiceName,
+        );
         const quantityValue = Number(rawItem?.quantity ?? rawItem?.menge ?? 0);
         const unitPriceValue = Number(
           rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
         );
         const payload = {
-          kind: "invalid_item",
+          // Unsupported first-AI rows are presented as user-resolvable missing
+          // work because the real persisted item was deliberately removed above.
+          // The source quote stays exact; no invented service label is exposed
+          // or used as the accept target.
+          kind: "missing_work",
+          originalKind: "invalid_item",
           findingId: `invalid_item_${finding.itemIndex}`,
           serviceName,
           quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
@@ -17317,13 +17370,7 @@ export async function processIncomingMessage(
             rawItem?.unit ?? rawItem?.einheit,
           ) || "Einheit prüfen",
           unitPrice: Number.isFinite(unitPriceValue) ? unitPriceValue : 0,
-          sourceText: compactExactSourceTextV17_90L251(
-            rawItem?.sourceText ??
-              rawItem?.source_text ??
-              rawItem?.evidence ??
-              rawItem?.raw ??
-              rawItem?.description,
-          ),
+          sourceText: rawSourceText,
           relatedRoleText: null,
           reason: finding.reason,
         };
@@ -17341,7 +17388,7 @@ export async function processIncomingMessage(
 
   let canonicalAiOrderItemsBaseV17_90L234 =
     buildCanonicalAiOrderItemsV17_90L88(
-      aiWorkItemsRaw,
+      aiWorkItems,
       translationText,
       [messageText, parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
         .filter(Boolean)
@@ -18162,6 +18209,11 @@ export async function processIncomingMessage(
       return true;
     });
 
+  const allFirstAiRowsWereInvalidV17_90L338 =
+    aiWorkItemsRaw.length > 0 &&
+    aiWorkItems.length === 0 &&
+    invalidFirstAiItemIndexesV17_90L338.size > 0;
+
   let finalOrderItems: Array<{
     serviceName: string;
     description: string;
@@ -18177,20 +18229,22 @@ export async function processIncomingMessage(
   }> =
     cleanedMappedOrderItemsWithHourSafety.length > 0
       ? cleanedMappedOrderItemsWithHourSafety
-      : [
-          {
-            serviceName: formatWorkNameForDisplay(
-              parsed.auftrag?.titel || "Unbekannte Leistung",
-            ),
-            description: String(fullWorkText || `${source}-Auftrag`),
-            quantity: 0,
-            unit: "Pauschal",
-            unitPrice: 0,
-            totalPrice: 0,
-            needsReview: true,
-            reviewReason: "unbekannte_leistung_pruefen",
-          },
-        ];
+      : allFirstAiRowsWereInvalidV17_90L338
+        ? []
+        : [
+            {
+              serviceName: formatWorkNameForDisplay(
+                parsed.auftrag?.titel || "Unbekannte Leistung",
+              ),
+              description: String(fullWorkText || `${source}-Auftrag`),
+              quantity: 0,
+              unit: "Pauschal",
+              unitPrice: 0,
+              totalPrice: 0,
+              needsReview: true,
+              reviewReason: "unbekannte_leistung_pruefen",
+            },
+          ];
 
   const structuredOrderItemSnapshotsV17_90L76 = finalOrderItems.map(
     (item) => ({ ...item }),
