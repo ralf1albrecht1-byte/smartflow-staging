@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L358_ORDER_RECOGNITION_SOURCE_LOCK
 // SMARTFLOW_V17_90L357D_ORDER_REVIEW_TAKEOVER_DIRECT_PAGE_FILE
 // SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
 // SMARTFLOW_V17_90L336_ORDER_WORKSITE_SPACE_KEY_FIX
@@ -5065,18 +5066,10 @@ const recognitionReviewReasonKeyV17_90L70 = (reason?: string | null) => {
 const formatRecognitionReviewLineV17_90L69 = (
   detail: RecognitionReviewPayloadV17_90L69,
 ) => {
-  // SMARTFLOW_V17_90L357D: For non-canonical recognition findings, show the
-  // actual source/evidence text as the actionable title. This prevents invented
-  // labels such as "Verschmutzung entfernen" from becoming the visible review
-  // title when the customer text only says e.g. "komisches Zeug machen".
-  const actionableSourceTitle =
-    detail.kind && detail.kind !== "missing_work"
-      ? recognitionReviewTakeoverTextV17_90L253(detail)
-      : "";
+  // SMARTFLOW_V17_90L358: The visible review title is source-locked. The
+  // payload serviceName is only shown when the source visibly supports it.
   const serviceName =
-    actionableSourceTitle ||
-    canonicalServiceNameForOrderItem(detail.serviceName) ||
-    compactText(detail.serviceName) ||
+    recognitionReviewTakeoverTextV17_90L253(detail) ||
     "Mögliche Leistung";
   const quantity = Number(detail.quantity || 0);
   const unit = compactText(detail.unit);
@@ -5232,29 +5225,80 @@ const isInternalReviewServiceName = (value?: string | null) => {
   ]).has(key);
 };
 
-// V17.90L253: A read-only recognition finding may create a mutable review row
-// only after the user explicitly presses Übernehmen. Prefill that row from
-// the already stored finding evidence. No parser, validator or UI heuristic
-// invents, translates or rewrites a service name here.
+// V17.90L253/V17.90L358: A read-only recognition finding may create a
+// mutable review row only after the user explicitly presses Übernehmen.
+// Source-lock rule: customer/source evidence is the truth. A serviceName from
+// the review payload is only used when it is visibly supported by that source.
+// This prevents invented labels such as "Verschmutzung entfernen" for vague
+// customer text like "komisches Zeug machen". Spelling/grammar may be cleaned;
+// meaning must not be changed here.
+const cleanRecognitionReviewSourceLabelV17_90L358 = (
+  value?: string | null,
+) => {
+  const text = compactText(value);
+  if (!text) return "";
+
+  return text
+    .replace(
+      /\s*[,;.]?\s*(?:preis|betrag|kosten)\s+(?:und\s+)?(?:die\s+)?(?:genaue\s+)?(?:menge|anzahl|einheit)\b.*$/i,
+      "",
+    )
+    .replace(
+      /\s*[,;.]?\s*(?:menge|anzahl|einheit)\s+(?:und\s+)?(?:preis|betrag|kosten)\b.*$/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const recognitionReviewSourceSupportsServiceNameV17_90L358 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) => {
+  const serviceKey = normalizeForMatch(
+    canonicalServiceNameForOrderItem(detail?.serviceName),
+  );
+  if (!serviceKey || isInternalReviewServiceName(serviceKey)) return false;
+
+  const sourceKey = normalizeForMatch(
+    canonicalServiceNameForOrderItem(
+      [detail?.sourceText, detail?.relatedRoleText]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  );
+  if (!sourceKey) return false;
+
+  return sourceKey.includes(serviceKey) || serviceKey.includes(sourceKey);
+};
+
 const recognitionReviewTakeoverTextV17_90L253 = (
   detail?: RecognitionReviewPayloadV17_90L69 | null,
 ) => {
-  const relatedRoleText = compactText(detail?.relatedRoleText);
-  if (relatedRoleText && !isInternalReviewServiceName(relatedRoleText)) {
-    return relatedRoleText;
+  const explicitServiceName = compactText(detail?.serviceName);
+  if (
+    explicitServiceName &&
+    !isInternalReviewServiceName(explicitServiceName) &&
+    recognitionReviewSourceSupportsServiceNameV17_90L358(detail)
+  ) {
+    return canonicalServiceNameForOrderItem(explicitServiceName) || explicitServiceName;
   }
 
-  const sourceText = compactText(detail?.sourceText);
+  const sourceText = cleanRecognitionReviewSourceLabelV17_90L358(
+    detail?.sourceText,
+  );
   if (sourceText && !isInternalReviewServiceName(sourceText)) {
     return sourceText;
   }
 
-  const explicitServiceName = compactText(detail?.serviceName);
-  if (
-    explicitServiceName &&
-    !isInternalReviewServiceName(explicitServiceName)
-  ) {
-    return explicitServiceName;
+  const relatedRoleText = cleanRecognitionReviewSourceLabelV17_90L358(
+    detail?.relatedRoleText,
+  );
+  if (relatedRoleText && !isInternalReviewServiceName(relatedRoleText)) {
+    return relatedRoleText;
+  }
+
+  if (explicitServiceName && !isInternalReviewServiceName(explicitServiceName)) {
+    return canonicalServiceNameForOrderItem(explicitServiceName) || explicitServiceName;
   }
 
   return "Zusätzliche Arbeit prüfen";
@@ -13861,22 +13905,6 @@ export default function AuftraegePage() {
       return;
     }
 
-    if (
-      formItems.some(
-        (item) =>
-          item.recognitionReviewKey === recognitionReviewKey ||
-          recognitionReviewDetailMatchesItemV17_90L69(detail, item),
-      )
-    ) {
-      setDiscardedRecognitionReviewKeys((previous) =>
-        previous.includes(recognitionReviewKey)
-          ? previous
-          : [...previous, recognitionReviewKey],
-      );
-      toast.info("Leistung ist bereits vorhanden.");
-      return;
-    }
-
     const serviceName = recognitionReviewTakeoverTextV17_90L253(detail);
     const unit = compactText(detail.unit) || "Einheit prüfen";
     const quantity = Number(detail.quantity || 0);
@@ -13884,6 +13912,43 @@ export default function AuftraegePage() {
     const originalSourceText = compactText(detail.sourceText);
     const displayEvidenceText = compactText(detail.relatedRoleText);
     const sourceDescription = originalSourceText || displayEvidenceText;
+    const existingRecognitionReviewItemIndex = formItems.findIndex(
+      (item) =>
+        item.recognitionReviewKey === recognitionReviewKey ||
+        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+    );
+
+    if (existingRecognitionReviewItemIndex >= 0) {
+      // SMARTFLOW_V17_90L358: Übernehmen darf nie wie Verwerfen wirken. If a
+      // stale/invented row is already present, keep the row red and source-lock
+      // its visible service name instead of only dismissing the top review box.
+      setFormItems((previous) =>
+        previous.map((item, index) =>
+          index === existingRecognitionReviewItemIndex
+            ? {
+                ...item,
+                serviceName: serviceName || item.serviceName,
+                aiWarning: sourceDescription
+                  ? `Text: ${sourceDescription}`
+                  : item.aiWarning,
+                pendingManualReviewDecision: true,
+                manualReviewConfirmed: false,
+                pendingReviewSourceServiceName:
+                  serviceName || item.pendingReviewSourceServiceName,
+                recognitionReviewKey,
+                sourceDescription: sourceDescription || item.sourceDescription,
+              }
+            : item,
+        ),
+      );
+      setDiscardedRecognitionReviewKeys((previous) =>
+        previous.includes(recognitionReviewKey)
+          ? previous
+          : [...previous, recognitionReviewKey],
+      );
+      toast.success("Leistung übernommen. Bitte prüfen und speichern.");
+      return;
+    }
     const selectableSites = formWorkSites.filter((site) =>
       Boolean(
         compactText(site.siteName) ||
