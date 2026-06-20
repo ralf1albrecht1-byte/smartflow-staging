@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L363_INVOICE_CLOSED_CARD_DELETE_MENU_FIX
 // SMARTFLOW_V17_90L356_INVOICE_MOBILE_EXECUTION_SITE_POPOVER_ONLY
 // SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
 // SMARTFLOW_V17_90L354_INVOICE_PHONE_CONTACT_PHONE_SOURCE_FIX
@@ -7050,6 +7051,7 @@ export default function RechnungenPage() {
   };
 
   const remove = (e: React.MouseEvent, id: string) => {
+    e.preventDefault?.();
     e.stopPropagation();
     setConfirmDialog({
       title: "In Papierkorb verschieben?",
@@ -7843,6 +7845,7 @@ export default function RechnungenPage() {
                   return (
                     <motion.div
                       key={inv?.id}
+                      data-invoice-card-wrapper
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.02 }}
@@ -7865,8 +7868,21 @@ export default function RechnungenPage() {
                           <div className="flex items-start gap-2">
                             <details
                               data-invoice-action-menu
+                              data-card-toggle-ignore="true"
                               className="relative shrink-0 group"
-                              onClick={(e) => e.stopPropagation()}
+                              onToggle={(event) => {
+                                const wrapper = event.currentTarget.closest(
+                                  "[data-invoice-card-wrapper]",
+                                );
+                                if (wrapper instanceof HTMLElement) {
+                                  wrapper.style.zIndex = event.currentTarget.open
+                                    ? "10000"
+                                    : "";
+                                }
+                              }}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) => event.stopPropagation()}
                             >
                               <summary
                                 className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
@@ -7923,16 +7939,19 @@ export default function RechnungenPage() {
                                 </button>
                                 <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
+                                  type="button"
+                                  data-card-toggle-ignore="true"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onTouchStart={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
                                     const menu =
-                                      e.currentTarget.closest("details");
+                                      event.currentTarget.closest("details");
                                     if (menu instanceof HTMLDetailsElement)
                                       menu.open = false;
-                                    remove(
-                                      { stopPropagation: () => {} } as any,
-                                      inv.id,
-                                    );
+                                    remove(event, inv.id);
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                                 >
