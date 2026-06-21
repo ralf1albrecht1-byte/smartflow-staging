@@ -139,10 +139,12 @@ const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-pop
 // SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
 // SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
+  // SMARTFLOW_V17_90L371AN: Rechnungs-Kartenansicht wie Angebot:
+  // zuerst Dienstleistung, dann Material, Gerät/Maschine, danach Zusatzkosten.
   "service",
-  "expense",
   "material",
   "equipment",
+  "expense",
   "disposal",
   "flat_fee",
   "other",
@@ -1866,9 +1868,24 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     return invoiceCommunicationChannelKeyV17_90L334(line) !== "whatsapp";
   });
 
+  const invoiceAppointmentAnnouncementV17_90L371AN =
+    extractInvoiceAppointmentAnnouncementV17_90L371AN(
+      ...sourceOrders.flatMap((order) => [
+        order?.notes,
+        order?.audioTranscript,
+        order?.specialNotes,
+      ]),
+      fallbackSpecialNotes,
+    );
+  const cleanPrimaryHintsV17_90L371AN =
+    enrichInvoiceAppointmentHintsWithAnnouncementV17_90L371AN(
+      cleanPrimaryHintsV17_90L341,
+      invoiceAppointmentAnnouncementV17_90L371AN,
+    );
+
   return {
     hazards: cleanHazardsV17_90L322,
-    primaryHints: cleanPrimaryHintsV17_90L341,
+    primaryHints: cleanPrimaryHintsV17_90L371AN,
     otherHints,
   };
 }
@@ -1901,6 +1918,72 @@ function buildInvoiceSpecialNotesSourceV17_90L319(
     .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join("\n");
+}
+
+function extractInvoiceAppointmentAnnouncementV17_90L371AN(
+  ...values: unknown[]
+): string {
+  const source = values
+    .map((value) => String(value || ""))
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return "";
+
+  const matches = Array.from(
+    source.matchAll(
+      /\b(\d{1,3})\s*(?:min\.?|minuten?|minutes?)\s+(?:vorher|vorab|vor arbeitsbeginn|vor dem termin|beforehand|before)\b(?:.{0,80}?\b(?:telefonisch|anrufen|anruf|telefon|call|whatsapp|sms|melden|bescheid|informieren))?/giu,
+    ),
+  );
+
+  for (const match of matches) {
+    const minutes = Number(match[1]);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) continue;
+    const text = compactInvoiceValue(match[0]);
+    const key = normalizeInvoiceServiceName(text);
+    if (/\bwhatsapp\b/.test(key)) return `${minutes} Minuten vorher per WhatsApp melden`;
+    if (/\bsms\b/.test(key)) return `${minutes} Minuten vorher per SMS melden`;
+    if (/\b(?:telefonisch|telefon|anrufen|anruf|call)\b/.test(key)) {
+      return `${minutes} Minuten vorher anrufen`;
+    }
+    return `${minutes} Minuten vorher melden`;
+  }
+
+  return "";
+}
+
+function enrichInvoiceAppointmentHintsWithAnnouncementV17_90L371AN(
+  lines: string[],
+  announcement: string,
+): string[] {
+  const cleanAnnouncement = compactInvoiceValue(announcement);
+  if (!cleanAnnouncement) return lines;
+  const announcementKey = normalizeInvoiceServiceName(cleanAnnouncement);
+  if (!announcementKey) return lines;
+
+  const result = [...lines];
+  const alreadyVisible = result.some((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    return (
+      key.includes(announcementKey) ||
+      (/\bvorher\b/.test(key) &&
+        /\b(?:anrufen|melden|telefon|telefonisch|whatsapp|sms)\b/.test(key))
+    );
+  });
+  if (alreadyVisible) return result;
+
+  const appointmentIndex = result.findIndex((line) =>
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(line),
+  );
+
+  if (appointmentIndex >= 0) {
+    result[appointmentIndex] = `${compactInvoiceValue(result[appointmentIndex])} · ${cleanAnnouncement}`;
+    return result;
+  }
+
+  result.push(cleanAnnouncement);
+  return result;
 }
 
 function invoiceLineMatchesInheritedSpecialNoteV17_90L335(
@@ -8595,7 +8678,7 @@ export default function RechnungenPage() {
                                 <div className="mb-2 text-xs font-medium text-muted-foreground">
                                   Positionen · {visibleItems.length}
                                 </div>
-                                <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+                                <div className="space-y-1">
                                   {displayedInvoiceItems.map(
                                     (item: any, itemIndex: number) => (
                                       <div

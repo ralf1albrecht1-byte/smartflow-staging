@@ -1,6 +1,6 @@
 // SMARTFLOW_V17_90L371I_PDF_POSITION_GROUPS_FIX
 // SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
-import { getPositionTypeLabel, normalizePositionType } from "@/lib/position-types";
+import { getPositionTypeLabel, inferPositionTypeFromItem, normalizePositionType } from "@/lib/position-types";
 
 export type DocumentTemplate = "classic" | "modern" | "minimal" | "elegant";
 
@@ -631,7 +631,13 @@ function normalizePdfGroupText(value: unknown): string {
 }
 
 function getPdfPositionGroupType(item: any): string {
-  const rawType = normalizePositionType(item?.positionType);
+  // SMARTFLOW_V17_90L371AN: Rechnungs-PDF muss dieselbe Typauflösung wie die
+  // Karten/Editoren nutzen. Falls ältere Invoice-Items positionType nicht
+  // sauber im PDF-Payload tragen, wird nur für die PDF-Gruppierung derselbe
+  // sichere Resolver verwendet; gespeicherte Positionen/Summen bleiben unverändert.
+  const rawType = normalizePositionType(
+    inferPositionTypeFromItem(item) || item?.positionType,
+  );
   const label = normalizePdfGroupText(
     [item?.description, item?.serviceName].filter(Boolean).join(" "),
   );
@@ -640,7 +646,7 @@ function getPdfPositionGroupType(item: any): string {
     return "expense";
   }
 
-  if (rawType === "flat_fee") return "expense";
+  if (rawType === "flat_fee" || rawType === "disposal") return "expense";
   return rawType;
 }
 
