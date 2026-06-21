@@ -11332,6 +11332,94 @@ function mergeSharedFlatPackageRowsV17_90L232(
   return result;
 }
 
+
+type PositionTypeGuardOutcomeV17_90L371AM = {
+  positionType: string;
+  confidence: "clear" | "unchanged" | "review";
+  reviewReason?: string | null;
+};
+
+function normalizePositionTypeTokenV17_90L371AM(value: unknown): string | null {
+  const key = normalizeUnitText(value || "").replace(/[^a-z0-9]+/g, " ").trim();
+  if (!key) return null;
+  if (/\b(?:service|dienstleistung|leistung|arbeit|work|labor|labour)\b/.test(key)) return "service";
+  if (/\b(?:material|materialien|produkt|product|verbrauchsmaterial|supplies?)\b/.test(key)) return "material";
+  if (/\b(?:equipment|geraet|gerät|maschine|maschinen|werkzeug|tool|tools|machine|machines)\b/.test(key)) return "equipment";
+  if (/\b(?:expense|kosten|zusatzkosten|spesen|fee|fees|charge|charges|anfahrt|fahrtkosten|entsorgung|disposal|flat\s*fee)\b/.test(key)) return "expense";
+  return null;
+}
+
+function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
+  raw: any;
+  serviceName: string;
+  sourceText: string;
+}): PositionTypeGuardOutcomeV17_90L371AM {
+  const explicitToken = normalizePositionTypeTokenV17_90L371AM(
+    args.raw?.positionType ?? args.raw?.position_type ?? args.raw?.type,
+  );
+  const normalizedExplicit = normalizePositionType(
+    explicitToken || args.raw?.positionType || args.raw?.position_type || args.raw?.type,
+  );
+  const text = normalizeUnitText(
+    [
+      args.serviceName,
+      args.sourceText,
+      args.raw?.context,
+      args.raw?.raw,
+      args.raw?.evidence,
+      args.raw?.source_text,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const hasExpenseSignal = /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(text);
+  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text);
+  const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
+  const localQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "")[0]?.unit ||
+    getServiceUnitType(args.raw?.unit ?? args.raw?.einheit ?? null);
+  const materialIncompatibleUnit = ["square_meter", "cubic_meter", "meter", "hour", "day"].includes(localQuantityUnit);
+  const hasMaterialSignal = clearMaterialSignal && !materialIncompatibleUnit;
+
+  if (hasExpenseSignal) {
+    return { positionType: normalizePositionType("expense"), confidence: "clear" };
+  }
+  if (hasEquipmentSignal) {
+    return { positionType: normalizePositionType("equipment"), confidence: "clear" };
+  }
+  if (hasMaterialSignal) {
+    return { positionType: normalizePositionType("material"), confidence: "clear" };
+  }
+
+  if (explicitToken) {
+    return { positionType: normalizedExplicit, confidence: "unchanged" };
+  }
+
+  return { positionType: normalizePositionType("service"), confidence: "unchanged" };
+}
+
+function isLineLocalFlatCostCandidateV17_90L371AM(args: {
+  positionType: string;
+  sourceText: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+}): boolean {
+  if (normalizePositionType(args.positionType) !== "expense") return false;
+  if (!Number.isFinite(args.unitPrice) || args.unitPrice <= 0) return false;
+  const unitType = getServiceUnitType(args.unit || null);
+  if (unitType === "flat") return true;
+
+  const source = normalizeUnitText(args.sourceText || "");
+  if (!source) return false;
+
+  const hasExplicitPerUnitSignal = /(?:\b(?:pro|je|per|each|par|por)\b|\sà\s|@)/i.test(source);
+  if (hasExplicitPerUnitSignal) return false;
+
+  const hasExplicitQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "").length > 0;
+  return (!args.unit || isReviewUnitV17_90L(args.unit) || args.quantity <= 0) && !hasExplicitQuantityUnit;
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   _translatedText?: string | null,
@@ -11370,8 +11458,17 @@ function buildCanonicalAiOrderItemsV17_90L88(
       .replace(/\s+/g, " ")
       .trim();
     const serviceName = rawServiceName || "Leistung prüfen";
+    const positionTypeGuardV17_90L371AM =
+      classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
+        raw,
+        serviceName,
+        sourceText,
+      });
+    const positionType = normalizePositionType(
+      positionTypeGuardV17_90L371AM.positionType,
+    );
 
-    const quantity = parsePositiveCanonicalNumberV17_90L89(
+    let quantity = parsePositiveCanonicalNumberV17_90L89(
       raw?.quantity ?? raw?.menge,
     );
     const unitPrice = parsePositiveCanonicalNumberV17_90L89(
@@ -11381,10 +11478,10 @@ function buildCanonicalAiOrderItemsV17_90L88(
       .replace(/\s+/g, " ")
       .trim();
     const rawUnitType = getServiceUnitType(rawUnit);
-    const unit = rawUnitType !== "unknown"
+    let unit = rawUnitType !== "unknown"
       ? unitTypeToDisplayUnit(rawUnitType)
       : rawUnit || "Einheit prüfen";
-    const unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
+    let unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
       ? "ai"
       : "missing";
 
@@ -11403,14 +11500,31 @@ function buildCanonicalAiOrderItemsV17_90L88(
           ? "mittel"
           : "hoch";
 
+    if (
+      confidence !== "niedrig" &&
+      isLineLocalFlatCostCandidateV17_90L371AM({
+        positionType,
+        sourceText,
+        unit,
+        quantity,
+        unitPrice,
+      })
+    ) {
+      quantity = 1;
+      unit = "Pauschal";
+      unitSource = rawUnit ? unitSource : "structural_flat";
+    }
+
     const missingServiceName = !rawServiceName;
     const missingEvidence = !sourceText;
     const missingPrice = unitPrice <= 0;
     const missingQuantity = quantity <= 0;
-    const missingUnit = !rawUnit || isReviewUnitV17_90L(unit);
+    const missingUnit = !unit || isReviewUnitV17_90L(unit);
     const explicitNeedsReview = Boolean(
       raw?.needsReview ?? raw?.needs_review ?? false,
     );
+    const positionTypeNeedsReview =
+      positionTypeGuardV17_90L371AM.confidence === "review";
     const explicitReviewReason = String(
       raw?.reviewReason ?? raw?.review_reason ?? "",
     )
@@ -11419,6 +11533,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     const needsReview = Boolean(
       explicitNeedsReview ||
+        positionTypeNeedsReview ||
         missingServiceName ||
         missingEvidence ||
         missingPrice ||
@@ -11427,7 +11542,9 @@ function buildCanonicalAiOrderItemsV17_90L88(
     );
     const reviewReason =
       explicitReviewReason ||
-      (missingServiceName
+      (positionTypeNeedsReview
+        ? `position_type_review:${serviceName}`
+        : missingServiceName
         ? "service_name_missing"
         : missingEvidence
           ? `source_evidence_missing:${serviceName}`
@@ -11443,6 +11560,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     return {
       serviceName,
+      positionType,
       description: sourceText || serviceName,
       quantity,
       unit,
@@ -11711,6 +11829,7 @@ function reconcileWithCanonicalAiItemsV17_90L88(
 
     result.push({
       serviceName: canonical.serviceName,
+      positionType: normalizePositionType(canonical.positionType),
       description: canonical.sourceText || canonical.description,
       quantity,
       unit,
@@ -11800,6 +11919,9 @@ function canonicalItemsStableAfterValidationV17_90L89(
     const sameName =
       String(item.serviceName || "").trim() ===
       String(canonical.serviceName || "").trim();
+    const samePositionType =
+      normalizePositionType(item.positionType) ===
+      normalizePositionType(canonical.positionType);
     const sameQuantity =
       Math.abs(Number(item.quantity || 0) - Number(canonical.quantity || 0)) <
       0.0001;
@@ -11813,6 +11935,7 @@ function canonicalItemsStableAfterValidationV17_90L89(
 
     return (
       sameName &&
+      samePositionType &&
       sameQuantity &&
       samePrice &&
       sameUnit &&
@@ -14083,6 +14206,7 @@ function findAggregateEntrySubsetV17_90L60(
 function reconcileExplicitPricedServiceLinesV17_90L60<
   T extends {
     serviceName: string;
+    positionType?: string | null;
     description: string;
     quantity: number;
     unit: string;
@@ -14545,6 +14669,16 @@ V17.09 STRUKTURVERTRAG:
 - Mehrsprachige Positionszeilen wie "Window inside 4 pcs at CHF 9" müssen line-local gelesen werden:
   Objekt/Tätigkeit, Menge, Einheit, Preis und Währung gehören aus genau dieser Zeile zusammen. "at CHF 9" ist ein Preisanker wie "à/je CHF 9", kein Hinweistext.
 
+POSITIONSTYP – PFLICHTFELD PRO ARBEITSPOSITION:
+- Setze bei jeder arbeitsposition position_type semantisch. Nicht pauschal "service" verwenden.
+- "service" = echte Arbeitsleistung/Tätigkeit, z. B. reinigen, montieren, demontieren, streichen, schneiden, prüfen, warten.
+- "material" = Verbrauchsmaterial, Produkt, Reiniger, Chemie, Ersatzteil, Farbe, Zement, Sackware oder sonstiges Material, das als Position verrechnet wird.
+- "equipment" = Gerät, Maschine, Werkzeug, Maschineneinsatz oder Gerätemiete, die als Position verrechnet wird.
+- "expense" = Zusatzkosten, Anfahrt, Fahrt-/Wegkosten, Gebühren, Parkgebühren, Entsorgungskosten, Deponie, Schmutzwasser-/Abfallentsorgung oder sonstige Nebenkosten.
+- Wenn eine Zusatzkosten-/Entsorgungs-/Anfahrtszeile nur einen Gesamtbetrag enthält, setze menge=1 und einheit="Pauschal". Beispiel: "Entsorgungskosten CHF 25" -> position_type="expense", menge=1, einheit="Pauschal", unit_price=25.
+- Wenn der Typ trotz eigener Evidence nicht sicher bestimmbar ist, setze confidence="niedrig" und position_type="service" nur als Platzhalter; die Position muss dadurch prüfpflichtig bleiben.
+- Nachträgliche Validatoren dürfen position_type nicht neu raten; deshalb muss diese erste KI-Ausgabe vollständig und line-local sein.
+
 Sortiere nach Bedeutung, nicht nach einzelnen Signalwörtern:
 - Wer/was bezahlt oder bekommt die Rechnung? → kunde
 - Wo wird die Arbeit tatsächlich ausgeführt? → auftrag.ausfuehrungsadresse
@@ -14808,6 +14942,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
     "service_id": "id aus leistungen oder null",
     "service_name": "exakter Name aus leistungen oder null",
     "service_confidence": "hoch" | "mittel" | "niedrig",
+    "position_type": "service" | "material" | "equipment" | "expense",
     "menge": Zahl oder null,
     "einheit": "Quadratmeter" | "Kubikmeter" | "Meter" | "Stunde" | "Tag" | "Tonne" | "Kilogramm" | "Liter" | "Stück" | "Pauschal" | null,
     "unit_price": Zahl oder null,
@@ -17251,6 +17386,9 @@ export async function processIncomingMessage(
     matched_service_id?: string | null;
     matched_service_name?: string | null;
     service_confidence?: "hoch" | "mittel" | "niedrig" | string | null;
+    positionType?: string | null;
+    position_type?: string | null;
+    type?: string | null;
     menge?: number | null;
     einheit?: string | null;
     unit_price?: number | string | null;
@@ -18330,6 +18468,7 @@ export async function processIncomingMessage(
 
   let finalOrderItems: Array<{
     serviceName: string;
+    positionType?: string | null;
     description: string;
     quantity: number;
     unit: string;
@@ -20275,6 +20414,7 @@ export async function processIncomingMessage(
       ).trim();
       return {
         serviceName: item.serviceName,
+        positionType: normalizePositionType((item as any).positionType),
         quantity: item.quantity,
         unit: item.unit,
         unitPrice: item.unitPrice,
@@ -20288,6 +20428,7 @@ export async function processIncomingMessage(
           [
             sourceText,
             item.serviceName,
+            normalizePositionType((item as any).positionType),
             item.quantity,
             item.unit,
             item.unitPrice,
@@ -20474,6 +20615,7 @@ export async function processIncomingMessage(
                 ).trim();
                 return {
                   serviceName: item.serviceName,
+                  positionType: normalizePositionType((item as any).positionType),
                   description: sourceText || item.serviceName,
                   quantity: item.quantity,
                   unit: item.unit,
@@ -20489,6 +20631,7 @@ export async function processIncomingMessage(
                       [
                         sourceText,
                         item.serviceName,
+                        normalizePositionType((item as any).positionType),
                         item.quantity,
                         item.unit,
                         item.unitPrice,
