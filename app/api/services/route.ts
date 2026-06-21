@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+import { normalizePositionType } from '@/lib/position-types';
 
 const compact = (value?: string | null) =>
   String(value || '').replace(/\s+/g, ' ').trim();
@@ -137,6 +138,7 @@ export async function POST(request: Request) {
 
     const data = await request.json();
     const { name, defaultPrice, unit } = data;
+    const positionType = normalizePositionType(data?.positionType);
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json({ error: 'Name fehlt' }, { status: 400 });
@@ -173,6 +175,7 @@ export async function POST(request: Request) {
         name: canonicalName,
         defaultPrice: Number(defaultPrice),
         unit,
+        positionType,
         userId,
       },
     });
@@ -202,6 +205,7 @@ export async function PUT(request: Request) {
 
     const data = await request.json();
     const { id, name, defaultPrice, unit } = data;
+    const positionType = normalizePositionType(data?.positionType);
 
     if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'ID fehlt' }, { status: 400 });
@@ -239,6 +243,7 @@ export async function PUT(request: Request) {
         name: canonicalName,
         defaultPrice: Number(defaultPrice),
         unit,
+        positionType,
       },
     });
 

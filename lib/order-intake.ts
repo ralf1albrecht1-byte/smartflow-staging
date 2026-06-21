@@ -33,6 +33,7 @@ import {
 import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
 import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
 import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
+import { normalizePositionType } from "@/lib/position-types";
 
 // SMARTFLOW_V17_90L361_POST_AI_FIREWALL_CUSTOMER_SERVICE_ADDRESS
 
@@ -43,6 +44,7 @@ import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
 type IntakeDiagnosticTraceItem = {
   index: number;
   serviceName: string;
+  positionType?: string | null;
   quantity: number | null;
   unit: string;
   unitPrice: number | null;
@@ -108,6 +110,7 @@ function summarizeIntakeDiagnosticItems(
 
     return {
       index: index + 1,
+      positionType: normalizePositionType(rawItem?.positionType ?? rawItem?.position_type ?? rawItem?.type),
       serviceName: redactIntakeDiagnosticText(
         rawItem?.serviceName ??
           rawItem?.name ??
@@ -8956,7 +8959,7 @@ function detectExplicitQuantityRangeV17_90L121(
     { unit: "meter", pattern: "(?:laufmeter|lfm|meter|metres?|mètres?)" },
     {
       unit: "piece",
-      pattern: "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?)",
+      pattern: "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?|sack|säcke|saecke|kartuschen?|eimer|rollen?|gebinde|paletten?)",
     },
     { unit: "kilogram", pattern: "(?:kilogramm|kg)" },
     { unit: "ton", pattern: "(?:tonnen?|to\.?|t)" },
@@ -8988,6 +8991,7 @@ function detectExplicitQuantityRangeV17_90L121(
 
 type IntakeFinalOrderItemForBlocker = {
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -9016,6 +9020,7 @@ function applyFinalAmountBlockersBeforePersist(
 
   return items.map((item) => {
     const next: IntakeFinalOrderItemForBlocker = { ...item };
+    next.positionType = normalizePositionType((next as any).positionType);
     const serviceName =
       String(next.serviceName || "Unbekannte Leistung").trim() ||
       "Unbekannte Leistung";
@@ -9159,6 +9164,7 @@ function applyFinalAmountBlockersBeforePersist(
 // into neighbouring Stück/m² rows.
 type IntakeHourLineRepairItem = {
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -10169,6 +10175,7 @@ function structuredNameMatchesCatalogServiceV17_90L76(
 
 type StructuredOrderItemSnapshotV17_90L76 = {
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -10268,6 +10275,7 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
     restored.push({
       ...base,
       serviceName: snapshot.serviceName,
+      positionType: normalizePositionType((snapshot as any).positionType || (base as any).positionType),
       sourceText: base.sourceText || snapshot.sourceText || snapshot.evidence,
       evidence: base.evidence || snapshot.evidence || snapshot.sourceText,
     });

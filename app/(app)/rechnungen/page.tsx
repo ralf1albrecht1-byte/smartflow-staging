@@ -79,6 +79,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -128,6 +129,7 @@ import { MissingCustomerDataBadge } from "@/components/missing-customer-data-bad
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
 interface InvoiceItem {
+  positionType?: string | null;
   description: string;
   quantity: string;
   unit: string;
@@ -2103,7 +2105,7 @@ function collectInvoiceExecutionSites(source: {
       _workSiteUiKey: compactInvoiceValue(candidate._workSiteUiKey) || null,
       operationalText:
         compactInvoiceValue(candidate.operationalText) ||
-        operationalContextByAddress.get(documentSiteAddressKey(candidate)) ||
+        compactInvoiceValue(operationalContextByAddress.get(documentSiteAddressKey(candidate))) ||
         null,
     };
     if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
@@ -2332,7 +2334,7 @@ function buildInvoiceGroupReviewRows(
   currency: "CHF" | "EUR",
 ): string[] {
   return group.entries.flatMap(({ item }) => {
-    const name = compactInvoiceValue(item?.description) || "Neue Leistung";
+    const name = compactInvoiceValue(item?.description) || "Neue Position";
     const quantity = Number(item?.quantity || 0);
     const unitPrice = Number(item?.unitPrice || 0);
     const unit = compactInvoiceValue(item?.unit);
@@ -4200,6 +4202,7 @@ export default function RechnungenPage() {
         ? customers.find((customer) => customer.id === form.customerId) || null
         : null;
   const getEmptyItem = (): InvoiceItem => ({
+    positionType: "service",
     description: "",
     quantity: "",
     unit: "",
@@ -4406,6 +4409,7 @@ export default function RechnungenPage() {
     audioDurationSec?: number | null;
     audioTranscriptionStatus?: string | null;
     hinweisLevel?: string | null;
+    positionType?: string | null;
     description?: string | null;
   } | null>(null);
 
@@ -4787,6 +4791,7 @@ export default function RechnungenPage() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setItems(
               parsed.map((item: any) => ({
+                positionType: normalizePositionType((item as any).positionType),
                 description: item.serviceName || item.description || "",
                 quantity: String(item.quantity ?? 0),
                 unit: item.unit ?? "Stunde",
@@ -4821,7 +4826,8 @@ export default function RechnungenPage() {
                 audioDurationSec: lo.audioDurationSec,
                 audioTranscriptionStatus: lo.audioTranscriptionStatus,
                 hinweisLevel: lo.hinweisLevel,
-                description: lo.description,
+                positionType: normalizePositionType((lo as any).positionType),
+        description: lo.description,
               });
             if (offer?.orders?.length)
               setEditOrderCtx(resolveCommunicationData(null, offer.orders));
@@ -4959,6 +4965,7 @@ export default function RechnungenPage() {
         audioDurationSec: lo.audioDurationSec,
         audioTranscriptionStatus: lo.audioTranscriptionStatus,
         hinweisLevel: lo.hinweisLevel,
+        positionType: normalizePositionType((lo as any).positionType),
         description: lo.description,
       });
     else setLinkedOrderData(null);
@@ -4998,6 +5005,7 @@ export default function RechnungenPage() {
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
+            positionType: normalizePositionType((it as any).positionType),
             description: it.description ?? "",
             quantity: String(it.quantity ?? 0),
             unit: it.unit ?? "Stunde",
@@ -5324,6 +5332,7 @@ export default function RechnungenPage() {
       updateItem(idx, "description", svc.name);
       updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
       updateItem(idx, "unit", compactInvoiceValue(svc.unit));
+      updateItem(idx, "positionType", normalizePositionType((svc as any).positionType));
     } else if (!name) {
       updateItem(idx, "description", "");
       updateItem(idx, "unitPrice", "");
@@ -9563,7 +9572,9 @@ export default function RechnungenPage() {
                               hasMissingValues ||
                               !matchedService ||
                               catalogMismatch;
+                            const positionBlockingIssues = getPositionBlockingIssues(item);
                             const itemReviewReasonV17_90L134 =
+                              (positionBlockingIssues.length > 0 ? positionBlockingIssues.join(", ") : "") ||
                               getInvoiceServiceReviewReasonV17_90L134(
                                 item,
                                 services || [],
@@ -9646,7 +9657,7 @@ export default function RechnungenPage() {
                                         {item?.description ||
                                           (shouldShowInvoiceWorkSiteSelectorV17_90L320
                                             ? "Ausführungsort und Leistung auswählen"
-                                            : "Neue Leistung")}
+                                            : "Neue Position")}
                                       </span>
                                     </div>
                                     <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
@@ -9725,7 +9736,7 @@ export default function RechnungenPage() {
                                             }}
                                           >
                                             <Trash2 className="h-4 w-4" />
-                                            Leistung löschen
+                                            Position löschen
                                           </button>
                                           <button
                                             type="button"
@@ -9736,7 +9747,7 @@ export default function RechnungenPage() {
                                             }}
                                           >
                                             <Plus className="h-4 w-4" />
-                                            In Leistungskatalog übernehmen
+                                            In Katalog übernehmen
                                           </button>
                                         </div>
                                       )}
@@ -9749,8 +9760,8 @@ export default function RechnungenPage() {
                                         removeItem(idx);
                                       }}
                                       className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
-                                      title="Leistung löschen"
-                                      aria-label="Leistung löschen"
+                                      title="Position löschen"
+                                      aria-label="Position löschen"
                                     >
                                       <Trash2 className="h-4 w-4" />
                                     </button>
@@ -9806,6 +9817,22 @@ export default function RechnungenPage() {
                                         </select>
                                       </div>
                                     )}
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                      <div>
+                                        <Label className="text-xs">Typ *</Label>
+                                        <select
+                                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                          value={normalizePositionType(item?.positionType)}
+                                          onChange={(event: any) => updateItem(idx, "positionType", normalizePositionType(event?.target?.value))}
+                                        >
+                                          {POSITION_TYPE_OPTIONS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </div>
                                     <ServiceCombobox
                                       value={item?.description ?? ""}
                                       services={services as ServiceOption[]}
@@ -9819,6 +9846,8 @@ export default function RechnungenPage() {
                                           : undefined
                                       }
                                       currentUnit={item?.unit}
+                                      positionType={item?.positionType}
+                                      onPositionTypeChange={(positionType) => updateItem(idx, "positionType", positionType)}
                                       contextLabel="Rechnung"
                                       saveButtonPlacement="none"
                                     />
@@ -9827,9 +9856,11 @@ export default function RechnungenPage() {
                                         <Label className="text-xs">
                                           Einheit
                                         </Label>
-                                        <select
-                                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                        <Input
+                                          list={`invoice-position-unit-options-${idx}`}
+                                          className={`h-9 ${!String(item?.unit || "").trim() || /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || "")) ? "border-red-500 bg-red-50" : ""}`}
                                           value={item?.unit ?? ""}
+                                          placeholder="frei eingeben oder Vorschlag wählen"
                                           onChange={(event: any) =>
                                             updateItem(
                                               idx,
@@ -9837,29 +9868,12 @@ export default function RechnungenPage() {
                                               event?.target?.value ?? "",
                                             )
                                           }
-                                        >
-                                          <option value="">
-                                            Einheit prüfen
-                                          </option>
-                                          <option value="Stunde">Stunde</option>
-                                          <option value="Tag">Tag</option>
-                                          <option value="Pauschal">
-                                            Pauschal
-                                          </option>
-                                          <option value="Meter">Meter</option>
-                                          <option value="Quadratmeter">
-                                            Quadratmeter
-                                          </option>
-                                          <option value="Kubikmeter">
-                                            Kubikmeter
-                                          </option>
-                                          <option value="Stück">Stück</option>
-                                          <option value="Kilogramm">
-                                            Kilogramm
-                                          </option>
-                                          <option value="Tonne">Tonne</option>
-                                          <option value="Liter">Liter</option>
-                                        </select>
+                                        />
+                                        <datalist id={`invoice-position-unit-options-${idx}`}>
+                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
+                                            <option key={unit} value={unit} />
+                                          ))}
+                                        </datalist>
                                       </div>
                                       <div>
                                         <Label className="text-xs">Menge</Label>

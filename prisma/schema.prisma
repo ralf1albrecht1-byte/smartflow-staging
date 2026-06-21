@@ -141,6 +141,7 @@ model Service {
   name         String
   defaultPrice Float
   unit         String   @default("Stunde")
+  positionType String   @default("service")
   userId       String?
   user         User?    @relation("UserServices", fields: [userId], references: [id])
   createdAt    DateTime @default(now())
@@ -230,6 +231,7 @@ model OrderItem {
   workSiteId  String?
   workSite    OrderWorkSite? @relation(fields: [workSiteId], references: [id], onDelete: SetNull)
   serviceName String
+  positionType String @default("service")
   description String @default("")
   quantity    Float  @default(1)
   unit        String @default("Stunde")
@@ -283,6 +285,7 @@ model InvoiceItem {
   invoiceId   String
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
+  positionType String @default("service")
   quantity    Float   @default(1)
   unit        String  @default("Stunde")
   unitPrice   Float
@@ -331,6 +334,7 @@ model OfferItem {
   offerId     String
   offer       Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
   description String
+  positionType String @default("service")
   quantity    Float  @default(1)
   unit        String @default("Stunde")
   unitPrice   Float

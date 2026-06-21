@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import { generateInvoiceNumber } from "@/lib/doc-numbers";
 import {
@@ -137,7 +138,12 @@ function sourceOrderBlockers(order: any): string[] {
         isUnresolvedSourceUnitV17_90L36b(item?.unit),
     )
   ) {
-    blockers.push("Leistung/Einheit prüfen");
+    blockers.push("Position/Einheit prüfen");
+  }
+
+  const positionIssueLabels = items.flatMap((item: any) => getPositionBlockingIssues(item));
+  if (positionIssueLabels.length > 0) {
+    blockers.push(...positionIssueLabels.map((issue: string) => `Position prüfen: ${issue}`));
   }
 
   if (items.some((item: any) => !isSourceOrderItemResolvedForDocument(item))) {
@@ -649,7 +655,8 @@ export async function POST(request: Request) {
               items: {
                 create: items.map((item: any) => ({
                   description: item?.description ?? "",
-                  quantity: Number(item?.quantity ?? 1),
+                  positionType: normalizePositionType(item?.positionType),
+                quantity: Number(item?.quantity ?? 1),
                   unit: item?.unit ?? "Stunde",
                   unitPrice: roundMoney(Number(item?.unitPrice ?? 0)),
                   totalPrice: calculateLineTotal(

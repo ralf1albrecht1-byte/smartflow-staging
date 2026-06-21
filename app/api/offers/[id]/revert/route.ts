@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   requireUserId,
@@ -286,6 +287,7 @@ export async function POST(
                 orderId: order.id,
                 serviceName: compact(item.description) || "Leistung",
                 description: compact(item.description) || "",
+                  positionType: normalizePositionType(item?.positionType),
                 quantity: Number(item.quantity ?? 1),
                 unit: compact(item.unit) || "Stunde",
                 unitPrice: roundMoney(Number(item.unitPrice ?? 0)),

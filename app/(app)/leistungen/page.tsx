@@ -10,9 +10,10 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { formatCurrency } from '@/lib/currency';
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType } from '@/lib/position-types';
 
-interface Service { id: string; name: string; defaultPrice: number; unit: string; }
-const emptyForm = { name: '', defaultPrice: '', unit: 'Stunde' };
+interface Service { id: string; name: string; defaultPrice: number; unit: string; positionType?: string | null; }
+const emptyForm = { name: '', defaultPrice: '', unit: 'Stunde', positionType: 'service' };
 
 export default function LeistungenPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -26,7 +27,7 @@ export default function LeistungenPage() {
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setEditId(null); setForm(emptyForm); setDialogOpen(true); };
-  const openEdit = (s: Service) => { setEditId(s?.id); setForm({ name: s?.name ?? '', defaultPrice: String(s?.defaultPrice ?? 0), unit: s?.unit ?? 'Stunde' }); setDialogOpen(true); };
+  const openEdit = (s: Service) => { setEditId(s?.id); setForm({ name: s?.name ?? '', defaultPrice: String(s?.defaultPrice ?? 0), unit: s?.unit ?? 'Stunde', positionType: normalizePositionType(s?.positionType) }); setDialogOpen(true); };
 
   const save = async () => {
     if (!form?.name?.trim()) { toast.error('Bezeichnung ist erforderlich'); return; }
@@ -53,9 +54,9 @@ export default function LeistungenPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2"><Wrench className="w-7 h-7 text-primary" /> Leistungskatalog</h1>
-          <p className="text-muted-foreground mt-1">Vordefinierte Leistungen und Preise</p>
+          <p className="text-muted-foreground mt-1">Vordefinierte Leistungen, Material und Zusatzkosten</p>
         </div>
-        <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neue Leistung</Button>
+        <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neue Position</Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -68,7 +69,7 @@ export default function LeistungenPage() {
                     <div>
                       <h3 className="font-semibold">{s?.name ?? ''}</h3>
                      <p className="font-mono text-lg font-bold text-primary mt-1">{formatCurrency(s?.defaultPrice)}</p>
-                      <Badge variant="secondary" className="mt-2">{s?.unit ?? ''}</Badge>
+                      <div className="mt-2 flex flex-wrap gap-1"><Badge variant="secondary">{getPositionTypeLabel(s?.positionType)}</Badge><Badge variant="outline">{s?.unit ?? ''}</Badge></div>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEdit(s)}><Edit className="w-4 h-4" /></Button>
@@ -83,25 +84,15 @@ export default function LeistungenPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editId ? 'Leistung bearbeiten' : 'Neue Leistung'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editId ? 'Position bearbeiten' : 'Neue Position'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Bezeichnung *</Label><Input value={form.name} onChange={(e: any) => setForm({ ...form, name: e?.target?.value ?? '' })} /></div>
+            <div><Label>Typ *</Label><select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.positionType} onChange={(e: any) => setForm({ ...form, positionType: normalizePositionType(e?.target?.value) })}>{POSITION_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
             <div><Label>Standardpreis (CHF)</Label><Input type="number" step="0.05" value={form.defaultPrice} onChange={(e: any) => setForm({ ...form, defaultPrice: e?.target?.value ?? '' })} /></div>
             <div>
               <Label>Einheit</Label>
-              <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.unit} onChange={(e: any) => setForm({ ...form, unit: e?.target?.value ?? 'Stunde' })}>
-                <option value="Stunde">Stunde</option>
-<option value="Tag">Tag</option>
-<option value="Pauschal">Pauschal</option>
-<option value="Meter">Meter</option>
-<option value="Quadratmeter">Quadratmeter</option>
-<option value="Kubikmeter">Kubikmeter</option>
-<option value="Stück">Stück</option>
-<option value="Kilogramm">Kilogramm</option>
-<option value="Tonne">Tonne</option>
-<option value="Liter">Liter</option>
-                
-              </select>
+              <Input list="service-unit-suggestions" value={form.unit} onChange={(e: any) => setForm({ ...form, unit: e?.target?.value ?? '' })} />
+              <datalist id="service-unit-suggestions">{POSITION_UNIT_SUGGESTIONS.map((unit) => <option key={unit} value={unit} />)}</datalist>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Abbrechen</Button>

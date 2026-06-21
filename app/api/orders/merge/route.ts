@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   buildSpecialNotes,
@@ -29,6 +30,7 @@ interface MergeWorkSiteInput {
 interface MergeItemInput {
   serviceName: string;
   description: string;
+  positionType?: string | null;
   quantity: number;
   unit: string;
   unitPrice: number;
@@ -1026,6 +1028,7 @@ export async function POST(request: NextRequest) {
             create: mergedItems.map((item) => ({
               serviceName: item.serviceName,
               description: item.description,
+                  positionType: normalizePositionType(item?.positionType),
               quantity: item.quantity,
               unit: item.unit,
               unitPrice: item.unitPrice,

@@ -81,6 +81,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -297,6 +298,7 @@ interface OrderItem {
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -386,6 +388,7 @@ interface ServiceDef {
   name: string;
   defaultPrice: number;
   unit: string;
+  positionType?: string | null;
 }
 
 const statuses = ["Alle", "Offen", "Erledigt"];
@@ -438,6 +441,7 @@ const unitConflictTextByReason: Record<string, string> = {
 interface FormItem {
   key: string; // client-side key for React
   serviceName: string;
+  positionType?: string | null;
   unit: string;
   unitPrice: string;
   quantity: string;
@@ -462,6 +466,7 @@ interface FormItem {
 const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
+  positionType: "service",
   unit: "Einheit prüfen",
   unitPrice: "",
   quantity: "",
@@ -980,7 +985,7 @@ const getOrderServiceReviewDetailV17_90L134 = (
 ): string => {
   const reason = getOrderServiceReviewReasonV17_90L134(item, services);
   if (!reason) return "";
-  const name = compactText(item?.serviceName) || "Neue Leistung";
+  const name = compactText(item?.serviceName) || "Neue Position";
   const quantity = Number(item?.quantity || 0);
   const price = Number(item?.unitPrice || 0);
   const unit = compactText(item?.unit) || "–";
@@ -16050,6 +16055,8 @@ export default function AuftraegePage() {
       return {
         index: index + 1,
         serviceName: item.serviceName.trim(),
+        
+        positionType: normalizePositionType((item as any).positionType),
         unit: item.unit,
         unitLabel: unitShortLabel(item.unit),
         quantity,
@@ -17253,6 +17260,8 @@ export default function AuftraegePage() {
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          
+          positionType: normalizePositionType((item as any).positionType),
           description:
             hasCurrentEditCurrencyReview && itemCurrencyConfirmed
               ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
@@ -22764,7 +22773,7 @@ export default function AuftraegePage() {
                                           addItemToWorkSite(site.id)
                                         }
                                       >
-                                        + Leistung hier hinzufügen
+                                        + Position hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
@@ -22897,7 +22906,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Plus className="h-4 w-4" />
-                                                In Leistungskatalog übernehmen
+                                                In Katalog übernehmen
                                               </button>
                                             </div>
                                           )}
@@ -22978,6 +22987,24 @@ export default function AuftraegePage() {
                                           </select>
                                         </div>
                                       )}
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <div>
+                                            <Label className="text-xs">Typ *</Label>
+                                            <select
+                                              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                              value={normalizePositionType((item as any).positionType)}
+                                              onChange={(event: any) =>
+                                                updateItem(index, "positionType", normalizePositionType(event?.target?.value))
+                                              }
+                                            >
+                                              {POSITION_TYPE_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        </div>
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -22990,6 +23017,8 @@ export default function AuftraegePage() {
                                           onServiceCreated={handleServiceCreated}
                                           currentPrice={item.unitPrice}
                                           currentUnit={item.unit}
+                                          positionType={(item as any).positionType}
+                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
                                           showManualHint={false}
                                           saveButtonPlacement="none"
                                         />
@@ -23004,11 +23033,12 @@ export default function AuftraegePage() {
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <div>
                                         <Label className="text-xs">Einheit</Label>
-                                        <select
-                                          className={`flex h-9 w-full rounded-md border bg-background px-2 text-sm ${
+                                        <Input
+                                          list={`position-unit-options-${index}`}
+                                          className={`h-9 ${
                                             unitInputCriticalV17_90L243
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                              : "border-input"
+                                              : ""
                                           }`}
                                           value={
                                             unitMissingInTextReason &&
@@ -23021,18 +23051,15 @@ export default function AuftraegePage() {
                                             updateItem(
                                               index,
                                               "unit",
-                                              e?.target?.value ?? "Stunde",
+                                              e?.target?.value ?? "",
                                             )
                                           }
-                                        >
-                                          {priceTypes.map((pt) => (
-                                            <option key={pt} value={pt}>
-                                              {pt === "Einheit prüfen"
-                                                ? "prüfen"
-                                                : pt}
-                                            </option>
+                                        />
+                                        <datalist id={`position-unit-options-${index}`}>
+                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
+                                            <option key={unit} value={unit} />
                                           ))}
-                                        </select>
+                                        </datalist>
                                       </div>
 
                                       <div>

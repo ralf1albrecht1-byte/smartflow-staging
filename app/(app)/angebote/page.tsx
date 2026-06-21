@@ -58,6 +58,7 @@ import {
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -123,6 +124,7 @@ function OfferDangerousDogIcon({
 }
 
 interface OfferItem {
+  positionType?: string | null;
   description: string;
   quantity: string;
   unit: string;
@@ -483,7 +485,7 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
       _workSiteUiKey: compactOfferValue(candidate._workSiteUiKey) || null,
       operationalText:
         compactOfferValue(candidate.operationalText) ||
-        operationalContextByAddress.get(documentSiteAddressKey(candidate)) ||
+        compactOfferValue(operationalContextByAddress.get(documentSiteAddressKey(candidate))) ||
         null,
     };
     // V17.90L279: Ein separater Arbeitsort ist nur mit vollständiger Adresse
@@ -622,7 +624,7 @@ function buildOfferGroupReviewRows(
   currency: "CHF" | "EUR",
 ): string[] {
   return group.entries.flatMap(({ item }) => {
-    const name = String(item?.description || "").trim() || "Neue Leistung";
+    const name = String(item?.description || "").trim() || "Neue Position";
     const quantity = Number(item?.quantity || 0);
     const unitPrice = Number(item?.unitPrice || 0);
     const unit = String(item?.unit || "").trim();
@@ -4093,6 +4095,7 @@ export default function AngebotePage() {
         ? customers.find((customer) => customer.id === form.customerId) || null
         : null;
   const getEmptyItem = (): OfferItem => ({
+    positionType: "service",
     description: "",
     quantity: "",
     unit: "",
@@ -5038,6 +5041,7 @@ export default function AngebotePage() {
   const addServiceItem = (svc: any) => {
     setItems((current) => [
       {
+        positionType: normalizePositionType(svc?.positionType),
         description: svc?.name ?? "",
         quantity: "",
         unit: compactOfferValue(svc?.unit) || "",
@@ -5060,6 +5064,7 @@ export default function AngebotePage() {
       updateItem(idx, "description", svc.name);
       updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
       updateItem(idx, "unit", compactOfferValue(svc.unit));
+      updateItem(idx, "positionType", normalizePositionType((svc as any).positionType));
     } else if (!name) {
       updateItem(idx, "description", "");
       updateItem(idx, "unitPrice", "");
@@ -6110,6 +6115,7 @@ export default function AngebotePage() {
             singleExecutionSite;
           return {
             description: i.description ?? "",
+              positionType: normalizePositionType((i as any)?.positionType),
             quantity: String(i.quantity ?? 0),
             unit: i.unit ?? "Stunde",
             unitPrice: String(i.unitPrice ?? 0),
@@ -6470,6 +6476,7 @@ export default function AngebotePage() {
 
   const getOfferToInvoiceBlockersV17_90L174 = (
     entries: Array<{
+      positionType?: string | null;
       description?: string | null;
       quantity?: string | number | null;
       unit?: string | null;
@@ -6480,11 +6487,8 @@ export default function AngebotePage() {
     if (!entries.length) blockers.push("Keine Leistungen vorhanden");
     entries.forEach((entry, index) => {
       const label = String(entry.description || "").trim() || `Position ${index + 1}`;
-      if (!String(entry.description || "").trim()) blockers.push(`${label}: Leistung fehlt`);
-      if (!String(entry.unit || "").trim() || /^(?:prüfen|pruefen)$/i.test(String(entry.unit || "").trim()))
-        blockers.push(`${label}: Einheit fehlt`);
-      if (Number(entry.quantity || 0) <= 0) blockers.push(`${label}: Menge fehlt`);
-      if (Number(entry.unitPrice || 0) <= 0) blockers.push(`${label}: Preis fehlt`);
+      const issues = getPositionBlockingIssues(entry);
+      issues.forEach((issue) => blockers.push(`${label}: ${issue}`));
     });
     return Array.from(new Set(blockers));
   };
@@ -6511,6 +6515,7 @@ export default function AngebotePage() {
         saved.items && saved.items.length > 0
           ? saved.items.map((i: any) => ({
               description: i.description ?? "",
+              positionType: normalizePositionType((i as any)?.positionType),
               quantity: String(i.quantity ?? 0),
               unit: i.unit ?? "",
               unitPrice: String(i.unitPrice ?? 0),
@@ -6840,6 +6845,7 @@ export default function AngebotePage() {
     const rawInvoiceItems =
       off.items?.map((it: any) => ({
         description: it.description ?? "",
+              positionType: normalizePositionType((it as any)?.positionType),
         quantity: String(it.quantity ?? 0),
         unit: it.unit ?? "",
         unitPrice: String(it.unitPrice ?? 0),
@@ -10194,7 +10200,9 @@ export default function AngebotePage() {
                           !matchedService ||
                           !catalogUnit ||
                           String(item?.unit ?? "").trim() === catalogUnit;
+                        const positionBlockingIssues = getPositionBlockingIssues(item);
                         const hasCriticalReview =
+                          positionBlockingIssues.length > 0 ||
                           !String(item?.description || "").trim() ||
                           Number(item?.unitPrice ?? 0) <= 0 ||
                           Number(item?.quantity ?? 0) <= 0 ||
@@ -10206,6 +10214,7 @@ export default function AngebotePage() {
                           !samePrice ||
                           !sameUnit;
                         const itemReviewReasonV17_90L134 =
+                          (positionBlockingIssues.length > 0 ? positionBlockingIssues.join(", ") : "") ||
                           getOfferServiceReviewReasonV17_90L134(
                             item,
                             services || [],
@@ -10286,7 +10295,7 @@ export default function AngebotePage() {
                                     {item?.description ||
                                       (shouldShowOfferWorkSiteSelectorV17_90L320
                                         ? "Ausführungsort und Leistung auswählen"
-                                        : "Neue Leistung")}
+                                        : "Neue Position")}
                                   </span>
                                 </div>
                                 <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
@@ -10370,7 +10379,7 @@ export default function AngebotePage() {
                                         }}
                                       >
                                         <Trash2 className="h-4 w-4" />
-                                        Leistung löschen
+                                        Position löschen
                                       </button>
                                       <button
                                         type="button"
@@ -10381,7 +10390,7 @@ export default function AngebotePage() {
                                         }}
                                       >
                                         <Plus className="h-4 w-4" />
-                                        In Leistungskatalog übernehmen
+                                        In Katalog übernehmen
                                       </button>
                                     </div>
                                   )}
@@ -10394,8 +10403,8 @@ export default function AngebotePage() {
                                     removeItem(idx);
                                   }}
                                   className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
-                                  title="Leistung löschen"
-                                  aria-label="Leistung löschen"
+                                  title="Position löschen"
+                                  aria-label="Position löschen"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>

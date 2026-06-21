@@ -1,4 +1,6 @@
 // SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
+import { getPositionTypeLabel, normalizePositionType } from "@/lib/position-types";
+
 export type DocumentTemplate = "classic" | "modern" | "minimal" | "elegant";
 
 export interface CompanyInfo {
@@ -602,9 +604,14 @@ function renderOfferExecutionAddress(offer: any): string {
 }
 
 function buildPlainItemRow(item: any, c: CompanyInfo): string {
+  const type = normalizePositionType(item?.positionType);
+  const typeLabel = getPositionTypeLabel(type);
+  const description = type === "service"
+    ? `${item?.description ?? ""}`
+    : `<span style="display:block;font-size:8.5px;color:#64748b;text-transform:uppercase;letter-spacing:.35px;">${typeLabel}</span>${item?.description ?? ""}`;
   return `
     <tr>
-      <td>${item?.description ?? ""}</td>
+      <td>${description}</td>
       <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
       <td>${item?.unit ?? ""}</td>
       <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
@@ -615,8 +622,29 @@ function buildPlainItemRow(item: any, c: CompanyInfo): string {
 
 function buildItemsRows(items: any[], c: CompanyInfo): string {
   const source = items || [];
+  const renderTypeGroupedRows = (entries: any[]) => {
+    const order = ["service", "material", "equipment", "disposal", "expense", "flat_fee", "other"];
+    const groups = new Map<string, any[]>();
+    for (const item of entries) {
+      const type = normalizePositionType(item?.positionType);
+      const bucket = groups.get(type) || [];
+      bucket.push(item);
+      groups.set(type, bucket);
+    }
+    return order
+      .filter((type) => groups.has(type))
+      .map((type) => {
+        const label = getPositionTypeLabel(type);
+        const header = type === "service" && groups.size === 1
+          ? ""
+          : `<tr><td colspan="5" style="background:#f8fafc;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.45px;color:#475569;"><strong>${label}</strong></td></tr>`;
+        return header + (groups.get(type) || []).map((item) => buildPlainItemRow(item, c)).join("");
+      })
+      .join("");
+  };
+
   if (!hasMultipleItemWorkSites(source)) {
-    return source.map((item: any) => buildPlainItemRow(item, c)).join("");
+    return renderTypeGroupedRows(source);
   }
 
   const groups = new Map<string, { label: string; items: any[] }>();
@@ -646,9 +674,7 @@ function buildItemsRows(items: any[], c: CompanyInfo): string {
           </td>
         </tr>
       `;
-      return (
-        header + group.items.map((item) => buildPlainItemRow(item, c)).join("")
-      );
+      return header + renderTypeGroupedRows(group.items);
     })
     .join("");
 }
