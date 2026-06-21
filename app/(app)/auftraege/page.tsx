@@ -2688,11 +2688,16 @@ const getAppointmentBadgeVisual = (
   orderStatus?: string | null,
 ) => {
   const normalClass = "bg-violet-100 text-violet-700 border border-violet-300";
+  // SMARTFLOW_V17_90L371AL: Terminchip visuell nach Dringlichkeit gewichten.
+  // Morgen und heute müssen deutlich dunkler sein; abgelaufene Termine grau.
   const tomorrowClass =
-    "bg-violet-200 text-violet-800 border border-violet-400";
-  const todayClass = "bg-orange-100 text-orange-800 border border-orange-300";
-  const overdueClass = "bg-slate-100 text-slate-600 border border-slate-300";
-  const doneClass = "bg-slate-100 text-slate-600 border border-slate-300";
+    "bg-violet-300 text-violet-950 border border-violet-600 shadow-md ring-1 ring-violet-500";
+  const todayClass =
+    "bg-orange-300 text-orange-950 border border-orange-600 shadow-md ring-1 ring-orange-500";
+  const overdueClass =
+    "bg-slate-200 text-slate-500 border border-slate-300 opacity-70 grayscale";
+  const doneClass =
+    "bg-slate-200 text-slate-500 border border-slate-300 opacity-70 grayscale";
 
   const cleanLabel = labelParts.filter(Boolean).join(" ").trim();
   const completed = normalizeForMatch(orderStatus).includes("erledigt");

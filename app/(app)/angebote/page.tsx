@@ -497,13 +497,15 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
 const getOfferAppointmentChipToneClassV17_90L371AJ = (value: unknown): string => {
   const text = compactOfferValue(value).toLocaleLowerCase("de-CH");
   const normal = "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100";
-  const soon = "border-violet-400 bg-violet-100 text-violet-900 hover:bg-violet-200";
-  const today = "border-orange-300 bg-orange-100 text-orange-800 hover:bg-orange-200";
-  const past = "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200";
+  // SMARTFLOW_V17_90L371AL: Terminchip-Farbe nach Dringlichkeit.
+  // Morgen = deutlich dunkler, heute = stärkste Hervorhebung, abgelaufen = grau.
+  const tomorrow = "border-violet-600 bg-violet-300 text-violet-950 hover:bg-violet-400 shadow-md ring-1 ring-violet-500";
+  const today = "border-orange-600 bg-orange-300 text-orange-950 hover:bg-orange-400 shadow-md ring-1 ring-orange-500";
+  const past = "border-slate-300 bg-slate-200 text-slate-500 hover:bg-slate-200 opacity-70 grayscale";
   if (!text) return normal;
   if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) return past;
   if (/\bheute\b/i.test(text)) return today;
-  if (/\b(?:morgen|übermorgen|uebermorgen)\b/i.test(text)) return soon;
+  if (/\bmorgen\b/i.test(text) && !/\b(?:übermorgen|uebermorgen)\b/i.test(text)) return tomorrow;
   const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
   if (!dateMatch) return normal;
   const now = new Date();
@@ -518,7 +520,7 @@ const getOfferAppointmentChipToneClassV17_90L371AJ = (value: unknown): string =>
   const diffDays = Math.round((targetStart - todayStart) / 86400000);
   if (diffDays < 0) return past;
   if (diffDays === 0) return today;
-  if (diffDays <= 2) return soon;
+  if (diffDays === 1) return tomorrow;
   return normal;
 };
 
