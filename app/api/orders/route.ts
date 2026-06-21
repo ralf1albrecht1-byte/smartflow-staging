@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 // SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
+// SMARTFLOW_V17_90L371M_INTAKE_TYPED_PREFIX_RESCUE_FIX
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
+import { normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues, mergeTypedPrefixPositionItemsFromSource } from "@/lib/position-types";
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   requireUserId,
@@ -2156,7 +2157,7 @@ export async function POST(request: Request) {
   try {
     const dataScope = await getActiveDataScope(userId);
     const rawData = await request.json();
-    const data = {
+    const data = mergeTypedPrefixPositionItemsFromSource({
       ...rawData,
       description: stripInternalTitleLinesFromText(rawData?.description),
       notes: stripInternalTitleLinesFromText(rawData?.notes),
@@ -2164,7 +2165,7 @@ export async function POST(request: Request) {
       audioTranscript: stripInternalTitleLinesFromText(
         rawData?.audioTranscript,
       ),
-    };
+    });
     const normalizedSpecialNotes = normalizeOrderSpecialNotes(data);
     const hasNormalizedSafetyWarnings =
       splitSpecialNotes(normalizedSpecialNotes).safetyWarnings.length > 0;

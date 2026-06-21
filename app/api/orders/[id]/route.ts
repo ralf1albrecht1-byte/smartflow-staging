@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 // SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
+// SMARTFLOW_V17_90L371M_INTAKE_TYPED_PREFIX_RESCUE_FIX
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
+import { normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues, mergeTypedPrefixPositionItemsFromSource } from "@/lib/position-types";
 import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import {
   requireUserId,
@@ -1678,7 +1679,8 @@ export async function PUT(
     });
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
-    const data = await request.json();
+    const rawData = await request.json();
+    const data = mergeTypedPrefixPositionItemsFromSource(rawData);
     // V17.90L275: `specialNotes` is already the canonical, role-marked
     // source of truth. Saving items, prices, descriptions or customer data must
     // never re-read and reclassify it. Only an explicitly supplied value may
