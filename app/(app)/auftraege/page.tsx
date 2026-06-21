@@ -9121,13 +9121,9 @@ const getBottomBadges = (
       });
     }
     const appointment = canonicalAppointmentBadgeV2(canonicalSnapshotV2);
-    const localMultipleAppointmentBadgeV17_90L371S = getMultipleAppointmentBadge(order, parsedNotes);
-    if (localMultipleAppointmentBadgeV17_90L371S) {
-      pushUniqueBadge(badges, localMultipleAppointmentBadgeV17_90L371S);
-      return badges;
-    }
-
-    const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppointmentSourceV17_90L316(
+    // L371AC: alte Rohtext-Terminbadge-Logik deaktiviert.
+    // Termine kommen ab hier ausschließlich aus collectMergedAppointmentEntries.
+const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppointmentSourceV17_90L316(
       order,
       parsedNotes,
     )
