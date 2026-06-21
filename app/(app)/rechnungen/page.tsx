@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
 // SMARTFLOW_V17_90L363_INVOICE_CLOSED_CARD_DELETE_MENU_FIX
 // SMARTFLOW_V17_90L356_INVOICE_MOBILE_EXECUTION_SITE_POPOVER_ONLY
 // SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
@@ -127,6 +128,17 @@ import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
+
+const POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B = /^(?:(?:einheit|menge|preis)?\s*(?:prüfen|pruefen|prufen)\s*)+$/i;
+const cleanPositionFieldValueV17_90L371B = (value: unknown) => {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B.test(text) ? "" : text;
+};
+const cleanPositionQuantityValueV17_90L371B = (value: unknown) => {
+  const text = cleanPositionFieldValueV17_90L371B(value);
+  return Number(text || 0) > 0 ? text : "";
+};
+
 
 interface InvoiceItem {
   positionType?: string | null;
@@ -1381,7 +1393,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
   // SMARTFLOW_V17_90L346: Multi-Ausführungsort-Anzeigen dürfen nicht mehr
   // rohe WhatsApp-/Auftragstexte pro Arbeitsort ausgeben. Die Anzeige nutzt
   // wie der Auftrag nur kanonische, deduplizierte Hinweiszeilen; Arbeitsorte,
-  // Leistungen, PDF, Summen und gespeicherte Daten bleiben unverändert.
+  // Positionen, PDF, Summen und gespeicherte Daten bleiben unverändert.
 
   const sources = [
     ...sourceOrders.map((order) => order?.specialNotes),
@@ -1545,7 +1557,7 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     // "Zugang über" und "Hintereingang" liefern, obwohl bereits
     // "Zugang über Hintereingang" strukturiert vorhanden ist. Solche
     // Bruchstücke werden nur in der Rechnungsanzeige unterdrückt; gespeicherte
-    // Texte, PDF-Felder, Termine, Leistungen und Summen bleiben unverändert.
+    // Texte, PDF-Felder, Termine, Positionen und Summen bleiben unverändert.
     const operationalFragmentPatternV17_90L338 =
       /\b(?:zugang|zutritt|uber|ueber|hintereingang|seiteneingang|eingang|tor|tur|tuer|tür|code|tuercode|turcode|türcode|tuerkode|turkode|schluessel|schlussel|schlüssel|key|parkplatz|parking|whatsapp|sms|kontakt|hund)\b/;
     const isOperationalFragmentCoveredV17_90L338 = (
@@ -3737,7 +3749,7 @@ function InvoiceServiceDisplayTooltipContentV17_90L136({
   return (
     <span className="block text-left font-normal">
       <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-        Leistungen · {total}
+        Positionen · {total}
       </span>
       {multipleSites ? (
         <span className="block space-y-2">
@@ -3799,7 +3811,7 @@ function InvoiceServiceDisplayTooltipContentV17_90L136({
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                    Leistungen · {group.entries.length}
+                    Positionen · {group.entries.length}
                   </span>
                 </span>
                 {active && (
@@ -3836,7 +3848,7 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
   return (
     <span className="block text-left font-normal">
       <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-        {title || `Leistungen prüfen · ${total}`}
+        {title || `Positionen prüfen · ${total}`}
       </span>
       {multipleSites ? (
         <span className="block space-y-2">
@@ -3898,7 +3910,7 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                    Leistungen prüfen · {group.entries.length}
+                    Positionen prüfen · {group.entries.length}
                   </span>
                 </span>
                 {active && (
@@ -4008,7 +4020,7 @@ function InvoiceMobileServiceReviewSheetV17_90L174({
                         </span>
                       </span>
                       <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
-                        Leistungen prüfen · {group.entries.length}
+                        Positionen prüfen · {group.entries.length}
                       </span>
                     </button>
                     {active && (
@@ -6157,7 +6169,7 @@ export default function RechnungenPage() {
     );
     if (hasRealItems) {
       toast.error(
-        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+        "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
       );
       return;
     }
@@ -6244,7 +6256,7 @@ export default function RechnungenPage() {
           <div>
             <div className="font-semibold">Leistungsübersicht</div>
             <div className="text-xs text-muted-foreground">
-              Live aus den Leistungen oben
+              Live aus den Positionen oben
             </div>
           </div>
           <Button
@@ -6266,7 +6278,7 @@ export default function RechnungenPage() {
           >
             <span className="min-w-0 truncate text-muted-foreground">
               {hasMultipleOverviewSites
-                ? `${overviewGroups.length} Arbeitsorte · ${overviewItems.length} Leistungen`
+                ? `${overviewGroups.length} Arbeitsorte · ${overviewItems.length} Positionen`
                 : `${overviewItems.length} Leistung${overviewItems.length === 1 ? "" : "en"}`}
             </span>
             <span className="shrink-0 font-mono font-semibold text-primary">
@@ -6474,7 +6486,7 @@ export default function RechnungenPage() {
       return false;
     }
     if (!sourceItems?.some((item) => compactInvoiceValue(item.description))) {
-      toast.error("Mindestens eine Leistung");
+      toast.error("Mindestens eine Position");
       return false;
     }
     const currentExecutionSites =
@@ -6502,7 +6514,7 @@ export default function RechnungenPage() {
       );
     if (unassignedExecutionSite) {
       toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
+        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
       );
       return false;
     }
@@ -6526,9 +6538,14 @@ export default function RechnungenPage() {
         : false;
     setSaving(true);
     try {
-      const itemsForCreate = itemsForCreateWithUiState.map(
-        stripInvoiceWorkSiteUiStateV17_90L287,
-      );
+      const itemsForCreate = itemsForCreateWithUiState
+        .map(stripInvoiceWorkSiteUiStateV17_90L287)
+        .map((item) => ({
+          ...item,
+          positionType: normalizePositionType((item as any).positionType),
+          unit: cleanPositionFieldValueV17_90L371B(item.unit),
+          quantity: cleanPositionQuantityValueV17_90L371B(item.quantity),
+        }));
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6639,7 +6656,7 @@ export default function RechnungenPage() {
       );
     if (unassignedExecutionSite) {
       toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
+        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
       );
       return false;
     }
@@ -6675,9 +6692,14 @@ export default function RechnungenPage() {
           ),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
-          items: itemsForEditWithUiStateV17_90L292.map(
-            stripInvoiceWorkSiteUiStateV17_90L287,
-          ),
+          items: itemsForEditWithUiStateV17_90L292
+            .map(stripInvoiceWorkSiteUiStateV17_90L287)
+            .map((item) => ({
+              ...item,
+              positionType: normalizePositionType((item as any).positionType),
+              unit: cleanPositionFieldValueV17_90L371B(item.unit),
+              quantity: cleanPositionQuantityValueV17_90L371B(item.quantity),
+            })),
           clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
           saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
           upsertCustomerExecutionAddress: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
@@ -6847,7 +6869,7 @@ export default function RechnungenPage() {
           ),
           invoiceDate: form.invoiceDate,
           dueDate: form.dueDate,
-          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
+          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287).map((item) => ({ ...item, positionType: normalizePositionType((item as any).positionType), unit: cleanPositionFieldValueV17_90L371B(item.unit), quantity: cleanPositionQuantityValueV17_90L371B(item.quantity) })),
           clearExecutionAddress: executionAddressClearRequested,
           saveExecutionAddressInCustomerProfile: false,
           upsertCustomerExecutionAddress: false,
@@ -7654,7 +7676,7 @@ export default function RechnungenPage() {
                       .map((entry) =>
                         [`* ${entry.description}`, ...entry.details].join("\n"),
                       )
-                      .join("\n\n") || `Leistungen · ${visibleItems.length}`;
+                      .join("\n\n") || `Positionen · ${visibleItems.length}`;
 
                   const invoiceServiceReviewEntries =
                     buildInvoiceServiceReviewEntriesV17_90L135G(
@@ -7710,7 +7732,7 @@ export default function RechnungenPage() {
 
                     const title = isRed
                       ? `Preis / Menge / Einheit prüfen · ${entries.length}`
-                      : `Leistungen prüfen · ${entries.length}`;
+                      : `Positionen prüfen · ${entries.length}`;
 
                     return (
                       <button
@@ -8047,7 +8069,7 @@ export default function RechnungenPage() {
                                       )}
                                     </div>
                                     <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
-                                      Leistungen · {visibleItems.length}
+                                      Positionen · {visibleItems.length}
                                     </div>
                                     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
@@ -8308,7 +8330,7 @@ export default function RechnungenPage() {
                                 }}
                               >
                                 <div className="mb-2 text-xs font-medium text-muted-foreground">
-                                  Leistungen · {visibleItems.length}
+                                  Positionen · {visibleItems.length}
                                 </div>
                                 <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
                                   {displayedInvoiceItems.map(
@@ -8351,8 +8373,8 @@ export default function RechnungenPage() {
                                     className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                                   >
                                     {invoiceServicesExpanded
-                                      ? "Weniger Leistungen anzeigen"
-                                      : `+ ${visibleItems.length - 6} weitere Leistungen`}
+                                      ? "Weniger Positionen anzeigen"
+                                      : `+ ${visibleItems.length - 6} weitere Positionen`}
                                   </button>
                                 )}
                               </div>
@@ -9467,8 +9489,8 @@ export default function RechnungenPage() {
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <Label className="whitespace-nowrap text-base font-semibold">
                                 {multiSite
-                                  ? "Arbeitsorte & Leistungen"
-                                  : `Leistungen · ${items.filter((item: InvoiceItem) => String(item?.description || "").trim()).length} *`}
+                                  ? "Arbeitsorte & Positionen"
+                                  : `Positionen · ${items.filter((item: InvoiceItem) => String(item?.description || "").trim()).length} *`}
                               </Label>
                               <div className="flex flex-wrap items-center justify-end gap-2">
                                 {multiSite && (
@@ -9509,7 +9531,7 @@ export default function RechnungenPage() {
                                   onClick={addItem}
                                 >
                                   <Plus className="mr-1 h-3.5 w-3.5" />
-                                  Leistung
+                                  Position
                                 </Button>
                               </div>
                             </div>
@@ -9519,7 +9541,7 @@ export default function RechnungenPage() {
                                   {currentSites.length} Arbeitsorte ·{" "}
                                   {items.filter((item: InvoiceItem) =>
                                     String(item?.description || "").trim(),
-                                  ).length} Leistungen
+                                  ).length} Positionen
                                 </span>
                                 <span className="shrink-0 font-mono font-medium text-foreground">
                                   {formatCurrency(subtotal, currency)}
@@ -9586,7 +9608,7 @@ export default function RechnungenPage() {
                             // V17.90L320: Wie bei Aufträgen den Arbeitsort-Selector
                             // nur anzeigen, wenn eine Leistungszeile wirklich keinem
                             // Ausführungsort zugeordnet ist. Automatisch unter einem
-                            // neuen Ausführungsort erzeugte Leistungen sind über den
+                            // neuen Ausführungsort erzeugte Positionen sind über den
                             // UI-Key bereits zugeordnet und brauchen keinen zweiten
                             // "Arbeitsort wählen"-Kasten.
                             const currentInvoiceSitesV17_90L320 =
@@ -9662,8 +9684,8 @@ export default function RechnungenPage() {
                                     </div>
                                     <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
                                       <div className="truncate text-xs text-muted-foreground">
-                                        {quantity > 0 ? quantity : "prüfen"}{" "}
-                                        {item?.unit || "Einheit prüfen"} ×{" "}
+                                        {quantity > 0 ? quantity : "Menge prüfen"}{" "}
+                                        {cleanPositionFieldValueV17_90L371B(item?.unit) || "Einheit prüfen"} ×{" "}
                                         {unitPrice > 0
                                           ? formatCurrency(unitPrice, currency)
                                           : "Preis prüfen"}
@@ -9719,8 +9741,8 @@ export default function RechnungenPage() {
                                           );
                                         }}
                                         className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                                        title="Leistungsaktionen"
-                                        aria-label="Leistungsaktionen"
+                                        title="Positionsaktionen"
+                                        aria-label="Positionsaktionen"
                                       >
                                         <MoreVertical className="h-4 w-4" />
                                       </button>
@@ -9858,8 +9880,8 @@ export default function RechnungenPage() {
                                         </Label>
                                         <Input
                                           list={`invoice-position-unit-options-${idx}`}
-                                          className={`h-9 ${!String(item?.unit || "").trim() || /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || "")) ? "border-red-500 bg-red-50" : ""}`}
-                                          value={item?.unit ?? ""}
+                                          className={`h-9 ${!cleanPositionFieldValueV17_90L371B(item?.unit) ? "border-red-500 bg-red-50" : ""}`}
+                                          value={cleanPositionFieldValueV17_90L371B(item?.unit)}
                                           placeholder="frei eingeben oder Vorschlag wählen"
                                           onChange={(event: any) =>
                                             updateItem(
@@ -9882,11 +9904,7 @@ export default function RechnungenPage() {
                                           step="0.25"
                                           placeholder="prüfen"
                                           className={`h-9 ${quantity <= 0 ? "border-red-500 bg-red-50" : ""}`}
-                                          value={
-                                            quantity <= 0
-                                              ? ""
-                                              : (item?.quantity ?? "")
-                                          }
+                                          value={cleanPositionQuantityValueV17_90L371B(item?.quantity)}
                                           onChange={(event: any) =>
                                             updateItem(
                                               idx,
@@ -10032,7 +10050,7 @@ export default function RechnungenPage() {
                                   )}
                                   {siteHasNoItems && !siteNeedsReview && (
                                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                                      Keine Leistungen
+                                      Keine Positionen
                                     </span>
                                   )}
                                 </div>
@@ -10071,7 +10089,7 @@ export default function RechnungenPage() {
                                           }
                                         >
                                           <span className="truncate whitespace-nowrap">
-                                            Leistungen prüfen ·{" "}
+                                            Positionen prüfen ·{" "}
                                             {groupYellowEntries.length}
                                           </span>
                                           <InvoiceViewportTooltip
@@ -10081,7 +10099,7 @@ export default function RechnungenPage() {
                                             <InvoiceServiceReviewTooltipContentV17_90L135G
                                               total={groupYellowEntries.length}
                                               entries={groupYellowEntries}
-                                              title={`Leistungen prüfen · ${groupYellowEntries.length}`}
+                                              title={`Positionen prüfen · ${groupYellowEntries.length}`}
                                             />
                                           </InvoiceViewportTooltip>
                                         </span>
@@ -10346,7 +10364,7 @@ export default function RechnungenPage() {
                         Rechnungsdaten & Betrag
                       </Label>
                       <span className="text-xs text-muted-foreground">
-                        Klar getrennt von den Leistungen
+                        Klar getrennt von den Positionen
                       </span>
                     </div>
 
