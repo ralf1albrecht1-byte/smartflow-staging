@@ -14673,6 +14673,7 @@ POSITIONSTYP – PFLICHTFELD PRO ARBEITSPOSITION:
 - Setze bei jeder arbeitsposition position_type semantisch. Nicht pauschal "service" verwenden.
 - "service" = echte Arbeitsleistung/Tätigkeit, z. B. reinigen, montieren, demontieren, streichen, schneiden, prüfen, warten.
 - "material" = Verbrauchsmaterial, Produkt, Reiniger, Chemie, Ersatzteil, Farbe, Zement, Sackware oder sonstiges Material, das als Position verrechnet wird.
+  Bei Material darf action_name/service_name nur das Material/Produkt selbst nennen; ergänze keine Tätigkeit wie bereitstellen, verwenden oder liefern, wenn diese nicht exakt in derselben Originalzeile steht.
 - "equipment" = Gerät, Maschine, Werkzeug, Maschineneinsatz oder Gerätemiete, die als Position verrechnet wird.
 - "expense" = Zusatzkosten, Anfahrt, Fahrt-/Wegkosten, Gebühren, Parkgebühren, Entsorgungskosten, Deponie, Schmutzwasser-/Abfallentsorgung oder sonstige Nebenkosten.
 - Wenn eine Zusatzkosten-/Entsorgungs-/Anfahrtszeile nur einen Gesamtbetrag enthält, setze menge=1 und einheit="Pauschal". Beispiel: "Entsorgungskosten CHF 25" -> position_type="expense", menge=1, einheit="Pauschal", unit_price=25.
@@ -17378,6 +17379,7 @@ export async function processIncomingMessage(
   // --- Map services / AI work items, strict per-position matching ---
 
   type AiWorkItem = {
+    serviceName?: string | null;
     name?: string | null;
     action_name?: string | null;
     context?: string | null;
@@ -17389,6 +17391,10 @@ export async function processIncomingMessage(
     positionType?: string | null;
     position_type?: string | null;
     type?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+    unitPrice?: number | string | null;
+    price?: number | string | null;
     menge?: number | null;
     einheit?: string | null;
     unit_price?: number | string | null;
@@ -17409,6 +17415,149 @@ export async function processIncomingMessage(
       .replace(/[^a-z0-9\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+
+
+  const getFirstAiItemSourceTextV17_90L371AO = (rawItem: any): string =>
+    compactExactSourceTextV17_90L251(
+      rawItem?.sourceText ??
+        rawItem?.source_text ??
+        rawItem?.evidence ??
+        rawItem?.raw ??
+        rawItem?.description,
+    );
+
+  const getFirstAiItemNameV17_90L371AO = (rawItem: any): string =>
+    compactExactSourceTextV17_90L251(
+      rawItem?.serviceName ??
+        rawItem?.name ??
+        rawItem?.action_name ??
+        rawItem?.service_name ??
+        rawItem?.matched_service_name,
+    );
+
+  const getFirstAiItemPositionTypeV17_90L371AO = (rawItem: any): string =>
+    normalizePositionType(
+      rawItem?.positionType ?? rawItem?.position_type ?? rawItem?.type,
+    );
+
+  const hasOwnLinePriceEvidenceV17_90L371AO = (sourceTextValue: unknown, priceValue: number): boolean => {
+    const source = compactExactSourceTextV17_90L251(sourceTextValue);
+    if (!source || !Number.isFinite(priceValue) || priceValue <= 0) return false;
+    const amounts = Array.from(
+      source.matchAll(
+        /(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\b|\b([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\s*(?:chf|eur|euro|sfr|fr)\.?\b)/giu,
+      ),
+    )
+      .map((match) => Number(String(match[1] || match[2] || "").replace(/['’]/g, "").replace(",", ".")))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return amounts.some((amount) => Math.abs(amount - priceValue) < 0.01);
+  };
+
+  const extractLineLocalPositionNameFromSourceV17_90L371AO = (
+    sourceTextValue: unknown,
+    fallbackValue: unknown,
+  ): string => {
+    const source = compactExactSourceTextV17_90L251(sourceTextValue);
+    const fallback = compactExactSourceTextV17_90L251(fallbackValue);
+    if (!source) return fallback;
+
+    const candidates = [
+      source.replace(
+        /\s*[,;:–—-]?\s+\d+(?:[.,]\d+)?\s+[\p{L}0-9%/²³._-]+(?:\s+[\p{L}0-9%/²³._-]+){0,3}\s*(?:à|@|\b(?:je|pro|per|par|por|at|each)\b|\b(?:chf|eur|euro|sfr|fr)\b).*$/iu,
+        "",
+      ),
+      source.replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*\d.*$/iu, ""),
+      source.replace(/\s+\d+(?:[.,]\d+)?\s*\b(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, ""),
+    ];
+
+    const normalizedFallback = normalizeUnitText(fallback);
+    const best = candidates
+      .map((candidate) => candidate.replace(/[,:;–—.\s]+$/g, "").replace(/^[-–—,:;.\s]+/g, "").replace(/\s+/g, " ").trim())
+      .filter((candidate) => candidate.length >= 3 && candidate.length <= 120)
+      .find((candidate) => {
+        const key = normalizeUnitText(candidate);
+        return Boolean(key && (!normalizedFallback || normalizedFallback.includes(key) || key.includes(normalizedFallback) || source.toLocaleLowerCase("de-CH").includes(candidate.toLocaleLowerCase("de-CH"))));
+      });
+
+    return best || fallback;
+  };
+
+  const extractLineLocalUnitLabelFromSourceV17_90L371AO = (
+    sourceTextValue: unknown,
+    quantityValue: number,
+  ): string | null => {
+    const source = compactExactSourceTextV17_90L251(sourceTextValue);
+    if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0) return null;
+    const quantityPattern = String(quantityValue).replace(/\.0+$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\.", "[.,]");
+    const match = source.match(
+      new RegExp(
+        `\\b${quantityPattern}\\s+([\\p{L}][\\p{L}0-9%/²³._-]*(?:\\s+[\\p{L}][\\p{L}0-9%/²³._-]*){0,2})\\s*(?:à|@|\\b(?:je|pro|per|par|por|at|each)\\b|\\b(?:chf|eur|euro|sfr|fr)\\b)`,
+        "iu",
+      ),
+    );
+    const label = match?.[1]?.replace(/[,:;–—.\s]+$/g, "").replace(/\s+/g, " ").trim();
+    if (!label || /^\d/.test(label)) return null;
+    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten)$/iu.test(label)) return null;
+    return label;
+  };
+
+  const sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO = (rawItem: AiWorkItem): AiWorkItem => {
+    const positionType = getFirstAiItemPositionTypeV17_90L371AO(rawItem);
+    if (!["material", "equipment", "expense", "disposal", "flat_fee", "other"].includes(positionType)) {
+      return rawItem;
+    }
+
+    const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
+    const fallbackName = getFirstAiItemNameV17_90L371AO(rawItem);
+    const quantity = Number((rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0);
+    const unitPrice = Number((rawItem as any)?.unitPrice ?? (rawItem as any)?.unit_price ?? (rawItem as any)?.price ?? 0);
+    if (!sourceText || !fallbackName || !Number.isFinite(unitPrice) || unitPrice <= 0) return rawItem;
+
+    const cleanedName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, fallbackName);
+    const sourceUnit = extractLineLocalUnitLabelFromSourceV17_90L371AO(sourceText, quantity);
+
+    const next: AiWorkItem = {
+      ...rawItem,
+      serviceName: cleanedName,
+      name: cleanedName,
+      action_name: cleanedName,
+      service_name: cleanedName,
+      matched_service_name: cleanedName,
+    } as AiWorkItem;
+
+    if (sourceUnit) {
+      (next as any).unit = sourceUnit;
+      next.einheit = sourceUnit;
+    }
+
+    return next;
+  };
+
+  const canKeepNonServiceFirstAiItemDespiteInvalidReviewV17_90L371AO = (
+    rawItem: AiWorkItem | undefined,
+    reasonValue: unknown,
+  ): boolean => {
+    if (!rawItem) return false;
+    const positionType = getFirstAiItemPositionTypeV17_90L371AO(rawItem);
+    if (!["material", "equipment", "expense", "disposal", "flat_fee", "other"].includes(positionType)) return false;
+
+    const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
+    const serviceName = getFirstAiItemNameV17_90L371AO(rawItem);
+    const quantity = Number((rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0);
+    const unitPrice = Number((rawItem as any)?.unitPrice ?? (rawItem as any)?.unit_price ?? (rawItem as any)?.price ?? 0);
+    const reason = normalizeUnitText(reasonValue || "");
+
+    if (!sourceText || !serviceName) return false;
+    if (!Number.isFinite(quantity) || quantity <= 0) return false;
+    if (!hasOwnLinePriceEvidenceV17_90L371AO(sourceText, unitPrice)) return false;
+    if (!/(?:source text|sourcetext|evidence|belegt|beleg|quelle|quellzeile)/i.test(reason)) return false;
+    if (/(?:kunde|customer|adresse|address|ausfuehrungsadresse|rechnungsadresse|firma|company)/i.test(reason)) return false;
+
+    const cleanedName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, serviceName);
+    const cleanedKey = normalizeUnitText(cleanedName);
+    const sourceKey = normalizeUnitText(sourceText);
+    return Boolean(cleanedKey && cleanedKey.length >= 3 && sourceKey.includes(cleanedKey));
+  };
 
   const fullWorkText =
     parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim()
@@ -17438,7 +17587,14 @@ export async function processIncomingMessage(
   // row, but it must never rename, replace or otherwise rewrite that row.
   const aiWorkItemsRaw: AiWorkItem[] = (
     firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[]
-  ).map((item) => ({ ...item }));
+  ).map((item) => sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO({ ...item }));
+
+  const invalidFindingReasonByIndexV17_90L371AO = new Map(
+    finalAiWorkCoverageV17_90L251.invalidItems.map((finding) => [
+      Number(finding.itemIndex),
+      finding.reason,
+    ]),
+  );
 
   // V17.90L338: If the read-only coverage checker proves that a first-AI row
   // is not line-locally supported, that row must not enter the canonical
@@ -17451,7 +17607,11 @@ export async function processIncomingMessage(
       .filter((itemIndex) =>
         Number.isInteger(itemIndex) &&
         itemIndex >= 1 &&
-        itemIndex <= aiWorkItemsRaw.length,
+        itemIndex <= aiWorkItemsRaw.length &&
+        !canKeepNonServiceFirstAiItemDespiteInvalidReviewV17_90L371AO(
+          aiWorkItemsRaw[itemIndex - 1],
+          invalidFindingReasonByIndexV17_90L371AO.get(itemIndex),
+        ),
       ),
   );
 
