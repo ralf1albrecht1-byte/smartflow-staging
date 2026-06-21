@@ -147,7 +147,7 @@ const APPOINTMENT_CONTEXT_PATTERN =
 const SERVICE_NOISE_PATTERN =
   /\b(?:chf|fr\.?|eur|mwst|netto|total|pauschal|stück|stueck|stk\.?|m²|m2|qm|quadratmeter|meter|kg|sack|liter|boden|fenster|teppich|treppenhaus|reinig|entsorgung|anfahrt|parkgebühr|parkgebuehr|material|gerät|geraet|maschine|service|leistung|position)\b/i;
 
-const DATE_PATTERN = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/;
+const DATE_PATTERN = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?!\s*(?:uhr|h)\b)/i;
 
 const CLOCK_TIME_PATTERN = /\b([01]?\d|2[0-3])\s*:\s*([0-5]\d)\b/g;
 const DOT_TIME_PATTERN = /\b([01]?\d|2[0-3])\s*[.]\s*([0-5]\d)\s*(?:uhr|h)\b/gi;
@@ -156,22 +156,39 @@ const UHR_TIME_PATTERN = /\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/gi;
 const normalizeTime = (hour: string, minute = "00"): string =>
   `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
 
+const maskTextRange = (value: string, start: number, end: number): string =>
+  `${value.slice(0, start)}${" ".repeat(Math.max(0, end - start))}${value.slice(end)}`;
+
 const extractTimes = (line: string): string[] => {
-  const withoutDate = line.replace(DATE_PATTERN, " ");
+  let candidate = line.replace(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?!\s*(?:uhr|h)\b)/gi,
+    " ",
+  );
   const found: string[] = [];
   const add = (value: string) => {
     if (!found.includes(value)) found.push(value);
   };
 
-  for (const match of withoutDate.matchAll(CLOCK_TIME_PATTERN)) {
-    add(normalizeTime(match[1], match[2]));
-  }
-  for (const match of withoutDate.matchAll(DOT_TIME_PATTERN)) {
-    add(normalizeTime(match[1], match[2]));
-  }
-  for (const match of withoutDate.matchAll(UHR_TIME_PATTERN)) {
-    add(normalizeTime(match[1], "00"));
-  }
+  const maskAndAdd = (pattern: RegExp, minuteFromMatch: boolean) => {
+    const matches = Array.from(candidate.matchAll(pattern));
+    for (const match of matches) {
+      add(normalizeTime(match[1], minuteFromMatch ? match[2] : "00"));
+    }
+    for (let index = matches.length - 1; index >= 0; index -= 1) {
+      const match = matches[index];
+      const start = match.index ?? -1;
+      if (start < 0) continue;
+      candidate = maskTextRange(candidate, start, start + match[0].length);
+    }
+  };
+
+  // Reihenfolge ist wichtig: vollständige Uhrzeiten zuerst erkennen und maskieren.
+  // Sonst wird bei "09:00 Uhr" der Minuten-Teil "00 Uhr" fälschlich als
+  // zusätzlicher Termin "00:00 Uhr" gelesen.
+  maskAndAdd(CLOCK_TIME_PATTERN, true);
+  maskAndAdd(DOT_TIME_PATTERN, true);
+  maskAndAdd(UHR_TIME_PATTERN, false);
+
   return found;
 };
 
