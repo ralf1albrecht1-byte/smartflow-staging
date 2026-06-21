@@ -213,6 +213,73 @@ const extractDateLabel = (line: string): { label: string; key: string } => {
   };
 };
 
+const parseBaseDateForRelative = (value: unknown): Date | null => {
+  const raw = compact(value);
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setHours(12, 0, 0, 0);
+  return parsed;
+};
+
+const addCalendarDays = (date: Date, days: number): Date => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  next.setHours(12, 0, 0, 0);
+  return next;
+};
+
+const formatAbsoluteDateLabel = (date: Date): { label: string; key: string; dayMonthKey: string } => {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return {
+    label: `${day}.${month}.${year}`,
+    key: `${year}-${month}-${day}`,
+    dayMonthKey: `${month}-${day}`,
+  };
+};
+
+const resolveRelativeDateLabel = (line: string, baseDate?: Date | null): { label: string; key: string } => {
+  if (!baseDate) return { label: "", key: "" };
+  const text = compact(line).toLowerCase();
+  if (/\buebermorgen|\bübermorgen/.test(text)) {
+    const resolved = formatAbsoluteDateLabel(addCalendarDays(baseDate, 2));
+    return { label: resolved.label, key: resolved.key };
+  }
+  if (/\bmorgen\b/.test(text)) {
+    const resolved = formatAbsoluteDateLabel(addCalendarDays(baseDate, 1));
+    return { label: resolved.label, key: resolved.key };
+  }
+  if (/\bheute\b/.test(text)) {
+    const resolved = formatAbsoluteDateLabel(baseDate);
+    return { label: resolved.label, key: resolved.key };
+  }
+
+  const weekdayMatch = text.match(
+    /\b((?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i,
+  );
+  if (!weekdayMatch) return { label: "", key: "" };
+  const weekdays: Record<string, number> = {
+    montag: 1,
+    dienstag: 2,
+    mittwoch: 3,
+    donnerstag: 4,
+    freitag: 5,
+    samstag: 6,
+    sonntag: 7,
+  };
+  const target = weekdays[weekdayMatch[2].toLowerCase()];
+  if (!target) return { label: "", key: "" };
+  const current = baseDate.getDay() === 0 ? 7 : baseDate.getDay();
+  let delta = target - current;
+  const prefix = normalize(weekdayMatch[1] || "");
+  if (delta < 0) delta += 7;
+  if (delta === 0 && /naechst|nachst|kommend/.test(prefix)) delta = 7;
+  const resolved = formatAbsoluteDateLabel(addCalendarDays(baseDate, delta));
+  return { label: resolved.label, key: resolved.key };
+};
+
 const titleCaseRelativeDay = (value: string): string => {
   const clean = compact(value);
   if (!clean) return "";
@@ -298,14 +365,15 @@ const splitAppointmentCandidates = (value: unknown): string[] => {
   return result;
 };
 
-const parseAppointmentLine = (value: unknown): ParsedAppointment[] => {
+const parseAppointmentLine = (value: unknown, baseDate?: Date | null): ParsedAppointment[] => {
   const line = compact(value);
   if (!line) return [];
 
   const date = extractDateLabel(line);
-  const relative = date.label ? { label: "", key: "" } : extractRelativeDayLabel(line);
-  const dayLabel = date.label || relative.label;
-  const dayKey = date.key || relative.key;
+  const resolvedRelative = date.label ? { label: "", key: "" } : resolveRelativeDateLabel(line, baseDate);
+  const relative = date.label || resolvedRelative.label ? { label: "", key: "" } : extractRelativeDayLabel(line);
+  const dayLabel = date.label || resolvedRelative.label || relative.label;
+  const dayKey = date.key || resolvedRelative.key || relative.key;
   const times = extractTimes(line);
 
   if (!dayLabel && times.length === 0) return [];
@@ -398,6 +466,8 @@ type DisplayAppointmentEntry = MergedAppointmentEntry & {
   dateKey: string;
   timeKey: string;
   dateOnly: boolean;
+  dayMonthKey: string;
+  isRelative: boolean;
 };
 
 const fullDateTimeLabelPattern =
@@ -434,6 +504,8 @@ const cleanEntryDisplay = (entry: MergedAppointmentEntry): DisplayAppointmentEnt
       dateKey: `${year}-${month}-${day}`,
       timeKey: time,
       dateOnly: false,
+      dayMonthKey: `${month}-${day}`,
+      isRelative: false,
     };
   }
 
@@ -450,6 +522,8 @@ const cleanEntryDisplay = (entry: MergedAppointmentEntry): DisplayAppointmentEnt
       dateKey: `${year || "0000"}-${month}-${day}`,
       timeKey: "",
       dateOnly: true,
+      dayMonthKey: `${month}-${day}`,
+      isRelative: false,
     };
   }
 
@@ -468,6 +542,8 @@ const cleanEntryDisplay = (entry: MergedAppointmentEntry): DisplayAppointmentEnt
       dateKey: relative.key,
       timeKey: times[0],
       dateOnly: false,
+      dayMonthKey: "",
+      isRelative: true,
     };
   }
 
@@ -481,15 +557,28 @@ const sanitizeAppointmentEntries = (entries: MergedAppointmentEntry[]): MergedAp
 
   const hasTimedForDate = new Set(
     cleaned
-      .filter((entry) => entry.dateKey && entry.timeKey)
-      .map((entry) => entry.dateKey),
+      .filter((entry) => entry.dayMonthKey && entry.timeKey)
+      .map((entry) => entry.dayMonthKey),
+  );
+
+  const absoluteTimedBySiteAndTime = new Set(
+    cleaned
+      .filter((entry) => !entry.isRelative && entry.dateKey && /^\d{4}-\d{2}-\d{2}$/.test(entry.dateKey) && entry.timeKey)
+      .map((entry) => [normalize(entry.site), entry.timeKey].join("|")),
   );
 
   const result: MergedAppointmentEntry[] = [];
   const seen = new Set<string>();
 
   for (const entry of cleaned) {
-    if (entry.dateOnly && hasTimedForDate.has(entry.dateKey)) continue;
+    // Datum-only wie "29.06." darf nicht neben "29.06.2026 · 09:00 Uhr" stehen.
+    // Deshalb wird nur nach Tag+Monat verglichen, nicht nach Jahr.
+    if (entry.dateOnly && entry.dayMonthKey && hasTimedForDate.has(entry.dayMonthKey)) continue;
+
+    // Relative Rohreste wie "morgen · 10:00 Uhr" dürfen nicht zusätzlich stehen,
+    // wenn derselbe Arbeitsort bereits einen absoluten Termin mit derselben Uhrzeit hat.
+    if (entry.isRelative && absoluteTimedBySiteAndTime.has([normalize(entry.site), entry.timeKey].join("|"))) continue;
+
     const siteKey = normalize(entry.site);
     const key = [siteKey, entry.dateKey, entry.timeKey || "date-only", normalize(entry.label)].join("|");
     if (seen.has(key)) continue;
@@ -547,6 +636,7 @@ export function collectMergedAppointmentEntries(
 
   for (const record of Array.isArray(records) ? records : []) {
     if (!record) continue;
+    const relativeBaseDate = parseBaseDateForRelative(record.createdAt || record.date);
     const rawNotes = compact(record.notes);
     const rawSections = splitMergedSections(rawNotes);
     const isMergedSource = rawSections.length > 1;
@@ -567,7 +657,7 @@ export function collectMergedAppointmentEntries(
     sourceSections.forEach((section, sectionIndex) => {
       const site = resolveSectionSite(record, section, sectionIndex);
       for (const line of splitAppointmentCandidates(section)) {
-        const parsedItems = parseAppointmentLine(line);
+        const parsedItems = parseAppointmentLine(line, relativeBaseDate);
         for (const parsed of parsedItems) {
           if (!parsed.label) continue;
           add({ site, label: parsed.label, source: parsed.label, dateKey: parsed.dateKey, timeKey: parsed.timeKey }, parsed);
