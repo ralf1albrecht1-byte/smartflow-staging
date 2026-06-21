@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
 // SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
@@ -836,6 +836,15 @@ function order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string |
 function order_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
   return (Array.isArray(records) ? records : []).map((record: any) => ({
     ...record,
+    phone: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.phone),
+    email: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.email),
+    customer: record?.customer
+      ? {
+          ...record.customer,
+          phone: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.phone),
+          email: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.email),
+        }
+      : record?.customer,
     notes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
     specialNotes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
     description: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
@@ -3132,11 +3141,28 @@ const cleanAppointmentReason = (value?: string | null) =>
     .replace(/^Kontakt\s+vor\s+Ort\s*[:\-–—]\s*/i, "")
     .trim();
 
+const appointmentFactKeyV17_90L371U = (value?: string | null): string => {
+  const raw = compactText(value).replace(/^Termin\s*:?\s*/i, "");
+  if (!raw) return "";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
+  const dateKey = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}`
+    : "";
+  const sourceWithoutDates = raw.replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/g, " ");
+  const timeMatch =
+    sourceWithoutDates.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    sourceWithoutDates.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\s*(?:uhr|h)?\b/i) ||
+    sourceWithoutDates.match(/\b(?:um|ab|gegen)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const timeKey = timeMatch
+    ? `${String(timeMatch[1]).padStart(2, "0")}:${timeMatch[2] || "00"}`
+    : "";
+  return dateKey || timeKey ? `${dateKey || "ohne-datum"}|${timeKey || "ohne-uhrzeit"}` : normalizeForMatch(raw);
+};
+
 const appointmentDetailKey = (detail: AppointmentDetail) =>
-  // V17.90L86: The same execution appointment may appear once in the semantic
-  // notes and once in the raw customer text. The date/time identity is the
-  // authoritative key; address/access context must not create duplicate chips.
-  normalizeForMatch(detail.label);
+  // V17.90L371U: Same date/time with and without year is one appointment.
+  // Keep the worksite-specific entry and drop the generic duplicate.
+  appointmentFactKeyV17_90L371U(detail.label);
 
 const extractEmbeddedAppointmentLinesV17_90L80 = (
   value?: string | null,
@@ -3244,55 +3270,6 @@ const extractAppointmentDetailsFromRawText = (
       if (reason)
         details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
       continue;
-    }
-  }
-
-  return details;
-};
-
-
-const extractRawDateTimeAppointmentPairsV17_90L371T = (
-  ...values: Array<string | null | undefined>
-): AppointmentDetail[] => {
-  const source = values
-    .filter(Boolean)
-    .join("\n")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (!source.trim()) return [];
-
-  const chunks = source
-    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
-    .map((line) => compactText(stripVisibleNoteMarkerV17_35(line)))
-    .filter(Boolean);
-  const details: AppointmentDetail[] = [];
-  const seen = new Set<string>();
-
-  for (const chunk of chunks) {
-    const normalized = normalizeForMatch(chunk);
-    const hasAppointmentIntent = hasAppointmentIntentWord(chunk);
-    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(normalized) && !hasAppointmentIntent;
-    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
-    if (contactOnly || priceLine || isResourceAvailabilityTimeLineV17_90L84(chunk)) continue;
-
-    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
-    let match: RegExpExecArray | null;
-    while ((match = pairPattern.exec(chunk))) {
-      const day = match[1].padStart(2, "0");
-      const month = match[2].padStart(2, "0");
-      const year = match[3]
-        ? String(match[3]).length === 2
-          ? `20${match[3]}`
-          : String(match[3])
-        : "";
-      const hour = match[4].padStart(2, "0");
-      const minute = match[5] || "00";
-      const displayDate = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
-      const detailLabel = `${displayDate} · ${hour}:${minute}`;
-      const key = normalizeForMatch(detailLabel);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      details.push({ site: "", address: "", label: detailLabel, reason: chunk });
     }
   }
 
@@ -3547,21 +3524,26 @@ const compactSingleAppointmentTooltipV17_90L86 = (
 const mergeAppointmentDetail = (
   existing: AppointmentDetail,
   incoming: AppointmentDetail,
-): AppointmentDetail => ({
-  site: existing.site || incoming.site,
-  address: existing.address || incoming.address,
-  label: existing.label || incoming.label,
-  reason:
-    (existing.reason || "").length >= (incoming.reason || "").length
-      ? existing.reason
-      : incoming.reason,
-});
+): AppointmentDetail => {
+  const existingLabel = compactText(existing.label);
+  const incomingLabel = compactText(incoming.label);
+  const label = incomingLabel.length > existingLabel.length ? incoming.label : existing.label;
+  return {
+    site: existing.site || incoming.site,
+    address: existing.address || incoming.address,
+    label: label || existing.label || incoming.label,
+    reason:
+      (existing.reason || "").length >= (incoming.reason || "").length
+        ? existing.reason
+        : incoming.reason,
+  };
+};
 
 const dedupeAppointmentDetails = (details: AppointmentDetail[]) => {
   const result: AppointmentDetail[] = [];
 
   details.forEach((detail) => {
-    const labelKey = normalizeForMatch(detail.label);
+    const labelKey = appointmentDetailKey(detail);
     if (!labelKey) return;
 
     const exactKey = appointmentDetailKey(detail);
@@ -3574,7 +3556,7 @@ const dedupeAppointmentDetails = (details: AppointmentDetail[]) => {
     }
 
     const looseIndex = result.findIndex((existing) => {
-      if (normalizeForMatch(existing.label) !== labelKey) return false;
+      if (appointmentDetailKey(existing) !== labelKey) return false;
 
       const existingHasPlace = Boolean(existing.site || existing.address);
       const incomingHasPlace = Boolean(detail.site || detail.address);
@@ -3699,12 +3681,6 @@ const getMultipleAppointmentBadge = (
   const details = dedupeAppointmentDetails(
     normalizeMergedAppointmentSitesV17_90L178(order, [
       ...mergedDetails,
-      ...extractRawDateTimeAppointmentPairsV17_90L371T(
-        order.specialNotes,
-        order.notes,
-        order.audioTranscript,
-        ...parsedNotes.jobHints,
-      ),
       ...extractAppointmentDetailsFromRawText(order.specialNotes),
       ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
       ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
@@ -7664,8 +7640,7 @@ const hasMergedMultipleContactData = (
     operationalContactKeys.size > 1 ||
     (operationalContactKeys.size > 0 && companyContactKeys.size > 0) ||
     groupedContactLines.length > 1 ||
-    (hasExplicitMergedContactDataReview &&
-      (operationalContactKeys.size > 0 || groupedContactLines.length > 0))
+    hasExplicitMergedContactDataReview
   );
 };
 

@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
 // SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
@@ -339,6 +339,15 @@ function invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string
 function invoice_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
   return (Array.isArray(records) ? records : []).map((record: any) => ({
     ...record,
+    phone: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.phone),
+    email: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.email),
+    customer: record?.customer
+      ? {
+          ...record.customer,
+          phone: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.phone),
+          email: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.email),
+        }
+      : record?.customer,
     notes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
     specialNotes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
     description: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
@@ -566,12 +575,28 @@ const getInvoiceAppointmentDayKey = (value: unknown): string => {
     const day = dateMatch[1].padStart(2, "0");
     const month = dateMatch[2].padStart(2, "0");
     const year = dateMatch[3] || "";
-    return `${day}.${month}${year ? `.${year}` : ""}`;
+    return `${day}.${month}`;
   }
   const relativeMatch = label.match(
     /\b(heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
   );
   return normalizeInvoiceAppointmentDisplayKey(relativeMatch?.[1] || "");
+};
+
+const getInvoiceAppointmentFactKeyV17_90L371U = (value: unknown): string => {
+  const label = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
+  const dayKey = getInvoiceAppointmentDayKey(label);
+  const withoutDates = label.replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/g, " ");
+  const timeMatch =
+    withoutDates.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    withoutDates.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\s*(?:uhr|h)?\b/i) ||
+    withoutDates.match(/\b(?:um|ab|gegen)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const timeKey = timeMatch
+    ? `${String(timeMatch[1]).padStart(2, "0")}:${timeMatch[2] || "00"}`
+    : "";
+  return dayKey || timeKey
+    ? `${dayKey || "ohne-datum"}|${timeKey || "ohne-uhrzeit"}`
+    : normalizeInvoiceAppointmentDisplayKey(label);
 };
 
 const compactInvoiceAppointmentEntriesForDisplay = (
@@ -581,13 +606,13 @@ const compactInvoiceAppointmentEntriesForDisplay = (
 
   for (const entry of entries) {
     const siteKey = normalizeInvoiceAppointmentDisplayKey(entry.site);
-    const labelKey = normalizeInvoiceAppointmentDisplayKey(entry.label);
+    const labelKey = getInvoiceAppointmentFactKeyV17_90L371U(entry.label);
     if (!labelKey) continue;
 
     const exactIndex = result.findIndex(
       (current) =>
         normalizeInvoiceAppointmentDisplayKey(current.site) === siteKey &&
-        normalizeInvoiceAppointmentDisplayKey(current.label) === labelKey,
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) === labelKey,
     );
     if (exactIndex >= 0) {
       if (
@@ -600,7 +625,7 @@ const compactInvoiceAppointmentEntriesForDisplay = (
     }
 
     const dayKey = getInvoiceAppointmentDayKey(entry.label);
-    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(entry.label);
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(entry.label);
     if (dayKey) {
       const sameDaySiteIndex = result.findIndex(
         (current) =>
@@ -608,7 +633,7 @@ const compactInvoiceAppointmentEntriesForDisplay = (
           getInvoiceAppointmentDayKey(current.label) === dayKey,
       );
       if (sameDaySiteIndex >= 0) {
-        const currentHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(
+        const currentHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(
           result[sameDaySiteIndex].label,
         );
         if (currentHasTime && !hasTime) continue;
@@ -3076,51 +3101,6 @@ function normalizeInvoiceAppointmentKeyV17_90L177R(
     .trim();
 }
 
-
-function extractInvoiceRawDateTimeAppointmentPairsV17_90L371T(value?: string | null): string[] {
-  const source = String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (!source.trim()) return [];
-
-  const chunks = source
-    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
-    .map((line) => compactInvoiceValue(line))
-    .filter(Boolean);
-  const labels: string[] = [];
-  const seen = new Set<string>();
-
-  for (const chunk of chunks) {
-    const key = normalizeInvoiceAppointmentKeyV17_90L177R(chunk);
-    const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(chunk);
-    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(key) && !hasAppointmentWord;
-    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
-    if (contactOnly || priceLine) continue;
-
-    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
-    let match: RegExpExecArray | null;
-    while ((match = pairPattern.exec(chunk))) {
-      const day = match[1].padStart(2, "0");
-      const month = match[2].padStart(2, "0");
-      const year = match[3]
-        ? String(match[3]).length === 2
-          ? `20${match[3]}`
-          : String(match[3])
-        : "";
-      const hour = match[4].padStart(2, "0");
-      const minute = match[5] || "00";
-      const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
-      const label = `Termin ${dateLabel} · ${hour}:${minute}`;
-      const labelKey = normalizeInvoiceAppointmentKeyV17_90L177R(label);
-      if (!labelKey || seen.has(labelKey)) continue;
-      seen.add(labelKey);
-      labels.push(label);
-    }
-  }
-
-  return labels;
-}
-
 function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
   const line = compactInvoiceValue(
     String(value || "").replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, ""),
@@ -3254,12 +3234,12 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
   const entries: InvoiceAppointmentEntryV17_90L177R[] = [];
 
   const addEntry = (entry: InvoiceAppointmentEntryV17_90L177R) => {
-    const labelKey = normalizeInvoiceAppointmentKeyV17_90L177R(entry.label);
+    const labelKey = getInvoiceAppointmentFactKeyV17_90L371U(entry.label);
     if (!labelKey) return;
     const siteKey = normalizeInvoiceAppointmentKeyV17_90L177R(entry.site);
     const exactIndex = entries.findIndex(
       (current) =>
-        normalizeInvoiceAppointmentKeyV17_90L177R(current.label) === labelKey &&
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) === labelKey &&
         normalizeInvoiceAppointmentKeyV17_90L177R(current.site) === siteKey,
     );
     if (exactIndex >= 0) {
@@ -3271,7 +3251,7 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
 
     const looseIndex = entries.findIndex((current) => {
       if (
-        normalizeInvoiceAppointmentKeyV17_90L177R(current.label) !== labelKey
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) !== labelKey
       ) {
         return false;
       }
@@ -3333,9 +3313,6 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
         section,
         sectionIndex,
       );
-      for (const label of extractInvoiceRawDateTimeAppointmentPairsV17_90L371T(section)) {
-        addEntry({ site, label, source: section });
-      }
       for (const line of extractInvoiceAppointmentLinesV17_90L177R(section)) {
         const label = parseInvoiceAppointmentLineV17_90L177R(line);
         if (!label) continue;

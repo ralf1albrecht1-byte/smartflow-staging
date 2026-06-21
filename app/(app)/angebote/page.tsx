@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
 // SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
@@ -328,6 +328,15 @@ function offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string |
 function offer_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
   return (Array.isArray(records) ? records : []).map((record: any) => ({
     ...record,
+    phone: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.phone),
+    email: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.email),
+    customer: record?.customer
+      ? {
+          ...record.customer,
+          phone: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.phone),
+          email: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.email),
+        }
+      : record?.customer,
     notes: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
     specialNotes: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
     description: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
@@ -959,51 +968,6 @@ function extractOfferAppointmentLinesV17_90L335(value?: string | null): string[]
     });
 }
 
-
-function extractOfferRawDateTimeAppointmentPairsV17_90L371T(value?: string | null): string[] {
-  const source = String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-  if (!source.trim()) return [];
-
-  const chunks = source
-    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
-    .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const labels: string[] = [];
-  const seen = new Set<string>();
-
-  for (const chunk of chunks) {
-    const key = normalizeOfferHint(chunk);
-    const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key);
-    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(key) && !hasAppointmentWord;
-    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
-    if (contactOnly || priceLine) continue;
-
-    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
-    let match: RegExpExecArray | null;
-    while ((match = pairPattern.exec(chunk))) {
-      const day = match[1].padStart(2, "0");
-      const month = match[2].padStart(2, "0");
-      const year = match[3]
-        ? String(match[3]).length === 2
-          ? `20${match[3]}`
-          : String(match[3])
-        : "";
-      const hour = match[4].padStart(2, "0");
-      const minute = match[5] || "00";
-      const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
-      const label = `Termin ${dateLabel} · ${hour}:${minute}`;
-      const labelKey = normalizeOfferHint(label);
-      if (!labelKey || seen.has(labelKey)) continue;
-      seen.add(labelKey);
-      labels.push(label);
-    }
-  }
-
-  return labels;
-}
-
 function extractOfferAppointmentLabelsV17_90L335(
   value?: string | null,
   baseDateInput?: string | null,
@@ -1086,7 +1050,7 @@ function offerAppointmentFactKeyV17_90L371R(value: unknown): string {
   const text = compactOfferValue(value).toLowerCase();
   const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
   const dateKey = dateMatch
-    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${dateMatch[3] || ""}`
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}`
     : "";
   const times = Array.from(
     text.matchAll(
@@ -1124,8 +1088,8 @@ function formatOfferMergedAppointmentDisplayLabelV17_90L371R(
     });
     if (existingIndex >= 0) {
       const current = rows[existingIndex];
-      if ((!current.site && site) || label.length > current.label.length + 6) {
-        rows[existingIndex] = { site, label, factKey };
+      if ((!current.site && site) || label.length > current.label.length) {
+        rows[existingIndex] = { site: current.site || site, label, factKey };
       }
       return;
     }
@@ -1795,18 +1759,15 @@ function resolveOfferAppointmentLabelV17_90L237(
         source,
         order?.date || order?.createdAt || baseDateInput,
       ),
-      ...extractOfferRawDateTimeAppointmentPairsV17_90L371T(source),
     );
   }
-  const fallbackAppointmentSourceV17_90L371T = [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
-    .filter(Boolean)
-    .join("\n");
   labels.push(
     ...extractOfferAppointmentLabelsV17_90L335(
-      fallbackAppointmentSourceV17_90L371T,
+      [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
+        .filter(Boolean)
+        .join("\n"),
       baseDateInput,
     ),
-    ...extractOfferRawDateTimeAppointmentPairsV17_90L371T(fallbackAppointmentSourceV17_90L371T),
   );
   return formatOfferMergedAppointmentDisplayLabelV17_90L371R(orders, labels);
 }
