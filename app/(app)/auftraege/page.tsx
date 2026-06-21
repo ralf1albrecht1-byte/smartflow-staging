@@ -1,4 +1,15 @@
 "use client";
+// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
+// SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
+// SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
+// SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
+// SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
+// SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
+// SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
+// SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
+// SMARTFLOW_V17_90L368_MERGED_IMAGE_CHIP_HOVER_PREVIEW
+// SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
 // SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
@@ -78,6 +89,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -132,6 +144,45 @@ import {
 import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
+  "smartflow:close-card-popovers-v17-90l227";
+
+// SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
+const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
+  "service",
+  "expense",
+  "material",
+  "equipment",
+  "disposal",
+  "flat_fee",
+  "other",
+];
+
+function smartflowResolvedPositionTypeV17_90L371K(item: any) {
+  return inferPositionTypeFromItem(item);
+}
+
+function smartflowPositionTypeLabelV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  return getPositionTypeLabel(type);
+}
+
+function smartflowPositionTypeSortRankV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  const index = SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.indexOf(type);
+  return index >= 0 ? index : SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.length;
+}
+
+function smartflowComparePositionEntriesV17_90L371K(left: any, right: any) {
+  const leftItem = left?.item ?? left;
+  const rightItem = right?.item ?? right;
+  const rankDiff = smartflowPositionTypeSortRankV17_90L371K(leftItem) - smartflowPositionTypeSortRankV17_90L371K(rightItem);
+  if (rankDiff !== 0) return rankDiff;
+  const leftName = String(leftItem?.serviceName ?? leftItem?.description ?? "").toLowerCase();
+  const rightName = String(rightItem?.serviceName ?? rightItem?.description ?? "").toLowerCase();
+  return leftName.localeCompare(rightName, "de-CH");
+}
   "smartflow:close-card-popovers-v17-90l227";
 
 const NORMAL_DOG_ICON_DATA_URI =
@@ -294,6 +345,7 @@ interface OrderItem {
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -383,6 +435,7 @@ interface ServiceDef {
   name: string;
   defaultPrice: number;
   unit: string;
+  positionType?: string | null;
 }
 
 const statuses = ["Alle", "Offen", "Erledigt"];
@@ -435,6 +488,7 @@ const unitConflictTextByReason: Record<string, string> = {
 interface FormItem {
   key: string; // client-side key for React
   serviceName: string;
+  positionType?: string | null;
   unit: string;
   unitPrice: string;
   quantity: string;
@@ -449,7 +503,7 @@ interface FormItem {
   pendingReviewSourceServiceName?: string;
   recognitionReviewKey?: string;
   sourceDescription?: string;
-  // V17.90L313: Rein manuell über „+ Leistung“ angelegte Zeilen dürfen
+  // V17.90L313: Rein manuell über „+ Position“ angelegte Zeilen dürfen
   // keine alte Kundennachrichten-Quelle per Namens-Fallback anzeigen.
   _manualUserAdded?: boolean;
   workSiteId?: string | null;
@@ -459,7 +513,8 @@ interface FormItem {
 const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
-  unit: "Einheit prüfen",
+  positionType: "service",
+  unit: "",
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
@@ -471,6 +526,67 @@ const createEmptyItem = (): FormItem => ({
   recognitionReviewKey: "",
   workSiteId: null,
 });
+
+
+const POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B = /^(?:(?:einheit|menge|preis)?\s*(?:prüfen|pruefen|prufen)\s*)+$/i;
+const cleanPositionFieldValueV17_90L371B = (value: unknown) => {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B.test(text) ? "" : text;
+};
+const cleanPositionQuantityValueV17_90L371B = (value: unknown) => {
+  const text = cleanPositionFieldValueV17_90L371B(value);
+  return Number(text || 0) > 0 ? text : "";
+};
+
+const resolveOrderPositionTypeForOfferHandoffV17_90L371F = (
+  sourceItem: any,
+  fallbackItems?: any[] | null,
+  index?: number,
+) => {
+  const sourceRaw =
+    sourceItem?.positionType ??
+    sourceItem?.type ??
+    sourceItem?.itemType ??
+    sourceItem?.kind ??
+    null;
+
+  const fallbackByIndex =
+    typeof index === "number" && Array.isArray(fallbackItems)
+      ? fallbackItems[index]
+      : null;
+  const sourceNameKey = compactText(
+    sourceItem?.serviceName || sourceItem?.description || "",
+  ).toLowerCase();
+  const fallbackByName =
+    !fallbackByIndex && sourceNameKey && Array.isArray(fallbackItems)
+      ? fallbackItems.find(
+          (candidate) =>
+            compactText(candidate?.serviceName || candidate?.description || "").toLowerCase() ===
+            sourceNameKey,
+        )
+      : null;
+  const fallbackRaw =
+    fallbackByIndex?.positionType ??
+    fallbackByIndex?.type ??
+    fallbackByIndex?.itemType ??
+    fallbackByIndex?.kind ??
+    fallbackByName?.positionType ??
+    fallbackByName?.type ??
+    fallbackByName?.itemType ??
+    fallbackByName?.kind ??
+    null;
+
+  const sourceType = inferPositionTypeFromItem(sourceItem);
+  const fallbackType = inferPositionTypeFromItem(fallbackByIndex ?? fallbackByName ?? { positionType: fallbackRaw });
+
+  // V17.90L371F/L371L: Beim Auftrag → Angebot darf ein bewusst manuell gesetzter
+  // oder aus dem Prefix erkannter Typ wie Material/Gerät/Zusatzkosten nicht wieder
+  // auf Dienstleistung zurückfallen.
+  if ((!sourceRaw || sourceType === "service") && fallbackRaw && fallbackType !== "service") {
+    return fallbackType;
+  }
+  return sourceType;
+};
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
@@ -652,7 +768,7 @@ const parseOrderServiceReviewTooltipV17_90L174 = (
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean);
-      const title = lines.shift() || "Leistungen prüfen";
+      const title = lines.shift() || "Positionen prüfen";
       const items: Array<{ title: string; details: string[] }> = [];
       let current: { title: string; details: string[] } | null = null;
 
@@ -687,6 +803,45 @@ type ReviewBadge = {
 const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
+
+// SMARTFLOW_V17_90L371Q: Merged contact review must not treat execution appointments as contacts.
+// Appointment lines stay visible in the violet appointment chip/info area only.
+const order_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
+  /\b(?:kontakt|contact|telefon|tel\.?|phone|natel|handy|mobile|whats\s*app|whatsapp|sms|e-?mail|email|mail|anrufen|anruf|rueckruf|rückruf|melden|bescheid)\b/i;
+const order_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
+  /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
+
+function order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return value || null;
+  const cleaned = source
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      if (!line) return false;
+      const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(line);
+      const hasContact = order_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(line) ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(line) ||
+        (/\+?\d[\d\s().\/-]{6,}\d/.test(line) && !looksLikeCompactDate);
+      const hasAppointment = order_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(line);
+      return !(hasAppointment && !hasContact);
+    })
+    .join("\n")
+    .trim();
+  return cleaned || null;
+}
+
+function order_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
+  return (Array.isArray(records) ? records : []).map((record: any) => ({
+    ...record,
+    notes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
+    specialNotes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
+    description: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
+    audioTranscript: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.audioTranscript),
+  })) as T[];
+}
 
 // V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
 // Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
@@ -977,7 +1132,7 @@ const getOrderServiceReviewDetailV17_90L134 = (
 ): string => {
   const reason = getOrderServiceReviewReasonV17_90L134(item, services);
   if (!reason) return "";
-  const name = compactText(item?.serviceName) || "Neue Leistung";
+  const name = compactText(item?.serviceName) || "Neue Position";
   const quantity = Number(item?.quantity || 0);
   const price = Number(item?.unitPrice || 0);
   const unit = compactText(item?.unit) || "–";
@@ -1465,6 +1620,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     items.map((item) => ({
       key: Math.random().toString(36).slice(2),
       serviceName: item.serviceName ?? item.description ?? "",
+      positionType: inferPositionTypeFromItem(item),
       unit: item.unit ?? item.priceType ?? "Stunde",
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
@@ -1480,6 +1636,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     })),
   ).map((item) => ({
     serviceName: item.serviceName,
+    positionType: inferPositionTypeFromItem(item),
     description: buildItemDescription(item),
     quantity: Number(item.quantity || 0),
     unit: item.unit,
@@ -2805,13 +2962,25 @@ const hasAppointmentIntentWord = (value?: string | null) =>
   );
 
 const hasExplicitAppointmentBadgeSignalV17_90L10 = (value?: string | null) => {
-  const text = normalizeForMatch(value);
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
   if (!text) return false;
 
-  const hasExplicitIntent = hasAppointmentIntentWord(value);
+  const hasExplicitIntent = hasAppointmentIntentWord(raw);
   const hasRelativeDay = /\b(?:heute|morgen|uebermorgen|übermorgen|today|tomorrow|demain|mañana|manana|domani)\b/.test(text);
   const hasWeekday = /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.test(text);
   const hasExecutionAction = /\b(?:erledigen|ausfuehren|ausführen|machen|kommen|starten|beginnen|durchfuehren|durchführen|visite|passage|arrivare|venir|realizar|hacer)\b/.test(text);
+  const hasExplicitDate = /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(raw);
+  const hasExplicitClock = /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um\s*)?([01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(raw.replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/g, " "));
+  const isClearlyContactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(text) && !hasExplicitIntent;
+  const isClearlyPriceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(raw);
+
+  // V17.90L371S: In zusammengeführten Aufträgen steht ein Arbeitsort-Termin
+  // teils nur als "29.06. 09:00" oder "29.06. um 9 Uhr" in der Quellzeile.
+  // Das ist ein echter Ausführungstermin, auch ohne das Wort "Termin".
+  if (hasExplicitDate && hasExplicitClock && !isClearlyContactOnly && !isClearlyPriceLine) {
+    return true;
+  }
 
   return hasExplicitIntent || ((hasRelativeDay || hasWeekday) && hasExecutionAction);
 };
@@ -3075,6 +3244,55 @@ const extractAppointmentDetailsFromRawText = (
       if (reason)
         details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
       continue;
+    }
+  }
+
+  return details;
+};
+
+
+const extractRawDateTimeAppointmentPairsV17_90L371T = (
+  ...values: Array<string | null | undefined>
+): AppointmentDetail[] => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+
+  const chunks = source
+    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
+    .map((line) => compactText(stripVisibleNoteMarkerV17_35(line)))
+    .filter(Boolean);
+  const details: AppointmentDetail[] = [];
+  const seen = new Set<string>();
+
+  for (const chunk of chunks) {
+    const normalized = normalizeForMatch(chunk);
+    const hasAppointmentIntent = hasAppointmentIntentWord(chunk);
+    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(normalized) && !hasAppointmentIntent;
+    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
+    if (contactOnly || priceLine || isResourceAvailabilityTimeLineV17_90L84(chunk)) continue;
+
+    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pairPattern.exec(chunk))) {
+      const day = match[1].padStart(2, "0");
+      const month = match[2].padStart(2, "0");
+      const year = match[3]
+        ? String(match[3]).length === 2
+          ? `20${match[3]}`
+          : String(match[3])
+        : "";
+      const hour = match[4].padStart(2, "0");
+      const minute = match[5] || "00";
+      const displayDate = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+      const detailLabel = `${displayDate} · ${hour}:${minute}`;
+      const key = normalizeForMatch(detailLabel);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      details.push({ site: "", address: "", label: detailLabel, reason: chunk });
     }
   }
 
@@ -3481,6 +3699,12 @@ const getMultipleAppointmentBadge = (
   const details = dedupeAppointmentDetails(
     normalizeMergedAppointmentSitesV17_90L178(order, [
       ...mergedDetails,
+      ...extractRawDateTimeAppointmentPairsV17_90L371T(
+        order.specialNotes,
+        order.notes,
+        order.audioTranscript,
+        ...parsedNotes.jobHints,
+      ),
       ...extractAppointmentDetailsFromRawText(order.specialNotes),
       ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
       ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
@@ -7356,14 +7580,15 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
 };
 
 const MERGED_CONTACT_DATA_PATTERN =
-  /whatsapp|sms|mail|e-?mail|telefon|telefonisch|anruf|anrufen|rückruf|rueckruf|ruckruf|termin|uhr|appointment|call|no calls?|nicht anrufen|keine telefonische/i;
+  /whatsapp|sms|mail|e-?mail|telefon|telefonisch|anruf|anrufen|rückruf|rueckruf|ruckruf|call|no calls?|nicht anrufen|keine telefonische/i;
 
 const hasMergedMultipleContactData = (
   order: Order,
   parsedNotes?: ReturnType<typeof splitSpecialNotes>,
 ) => {
-  if (order.reviewReasons?.includes("merged_multiple_contact_data"))
-    return true;
+  const hasExplicitMergedContactDataReview = Boolean(
+    order.reviewReasons?.includes("merged_multiple_contact_data"),
+  );
 
   const rawSource = [order.notes, order.specialNotes, order.audioTranscript]
     .filter(Boolean)
@@ -7423,15 +7648,24 @@ const hasMergedMultipleContactData = (
   const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
   const groupedContactLines = notes.jobHints.filter((line) => {
     const value = compactText(line);
+    const looksLikeAppointmentOnly =
+      order_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(value) &&
+      !order_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(value) &&
+      !/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value) &&
+      !/\+?\d[\d\s().\/-]{6,}\d/.test(value);
     return (
-      /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value)
+      /^[^:]{2,120}:\s+/.test(value) &&
+      MERGED_CONTACT_DATA_PATTERN.test(value) &&
+      !looksLikeAppointmentOnly
     );
   });
 
   return (
     operationalContactKeys.size > 1 ||
     (operationalContactKeys.size > 0 && companyContactKeys.size > 0) ||
-    groupedContactLines.length > 1
+    groupedContactLines.length > 1 ||
+    (hasExplicitMergedContactDataReview &&
+      (operationalContactKeys.size > 0 || groupedContactLines.length > 0))
   );
 };
 
@@ -8501,10 +8735,10 @@ const getSystemBadges = (
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
       {
         key: "service_review_summary",
-        label: `Leistungen prüfen · ${serviceReviewCount}`,
+        label: `Positionen prüfen · ${serviceReviewCount}`,
         className:
           "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-        tooltip: serviceReviewTooltip || "Leistungen prüfen.",
+        tooltip: serviceReviewTooltip || "Positionen prüfen.",
         serviceReviewGroups,
       },
     ];
@@ -8831,6 +9065,40 @@ const getBottomBadges = (
       });
     }
     const appointment = canonicalAppointmentBadgeV2(canonicalSnapshotV2);
+    const localMultipleAppointmentBadgeV17_90L371S = getMultipleAppointmentBadge(order, parsedNotes);
+    if (localMultipleAppointmentBadgeV17_90L371S) {
+      pushUniqueBadge(badges, localMultipleAppointmentBadgeV17_90L371S);
+      return badges;
+    }
+
+    const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppointmentSourceV17_90L316(
+      order,
+      parsedNotes,
+    )
+      ? Array.from(
+          new Map(
+            collectMergedAppointmentEntries([order as any]).map((entry: any) => [
+              `${normalizeForMatch(entry?.site)}|${normalizeForMatch(entry?.label)}`,
+              entry,
+            ]),
+          ).values(),
+        )
+      : [];
+
+    if (canonicalBranchMergedAppointmentEntriesV17_90L371R.length > 1) {
+      pushUniqueBadge(badges, {
+        key: "appointments_multiple",
+        label: formatMergedAppointmentChipLabel(
+          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+        ),
+        className: "bg-violet-100 text-violet-700 border border-violet-300",
+        tooltip: formatMergedAppointmentTooltip(
+          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+        ),
+      });
+      return badges;
+    }
+
     const manualAwareAppointmentBadgeV17_90L331 =
       buildManualAwareOrderAppointmentBadgeV17_90L331(
         order,
@@ -8846,6 +9114,17 @@ const getBottomBadges = (
         label: appointment.label,
         className: "bg-violet-100 text-violet-700 border border-violet-300",
         tooltip: appointment.tooltip,
+      });
+    } else if (canonicalBranchMergedAppointmentEntriesV17_90L371R.length === 1) {
+      pushUniqueBadge(badges, {
+        key: "appointment",
+        label: formatMergedAppointmentChipLabel(
+          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+        ),
+        className: "bg-violet-100 text-violet-700 border border-violet-300",
+        tooltip: formatMergedAppointmentTooltip(
+          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+        ),
       });
     }
     return badges;
@@ -10146,7 +10425,7 @@ const renderOrderServiceReviewTooltipLinesV17_135G = (
   keyPrefix: string,
 ) => {
   const headingPattern =
-    /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
   let serviceIndexInSection = 0;
 
   return tooltip.split("\n").map((line, index) => {
@@ -10256,7 +10535,7 @@ const OrderServiceReviewTooltipContentV17_135G = ({
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                    Leistungen prüfen · {group.count}
+                    Positionen prüfen · {group.count}
                   </span>
                 </span>
                 {active && (
@@ -10773,7 +11052,7 @@ const renderBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -10920,7 +11199,7 @@ const renderMobileSafeBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -11603,7 +11882,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     : [];
 
   if (items.length === 0) {
-    blockers.push("Keine Leistungen vorhanden");
+    blockers.push("Keine Positionen vorhanden");
   }
 
   const hasUnresolvedServiceOrUnit = items.some(
@@ -11696,6 +11975,7 @@ const formatDocumentApiBlockersV17_90L36 = (payload: any): string => {
 
 
 type ResponsiveOrderServiceRowV17_90L231 = {
+  typeLabel: string;
   name: string;
   amountLabel: string;
 };
@@ -11745,9 +12025,10 @@ function ResponsiveOrderServicePreviewV17_95({
         }`;
       const columnWidth = (width - 32) / 2;
       const widestRow = services.reduce((maxWidth, service) => {
+        const typeWidth = context.measureText(service.typeLabel).width;
         const nameWidth = context.measureText(service.name).width;
         const amountWidth = context.measureText(service.amountLabel).width;
-        return Math.max(maxWidth, nameWidth + amountWidth + 52);
+        return Math.max(maxWidth, typeWidth + nameWidth + amountWidth + 92);
       }, 0);
       setUseTwoColumns(widestRow <= columnWidth);
     };
@@ -11788,7 +12069,7 @@ function ResponsiveOrderServicePreviewV17_95({
       }}
     >
       <div className="mb-2 text-xs font-medium text-muted-foreground">
-        Leistungen · {services.length}
+        Positionen · {services.length}
       </div>
       <div
         ref={listRef}
@@ -11802,13 +12083,16 @@ function ResponsiveOrderServicePreviewV17_95({
         {visibleServices.map((service, serviceIndex) => (
           <div
             key={`${orderId}:responsive-service:${serviceIndex}`}
-            className="flex min-w-0 items-start gap-2 text-sm"
+            className="grid min-w-0 grid-cols-[7.5rem_minmax(0,1fr)_auto] items-start gap-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_auto]"
           >
-            <span className="mt-[0.45rem] h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
-            <span className="min-w-0 flex-1 break-words leading-snug">
+            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground max-sm:col-span-2">
+              {service.typeLabel}
+            </span>
+            <span className="min-w-0 break-words leading-snug">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500/80" />
               {service.name}
             </span>
-            <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
               {service.amountLabel}
             </span>
           </div>
@@ -11827,8 +12111,8 @@ function ResponsiveOrderServicePreviewV17_95({
           className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 active:scale-[0.99]"
         >
           {expanded
-            ? "Weniger Leistungen anzeigen"
-            : `+ ${hiddenCount} weitere Leistungen`}
+            ? "Weniger Positionen anzeigen"
+            : `+ ${hiddenCount} weitere Positionen`}
         </button>
       )}
     </div>
@@ -12869,7 +13153,12 @@ export default function AuftraegePage() {
           serviceName: canonicalServiceNameForOrderItem(
             item.serviceName ?? "",
           ),
-          unit: item.unit ?? "Stunde",
+          // V17.90L371H: positionType is a real order item field. The editor
+          // must hydrate it from persisted items; otherwise a saved Material
+          // row reopens as the default Dienstleistung and the next save
+          // overwrites the database back to service.
+          positionType: inferPositionTypeFromItem(item),
+          unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: shouldRequireFreshManualPrice
             ? ""
             : Number(item.unitPrice || 0) === 0
@@ -12980,6 +13269,7 @@ export default function AuftraegePage() {
           syntheticCurrencyReviewItems.push({
             key: Math.random().toString(36).slice(2),
             serviceName: "Leistung prüfen",
+            positionType: "service",
             unit: "Pauschal",
             unitPrice: "",
             quantity: "1",
@@ -13078,6 +13368,7 @@ export default function AuftraegePage() {
           {
             key: Math.random().toString(36).slice(2),
             serviceName: o.serviceName ?? "",
+            positionType: inferPositionTypeFromItem(o),
             unit: o.priceType ?? "Stunde",
             unitPrice:
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
@@ -15272,7 +15563,7 @@ export default function AuftraegePage() {
     );
     if (hasRealItems) {
       toast.error(
-        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+        "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
       );
       return;
     }
@@ -15967,13 +16258,15 @@ export default function AuftraegePage() {
         ? `${item.quantity} ${unitShortLabel(item.unit)}`
         : "Menge prüfen";
     const totalLabel = total > 0 ? ` · ${formatCurrency(total, currency)}` : "";
-    return `${item.serviceName || "Leistung prüfen"} · ${quantityLabel}${totalLabel}`;
+    return `${item.serviceName || "Position prüfen"} · ${smartflowPositionTypeLabelV17_90L371K(item)} · ${quantityLabel}${totalLabel}`;
   };
 
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
         ...visibleFormItemsWithIndexesV17_90L359
           .filter(({ item }) => !item.workSiteId)
+          .slice()
+          .sort(smartflowComparePositionEntriesV17_90L371K)
           .map(({ item, index }, siteItemIndex) => ({
             item,
             index,
@@ -15983,7 +16276,9 @@ export default function AuftraegePage() {
           })),
         ...currentEditWorkSites.flatMap((site) => {
           const siteRows = visibleFormItemsWithIndexesV17_90L359
-            .filter(({ item }) => item.workSiteId === site.id);
+            .filter(({ item }) => item.workSiteId === site.id)
+            .slice()
+            .sort(smartflowComparePositionEntriesV17_90L371K);
 
           if (siteRows.length === 0) {
             return [
@@ -16010,7 +16305,10 @@ export default function AuftraegePage() {
           }));
         }),
       ]
-    : visibleFormItemsWithIndexesV17_90L359.map(({ item, index }) => ({
+    : visibleFormItemsWithIndexesV17_90L359
+        .slice()
+        .sort(smartflowComparePositionEntriesV17_90L371K)
+        .map(({ item, index }) => ({
         item,
         index,
         site: null as OrderWorkSite | null,
@@ -16019,7 +16317,8 @@ export default function AuftraegePage() {
       }));
 
   const unitShortLabel = (unit: string) => {
-    const normalized = (unit || "").toLowerCase();
+    const cleanedUnit = cleanPositionFieldValueV17_90L371B(unit);
+    const normalized = (cleanedUnit || "").toLowerCase();
     if (normalized === "quadratmeter") return "m²";
     if (normalized === "kubikmeter") return "m³";
     if (normalized === "meter") return "m";
@@ -16030,9 +16329,8 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
-    if (normalized.includes("prüfen") || normalized.includes("pruefen"))
-      return "prüfen";
-    return unit || "–";
+    if (POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B.test(normalized)) return "";
+    return cleanedUnit || "–";
   };
 
   const liveOverviewRows = visibleFormItemsV17_90L359
@@ -16047,8 +16345,10 @@ export default function AuftraegePage() {
       return {
         index: index + 1,
         serviceName: item.serviceName.trim(),
-        unit: item.unit,
-        unitLabel: unitShortLabel(item.unit),
+        
+        positionType: inferPositionTypeFromItem(item),
+        unit: cleanPositionFieldValueV17_90L371B(item.unit),
+        unitLabel: unitShortLabel(cleanPositionFieldValueV17_90L371B(item.unit)),
         quantity,
         unitPrice,
         hasQuantity,
@@ -16573,13 +16873,17 @@ export default function AuftraegePage() {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
-    const sourceFormItems = itemsOverride ?? formItems;
+    const sourceFormItems = (itemsOverride ?? formItems).map((item) => ({
+      ...item,
+      unit: cleanPositionFieldValueV17_90L371B(item.unit),
+      quantity: cleanPositionQuantityValueV17_90L371B(item.quantity),
+    }));
     const sourceFormWorkSites = workSitesOverride ?? formWorkSites;
     let validItems = mergeEquivalentFormItems(
       sourceFormItems.filter((i) => i.serviceName.trim()),
     );
     if (validItems.length === 0) {
-      toast.error("Mindestens eine Leistung auswählen");
+      toast.error("Mindestens eine Position auswählen");
       return null;
     }
 
@@ -16674,7 +16978,7 @@ export default function AuftraegePage() {
     );
     if (workSiteWithoutServiceV17_90L292) {
       toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
+        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
       );
       return null;
     }
@@ -16703,7 +17007,7 @@ export default function AuftraegePage() {
       cleanWorkSites.length > 1 &&
       validItems.some((item) => !item.workSiteId)
     ) {
-      toast.error("Bitte jeder Leistung einen Arbeitsort zuordnen.");
+      toast.error("Bitte jeder Position einen Arbeitsort zuordnen.");
       return null;
     }
     const desc = form.description?.trim() || buildDescription();
@@ -17250,6 +17554,8 @@ export default function AuftraegePage() {
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          
+          positionType: inferPositionTypeFromItem(item),
           description:
             hasCurrentEditCurrencyReview && itemCurrencyConfirmed
               ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
@@ -17257,7 +17563,7 @@ export default function AuftraegePage() {
                 ? buildItemDescription({ ...item, aiWarning: "" })
                 : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
-          unit: item.unit,
+          unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: itemIsStillBlockedByCurrency
             ? 0
             : Number(item.unitPrice || 0),
@@ -17594,11 +17900,12 @@ export default function AuftraegePage() {
       // Do not merge "equivalent" rows here: separate work areas can share the
       // same quantity/price and still be distinct contractual positions.
       const orderItems = Array.isArray(saved.items) ? saved.items : [];
-      const offerItems = orderItems.map((i: any) => ({
+      const offerItems = orderItems.map((i: any, index: number) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 0),
-        unit: i.unit ?? "",
+        unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
+        positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -17668,8 +17975,9 @@ export default function AuftraegePage() {
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 0),
-        unit: i.unit ?? "",
+        unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
+        positionType: inferPositionTypeFromItem(i),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -18184,6 +18492,8 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
+    // V17.90L369: merged image chip must behave like the normal image chip:
+    // stable blue icon on the card, desktop hover preview, click/tap opens gallery.
     const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
       "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
@@ -18210,30 +18520,43 @@ export default function AuftraegePage() {
           </button>
         )}
         {hasImage && (
-          <button
-            type="button"
+          <span
+            className="group relative inline-flex h-8 w-8 shrink-0 overflow-visible"
             data-card-toggle-ignore="true"
-            aria-label="Bild öffnen"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void openOrderImageMediaV17_90L364(o);
-            }}
-            className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            onClick={(event) => event.stopPropagation()}
           >
-            {imagePreviewUrl ? (
+            <button
+              type="button"
+              data-card-toggle-ignore="true"
+              aria-label="Bilder ansehen"
+              title="Bilder ansehen"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void openOrderImageMediaV17_90L364(o);
+              }}
+              className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+            {imagePreviewUrl && (
               <span
                 aria-hidden="true"
-                className="block h-full w-full bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
-              />
-            ) : (
-              <ImageIcon className="h-4 w-4" />
+                className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-2 text-left shadow-xl group-hover:block group-focus-within:block dark:border-slate-700 dark:bg-slate-950"
+              >
+                <span
+                  className="block h-24 w-full rounded-lg bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+                />
+                <span className="mt-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Anklicken zum Öffnen
+                </span>
+              </span>
             )}
-          </button>
+          </span>
         )}
       </>
     );
@@ -18291,11 +18614,12 @@ export default function AuftraegePage() {
     const orderItems = Array.isArray(sourceOrder.items)
       ? sourceOrder.items
       : [];
-    const offerItems = orderItems.map((i: any) => ({
+    const offerItems = orderItems.map((i: any, index: number) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 0),
-      unit: i.unit ?? "",
+      unit: cleanPositionFieldValueV17_90L371B(i.unit),
       unitPrice: String(i.unitPrice ?? 0),
+      positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
       siteName: i.workSite?.siteName || null,
       siteAddress: i.workSite?.siteAddress || null,
       sitePlz: i.workSite?.sitePlz || null,
@@ -18793,7 +19117,7 @@ export default function AuftraegePage() {
       );
     }
 
-    const sheetTitle = activeMobileTooltip.title || "Leistungen prüfen";
+    const sheetTitle = activeMobileTooltip.title || "Positionen prüfen";
     const reviewGroups = activeMobileTooltip.serviceReviewGroups || [];
     const renderMobileServiceSections = (
       sections: OrderMobileServiceReviewSectionV17_90L174[],
@@ -18917,7 +19241,7 @@ export default function AuftraegePage() {
                           </span>
                         </span>
                         <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
-                          Leistungen prüfen · {group.count}
+                          Positionen prüfen · {group.count}
                         </span>
                       </button>
                       {active && (
@@ -19142,6 +19466,7 @@ export default function AuftraegePage() {
                         ? "EUR"
                         : "CHF";
                   return {
+                    typeLabel: smartflowPositionTypeLabelV17_90L371K(item),
                     name,
                     amountLabel: blocked
                       ? "Preis prüfen"
@@ -19158,6 +19483,7 @@ export default function AuftraegePage() {
                 );
             if (mobileOrderServiceRows.length === 0 && o.serviceName) {
               mobileOrderServiceRows.push({
+                typeLabel: "Dienstleistung",
                 name: canonicalServiceNameForOrderItem(o.serviceName),
                 amountLabel: formatCurrency(
                   getSafeOrderTotal(o),
@@ -19906,7 +20232,7 @@ export default function AuftraegePage() {
                                 ))}
                               </div>
                               <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
-                                Leistungen · {mobileOrderServiceNames.length}
+                                Positionen · {mobileOrderServiceNames.length}
                               </div>
                               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                 <select
@@ -19964,7 +20290,7 @@ export default function AuftraegePage() {
                                     onClick={(event) => event.stopPropagation()}
                                   >
                                     <MergedContactReviewChip
-                                      records={[cardOrderForChips as any]}
+                                      records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
                                       compact
                                     />
                                     {renderMergedOrderMediaChipsV17_90L364(o)}
@@ -20190,7 +20516,7 @@ export default function AuftraegePage() {
                               onClick={(event) => event.stopPropagation()}
                             >
                               <MergedContactReviewChip
-                                records={[cardOrderForChips as any]}
+                                records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
                                 compact
                               />
                               {renderMergedOrderMediaChipsV17_90L364(o)}
@@ -20338,7 +20664,7 @@ export default function AuftraegePage() {
 
                           {/* Row 2: compact service-only preview */}
                           <div className="mt-0.5 text-[10px] font-semibold text-muted-foreground">
-                            {mobileOrderServiceNames.length} Leistungen
+                            {mobileOrderServiceNames.length} Positionen
                           </div>
                           <p
                             className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
@@ -20413,7 +20739,7 @@ export default function AuftraegePage() {
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <MergedContactReviewChip
-                                  records={[cardOrderForChips as any]}
+                                  records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
                                   compact
                                 />
                                 {renderMergedOrderMediaChipsV17_90L364(o)}
@@ -21474,7 +21800,7 @@ export default function AuftraegePage() {
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
                   <span>
-                    {visibleServiceItemCountV17_90L359} Leistung(en)
+                    {visibleServiceItemCountV17_90L359} Position(en)
                     · {formatCurrency(itemsTotal, currency)} ·{" "}
                     {form.date || "–"} · {form.status}
                   </span>
@@ -21494,8 +21820,8 @@ export default function AuftraegePage() {
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <Label className="whitespace-nowrap text-base font-semibold">
                             {hasMultipleEditWorkSites
-                              ? "Arbeitsorte & Leistungen"
-                              : `Leistungen · ${visibleServiceItemCountV17_90L359} *`}
+                              ? "Arbeitsorte & Positionen"
+                              : `Positionen · ${visibleServiceItemCountV17_90L359} *`}
                           </Label>
                           {currentEditMergedHeaderBadge &&
                             currentEditExecutionHeaderBadge &&
@@ -21544,14 +21870,14 @@ export default function AuftraegePage() {
                             className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Leistung
+                            Position
                           </Button>
                         </div>
                       </div>
                       {hasMultipleEditWorkSites ? (
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span className="min-w-0 truncate">
-                            {currentEditWorkSites.length} Arbeitsorte · {visibleServiceItemCountV17_90L359} Leistungen
+                            {currentEditWorkSites.length} Arbeitsorte · {visibleServiceItemCountV17_90L359} Positionen
                           </span>
                           <span className="shrink-0 font-mono font-medium text-foreground">
                             {formatCurrency(itemsTotal, currency)}
@@ -21559,7 +21885,7 @@ export default function AuftraegePage() {
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">
-                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                          Kompakte Übersicht. Zum Bearbeiten die Position aufklappen.
                         </p>
                       )}
                     </div>
@@ -21931,14 +22257,18 @@ export default function AuftraegePage() {
                             blockingReviewFieldListV17_90L243
                               ? `${blockingReviewFieldListV17_90L243} prüfen`
                               : "";
+                          const itemQuantityDisplayValueV17_90L371D =
+                            cleanPositionQuantityValueV17_90L371B(item.quantity);
+                          const itemUnitDisplayValueV17_90L371D =
+                            cleanPositionFieldValueV17_90L371B(item.unit);
                           const itemQuantityUnitSummaryV17_90L243 =
-                            quantityInputReview && unitInputCriticalV17_90L243
-                              ? "Einheit und Menge prüfen"
-                              : quantityInputReview
-                                ? `Menge prüfen ${unitShortLabel(item.unit)}`.trim()
-                                : unitInputCriticalV17_90L243
-                                  ? `${item.quantity || "–"} · Einheit prüfen`
-                                  : `${item.quantity} ${unitShortLabel(item.unit)}`.trim();
+                            quantityInputReview
+                              ? itemPriceNumber > 0
+                                ? `Menge fehlt · ${formatCurrency(itemPriceNumber, currency)} erkannt`
+                                : "Menge fehlt"
+                              : unitInputCriticalV17_90L243
+                                ? `${itemQuantityDisplayValueV17_90L371D || "Menge fehlt"} · Einheit prüfen`
+                                : `${itemQuantityDisplayValueV17_90L371D} ${unitShortLabel(itemUnitDisplayValueV17_90L371D || item.unit)}`.trim();
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             !itemHasInternalReviewServiceName &&
@@ -21988,9 +22318,13 @@ export default function AuftraegePage() {
                               }`
                             : "";
                           const orderSummaryParts = [
-                            Number(item.quantity || 0) > 0
-                              ? `${item.quantity} ${unitShortLabel(item.unit)}`
-                              : unitShortLabel(item.unit),
+                            itemQuantityDisplayValueV17_90L371D
+                              ? `${itemQuantityDisplayValueV17_90L371D} ${unitShortLabel(itemUnitDisplayValueV17_90L371D || item.unit)}`.trim()
+                              : itemUnitDisplayValueV17_90L371D
+                                ? itemUnitDisplayValueV17_90L371D
+                                : quantityInputReview
+                                  ? "Menge fehlt"
+                                  : "",
                             itemPriceNumber > 0
                               ? `à ${formatCurrency(itemPriceNumber, currency)}`
                               : "Preis prüfen",
@@ -22151,6 +22485,7 @@ export default function AuftraegePage() {
                               services || [],
                             ) ||
                             (hasAnyItemReview ? "Manuell prüfen" : "");
+                          const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
                           const siteIndex = site
                             ? currentEditWorkSites.findIndex(
                                 (option) => option.id === site.id,
@@ -22444,7 +22779,7 @@ export default function AuftraegePage() {
                                           {`${siteIndex + 1}. ${formatWorkSiteTitle(site)}`}
                                         </span>
                                         <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
-                                          {groupItemCount} Leistung
+                                          {groupItemCount} Position
                                           {groupItemCount === 1 ? "" : "en"}
                                         </span>
                                         {isActiveSite && (
@@ -22459,7 +22794,7 @@ export default function AuftraegePage() {
                                         )}
                                         {siteHasNoItems && !siteNeedsReview && (
                                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                                            Keine Leistungen
+                                            Keine Positionen
                                           </span>
                                         )}
                                       </div>
@@ -22475,12 +22810,12 @@ export default function AuftraegePage() {
                                               onPointerDown={(event) => event.stopPropagation()}
                                             >
                                               <span className="truncate whitespace-nowrap">
-                                                Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                                Positionen prüfen · {groupReviewSummaryV17_90L135G.count}
                                               </span>
                                               <ViewportAwareOrderServiceTooltip
                                                 badge={{
                                                   key: `site_service_review_${site?.id || "general"}`,
-                                                  label: `Leistungen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
+                                                  label: `Positionen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
                                                   className:
                                                     "border-amber-300 bg-amber-100 text-amber-900",
                                                   tooltip:
@@ -22667,7 +23002,7 @@ export default function AuftraegePage() {
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="text-[11px] text-muted-foreground">
                                           Zugeordnet: {groupItemCount}{" "}
-                                          Leistung(en)
+                                          Position(en)
                                         </div>
                                         <div className="flex flex-wrap items-center justify-end gap-2">
                                           <Button
@@ -22729,10 +23064,10 @@ export default function AuftraegePage() {
                                   <div className="font-semibold">
                                     {siteNeedsReview
                                       ? "Arbeitsort bitte ausfüllen."
-                                      : "Noch keine Leistungen in diesem Arbeitsort."}
+                                      : "Noch keine Positionen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
-                                    Arbeitsort und zugehörige Leistung vollständig
+                                    Arbeitsort und zugehörige Position vollständig
                                     ausfüllen oder den Arbeitsort löschen.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -22746,7 +23081,7 @@ export default function AuftraegePage() {
                                           addItemToWorkSite(site.id)
                                         }
                                       >
-                                        + Leistung hier hinzufügen
+                                        + Position hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
@@ -22795,13 +23130,13 @@ export default function AuftraegePage() {
                                             {item.serviceName.trim() ||
                                               (hasMultipleEditWorkSites &&
                                               !item.workSiteId
-                                                ? "Ausführungsort und Leistung auswählen"
-                                                : "Leistung auswählen")}
+                                                ? "Ausführungsort und Position auswählen"
+                                                : "Position auswählen")}
                                           </span>
                                         </div>
                                         <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">
                                           <div className="truncate text-xs text-muted-foreground sm:text-sm">
-                                            {itemQuantityUnitSummaryV17_90L243} ×{" "}
+                                            {positionTypeLabelV17_90L371K} · {itemQuantityUnitSummaryV17_90L243} ×{" "}
                                             {itemPriceNumber > 0
                                               ? formatCurrency(itemPriceNumber, currency)
                                               : "Preis prüfen"}
@@ -22849,8 +23184,8 @@ export default function AuftraegePage() {
                                               );
                                             }}
                                             className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                                            title="Leistungsaktionen"
-                                            aria-label="Leistungsaktionen"
+                                            title="Positionsaktionen"
+                                            aria-label="Positionsaktionen"
                                           >
                                             <MoreVertical className="h-4 w-4" />
                                           </button>
@@ -22867,7 +23202,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Trash2 className="h-4 w-4" />
-                                                Leistung löschen
+                                                Position löschen
                                               </button>
                                               <button
                                                 type="button"
@@ -22879,7 +23214,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Plus className="h-4 w-4" />
-                                                In Leistungskatalog übernehmen
+                                                In Katalog übernehmen
                                               </button>
                                             </div>
                                           )}
@@ -22893,8 +23228,8 @@ export default function AuftraegePage() {
                                             removeItem(index);
                                           }}
                                           className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
-                                          title="Leistung löschen"
-                                          aria-label="Leistung löschen"
+                                          title="Position löschen"
+                                          aria-label="Position löschen"
                                         >
                                           <Trash2 className="h-4 w-4" />
                                         </button>
@@ -22960,6 +23295,24 @@ export default function AuftraegePage() {
                                           </select>
                                         </div>
                                       )}
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <div>
+                                            <Label className="text-xs">Typ *</Label>
+                                            <select
+                                              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                              value={inferPositionTypeFromItem(item)}
+                                              onChange={(event: any) =>
+                                                updateItem(index, "positionType", normalizePositionType(event?.target?.value))
+                                              }
+                                            >
+                                              {POSITION_TYPE_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        </div>
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -22972,6 +23325,8 @@ export default function AuftraegePage() {
                                           onServiceCreated={handleServiceCreated}
                                           currentPrice={item.unitPrice}
                                           currentUnit={item.unit}
+                                          positionType={(item as any).positionType}
+                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
                                           showManualHint={false}
                                           saveButtonPlacement="none"
                                         />
@@ -22986,35 +23341,28 @@ export default function AuftraegePage() {
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <div>
                                         <Label className="text-xs">Einheit</Label>
-                                        <select
-                                          className={`flex h-9 w-full rounded-md border bg-background px-2 text-sm ${
+                                        <Input
+                                          list={`position-unit-options-${index}`}
+                                          className={`h-9 ${
                                             unitInputCriticalV17_90L243
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                              : "border-input"
+                                              : ""
                                           }`}
-                                          value={
-                                            unitMissingInTextReason &&
-                                            !manualUnitConfirmed &&
-                                            normalizeForMatch(item.unit).includes("pruefen")
-                                              ? "Einheit prüfen"
-                                              : item.unit
-                                          }
+                                          value={cleanPositionFieldValueV17_90L371B(item.unit)}
+                                          placeholder="frei eingeben oder Vorschlag wählen"
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,
                                               "unit",
-                                              e?.target?.value ?? "Stunde",
+                                              e?.target?.value ?? "",
                                             )
                                           }
-                                        >
-                                          {priceTypes.map((pt) => (
-                                            <option key={pt} value={pt}>
-                                              {pt === "Einheit prüfen"
-                                                ? "prüfen"
-                                                : pt}
-                                            </option>
+                                        />
+                                        <datalist id={`position-unit-options-${index}`}>
+                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
+                                            <option key={unit} value={unit} />
                                           ))}
-                                        </select>
+                                        </datalist>
                                       </div>
 
                                       <div>
@@ -23027,9 +23375,9 @@ export default function AuftraegePage() {
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                               : ""
                                           }`}
-                                          value={item.quantity}
+                                          value={cleanPositionQuantityValueV17_90L371B(item.quantity)}
                                           placeholder={
-                                            quantityInputReview ? "prüfen" : "0"
+                                            quantityInputReview ? "Menge eingeben" : "0"
                                           }
                                           onFocus={(e) =>
                                             e.currentTarget.select()
@@ -23270,7 +23618,7 @@ export default function AuftraegePage() {
                         Auftragsdaten & Betrag
                       </Label>
                       <span className="text-xs text-muted-foreground">
-                        Klar getrennt von den Leistungen
+                        Klar getrennt von den Positionen
                       </span>
                     </div>
 
@@ -23496,15 +23844,15 @@ export default function AuftraegePage() {
                     )}
                   </div>
 
-                  {/* Leistungsübersicht — live from the editable items above */}
+                  {/* Positionsübersicht — live from the editable items above */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="font-semibold">
-                          Leistungsübersicht
+                          Positionsübersicht
                         </Label>
                         <div className="text-xs text-muted-foreground">
-                          Live aus den Leistungen oben
+                          Live aus den Positionen oben
                         </div>
                       </div>
                       <Button
@@ -23530,10 +23878,10 @@ export default function AuftraegePage() {
                           {hasMultipleEditWorkSites
                             ? `${liveOverviewGroups.length} Arbeitsort${
                                 liveOverviewGroups.length === 1 ? "" : "e"
-                              } · ${liveOverviewRows.length} Leistung${
+                              } · ${liveOverviewRows.length} Position${
                                 liveOverviewRows.length === 1 ? "" : "en"
                               }`
-                            : `${liveOverviewRows.length} Leistung${
+                            : `${liveOverviewRows.length} Position${
                                 liveOverviewRows.length === 1 ? "" : "en"
                               }`}
                         </span>
@@ -23545,7 +23893,7 @@ export default function AuftraegePage() {
                       <div className="space-y-2 rounded-lg border-2 border-slate-300 bg-muted/20 p-2 dark:border-slate-700">
                         {liveOverviewGroups.length === 0 ? (
                           <div className="rounded-md border bg-background p-3 text-center text-sm text-muted-foreground">
-                            Keine Leistung erfasst.
+                            Keine Position erfasst.
                           </div>
                         ) : (
                           liveOverviewGroups.map((group) => {
@@ -23644,7 +23992,7 @@ export default function AuftraegePage() {
                                   colSpan={6}
                                   className="px-2 py-3 text-center text-muted-foreground"
                                 >
-                                  Keine Leistung erfasst.
+                                  Keine Position erfasst.
                                 </td>
                               </tr>
                             ) : (

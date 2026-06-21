@@ -1,4 +1,8 @@
 "use client";
+// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
+// SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
+// SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
 // SMARTFLOW_V17_90L363_INVOICE_CLOSED_CARD_DELETE_MENU_FIX
 // SMARTFLOW_V17_90L356_INVOICE_MOBILE_EXECUTION_SITE_POPOVER_ONLY
 // SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
@@ -302,6 +306,45 @@ const compactInvoiceValue = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+
+// SMARTFLOW_V17_90L371Q: Merged contact review must not treat execution appointments as contacts.
+// Appointment lines stay visible in the violet appointment chip/info area only.
+const invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
+  /\b(?:kontakt|contact|telefon|tel\.?|phone|natel|handy|mobile|whats\s*app|whatsapp|sms|e-?mail|email|mail|anrufen|anruf|rueckruf|rückruf|melden|bescheid)\b/i;
+const invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
+  /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
+
+function invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return value || null;
+  const cleaned = source
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      if (!line) return false;
+      const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(line);
+      const hasContact = invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(line) ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(line) ||
+        (/\+?\d[\d\s().\/-]{6,}\d/.test(line) && !looksLikeCompactDate);
+      const hasAppointment = invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(line);
+      return !(hasAppointment && !hasContact);
+    })
+    .join("\n")
+    .trim();
+  return cleaned || null;
+}
+
+function invoice_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
+  return (Array.isArray(records) ? records : []).map((record: any) => ({
+    ...record,
+    notes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
+    specialNotes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
+    description: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
+    audioTranscript: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.audioTranscript),
+  })) as T[];
+}
 // V17.90L281: Strukturelle Termin-/Rollenfragmente dürfen niemals als
 // Arbeitsort- oder Kundennachrichten-Gruppenname erscheinen.
 const cleanInvoiceExecutionSiteLabelV17_90L281 = (value: unknown) => {
@@ -2078,6 +2121,62 @@ function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
   ].join("\n");
 }
 
+function splitInvoiceAppointmentDisplayRowsV17_90L371R(value: unknown): string[] {
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactInvoiceValue(line).replace(/^\d+\.\s*/, ""))
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+  return /^Termine\s*·\s*\d+/i.test(lines[0]) ? lines.slice(1) : lines;
+}
+
+function mergeInvoiceAppointmentDisplayLabelsV17_90L371R(
+  primaryLabel: unknown,
+  secondaryLabel: unknown,
+): string {
+  const result: InvoiceSpecialAppointmentDisplayEntryV17_90L330[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const raw = compactInvoiceValue(value);
+    if (!raw) return;
+    const normalizedText = /^termin\b/i.test(raw) || /\btermin\b/i.test(raw)
+      ? raw
+      : `Termin ${raw}`;
+    const entry = buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(normalizedText);
+    if (!entry) return;
+
+    const sameDayIndex = entry.dayKey
+      ? result.findIndex((current) => current.dayKey === entry.dayKey)
+      : -1;
+    if (sameDayIndex >= 0) {
+      const current = result[sameDayIndex];
+      if (current.hasTime && !entry.hasTime) return;
+      if (!current.hasTime && entry.hasTime) {
+        seen.delete(current.key);
+        seen.add(entry.key);
+        result[sameDayIndex] = entry;
+        return;
+      }
+    }
+
+    if (seen.has(entry.key)) return;
+    seen.add(entry.key);
+    result.push(entry);
+  };
+
+  splitInvoiceAppointmentDisplayRowsV17_90L371R(primaryLabel).forEach(add);
+  splitInvoiceAppointmentDisplayRowsV17_90L371R(secondaryLabel).forEach(add);
+
+  if (result.length === 0) return "";
+  if (result.length === 1) return result[0].text;
+  return [
+    `Termine · ${result.length}`,
+    ...result.map((entry, index) => `${index + 1}. ${entry.text}`),
+  ].join("\n");
+}
+
 const cleanInvoiceCustomerMessage = (value?: string | null) =>
   String(value || "")
     .replace(/\r\n/g, "\n")
@@ -2977,12 +3076,68 @@ function normalizeInvoiceAppointmentKeyV17_90L177R(
     .trim();
 }
 
+
+function extractInvoiceRawDateTimeAppointmentPairsV17_90L371T(value?: string | null): string[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+
+  const chunks = source
+    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line))
+    .filter(Boolean);
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const chunk of chunks) {
+    const key = normalizeInvoiceAppointmentKeyV17_90L177R(chunk);
+    const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin)\b/i.test(chunk);
+    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(key) && !hasAppointmentWord;
+    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
+    if (contactOnly || priceLine) continue;
+
+    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pairPattern.exec(chunk))) {
+      const day = match[1].padStart(2, "0");
+      const month = match[2].padStart(2, "0");
+      const year = match[3]
+        ? String(match[3]).length === 2
+          ? `20${match[3]}`
+          : String(match[3])
+        : "";
+      const hour = match[4].padStart(2, "0");
+      const minute = match[5] || "00";
+      const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+      const label = `Termin ${dateLabel} · ${hour}:${minute}`;
+      const labelKey = normalizeInvoiceAppointmentKeyV17_90L177R(label);
+      if (!labelKey || seen.has(labelKey)) continue;
+      seen.add(labelKey);
+      labels.push(label);
+    }
+  }
+
+  return labels;
+}
+
 function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
   const line = compactInvoiceValue(
     String(value || "").replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, ""),
   );
   if (!line) return "";
+  const dateMatch = line.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
+  );
+  const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
+  const explicitDateTimeWithoutWord = Boolean(
+    dateMatch &&
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(lineWithoutDate) &&
+      !/\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(line) &&
+      !/\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(line)
+  );
   if (
+    !explicitDateTimeWithoutWord &&
     !/\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin|uhr)\b/i.test(
       line,
     )
@@ -2990,13 +3145,9 @@ function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
     return "";
   }
 
-  const dateMatch = line.match(
-    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
-  );
-  const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
   const timeMatches = Array.from(
     lineWithoutDate.matchAll(
-      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/gi,
     ),
   );
   const times = timeMatches
@@ -3149,11 +3300,28 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
     entries.push(entry);
   };
 
+  const mergedAppointmentEntriesV17_90L371R = compactInvoiceAppointmentEntriesForDisplay(
+    collectMergedAppointmentEntries((invoice.orders || []) as any),
+  );
+  mergedAppointmentEntriesV17_90L371R.forEach((entry: any) => {
+    const rawLabel = compactInvoiceValue(entry?.label);
+    if (!rawLabel) return;
+    addEntry({
+      site:
+        cleanInvoiceExecutionSiteLabelV17_90L281(entry?.site) ||
+        compactInvoiceValue(entry?.address) ||
+        "Arbeitsort",
+      label: /^Termin\b/i.test(rawLabel) ? rawLabel : `Termin ${rawLabel}`,
+      source: compactInvoiceValue(entry?.source) || rawLabel,
+    });
+  });
+
   for (const order of invoice.orders || []) {
     const combinedSource = [
       order?.specialNotes,
       order?.notes,
       order?.description,
+      order?.audioTranscript,
     ]
       .filter(Boolean)
       .join("\n");
@@ -3165,6 +3333,9 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
         section,
         sectionIndex,
       );
+      for (const label of extractInvoiceRawDateTimeAppointmentPairsV17_90L371T(section)) {
+        addEntry({ site, label, source: section });
+      }
       for (const line of extractInvoiceAppointmentLinesV17_90L177R(section)) {
         const label = parseInvoiceAppointmentLineV17_90L177R(line);
         if (!label) continue;
@@ -7482,7 +7653,10 @@ export default function RechnungenPage() {
                     );
                   if (invoiceSpecialAppointmentDisplayLabelV17_90L323) {
                     invoiceAppointmentDisplayLabel =
-                      invoiceSpecialAppointmentDisplayLabelV17_90L323;
+                      mergeInvoiceAppointmentDisplayLabelsV17_90L371R(
+                        invoiceAppointmentLabel,
+                        invoiceSpecialAppointmentDisplayLabelV17_90L323,
+                      );
                   }
                   if (
                     !shouldShowInvoiceAppointmentChipV17_90L324(
@@ -7496,8 +7670,10 @@ export default function RechnungenPage() {
                       invoiceAppointmentDisplayLabel,
                     );
                   const mergedCount = getInvoiceMergedCount(inv);
+                  const mergedContactReviewRecordsV17_90L371Q =
+                    invoice_sanitizeMergedContactReviewRecordsV17_90L371Q((inv.orders || []) as any);
                   const mergedContactEntries = buildMergedContactReviewEntries(
-                    (inv.orders || []) as any,
+                    mergedContactReviewRecordsV17_90L371Q as any,
                   );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
@@ -7558,7 +7734,7 @@ export default function RechnungenPage() {
                     >
                       {hasMergedContactReview ? (
                         <MergedContactReviewChip
-                          records={(inv.orders || []) as any}
+                          records={mergedContactReviewRecordsV17_90L371Q as any}
                           compact
                         />
                       ) : (

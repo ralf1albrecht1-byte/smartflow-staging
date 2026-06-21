@@ -1,4 +1,8 @@
 "use client";
+// SMARTFLOW_V17_90L371T_MULTI_APPOINTMENT_PAIR_SCAN
+// SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
+// SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
+// SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
 // SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
 // SMARTFLOW_V17_90L370_OFFER_MERGED_MEDIA_CHIPS_ONLY
 // SMARTFLOW_V17_90L351_OFFER_APPOINTMENT_DUPLICATE_DISPLAY_ONLY
@@ -58,6 +62,7 @@ import {
   type CommunicationData,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import { collectMergedAppointmentEntries } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import {
@@ -290,6 +295,45 @@ type OfferCurrencyReviewDetailV17_90L227 = {
   originalAmount: number | null;
 };
 
+
+// SMARTFLOW_V17_90L371Q: Merged contact review must not treat execution appointments as contacts.
+// Appointment lines stay visible in the violet appointment chip/info area only.
+const offer_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
+  /\b(?:kontakt|contact|telefon|tel\.?|phone|natel|handy|mobile|whats\s*app|whatsapp|sms|e-?mail|email|mail|anrufen|anruf|rueckruf|rückruf|melden|bescheid)\b/i;
+const offer_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
+  /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
+
+function offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return value || null;
+  const cleaned = source
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      if (!line) return false;
+      const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(line);
+      const hasContact = offer_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(line) ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(line) ||
+        (/\+?\d[\d\s().\/-]{6,}\d/.test(line) && !looksLikeCompactDate);
+      const hasAppointment = offer_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(line);
+      return !(hasAppointment && !hasContact);
+    })
+    .join("\n")
+    .trim();
+  return cleaned || null;
+}
+
+function offer_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
+  return (Array.isArray(records) ? records : []).map((record: any) => ({
+    ...record,
+    notes: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
+    specialNotes: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
+    description: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
+    audioTranscript: offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.audioTranscript),
+  })) as T[];
+}
 function collectOfferCurrencyReviewDetailsV17_90L227(
   document: Offer,
 ): OfferCurrencyReviewDetailV17_90L227[] {
@@ -904,9 +948,60 @@ function extractOfferAppointmentLinesV17_90L335(value?: string | null): string[]
       const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key);
       const hasRelativeDay = /\b(?:morgen|uebermorgen|ubermorgen|übermorgen|tomorrow|demain|domani|manana)\b/.test(key);
       const hasDate = /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(line);
-      const hasTime = /\b(?:um\s*)?(?:[01]?\d|2[0-3])(?::[0-5]\d|\.[0-5]\d|\s*(?:uhr|h))\b/i.test(line);
+      const lineWithoutDates = line.replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/g, " ");
+      const hasTime = /\b(?:um\s*)?(?:[01]?\d|2[0-3])(?::[0-5]\d|\.[0-5]\d|\s*(?:uhr|h))\b/i.test(lineWithoutDates);
+      const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(key) && !hasAppointmentWord;
+      const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(line);
+      // V17.90L371S: Arbeitsort-Termine aus Merge-Quellen dürfen auch ohne
+      // das Wort "Termin" erkannt werden, wenn Datum und Uhrzeit eindeutig sind.
+      if (hasDate && hasTime && !contactOnly && !priceLine) return true;
       return hasAppointmentWord && (hasRelativeDay || hasDate || hasTime);
     });
+}
+
+
+function extractOfferRawDateTimeAppointmentPairsV17_90L371T(value?: string | null): string[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+
+  const chunks = source
+    .split(/\n+|;\s+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/^\s*[-•*]+\s*/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const chunk of chunks) {
+    const key = normalizeOfferHint(chunk);
+    const hasAppointmentWord = /\b(?:termin|datum|zeitfenster|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key);
+    const contactOnly = /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(key) && !hasAppointmentWord;
+    const priceLine = /\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(chunk);
+    if (contactOnly || priceLine) continue;
+
+    const pairPattern = /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b(?:(?!\b\d{1,2}[.\/-]\d{1,2}).){0,90}?\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d)|\s*(?:uhr|h)\b)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pairPattern.exec(chunk))) {
+      const day = match[1].padStart(2, "0");
+      const month = match[2].padStart(2, "0");
+      const year = match[3]
+        ? String(match[3]).length === 2
+          ? `20${match[3]}`
+          : String(match[3])
+        : "";
+      const hour = match[4].padStart(2, "0");
+      const minute = match[5] || "00";
+      const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+      const label = `Termin ${dateLabel} · ${hour}:${minute}`;
+      const labelKey = normalizeOfferHint(label);
+      if (!labelKey || seen.has(labelKey)) continue;
+      seen.add(labelKey);
+      labels.push(label);
+    }
+  }
+
+  return labels;
 }
 
 function extractOfferAppointmentLabelsV17_90L335(
@@ -985,6 +1080,72 @@ function extractMergedOfferAppointmentLabelV17_90L175(orders?: any[] | null): st
   if (unique.length === 0) return "";
   if (unique.length === 1) return unique[0].label;
   return [`Termine · ${unique.length}`, ...unique.map((entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`)].join("\n");
+}
+
+function offerAppointmentFactKeyV17_90L371R(value: unknown): string {
+  const text = compactOfferValue(value).toLowerCase();
+  const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
+  const dateKey = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${dateMatch[3] || ""}`
+    : "";
+  const times = Array.from(
+    text.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/gi,
+    ),
+  )
+    .map((match) =>
+      match[1]
+        ? `${match[1].padStart(2, "0")}:${match[2]}`
+        : `${String(match[3] || "").padStart(2, "0")}:00`,
+    )
+    .filter(Boolean);
+  const timeKey = Array.from(new Set(times)).join("-");
+  return dateKey || timeKey ? `${dateKey || "ohne-datum"}|${timeKey || "ohne-uhrzeit"}` : normalizeOfferHint(text);
+}
+
+function formatOfferMergedAppointmentDisplayLabelV17_90L371R(
+  orders: any[],
+  fallbackLabels: string[] = [],
+): string {
+  const rows: Array<{ site: string; label: string; factKey: string }> = [];
+  const add = (siteValue: unknown, labelValue: unknown) => {
+    const rawLabel = compactOfferValue(labelValue);
+    if (!rawLabel) return;
+    const label = /^Termin\b/i.test(rawLabel) ? rawLabel : `Termin ${rawLabel}`;
+    const site = compactOfferValue(siteValue);
+    const factKey = offerAppointmentFactKeyV17_90L371R(label);
+    if (!factKey) return;
+
+    const existingIndex = rows.findIndex((row) => {
+      if (row.factKey !== factKey) return false;
+      const existingSite = normalizeOfferHint(row.site);
+      const nextSite = normalizeOfferHint(site);
+      return !existingSite || !nextSite || existingSite === nextSite;
+    });
+    if (existingIndex >= 0) {
+      const current = rows[existingIndex];
+      if ((!current.site && site) || label.length > current.label.length + 6) {
+        rows[existingIndex] = { site, label, factKey };
+      }
+      return;
+    }
+
+    rows.push({ site, label, factKey });
+  };
+
+  collectMergedAppointmentEntries((orders || []) as any).forEach((entry: any) => {
+    add(entry?.site || entry?.address, entry?.label);
+  });
+  fallbackLabels.forEach((label) => add("", label));
+
+  if (rows.length === 0) return "";
+  if (rows.length === 1) return rows[0].label;
+  return [
+    `Termine · ${rows.length}`,
+    ...rows.map((row, index) =>
+      `${index + 1}. ${row.site ? `${row.site} — ` : ""}${row.label}`,
+    ),
+  ].join("\n");
 }
 
 const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
@@ -1621,9 +1782,9 @@ function resolveOfferAppointmentLabelV17_90L237(
   fallbackData?: CommunicationData | null,
   baseDateInput?: string | null,
 ): string {
-  // V17.90L335: Offer cards/editors must show all explicit appointment lines
-  // from the linked order snapshot and from manually added offer notes. Never
-  // derive appointments from document creation dates alone.
+  // V17.90L371R: Der Angebots-Terminchip nutzt zuerst die zusammengeführte
+  // Arbeitsort-/Terminquelle. Dadurch werden bei Multi-Site-Aufträgen alle
+  // echten Termine angezeigt, während der sichtbare Chip weiterhin kompakt bleibt.
   const labels: string[] = [];
   for (const order of orders || []) {
     const source = [order?.specialNotes, order?.notes, order?.description, order?.audioTranscript]
@@ -1634,17 +1795,20 @@ function resolveOfferAppointmentLabelV17_90L237(
         source,
         order?.date || order?.createdAt || baseDateInput,
       ),
+      ...extractOfferRawDateTimeAppointmentPairsV17_90L371T(source),
     );
   }
+  const fallbackAppointmentSourceV17_90L371T = [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
   labels.push(
     ...extractOfferAppointmentLabelsV17_90L335(
-      [fallbackData?.specialNotes, fallbackData?.notes, fallbackData?.audioTranscript]
-        .filter(Boolean)
-        .join("\n"),
+      fallbackAppointmentSourceV17_90L371T,
       baseDateInput,
     ),
+    ...extractOfferRawDateTimeAppointmentPairsV17_90L371T(fallbackAppointmentSourceV17_90L371T),
   );
-  return formatOfferAppointmentLabelListV17_90L335(labels);
+  return formatOfferMergedAppointmentDisplayLabelV17_90L371R(orders, labels);
 }
 
 function compactOfferPrimaryInfoLinesV17_90L124(
@@ -7651,8 +7815,10 @@ export default function AngebotePage() {
                   const offerExecutionSites = collectOfferExecutionSites(off);
                   const primaryExecutionSite = offerExecutionSites[0] || null;
                   const mergedCount = getOfferMergedCount(off);
+                  const mergedContactReviewRecordsV17_90L371Q =
+                    offer_sanitizeMergedContactReviewRecordsV17_90L371Q((off.orders || []) as any);
                   const mergedContactEntries = buildMergedContactReviewEntries(
-                    (off.orders || []) as any,
+                    mergedContactReviewRecordsV17_90L371Q as any,
                   );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
@@ -7894,7 +8060,7 @@ export default function AngebotePage() {
                       >
                         {hasMergedContactReview ? (
                           <MergedContactReviewChip
-                            records={(off.orders || []) as any}
+                            records={mergedContactReviewRecordsV17_90L371Q as any}
                             compact
                           />
                         ) : (
@@ -8708,7 +8874,7 @@ export default function AngebotePage() {
                                   >
                                     {hasMergedContactReview ? (
                                       <MergedContactReviewChip
-                                        records={(off.orders || []) as any}
+                                        records={mergedContactReviewRecordsV17_90L371Q as any}
                                         compact
                                       />
                                     ) : (
@@ -9186,7 +9352,7 @@ export default function AngebotePage() {
                                     >
                                       {hasMergedContactReview ? (
                                       <MergedContactReviewChip
-                                        records={(off.orders || []) as any}
+                                        records={mergedContactReviewRecordsV17_90L371Q as any}
                                         compact
                                       />
                                     ) : (
