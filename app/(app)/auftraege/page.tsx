@@ -1,4 +1,6 @@
 "use client";
+
+// SMARTFLOW_V17_90L371A_ORDER_POSITION_PLACEHOLDER_FIX
 // SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
 // SMARTFLOW_V17_90L368_MERGED_IMAGE_CHIP_HOVER_PREVIEW
 // SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
@@ -137,6 +139,22 @@ import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
   "smartflow:close-card-popovers-v17-90l227";
+
+
+
+const cleanPositionPlaceholderValueV17_90L371A = (value: unknown): string => {
+  const raw = String(value ?? "").trim();
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "einheit prüfen" ||
+    normalized === "menge prüfen" ||
+    normalized === "prüfen" ||
+    normalized === "pruefen"
+  ) {
+    return "";
+  }
+  return raw;
+};
 
 const NORMAL_DOG_ICON_DATA_URI =
   "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
@@ -456,7 +474,7 @@ interface FormItem {
   pendingReviewSourceServiceName?: string;
   recognitionReviewKey?: string;
   sourceDescription?: string;
-  // V17.90L313: Rein manuell über „+ Leistung“ angelegte Zeilen dürfen
+  // V17.90L313: Rein manuell über „+ Position“ angelegte Zeilen dürfen
   // keine alte Kundennachrichten-Quelle per Namens-Fallback anzeigen.
   _manualUserAdded?: boolean;
   workSiteId?: string | null;
@@ -467,7 +485,7 @@ const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
   positionType: "service",
-  unit: "Einheit prüfen",
+  unit: "",
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
@@ -6094,7 +6112,7 @@ const formatCatalogReviewTooltip = (input: {
     const itemPriceLabel =
       itemPrice > 0 ? formatCurrency(itemPrice, currency) : "Preis prüfen";
     const itemQuantityLabel =
-      itemQuantity > 0 ? String(input.item.quantity) : "Menge prüfen";
+      itemQuantity > 0 ? String(input.item.quantity) : "";
     lines.push(
       `Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(itemUnit)} · ${itemPriceLabel}`,
     );
@@ -13522,7 +13540,7 @@ export default function AuftraegePage() {
             serviceName: "",
             unitPrice: "",
             quantity: "",
-            unit: "Einheit prüfen",
+            unit: "",
           };
         }
 
@@ -21571,7 +21589,7 @@ export default function AuftraegePage() {
                             className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Leistung
+                            Position
                           </Button>
                         </div>
                       </div>
@@ -23072,7 +23090,7 @@ export default function AuftraegePage() {
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                               : ""
                                           }`}
-                                          value={item.quantity}
+                                          value={cleanPositionPlaceholderValueV17_90L371A(item.quantity)}
                                           placeholder={
                                             quantityInputReview ? "prüfen" : "0"
                                           }
@@ -23706,7 +23724,7 @@ export default function AuftraegePage() {
                                   <td className="px-2 py-1.5 text-right">
                                     {row.hasQuantity
                                       ? row.quantity
-                                      : "Menge prüfen"}
+                                      : ""}
                                   </td>
                                   <td className="px-2 py-1.5 text-right">
                                     {row.hasPrice ? (
