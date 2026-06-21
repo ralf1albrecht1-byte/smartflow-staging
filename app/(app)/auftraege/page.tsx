@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
 // SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
 // SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
 // SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
@@ -1536,6 +1537,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     items.map((item) => ({
       key: Math.random().toString(36).slice(2),
       serviceName: item.serviceName ?? item.description ?? "",
+      positionType: normalizePositionType((item as any).positionType),
       unit: item.unit ?? item.priceType ?? "Stunde",
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
@@ -1551,6 +1553,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     })),
   ).map((item) => ({
     serviceName: item.serviceName,
+    positionType: normalizePositionType((item as any).positionType),
     description: buildItemDescription(item),
     quantity: Number(item.quantity || 0),
     unit: item.unit,
@@ -12940,6 +12943,11 @@ export default function AuftraegePage() {
           serviceName: canonicalServiceNameForOrderItem(
             item.serviceName ?? "",
           ),
+          // V17.90L371H: positionType is a real order item field. The editor
+          // must hydrate it from persisted items; otherwise a saved Material
+          // row reopens as the default Dienstleistung and the next save
+          // overwrites the database back to service.
+          positionType: normalizePositionType((item as any).positionType),
           unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: shouldRequireFreshManualPrice
             ? ""
@@ -13051,6 +13059,7 @@ export default function AuftraegePage() {
           syntheticCurrencyReviewItems.push({
             key: Math.random().toString(36).slice(2),
             serviceName: "Leistung prüfen",
+            positionType: "service",
             unit: "Pauschal",
             unitPrice: "",
             quantity: "1",
@@ -13149,6 +13158,7 @@ export default function AuftraegePage() {
           {
             key: Math.random().toString(36).slice(2),
             serviceName: o.serviceName ?? "",
+            positionType: normalizePositionType((o as any).positionType),
             unit: o.priceType ?? "Stunde",
             unitPrice:
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
