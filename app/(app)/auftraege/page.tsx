@@ -3,7 +3,6 @@
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
-// SMARTFLOW_V17_90L371W_CONTACT_REVIEW_DATE_FIELD_STRIP
 // SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
 // SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
 // SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
@@ -853,40 +852,19 @@ function order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string |
   return cleaned || null;
 }
 
-function order_isContactReviewDateLikeValueV17_90L371W(value: any): boolean {
-  const text = compactText(value);
-  if (!text) return false;
-  if (order_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
-  if (/^\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}(?:[T\s].*)?$/i.test(text)) return true;
-  if (/^\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?(?:\s*(?:[·,\-]|um)?\s*(?:[01]?\d|2[0-3])[:.]?[0-5]\d(?:\s*uhr)?)?$/i.test(text)) return true;
-  return order_isAppointmentOnlyContactValueV17_90L371V(text);
-}
-
-function order_isContactReviewDateFieldV17_90L371W(key?: string | null): boolean {
-  return /^(?:date|createdat|updatedat|appointmentdate|appointmenttime|executiondate|executiontime|scheduledat|startat|startsat|starttime|time|termin|datum|zeit)$/i.test(String(key || ""));
-}
-
-function order_sanitizeMergedContactReviewValueV17_90L371V(value: any, key?: string | null): any {
-  // L371W: Der Sammel-Kontaktchip darf nie Datum-/Termin-Felder als Kontaktwert anzeigen.
-  // Datum bleibt im violetten Terminchip; hier wird es aus den Record-Daten entfernt.
-  if (order_isContactReviewDateFieldV17_90L371W(key)) return null;
-  if (typeof value === "number") {
-    return order_isContactReviewDateLikeValueV17_90L371W(value) ? null : value;
-  }
+function order_sanitizeMergedContactReviewValueV17_90L371V(value: any): any {
   if (typeof value === "string") {
     return order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value);
   }
   if (Array.isArray(value)) {
     return value
-      .map((entry) => order_sanitizeMergedContactReviewValueV17_90L371V(entry, key))
+      .map((entry) => order_sanitizeMergedContactReviewValueV17_90L371V(entry))
       .filter((entry) => entry !== null && entry !== undefined && entry !== "");
   }
   if (value && typeof value === "object") {
     const copy: any = { ...value };
-    Object.keys(copy).forEach((childKey) => {
-      const cleaned = order_sanitizeMergedContactReviewValueV17_90L371V(copy[childKey], childKey);
-      if (cleaned === null || cleaned === undefined || cleaned === "") delete copy[childKey];
-      else copy[childKey] = cleaned;
+    Object.keys(copy).forEach((key) => {
+      copy[key] = order_sanitizeMergedContactReviewValueV17_90L371V(copy[key]);
     });
     return copy;
   }
