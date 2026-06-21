@@ -26,6 +26,8 @@ export type MergedAppointmentEntry = {
   site: string;
   label: string;
   source: string;
+  dateKey?: string;
+  timeKey?: string;
 };
 
 type ParsedAppointment = {
@@ -57,7 +59,7 @@ const normalize = (value: unknown): string =>
 
 const normalizeSiteDisplay = (value: unknown): string =>
   compact(value)
-    .replace(/^\s*(?:sort|source|quelle|start)\s*:?\s*/i, "")
+    .replace(/^\s*(?:sort|start)\s*[:：]\s*/i, "")
     .replace(/^\s*(?:im|in der|in dem|am|an der)\s+/i, "")
     .replace(/\s*,?\s*(?:gleiche|selbe)\s+adresse\s*$/i, "")
     .replace(/[,:;\-–—.\s]+$/g, "")
@@ -308,6 +310,11 @@ const parseAppointmentLine = (value: unknown): ParsedAppointment[] => {
 
   if (!dayLabel && times.length === 0) return [];
 
+  // Fail closed: eine Uhrzeit ohne Datum/relativen Tag ist kein sicherer Termin.
+  // Genau solche Reststücke erzeugten in den Chips falsche Zeilen wie
+  // "09:00 Uhr" + "06".
+  if (!dayLabel && times.length > 0) return [];
+
   if (times.length === 0) {
     return [
       {
@@ -380,182 +387,124 @@ const betterEntry = (
   if (SERVICE_NOISE_PATTERN.test(existingSource) && !SERVICE_NOISE_PATTERN.test(incomingSource)) {
     return incoming;
   }
+  if (!existing.timeKey && incoming.timeKey) return incoming;
   if (incomingSource.length > existingSource.length && incomingSource.length <= 160) {
     return incoming;
   }
   return existing;
 };
 
-type AppointmentLabelParts = {
-  label: string;
+type DisplayAppointmentEntry = MergedAppointmentEntry & {
   dateKey: string;
-  shortDateKey: string;
   timeKey: string;
-  hasFullDate: boolean;
-  hasShortDate: boolean;
-  hasDate: boolean;
-  hasTime: boolean;
-  hasRelativeDay: boolean;
-  isDateOnly: boolean;
-  isTimeOnly: boolean;
+  dateOnly: boolean;
 };
 
-const cleanAppointmentLabel = (value: unknown): string =>
-  compact(value)
-    .replace(/^\s*(?:termin|termine|start|sort|source|quelle)\s*:?\s*/i, "")
-    .replace(/\s+[—–-]\s*$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+const fullDateTimeLabelPattern =
+  /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b\s*(?:[·,;\-–—]|um)?\s*([01]?\d|2[0-3])\s*[:.]\s*([0-5]\d)\s*(?:uhr|h)?\b/i;
+const dateOnlyLabelPattern = /^\s*(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\s*$/i;
+const malformedAppointmentLabelPattern =
+  /^(?:start|sort|termin|termine|\d{1,2}|\d{1,2}\s*uhr|[01]?\d\s*[:.]\s*[0-5]\d\s*(?:uhr|h)?|[01]?\d\s*[:.]\s*[0-5]\d\s*(?:uhr|h)?\s+\d{1,2})$/i;
 
-const parseAppointmentLabelParts = (value: unknown): AppointmentLabelParts => {
-  let label = cleanAppointmentLabel(value);
-
-  if (
-    /\b\d{1,2}:\d{2}\s*uhr\s+\d{1,2}\b/i.test(label) &&
-    !/\b\d{1,2}\.\d{1,2}\./.test(label)
-  ) {
-    label = "";
-  }
-
-  if (/\b\d{1,2}\.\d{1,2}\.\d{2,4}\s*·\s*\d{1,2}:\d{2}\s*uhr\s+\d{1,2}\b/i.test(label)) {
-    label = label.replace(/(\d{1,2}:\d{2}\s*uhr)\s+\d{1,2}\b/gi, "$1");
-  }
-
-  const fullDateMatch = label.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b/);
-  const shortDateMatch = fullDateMatch
-    ? null
-    : label.match(/\b(\d{1,2})\.(\d{1,2})\.(?!\d)/);
-  const dateMatch = fullDateMatch || shortDateMatch;
-  const day = dateMatch ? dateMatch[1].padStart(2, "0") : "";
-  const month = dateMatch ? dateMatch[2].padStart(2, "0") : "";
-  const rawYear = fullDateMatch ? fullDateMatch[3] : "";
-  const year = rawYear
-    ? rawYear.length === 2
-      ? `20${rawYear}`
-      : rawYear
-    : "";
-  const dateKey = day && month ? `${year || "0000"}-${month}-${day}` : "";
-  const shortDateKey = day && month ? `${month}-${day}` : "";
-  const timeMatch = label.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-  const timeKey = timeMatch ? normalizeTime(timeMatch[1], timeMatch[2]) : "";
-  const hasRelativeDay = /\b(?:heute|morgen|übermorgen|uebermorgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(
-    label,
-  );
-  const hasDate = Boolean(dateKey);
-  const hasTime = Boolean(timeKey);
-
-  return {
-    label,
-    dateKey,
-    shortDateKey,
-    timeKey,
-    hasFullDate: Boolean(fullDateMatch),
-    hasShortDate: Boolean(shortDateMatch),
-    hasDate,
-    hasTime,
-    hasRelativeDay,
-    isDateOnly: hasDate && !hasTime,
-    isTimeOnly: hasTime && !hasDate && !hasRelativeDay,
-  };
+const normalizeYear = (value: string): string => {
+  if (!value) return "";
+  return value.length === 2 ? `20${value}` : value;
 };
 
-const isTechnicalAppointmentNoise = (entry: MergedAppointmentEntry, parts: AppointmentLabelParts): boolean => {
-  const label = parts.label;
+const cleanEntryDisplay = (entry: MergedAppointmentEntry): DisplayAppointmentEntry | null => {
+  const rawLabel = compact(entry.label).replace(/^\s*termin\s*:?\s*/i, "");
+  const label = rawLabel.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
   const normalizedLabel = normalize(label);
-  const normalizedSite = normalize(entry.site);
-  const normalizedSource = normalize(entry.source);
-
-  if (!label) return true;
-  if (/^\d{1,2}$/.test(label)) return true;
-  if (/^(?:start|sort|source|quelle|termin|termine)$/i.test(label)) return true;
-  if (/^(?:start|sort|source|quelle)\b/i.test(label)) return true;
-  if (parts.isTimeOnly) return true;
-  if (!parts.hasDate && !parts.hasRelativeDay && !parts.hasTime) return true;
-  if (!parts.hasDate && parts.hasTime && /\b\d{1,2}:\d{2}\s*uhr\s+\d{1,2}\b/i.test(label)) return true;
-  if (normalizedSite === "sort" || normalizedSite === "start") return true;
-  if (/^(?:sort|start)\b/i.test(compact(entry.site))) return false;
-  if (normalizedLabel === "morgen" || normalizedLabel === "heute" || normalizedLabel === "uebermorgen") return true;
-  if (
-    SERVICE_NOISE_PATTERN.test(label) ||
-    (SERVICE_NOISE_PATTERN.test(entry.source) && !APPOINTMENT_CONTEXT_PATTERN.test(entry.source))
-  ) {
-    return true;
+  if (!label || label === "Termin klären") return null;
+  if (malformedAppointmentLabelPattern.test(label) || /^(?:start|sort)$/.test(normalizedLabel)) {
+    return null;
   }
-  if (normalizedSource === "start" || normalizedSource === "sort") return true;
-  return false;
+
+  const full = label.match(fullDateTimeLabelPattern);
+  if (full) {
+    const day = full[1].padStart(2, "0");
+    const month = full[2].padStart(2, "0");
+    const year = normalizeYear(full[3]);
+    const time = normalizeTime(full[4], full[5]);
+    const cleanLabel = `${day}.${month}.${year} · ${time} Uhr`;
+    return {
+      site: normalizeSiteDisplay(entry.site),
+      label: cleanLabel,
+      source: cleanLabel,
+      dateKey: `${year}-${month}-${day}`,
+      timeKey: time,
+      dateOnly: false,
+    };
+  }
+
+  const dateOnly = label.match(dateOnlyLabelPattern);
+  if (dateOnly) {
+    const day = dateOnly[1].padStart(2, "0");
+    const month = dateOnly[2].padStart(2, "0");
+    const year = normalizeYear(dateOnly[3] || "");
+    const cleanLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+    return {
+      site: normalizeSiteDisplay(entry.site),
+      label: cleanLabel,
+      source: cleanLabel,
+      dateKey: `${year || "0000"}-${month}-${day}`,
+      timeKey: "",
+      dateOnly: true,
+    };
+  }
+
+  // Relative Tage bleiben nur dann erlaubt, wenn sie nicht bereits als echtes
+  // Datum mit Uhrzeit existieren. Reine Zeit-/Restlabels bleiben gesperrt.
+  if (/\b(heute|morgen|übermorgen|uebermorgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(label)) {
+    const times = extractTimes(label);
+    if (times.length === 0) return null;
+    const relative = extractRelativeDayLabel(label);
+    if (!relative.label) return null;
+    const cleanLabel = `${relative.label} · ${times[0]} Uhr`;
+    return {
+      site: normalizeSiteDisplay(entry.site),
+      label: cleanLabel,
+      source: cleanLabel,
+      dateKey: relative.key,
+      timeKey: times[0],
+      dateOnly: false,
+    };
+  }
+
+  return null;
 };
 
 const sanitizeAppointmentEntries = (entries: MergedAppointmentEntry[]): MergedAppointmentEntry[] => {
-  const normalizedEntries = entries.map((entry) => {
-    const labelParts = parseAppointmentLabelParts(entry.label);
-    return {
-      entry: {
-        site: normalizeSiteDisplay(entry.site),
-        label: labelParts.label,
-        source: compact(entry.source),
-      },
-      parts: labelParts,
-    };
-  });
+  const cleaned = entries
+    .map(cleanEntryDisplay)
+    .filter((entry): entry is DisplayAppointmentEntry => Boolean(entry));
 
-  const timedFullDateKeys = new Set<string>();
-  const timedShortDateKeys = new Set<string>();
-  const timedKeys = new Set<string>();
-
-  for (const item of normalizedEntries) {
-    if (isTechnicalAppointmentNoise(item.entry, item.parts)) continue;
-    if (item.parts.hasDate && item.parts.hasTime) {
-      timedFullDateKeys.add(item.parts.dateKey);
-      timedShortDateKeys.add(item.parts.shortDateKey);
-      timedKeys.add(`${item.parts.shortDateKey}|${item.parts.timeKey}`);
-    }
-  }
+  const hasTimedForDate = new Set(
+    cleaned
+      .filter((entry) => entry.dateKey && entry.timeKey)
+      .map((entry) => entry.dateKey),
+  );
 
   const result: MergedAppointmentEntry[] = [];
-  const seenKeys = new Map<string, number>();
+  const seen = new Set<string>();
 
-  for (const item of normalizedEntries) {
-    if (isTechnicalAppointmentNoise(item.entry, item.parts)) continue;
-
-    if (
-      item.parts.isDateOnly &&
-      (timedFullDateKeys.has(item.parts.dateKey) || timedShortDateKeys.has(item.parts.shortDateKey))
-    ) {
-      continue;
-    }
-
-    if (
-      item.parts.hasRelativeDay &&
-      item.parts.hasTime &&
-      Array.from(timedKeys).some((key) => key.endsWith(`|${item.parts.timeKey}`))
-    ) {
-      continue;
-    }
-
-    const dedupeKey = [
-      normalize(item.entry.site),
-      item.parts.shortDateKey || item.parts.dateKey,
-      item.parts.timeKey || normalize(item.entry.label),
-    ].join("|");
-
-    const existingIndex = seenKeys.get(dedupeKey);
-    if (existingIndex !== undefined) {
-      const existing = result[existingIndex];
-      const existingHasSite = Boolean(normalizeSiteDisplay(existing.site));
-      const incomingHasSite = Boolean(normalizeSiteDisplay(item.entry.site));
-      if (!existingHasSite && incomingHasSite) {
-        result[existingIndex] = item.entry;
-      }
-      continue;
-    }
-
-    seenKeys.set(dedupeKey, result.length);
-    result.push(item.entry);
+  for (const entry of cleaned) {
+    if (entry.dateOnly && hasTimedForDate.has(entry.dateKey)) continue;
+    const siteKey = normalize(entry.site);
+    const key = [siteKey, entry.dateKey, entry.timeKey || "date-only", normalize(entry.label)].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      site: entry.site,
+      label: entry.label,
+      source: entry.label,
+      dateKey: entry.dateKey,
+      timeKey: entry.timeKey,
+    });
   }
 
   return result;
 };
-
 
 export function collectMergedAppointmentEntries(
   records: Array<MergedAppointmentRecord | null | undefined> | null | undefined,
@@ -621,7 +570,7 @@ export function collectMergedAppointmentEntries(
         const parsedItems = parseAppointmentLine(line);
         for (const parsed of parsedItems) {
           if (!parsed.label) continue;
-          add({ site, label: parsed.label, source: parsed.source }, parsed);
+          add({ site, label: parsed.label, source: parsed.label, dateKey: parsed.dateKey, timeKey: parsed.timeKey }, parsed);
           recordEntryCount += 1;
         }
       }
@@ -633,7 +582,9 @@ export function collectMergedAppointmentEntries(
           {
             site: resolveSectionSite(record, "", 0),
             label: parsed.label,
-            source: parsed.source,
+            source: parsed.label,
+            dateKey: parsed.dateKey,
+            timeKey: parsed.timeKey,
           },
           parsed,
         );
@@ -647,12 +598,12 @@ export function collectMergedAppointmentEntries(
 export function formatMergedAppointmentTooltip(
   entries: MergedAppointmentEntry[],
 ): string {
-  const cleanEntries = sanitizeAppointmentEntries(entries);
-  if (cleanEntries.length === 0) return "";
-  if (cleanEntries.length === 1) return `Termin\n${cleanEntries[0].label}`;
+  const safeEntries = sanitizeAppointmentEntries(entries);
+  if (safeEntries.length === 0) return "";
+  if (safeEntries.length === 1) return `Termin\n${safeEntries[0].label}`;
   return [
-    `Termine · ${cleanEntries.length}`,
-    ...cleanEntries.map((entry, index) => {
+    `Termine · ${safeEntries.length}`,
+    ...safeEntries.map((entry, index) => {
       const site = normalizeSiteDisplay(entry.site);
       return `${index + 1}. ${site ? `${site} — ` : ""}${entry.label}`;
     }),
@@ -662,8 +613,8 @@ export function formatMergedAppointmentTooltip(
 export function formatMergedAppointmentChipLabel(
   entries: MergedAppointmentEntry[],
 ): string {
-  const cleanEntries = sanitizeAppointmentEntries(entries);
-  if (cleanEntries.length === 0) return "";
-  if (cleanEntries.length > 1) return `${cleanEntries.length} Termine`;
-  return cleanEntries[0].label;
+  const safeEntries = sanitizeAppointmentEntries(entries);
+  if (safeEntries.length === 0) return "";
+  if (safeEntries.length > 1) return `${safeEntries.length} Termine`;
+  return safeEntries[0].label;
 }
