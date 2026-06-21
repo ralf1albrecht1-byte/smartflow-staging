@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
@@ -80,6 +81,7 @@ import {
   CommunicationBlock,
   CommunicationChips,
   ContactActionChip,
+  buildMergedContactReviewEntries,
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
@@ -811,11 +813,28 @@ const order_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
 const order_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
   /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
 
+
+const order_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V =
+  /^\s*(?:[0-3]\d[01]\d(?:20)?\d{2}|\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?)\s*$/;
+
+function order_isAppointmentOnlyContactValueV17_90L371V(value?: string | null): boolean {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (order_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
+  const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(text);
+  const hasContact = order_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(text) ||
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text) ||
+    (/\+?\d[\d\s().\/-]{6,}\d/.test(text) && !looksLikeCompactDate);
+  const hasAppointment = order_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(text);
+  return hasAppointment && !hasContact;
+}
+
 function order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
   const source = String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
   if (!source.trim()) return value || null;
+  if (order_isAppointmentOnlyContactValueV17_90L371V(source)) return null;
   const cleaned = source
     .split(/\n+/g)
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -833,23 +852,47 @@ function order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string |
   return cleaned || null;
 }
 
+function order_sanitizeMergedContactReviewValueV17_90L371V(value: any): any {
+  if (typeof value === "string") {
+    return order_stripAppointmentOnlyContactReviewTextV17_90L371Q(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => order_sanitizeMergedContactReviewValueV17_90L371V(entry))
+      .filter((entry) => entry !== null && entry !== undefined && entry !== "");
+  }
+  if (value && typeof value === "object") {
+    const copy: any = { ...value };
+    Object.keys(copy).forEach((key) => {
+      copy[key] = order_sanitizeMergedContactReviewValueV17_90L371V(copy[key]);
+    });
+    return copy;
+  }
+  return value;
+}
+
+function order_contactReviewIdentityKeyV17_90L371V(record: any): string {
+  const customer = record?.customer || {};
+  const name = compactText(customer?.name || record?.customerName || record?.name || "").toLocaleLowerCase("de-CH");
+  const phone = compactText(customer?.phone || record?.phone || "").replace(/\D+/g, "");
+  const email = compactText(customer?.email || record?.email || "").toLocaleLowerCase("de-CH");
+  const channel = compactText(record?.preferredChannel || record?.contactChannel || record?.channel || "").toLocaleLowerCase("de-CH");
+  return `${name}|${phone}|${email}|${channel}`;
+}
+
 function order_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
-  return (Array.isArray(records) ? records : []).map((record: any) => ({
-    ...record,
-    phone: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.phone),
-    email: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.email),
-    customer: record?.customer
-      ? {
-          ...record.customer,
-          phone: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.phone),
-          email: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.email),
-        }
-      : record?.customer,
-    notes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
-    specialNotes: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
-    description: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
-    audioTranscript: order_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.audioTranscript),
-  })) as T[];
+  const cleaned = (Array.isArray(records) ? records : [])
+    .map((record: any) => order_sanitizeMergedContactReviewValueV17_90L371V(record))
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: any[] = [];
+  cleaned.forEach((record: any) => {
+    const key = order_contactReviewIdentityKeyV17_90L371V(record);
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    result.push(record);
+  });
+  return result as T[];
 }
 
 // V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
@@ -19486,6 +19529,12 @@ export default function AuftraegePage() {
               cardOrderForChips,
               parsedCardNotes,
             );
+            const mergedContactReviewRecordsV17_90L371V =
+              order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any]) as any;
+            const showMergedContactReviewChipV17_90L371V =
+              buildMergedContactReviewEntries(
+                mergedContactReviewRecordsV17_90L371V,
+              ).length > 1;
             const hiddenMergedDataBadgeKeys = [
               "appointment",
               "appointments_multiple",
@@ -20257,7 +20306,7 @@ export default function AuftraegePage() {
                                   </div>
                                 )}
 
-                                {hasMultipleMergedData && (
+                                {showMergedContactReviewChipV17_90L371V && (
                                   <span
                                     className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -20265,7 +20314,7 @@ export default function AuftraegePage() {
                                     onClick={(event) => event.stopPropagation()}
                                   >
                                     <MergedContactReviewChip
-                                      records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
+                                      records={mergedContactReviewRecordsV17_90L371V}
                                       compact
                                     />
                                     {renderMergedOrderMediaChipsV17_90L364(o)}
@@ -20483,7 +20532,7 @@ export default function AuftraegePage() {
                             </div>
                           )}
 
-                          {hasMultipleMergedData && (
+                          {showMergedContactReviewChipV17_90L371V && (
                             <span
                               className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
                               onPointerDown={(event) => event.stopPropagation()}
@@ -20491,7 +20540,7 @@ export default function AuftraegePage() {
                               onClick={(event) => event.stopPropagation()}
                             >
                               <MergedContactReviewChip
-                                records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
+                                records={mergedContactReviewRecordsV17_90L371V}
                                 compact
                               />
                               {renderMergedOrderMediaChipsV17_90L364(o)}
@@ -20706,7 +20755,7 @@ export default function AuftraegePage() {
                               </div>
                             )}
 
-                            {hasMultipleMergedData && (
+                            {showMergedContactReviewChipV17_90L371V && (
                               <span
                                 className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 dark:border-slate-700"
                                 onPointerDown={(event) => event.stopPropagation()}
@@ -20714,7 +20763,7 @@ export default function AuftraegePage() {
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <MergedContactReviewChip
-                                  records={order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any])}
+                                  records={mergedContactReviewRecordsV17_90L371V}
                                   compact
                                 />
                                 {renderMergedOrderMediaChipsV17_90L364(o)}

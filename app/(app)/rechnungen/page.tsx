@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
@@ -314,11 +315,28 @@ const invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
 const invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
   /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
 
+
+const invoice_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V =
+  /^\s*(?:[0-3]\d[01]\d(?:20)?\d{2}|\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?)\s*$/;
+
+function invoice_isAppointmentOnlyContactValueV17_90L371V(value?: string | null): boolean {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (invoice_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
+  const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(text);
+  const hasContact = invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(text) ||
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text) ||
+    (/\+?\d[\d\s().\/-]{6,}\d/.test(text) && !looksLikeCompactDate);
+  const hasAppointment = invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(text);
+  return hasAppointment && !hasContact;
+}
+
 function invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
   const source = String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
   if (!source.trim()) return value || null;
+  if (invoice_isAppointmentOnlyContactValueV17_90L371V(source)) return null;
   const cleaned = source
     .split(/\n+/g)
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -336,23 +354,47 @@ function invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string
   return cleaned || null;
 }
 
+function invoice_sanitizeMergedContactReviewValueV17_90L371V(value: any): any {
+  if (typeof value === "string") {
+    return invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => invoice_sanitizeMergedContactReviewValueV17_90L371V(entry))
+      .filter((entry) => entry !== null && entry !== undefined && entry !== "");
+  }
+  if (value && typeof value === "object") {
+    const copy: any = { ...value };
+    Object.keys(copy).forEach((key) => {
+      copy[key] = invoice_sanitizeMergedContactReviewValueV17_90L371V(copy[key]);
+    });
+    return copy;
+  }
+  return value;
+}
+
+function invoice_contactReviewIdentityKeyV17_90L371V(record: any): string {
+  const customer = record?.customer || {};
+  const name = compactInvoiceValue(customer?.name || record?.customerName || record?.name || "").toLocaleLowerCase("de-CH");
+  const phone = compactInvoiceValue(customer?.phone || record?.phone || "").replace(/\D+/g, "");
+  const email = compactInvoiceValue(customer?.email || record?.email || "").toLocaleLowerCase("de-CH");
+  const channel = compactInvoiceValue(record?.preferredChannel || record?.contactChannel || record?.channel || "").toLocaleLowerCase("de-CH");
+  return `${name}|${phone}|${email}|${channel}`;
+}
+
 function invoice_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
-  return (Array.isArray(records) ? records : []).map((record: any) => ({
-    ...record,
-    phone: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.phone),
-    email: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.email),
-    customer: record?.customer
-      ? {
-          ...record.customer,
-          phone: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.phone),
-          email: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record.customer?.email),
-        }
-      : record?.customer,
-    notes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.notes),
-    specialNotes: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.specialNotes),
-    description: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.description),
-    audioTranscript: invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(record?.audioTranscript),
-  })) as T[];
+  const cleaned = (Array.isArray(records) ? records : [])
+    .map((record: any) => invoice_sanitizeMergedContactReviewValueV17_90L371V(record))
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: any[] = [];
+  cleaned.forEach((record: any) => {
+    const key = invoice_contactReviewIdentityKeyV17_90L371V(record);
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    result.push(record);
+  });
+  return result as T[];
 }
 // V17.90L281: Strukturelle Termin-/Rollenfragmente dürfen niemals als
 // Arbeitsort- oder Kundennachrichten-Gruppenname erscheinen.
@@ -582,6 +624,11 @@ const getInvoiceAppointmentDayKey = (value: unknown): string => {
   );
   return normalizeInvoiceAppointmentDisplayKey(relativeMatch?.[1] || "");
 };
+
+const invoiceAppointmentLabelHasTimeV17_90L371V = (value: unknown): boolean =>
+  /(?:[01]?\d|2[0-3]):[0-5]\d|(?:[01]?\d|2[0-3])\.([0-5]\d)\s*(?:uhr|h)?|(?:[01]?\d|2[0-3])\s*(?:uhr|h)/i.test(
+    compactInvoiceValue(value),
+  );
 
 const getInvoiceAppointmentFactKeyV17_90L371U = (value: unknown): string => {
   const label = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
@@ -3275,6 +3322,26 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
             : entry.source,
       };
       return;
+    }
+
+    const entryDayKey = getInvoiceAppointmentDayKey(entry.label);
+    if (entryDayKey) {
+      const sameDaySameSiteIndex = entries.findIndex(
+        (current) =>
+          normalizeInvoiceAppointmentKeyV17_90L177R(current.site) === siteKey &&
+          getInvoiceAppointmentDayKey(current.label) === entryDayKey,
+      );
+      if (sameDaySameSiteIndex >= 0) {
+        const current = entries[sameDaySameSiteIndex];
+        const currentHasTime = invoiceAppointmentLabelHasTimeV17_90L371V(current.label);
+        const entryHasTime = invoiceAppointmentLabelHasTimeV17_90L371V(entry.label);
+        if (currentHasTime && !entryHasTime) return;
+        if (!currentHasTime && entryHasTime) {
+          entries[sameDaySameSiteIndex] = entry;
+          return;
+        }
+        if (!currentHasTime && !entryHasTime) return;
+      }
     }
 
     entries.push(entry);
