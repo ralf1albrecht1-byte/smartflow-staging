@@ -1,7 +1,4 @@
 "use client";
-// SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
-// SMARTFLOW_V17_90L368_MERGED_IMAGE_CHIP_HOVER_PREVIEW
-// SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
 // SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
@@ -81,7 +78,6 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -298,7 +294,6 @@ interface OrderItem {
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
   serviceName: string;
-  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -388,7 +383,6 @@ interface ServiceDef {
   name: string;
   defaultPrice: number;
   unit: string;
-  positionType?: string | null;
 }
 
 const statuses = ["Alle", "Offen", "Erledigt"];
@@ -441,7 +435,6 @@ const unitConflictTextByReason: Record<string, string> = {
 interface FormItem {
   key: string; // client-side key for React
   serviceName: string;
-  positionType?: string | null;
   unit: string;
   unitPrice: string;
   quantity: string;
@@ -466,7 +459,6 @@ interface FormItem {
 const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
-  positionType: "service",
   unit: "Einheit prüfen",
   unitPrice: "",
   quantity: "",
@@ -985,7 +977,7 @@ const getOrderServiceReviewDetailV17_90L134 = (
 ): string => {
   const reason = getOrderServiceReviewReasonV17_90L134(item, services);
   if (!reason) return "";
-  const name = compactText(item?.serviceName) || "Neue Position";
+  const name = compactText(item?.serviceName) || "Neue Leistung";
   const quantity = Number(item?.quantity || 0);
   const price = Number(item?.unitPrice || 0);
   const unit = compactText(item?.unit) || "–";
@@ -1001,14 +993,14 @@ const getOrderServiceReviewDetailV17_90L134 = (
 
 
 const serviceLabelHasWorkIntentV17_90L27 = (value?: string | null) => {
-  const key = normalizeForMatch(String(value ?? ""));
+  const key = normalizeForMatch(value);
   if (!key) return false;
   return /\b(?:reinig|putz|pulire|clean|nettoyer|limpieza|wisch|abwisch|abstaub|staub|saug|polier|desinfiz|entfern|schneid|streichen|malen|montier|reparier)\b/.test(key) ||
     /\b(?:boden|floor|sol|paviment|pavimento|waschraumboden|kuechenboden|fenster|scheiben|glas|glastuer|glastur|glastür|tische|tavoli|regale|reifenregale|rollstuehle|rollstühle|kofferwagen|gelaender|geländer)\b/.test(key);
 };
 
 const serviceLabelContextClauseV17_90L27 = (value?: string | null) => {
-  const key = normalizeForMatch(String(value ?? ""));
+  const key = normalizeForMatch(value);
   if (!key) return false;
   return /\b(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|nachbar|patientenzimmer|schluessel|schlüssel|key|code|sms|whatsapp|telefon|anruf|rueckruf|rückruf|email|mail|achtung|vorsicht|oprez|attention|hund|pas|dog|oel|öl|kabel|strom|rutschig|scivoloso|nass|mouill|nicht|kein|keine|betreten|kommen|eintreten|rezeption|hauptrezeption|buero|büro|office|bahnhofplatz|strasse|straße|weg|gasse|platz|ring|allee|route|rue|via|viale|avenue|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b/.test(key) || /\b\d{4,5}\b/.test(key);
 };
@@ -5487,39 +5479,6 @@ const isUnitMissingReviewText = (value?: string | null) => {
 // und sollen beim Bearbeiten nicht erst manuell gelöscht werden müssen.
 const getEditableServiceNameValue = (value?: string | null) =>
   isInternalReviewServiceName(value) ? "" : String(value || "");
-
-// SMARTFLOW_V17_90L371C: Mengen-Prüftexte sind interne Review-Platzhalter,
-// keine echten Eingabewerte. Der Nutzer soll im Feld nichts löschen müssen.
-const isQuantityReviewPlaceholderTextV17_90L371C = (
-  value?: string | number | null,
-) => {
-  const key = normalizeForMatch(String(value ?? ""));
-  if (!key) return false;
-  return (
-    key === "pruefen" ||
-    key === "prufen" ||
-    key === "menge pruefen" ||
-    key === "menge prufen" ||
-    key.includes("menge fehlt") ||
-    key.includes("menge unklar") ||
-    key.includes("menge offen") ||
-    key.includes("quantity missing") ||
-    key.includes("quantity unknown") ||
-    key.includes("quantity unclear") ||
-    key.includes("quantity review")
-  );
-};
-
-const getEditableQuantityValueV17_90L371C = (
-  value?: string | number | null,
-) => (isQuantityReviewPlaceholderTextV17_90L371C(value) ? "" : String(value ?? ""));
-
-const getNumericQuantityValueV17_90L371C = (
-  value?: string | number | null,
-) => {
-  const quantity = Number(getEditableQuantityValueV17_90L371C(value) || 0);
-  return Number.isFinite(quantity) ? quantity : 0;
-};
 
 const hasUnitMismatchReviewForService = (
   reviewReasons: string[] | null | undefined,
@@ -13837,18 +13796,15 @@ export default function AuftraegePage() {
   };
 
   const updateItem = (index: number, field: keyof FormItem, value: string) => {
-    const cleanValue =
-      field === "quantity" ? getEditableQuantityValueV17_90L371C(value) : value;
-
     if (field === "workSiteId") {
-      setActiveWorkSiteId(cleanValue || null);
+      setActiveWorkSiteId(value || null);
     }
 
     setFormItems((prev) =>
       prev.map((item, i) => {
         if (i !== index) return item;
 
-        const nextItem: FormItem = { ...item, [field]: cleanValue };
+        const nextItem: FormItem = { ...item, [field]: value };
 
         // V17.16: Sobald der Benutzer eine blockierte KI-/Währungsposition
         // manuell korrigiert, muss diese Position eindeutig als vom Benutzer
@@ -16091,8 +16047,6 @@ export default function AuftraegePage() {
       return {
         index: index + 1,
         serviceName: item.serviceName.trim(),
-        
-        positionType: normalizePositionType((item as any).positionType),
         unit: item.unit,
         unitLabel: unitShortLabel(item.unit),
         quantity,
@@ -16622,12 +16576,7 @@ export default function AuftraegePage() {
     const sourceFormItems = itemsOverride ?? formItems;
     const sourceFormWorkSites = workSitesOverride ?? formWorkSites;
     let validItems = mergeEquivalentFormItems(
-      sourceFormItems
-        .map((item) => ({
-          ...item,
-          quantity: getEditableQuantityValueV17_90L371C(item.quantity),
-        }))
-        .filter((i) => i.serviceName.trim()),
+      sourceFormItems.filter((i) => i.serviceName.trim()),
     );
     if (validItems.length === 0) {
       toast.error("Mindestens eine Leistung auswählen");
@@ -17301,15 +17250,13 @@ export default function AuftraegePage() {
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
-          
-          positionType: normalizePositionType((item as any).positionType),
           description:
             hasCurrentEditCurrencyReview && itemCurrencyConfirmed
               ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
               : resolvedCurrencyItem
                 ? buildItemDescription({ ...item, aiWarning: "" })
                 : buildItemDescription(item),
-          quantity: getNumericQuantityValueV17_90L371C(item.quantity),
+          quantity: Number(item.quantity || 0),
           unit: item.unit,
           unitPrice: itemIsStillBlockedByCurrency
             ? 0
@@ -18237,8 +18184,6 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
-    // V17.90L369: merged image chip must behave like the normal image chip:
-    // stable blue icon on the card, desktop hover preview, click/tap opens gallery.
     const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
       "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
@@ -18265,43 +18210,30 @@ export default function AuftraegePage() {
           </button>
         )}
         {hasImage && (
-          <span
-            className="group relative inline-flex h-8 w-8 shrink-0 overflow-visible"
+          <button
+            type="button"
             data-card-toggle-ignore="true"
+            aria-label="Bild öffnen"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openOrderImageMediaV17_90L364(o);
+            }}
+            className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
           >
-            <button
-              type="button"
-              data-card-toggle-ignore="true"
-              aria-label="Bilder ansehen"
-              title="Bilder ansehen"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                void openOrderImageMediaV17_90L364(o);
-              }}
-              className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
-            >
-              <ImageIcon className="h-4 w-4" />
-            </button>
-            {imagePreviewUrl && (
+            {imagePreviewUrl ? (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-2 text-left shadow-xl group-hover:block group-focus-within:block dark:border-slate-700 dark:bg-slate-950"
-              >
-                <span
-                  className="block h-24 w-full rounded-lg bg-cover bg-center bg-no-repeat"
-                  style={{ backgroundImage: `url(${imagePreviewUrl})` }}
-                />
-                <span className="mt-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                  Anklicken zum Öffnen
-                </span>
-              </span>
+                className="block h-full w-full bg-cover bg-center bg-no-repeat"
+                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+              />
+            ) : (
+              <ImageIcon className="h-4 w-4" />
             )}
-          </span>
+          </button>
         )}
       </>
     );
@@ -21905,10 +21837,8 @@ export default function AuftraegePage() {
                           const priceInputReview =
                             unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
-                          const itemQuantityNumberV17_90L371C =
-                            getNumericQuantityValueV17_90L371C(item.quantity);
                           const quantityInputReview =
-                            itemQuantityNumberV17_90L371C <= 0;
+                            Number(item.quantity || 0) === 0;
                           const priceInputCritical = priceInputReview;
                           const quantityInputCritical = quantityInputReview;
                           const showUnitConflict =
@@ -22002,22 +21932,13 @@ export default function AuftraegePage() {
                               ? `${blockingReviewFieldListV17_90L243} prüfen`
                               : "";
                           const itemQuantityUnitSummaryV17_90L243 =
-                            quantityInputReview
-                              ? "Menge fehlt"
-                              : unitInputCriticalV17_90L243
-                                ? `${getEditableQuantityValueV17_90L371C(item.quantity) || "–"} · Einheit prüfen`
-                                : `${getEditableQuantityValueV17_90L371C(item.quantity)} ${unitShortLabel(item.unit)}`.trim();
-                          const itemSummaryLineV17_90L371C = quantityInputReview
-                            ? `Menge fehlt${
-                                itemPriceNumber > 0
-                                  ? ` · ${formatCurrency(itemPriceNumber, currency)} erkannt`
-                                  : ""
-                              }`
-                            : `${itemQuantityUnitSummaryV17_90L243} × ${
-                                itemPriceNumber > 0
-                                  ? formatCurrency(itemPriceNumber, currency)
-                                  : "Preis prüfen"
-                              }`;
+                            quantityInputReview && unitInputCriticalV17_90L243
+                              ? "Einheit und Menge prüfen"
+                              : quantityInputReview
+                                ? `Menge prüfen ${unitShortLabel(item.unit)}`.trim()
+                                : unitInputCriticalV17_90L243
+                                  ? `${item.quantity || "–"} · Einheit prüfen`
+                                  : `${item.quantity} ${unitShortLabel(item.unit)}`.trim();
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             !itemHasInternalReviewServiceName &&
@@ -22067,11 +21988,11 @@ export default function AuftraegePage() {
                               }`
                             : "";
                           const orderSummaryParts = [
-                            itemQuantityNumberV17_90L371C > 0
-                              ? `${getEditableQuantityValueV17_90L371C(item.quantity)} ${unitShortLabel(item.unit)}`
-                              : "Menge fehlt",
+                            Number(item.quantity || 0) > 0
+                              ? `${item.quantity} ${unitShortLabel(item.unit)}`
+                              : unitShortLabel(item.unit),
                             itemPriceNumber > 0
-                              ? `${formatCurrency(itemPriceNumber, currency)} erkannt`
+                              ? `à ${formatCurrency(itemPriceNumber, currency)}`
                               : "Preis prüfen",
                           ].filter(Boolean);
                           const orderSummary = orderSummaryParts.join(" ");
@@ -22825,7 +22746,7 @@ export default function AuftraegePage() {
                                           addItemToWorkSite(site.id)
                                         }
                                       >
-                                        + Position hier hinzufügen
+                                        + Leistung hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
@@ -22880,7 +22801,10 @@ export default function AuftraegePage() {
                                         </div>
                                         <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">
                                           <div className="truncate text-xs text-muted-foreground sm:text-sm">
-                                            {itemSummaryLineV17_90L371C}
+                                            {itemQuantityUnitSummaryV17_90L243} ×{" "}
+                                            {itemPriceNumber > 0
+                                              ? formatCurrency(itemPriceNumber, currency)
+                                              : "Preis prüfen"}
                                           </div>
                                           {hasAnyItemReview && (
                                             <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
@@ -22955,7 +22879,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Plus className="h-4 w-4" />
-                                                In Katalog übernehmen
+                                                In Leistungskatalog übernehmen
                                               </button>
                                             </div>
                                           )}
@@ -23036,24 +22960,6 @@ export default function AuftraegePage() {
                                           </select>
                                         </div>
                                       )}
-                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                          <div>
-                                            <Label className="text-xs">Typ *</Label>
-                                            <select
-                                              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                              value={normalizePositionType((item as any).positionType)}
-                                              onChange={(event: any) =>
-                                                updateItem(index, "positionType", normalizePositionType(event?.target?.value))
-                                              }
-                                            >
-                                              {POSITION_TYPE_OPTIONS.map((option) => (
-                                                <option key={option.value} value={option.value}>
-                                                  {option.label}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                        </div>
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -23066,8 +22972,6 @@ export default function AuftraegePage() {
                                           onServiceCreated={handleServiceCreated}
                                           currentPrice={item.unitPrice}
                                           currentUnit={item.unit}
-                                          positionType={(item as any).positionType}
-                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
                                           showManualHint={false}
                                           saveButtonPlacement="none"
                                         />
@@ -23082,12 +22986,11 @@ export default function AuftraegePage() {
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <div>
                                         <Label className="text-xs">Einheit</Label>
-                                        <Input
-                                          list={`position-unit-options-${index}`}
-                                          className={`h-9 ${
+                                        <select
+                                          className={`flex h-9 w-full rounded-md border bg-background px-2 text-sm ${
                                             unitInputCriticalV17_90L243
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                              : ""
+                                              : "border-input"
                                           }`}
                                           value={
                                             unitMissingInTextReason &&
@@ -23100,15 +23003,18 @@ export default function AuftraegePage() {
                                             updateItem(
                                               index,
                                               "unit",
-                                              e?.target?.value ?? "",
+                                              e?.target?.value ?? "Stunde",
                                             )
                                           }
-                                        />
-                                        <datalist id={`position-unit-options-${index}`}>
-                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
-                                            <option key={unit} value={unit} />
+                                        >
+                                          {priceTypes.map((pt) => (
+                                            <option key={pt} value={pt}>
+                                              {pt === "Einheit prüfen"
+                                                ? "prüfen"
+                                                : pt}
+                                            </option>
                                           ))}
-                                        </datalist>
+                                        </select>
                                       </div>
 
                                       <div>
@@ -23121,9 +23027,9 @@ export default function AuftraegePage() {
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                               : ""
                                           }`}
-                                          value={getEditableQuantityValueV17_90L371C(item.quantity)}
+                                          value={item.quantity}
                                           placeholder={
-                                            quantityInputReview ? "Menge eingeben" : "0"
+                                            quantityInputReview ? "prüfen" : "0"
                                           }
                                           onFocus={(e) =>
                                             e.currentTarget.select()
