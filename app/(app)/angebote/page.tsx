@@ -58,7 +58,7 @@ import {
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -107,6 +107,7 @@ import { MissingCustomerDataBadge } from "@/components/missing-customer-data-bad
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
 // SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
   "service",
   "expense",
@@ -118,14 +119,7 @@ const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
 ];
 
 function smartflowResolvedPositionTypeV17_90L371K(item: any) {
-  const name = String(item?.serviceName ?? item?.description ?? "")
-    .trim()
-    .toLowerCase();
-  const type = normalizePositionType(item?.positionType);
-  if (type === "service" && /^(anfahrt|fahrtkosten|reisekosten|travel|deplacement)\b/.test(name)) {
-    return "expense";
-  }
-  return type;
+  return inferPositionTypeFromItem(item);
 }
 
 function smartflowPositionTypeLabelV17_90L371K(item: any) {
@@ -5084,7 +5078,7 @@ export default function AngebotePage() {
   const addServiceItem = (svc: any) => {
     setItems((current) => [
       {
-        positionType: normalizePositionType(svc?.positionType),
+        positionType: inferPositionTypeFromItem(svc),
         description: svc?.name ?? "",
         quantity: "",
         unit: compactOfferValue(svc?.unit) || "",
@@ -6158,7 +6152,7 @@ export default function AngebotePage() {
             singleExecutionSite;
           return {
             description: i.description ?? "",
-              positionType: normalizePositionType((i as any)?.positionType),
+              positionType: inferPositionTypeFromItem(i),
             quantity: String(i.quantity ?? 0),
             unit: i.unit ?? "Stunde",
             unitPrice: String(i.unitPrice ?? 0),
@@ -6558,7 +6552,7 @@ export default function AngebotePage() {
         saved.items && saved.items.length > 0
           ? saved.items.map((i: any) => ({
               description: i.description ?? "",
-              positionType: normalizePositionType((i as any)?.positionType),
+              positionType: inferPositionTypeFromItem(i),
               quantity: String(i.quantity ?? 0),
               unit: i.unit ?? "",
               unitPrice: String(i.unitPrice ?? 0),
@@ -6888,7 +6882,7 @@ export default function AngebotePage() {
     const rawInvoiceItems =
       off.items?.map((it: any) => ({
         description: it.description ?? "",
-              positionType: normalizePositionType((it as any)?.positionType),
+              positionType: inferPositionTypeFromItem(it),
         quantity: String(it.quantity ?? 0),
         unit: it.unit ?? "",
         unitPrice: String(it.unitPrice ?? 0),
@@ -10499,7 +10493,7 @@ export default function AngebotePage() {
                                     <Label className="text-xs">Typ *</Label>
                                     <select
                                       className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                      value={normalizePositionType((item as any).positionType)}
+                                      value={inferPositionTypeFromItem(item)}
                                       onChange={(event: any) => updateItem(idx, "positionType", normalizePositionType(event?.target?.value))}
                                     >
                                       {POSITION_TYPE_OPTIONS.map((option) => (

@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
+import { normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import {
   requireUserId,
@@ -2016,7 +2017,7 @@ export async function PUT(
                 create: items.map((item: any) => ({
                   serviceName: normalizeServiceNameForDisplay(item.serviceName),
                   description: item.description ?? "",
-                  positionType: normalizePositionType(item?.positionType),
+                  positionType: inferPositionTypeFromItem(item),
                   quantity: Number(item.quantity ?? 1),
                   unit: item.unit ?? "Stunde",
                   unitPrice: Number(item.unitPrice ?? 0),

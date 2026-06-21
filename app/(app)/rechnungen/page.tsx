@@ -79,7 +79,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -129,6 +129,7 @@ import { MissingCustomerDataBadge } from "@/components/missing-customer-data-bad
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
 // SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
   "service",
   "expense",
@@ -140,14 +141,7 @@ const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
 ];
 
 function smartflowResolvedPositionTypeV17_90L371K(item: any) {
-  const name = String(item?.serviceName ?? item?.description ?? "")
-    .trim()
-    .toLowerCase();
-  const type = normalizePositionType(item?.positionType);
-  if (type === "service" && /^(anfahrt|fahrtkosten|reisekosten|travel|deplacement)\b/.test(name)) {
-    return "expense";
-  }
-  return type;
+  return inferPositionTypeFromItem(item);
 }
 
 function smartflowPositionTypeLabelV17_90L371K(item: any) {
@@ -4834,7 +4828,7 @@ export default function RechnungenPage() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setItems(
               parsed.map((item: any) => ({
-                positionType: normalizePositionType((item as any).positionType),
+                positionType: inferPositionTypeFromItem(item),
                 description: item.serviceName || item.description || "",
                 quantity: String(item.quantity ?? 0),
                 unit: item.unit ?? "Stunde",
@@ -4869,7 +4863,7 @@ export default function RechnungenPage() {
                 audioDurationSec: lo.audioDurationSec,
                 audioTranscriptionStatus: lo.audioTranscriptionStatus,
                 hinweisLevel: lo.hinweisLevel,
-                positionType: normalizePositionType((lo as any).positionType),
+                positionType: inferPositionTypeFromItem(lo),
         description: lo.description,
               });
             if (offer?.orders?.length)
@@ -5008,7 +5002,7 @@ export default function RechnungenPage() {
         audioDurationSec: lo.audioDurationSec,
         audioTranscriptionStatus: lo.audioTranscriptionStatus,
         hinweisLevel: lo.hinweisLevel,
-        positionType: normalizePositionType((lo as any).positionType),
+        positionType: inferPositionTypeFromItem(lo),
         description: lo.description,
       });
     else setLinkedOrderData(null);
@@ -5048,7 +5042,7 @@ export default function RechnungenPage() {
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
-            positionType: normalizePositionType((it as any).positionType),
+            positionType: inferPositionTypeFromItem(it),
             description: it.description ?? "",
             quantity: String(it.quantity ?? 0),
             unit: it.unit ?? "Stunde",

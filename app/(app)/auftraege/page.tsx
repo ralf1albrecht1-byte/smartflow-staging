@@ -84,7 +84,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -142,6 +142,7 @@ const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
   "smartflow:close-card-popovers-v17-90l227";
 
 // SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
   "service",
   "expense",
@@ -153,14 +154,7 @@ const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
 ];
 
 function smartflowResolvedPositionTypeV17_90L371K(item: any) {
-  const name = String(item?.serviceName ?? item?.description ?? "")
-    .trim()
-    .toLowerCase();
-  const type = normalizePositionType(item?.positionType);
-  if (type === "service" && /^(anfahrt|fahrtkosten|reisekosten|travel|deplacement)\b/.test(name)) {
-    return "expense";
-  }
-  return type;
+  return inferPositionTypeFromItem(item);
 }
 
 function smartflowPositionTypeLabelV17_90L371K(item: any) {
@@ -576,12 +570,12 @@ const resolveOrderPositionTypeForOfferHandoffV17_90L371F = (
     fallbackByName?.kind ??
     null;
 
-  const sourceType = normalizePositionType(sourceRaw);
-  const fallbackType = normalizePositionType(fallbackRaw);
+  const sourceType = inferPositionTypeFromItem(sourceItem);
+  const fallbackType = inferPositionTypeFromItem(fallbackByIndex ?? fallbackByName ?? { positionType: fallbackRaw });
 
-  // V17.90L371F: Beim Auftrag → Angebot darf ein bewusst manuell gesetzter
-  // Typ wie Material/Gerät/Zusatzkosten nicht wieder auf Dienstleistung
-  // zurückfallen, wenn die Save-API den Typ im Rückgabepayload nicht mitliefert.
+  // V17.90L371F/L371L: Beim Auftrag → Angebot darf ein bewusst manuell gesetzter
+  // oder aus dem Prefix erkannter Typ wie Material/Gerät/Zusatzkosten nicht wieder
+  // auf Dienstleistung zurückfallen.
   if ((!sourceRaw || sourceType === "service") && fallbackRaw && fallbackType !== "service") {
     return fallbackType;
   }
@@ -1581,7 +1575,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     items.map((item) => ({
       key: Math.random().toString(36).slice(2),
       serviceName: item.serviceName ?? item.description ?? "",
-      positionType: normalizePositionType((item as any).positionType),
+      positionType: inferPositionTypeFromItem(item),
       unit: item.unit ?? item.priceType ?? "Stunde",
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
@@ -1597,7 +1591,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     })),
   ).map((item) => ({
     serviceName: item.serviceName,
-    positionType: normalizePositionType((item as any).positionType),
+    positionType: inferPositionTypeFromItem(item),
     description: buildItemDescription(item),
     quantity: Number(item.quantity || 0),
     unit: item.unit,
@@ -12991,7 +12985,7 @@ export default function AuftraegePage() {
           // must hydrate it from persisted items; otherwise a saved Material
           // row reopens as the default Dienstleistung and the next save
           // overwrites the database back to service.
-          positionType: normalizePositionType((item as any).positionType),
+          positionType: inferPositionTypeFromItem(item),
           unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: shouldRequireFreshManualPrice
             ? ""
@@ -13202,7 +13196,7 @@ export default function AuftraegePage() {
           {
             key: Math.random().toString(36).slice(2),
             serviceName: o.serviceName ?? "",
-            positionType: normalizePositionType((o as any).positionType),
+            positionType: inferPositionTypeFromItem(o),
             unit: o.priceType ?? "Stunde",
             unitPrice:
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
@@ -16180,7 +16174,7 @@ export default function AuftraegePage() {
         index: index + 1,
         serviceName: item.serviceName.trim(),
         
-        positionType: normalizePositionType((item as any).positionType),
+        positionType: inferPositionTypeFromItem(item),
         unit: cleanPositionFieldValueV17_90L371B(item.unit),
         unitLabel: unitShortLabel(cleanPositionFieldValueV17_90L371B(item.unit)),
         quantity,
@@ -17389,7 +17383,7 @@ export default function AuftraegePage() {
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
           
-          positionType: normalizePositionType((item as any).positionType),
+          positionType: inferPositionTypeFromItem(item),
           description:
             hasCurrentEditCurrencyReview && itemCurrencyConfirmed
               ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
@@ -17811,7 +17805,7 @@ export default function AuftraegePage() {
         quantity: String(i.quantity ?? 0),
         unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
-        positionType: normalizePositionType((i as any).positionType),
+        positionType: inferPositionTypeFromItem(i),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -20496,7 +20490,7 @@ export default function AuftraegePage() {
 
                           {/* Row 2: compact service-only preview */}
                           <div className="mt-0.5 text-[10px] font-semibold text-muted-foreground">
-                            {mobileOrderServiceNames.length} Leistungen
+                            {mobileOrderServiceNames.length} Positionen
                           </div>
                           <p
                             className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
@@ -22896,7 +22890,7 @@ export default function AuftraegePage() {
                                   <div className="font-semibold">
                                     {siteNeedsReview
                                       ? "Arbeitsort bitte ausfüllen."
-                                      : "Noch keine Leistungen in diesem Arbeitsort."}
+                                      : "Noch keine Positionen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
                                     Arbeitsort und zugehörige Position vollständig
@@ -23132,7 +23126,7 @@ export default function AuftraegePage() {
                                             <Label className="text-xs">Typ *</Label>
                                             <select
                                               className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                              value={normalizePositionType((item as any).positionType)}
+                                              value={inferPositionTypeFromItem(item)}
                                               onChange={(event: any) =>
                                                 updateItem(index, "positionType", normalizePositionType(event?.target?.value))
                                               }
@@ -23710,10 +23704,10 @@ export default function AuftraegePage() {
                           {hasMultipleEditWorkSites
                             ? `${liveOverviewGroups.length} Arbeitsort${
                                 liveOverviewGroups.length === 1 ? "" : "e"
-                              } · ${liveOverviewRows.length} Leistung${
+                              } · ${liveOverviewRows.length} Position${
                                 liveOverviewRows.length === 1 ? "" : "en"
                               }`
-                            : `${liveOverviewRows.length} Leistung${
+                            : `${liveOverviewRows.length} Position${
                                 liveOverviewRows.length === 1 ? "" : "en"
                               }`}
                         </span>
@@ -23725,7 +23719,7 @@ export default function AuftraegePage() {
                       <div className="space-y-2 rounded-lg border-2 border-slate-300 bg-muted/20 p-2 dark:border-slate-700">
                         {liveOverviewGroups.length === 0 ? (
                           <div className="rounded-md border bg-background p-3 text-center text-sm text-muted-foreground">
-                            Keine Leistung erfasst.
+                            Keine Position erfasst.
                           </div>
                         ) : (
                           liveOverviewGroups.map((group) => {
@@ -23824,7 +23818,7 @@ export default function AuftraegePage() {
                                   colSpan={6}
                                   className="px-2 py-3 text-center text-muted-foreground"
                                 >
-                                  Keine Leistung erfasst.
+                                  Keine Position erfasst.
                                 </td>
                               </tr>
                             ) : (
