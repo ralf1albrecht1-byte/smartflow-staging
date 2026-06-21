@@ -405,7 +405,136 @@ const withoutDateOnlyWhenTimedExists = (entries: MergedAppointmentEntry[]) => {
   });
 };
 
+
+// L371AG_APPOINTMENT_DISPLAY_FILTER
+const l371agCompactAppointmentText = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const l371agNormalizeAppointmentText = (value: unknown): string =>
+  l371agCompactAppointmentText(value).toLowerCase();
+
+const l371agEntryField = (entry: MergedAppointmentEntry, field: "label" | "site" | "source"): string =>
+  l371agCompactAppointmentText((entry as unknown as Record<string, unknown>)[field]);
+
+type L371agAppointmentDisplayParts = {
+  dateKey: string;
+  timeKey: string;
+  hasFullDate: boolean;
+  isDateOnly: boolean;
+  isRelative: boolean;
+  isMalformedDateTail: boolean;
+  quality: number;
+};
+
+const l371agAppointmentDisplayParts = (label: unknown): L371agAppointmentDisplayParts => {
+  const clean = l371agCompactAppointmentText(label);
+  const fullDateMatch = clean.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
+  const shortDateMatch = fullDateMatch ? null : clean.match(/\b(\d{1,2})\.(\d{1,2})\.(?!\d)/);
+  const dateMatch = fullDateMatch || shortDateMatch;
+  const day = dateMatch?.[1]?.padStart(2, "0") || "";
+  const month = dateMatch?.[2]?.padStart(2, "0") || "";
+  const dateKey = day && month ? day + "." + month : "";
+
+  const withoutDates = clean
+    .replace(/\b\d{1,2}\.\d{1,2}\.\d{4}\b/g, " ")
+    .replace(/\b\d{1,2}\.\d{1,2}\.(?!\d)/g, " ");
+  const timeMatch = withoutDates.match(/\b([01]?\d|2[0-3])[:.](\d{2})\s*(?:uhr)?\b/i);
+  const timeKey = timeMatch ? timeMatch[1].padStart(2, "0") + ":" + timeMatch[2] : "";
+
+  const isRelative = /\b(?:heute|morgen|uebermorgen|übermorgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(clean);
+  const isMalformedDateTail = /\b(?:[01]?\d|2[0-3]):[0-5]\d\s*uhr\s+\d{1,2}\.\d{4}\b/i.test(clean);
+  const hasFullDate = Boolean(fullDateMatch);
+  const isDateOnly = Boolean(dateKey) && !timeKey;
+  const quality =
+    (hasFullDate ? 40 : dateKey ? 20 : 0) +
+    (timeKey ? 40 : 0) -
+    (isRelative ? 25 : 0) -
+    (isMalformedDateTail ? 60 : 0) +
+    Math.min(clean.length, 30) / 100;
+
+  return { dateKey, timeKey, hasFullDate, isDateOnly, isRelative, isMalformedDateTail, quality };
+};
+
+const l371agFilterAppointmentDisplayEntries = (entries: MergedAppointmentEntry[]): MergedAppointmentEntry[] => {
+  if (!Array.isArray(entries) || entries.length <= 1) return entries || [];
+
+  const withParts = entries.map((entry, index) => ({
+    entry,
+    index,
+    siteKey: l371agNormalizeAppointmentText(l371agEntryField(entry, "site")),
+    parts: l371agAppointmentDisplayParts(l371agEntryField(entry, "label")),
+  }));
+
+  const timedDatesBySite = new Set<string>();
+  const timedDatesGlobal = new Set<string>();
+  const absoluteTimesBySite = new Set<string>();
+  const absoluteTimesGlobal = new Set<string>();
+  const anyAbsoluteTimedEntry = withParts.some(({ parts }) => parts.dateKey && parts.timeKey && parts.hasFullDate && !parts.isRelative && !parts.isMalformedDateTail);
+
+  for (const item of withParts) {
+    const { parts, siteKey } = item;
+    if (parts.dateKey && parts.timeKey) {
+      timedDatesBySite.add(siteKey + "|" + parts.dateKey);
+      timedDatesGlobal.add(parts.dateKey);
+      if (parts.hasFullDate && !parts.isRelative && !parts.isMalformedDateTail) {
+        absoluteTimesBySite.add(siteKey + "|" + parts.timeKey);
+        absoluteTimesGlobal.add(parts.timeKey);
+      }
+    }
+  }
+
+  const candidateByKey = new Map<string, { entry: MergedAppointmentEntry; index: number; quality: number }>();
+  const order: string[] = [];
+
+  for (const item of withParts) {
+    const { entry, index, siteKey, parts } = item;
+
+    if (parts.isDateOnly && parts.dateKey && (timedDatesBySite.has(siteKey + "|" + parts.dateKey) || timedDatesGlobal.has(parts.dateKey))) {
+      continue;
+    }
+
+    if (parts.timeKey && parts.isRelative && (absoluteTimesBySite.has(siteKey + "|" + parts.timeKey) || absoluteTimesGlobal.has(parts.timeKey))) {
+      continue;
+    }
+
+    if (parts.isMalformedDateTail && (anyAbsoluteTimedEntry || absoluteTimesBySite.has(siteKey + "|" + parts.timeKey) || absoluteTimesGlobal.has(parts.timeKey))) {
+      continue;
+    }
+
+    const key = parts.dateKey && parts.timeKey
+      ? siteKey + "|" + parts.dateKey + "|" + parts.timeKey
+      : siteKey + "|" + l371agNormalizeAppointmentText(l371agEntryField(entry, "label"));
+    const current = candidateByKey.get(key);
+    const sourceLength = l371agEntryField(entry, "source").length;
+    const currentSourceLength = current ? l371agEntryField(current.entry, "source").length : 0;
+
+    if (!current) {
+      candidateByKey.set(key, { entry, index, quality: parts.quality });
+      order.push(key);
+      continue;
+    }
+
+    if (parts.quality > current.quality || (parts.quality === current.quality && sourceLength > currentSourceLength)) {
+      candidateByKey.set(key, { entry, index: current.index, quality: parts.quality });
+    }
+  }
+
+  return order
+    .map((key) => candidateByKey.get(key))
+    .filter((item): item is { entry: MergedAppointmentEntry; index: number; quality: number } => Boolean(item))
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.entry);
+};
+
+// L371AG_APPOINTMENT_WRAPPER_DEDUPE_NO_TEMPLATE
 export function collectMergedAppointmentEntries(
+  records: Array<MergedAppointmentRecord | null | undefined> | null | undefined,
+): MergedAppointmentEntry[] {
+  return l371agFilterAppointmentDisplayEntries(collectMergedAppointmentEntriesRawL371AG(records));
+}
+function collectMergedAppointmentEntriesRawL371AG(
   records: Array<MergedAppointmentRecord | null | undefined> | null | undefined,
 ): MergedAppointmentEntry[] {
   const result: MergedAppointmentEntry[] = [];
