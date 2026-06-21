@@ -1,16 +1,8 @@
-export type MergedAppointmentWorkSite = {
-  siteName?: string | null;
-  siteAddress?: string | null;
-  sitePlz?: string | null;
-  siteCity?: string | null;
-  isPrimary?: boolean | null;
-  sortOrder?: number | null;
-};
+// SMARTFLOW_V17_90L371Y_APPOINTMENT_CHIP_SINGLE_SOURCE
 
 export type MergedAppointmentRecord = {
   id?: string | null;
   date?: string | null;
-  createdAt?: string | null;
   notes?: string | null;
   specialNotes?: string | null;
   description?: string | null;
@@ -19,7 +11,11 @@ export type MergedAppointmentRecord = {
   siteAddress?: string | null;
   sitePlz?: string | null;
   siteCity?: string | null;
-  workSites?: MergedAppointmentWorkSite[] | null;
+  orders?: Array<MergedAppointmentRecord | null | undefined> | null;
+  mergedOrders?: Array<MergedAppointmentRecord | null | undefined> | null;
+  sourceOrders?: Array<MergedAppointmentRecord | null | undefined> | null;
+  children?: Array<MergedAppointmentRecord | null | undefined> | null;
+  [key: string]: unknown;
 };
 
 export type MergedAppointmentEntry = {
@@ -30,15 +26,17 @@ export type MergedAppointmentEntry = {
 
 const compact = (value: unknown): string =>
   String(value ?? "")
-    .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/[ \t]+/g, " ")
+    .replace(/[\t ]+/g, " ")
+    .replace(/ *\n+ */g, "\n")
     .trim();
 
+const oneLine = (value: unknown): string => compact(value).replace(/\s+/g, " ").trim();
+
 const normalize = (value: unknown): string =>
-  compact(value)
+  oneLine(value)
     .toLowerCase()
-    .normalize("NFD")
+    .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/ä/g, "ae")
     .replace(/ö/g, "oe")
@@ -48,271 +46,253 @@ const normalize = (value: unknown): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-const normalizeSiteDisplay = (value: unknown): string =>
-  compact(value)
-    .replace(/^\s*(?:im|in der|in dem|am|an der)\s+/i, "")
-    .replace(/\s*,?\s*(?:gleiche|selbe)\s+adresse\s*$/i, "")
-    .replace(/[,:;\-–—.\s]+$/g, "")
-    .trim();
+const pad2 = (value: string | number): string => String(value).padStart(2, "0");
 
-const splitMergedSections = (value: unknown): string[] => {
-  const source = compact(value);
-  if (!source) return [];
-  const sections = source
-    .split(
-      /\n?\s*(?:[-─]{3,}\s*)?(?:Hauptauftrag|Zusammengeführt mit|Zusammengefuehrt mit)\s*:\s*\n?/gi,
-    )
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return sections.length > 0 ? sections : [source];
-};
+const titleCaseRelativeDay = (value: string): string =>
+  oneLine(value).replace(/\b\p{L}/gu, (char) => char.toUpperCase());
 
-const sortedWorkSites = (record: MergedAppointmentRecord) =>
-  (Array.isArray(record.workSites) ? [...record.workSites] : []).sort(
-    (a, b) =>
-      Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
-      Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
-  );
+const timeLabel = (hour: string, minute: string): string => `${pad2(hour)}:${pad2(minute)}`;
 
-const inferSectionSiteName = (section: string): string => {
-  const lines = String(section || "")
-    .split(/\n+/g)
-    .map((line) => compact(line))
-    .filter(Boolean);
-  const marker =
-    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle)\s*:?\s*(.*)$/i;
-  const addressLike =
-    /\b(?:strasse|straße|weg|gasse|platz|allee|ring|rue|route|via|street|road)\b.*\d|\b\d{4,5}\b/i;
-  const stop =
-    /^(?:termin|leistung|leistungen|rechnung|rechnungsadresse|kontakt|telefon|sms|whatsapp|e-?mail)\b/i;
+const hasAppointmentWord = (line: string): boolean =>
+  /\b(?:termin|einsatz|ausfuehrung|ausführung|ankunft|kommen|geplant|datum|uhrzeit|appointment|scheduled|intervention|rdv|rendez[- ]?vous|orario|appuntamento)\b/i.test(line);
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(marker);
-    if (!match) continue;
-    const inline = normalizeSiteDisplay(match[1]);
-    if (inline && !addressLike.test(inline)) return inline;
-    for (let offset = 1; offset <= 3; offset += 1) {
-      const candidate = normalizeSiteDisplay(lines[index + offset]);
-      if (!candidate || stop.test(candidate)) break;
-      if (addressLike.test(candidate)) continue;
-      return candidate;
+const hasTimeWord = (line: string): boolean =>
+  /\b(?:vormittags?|nachmittags?|abends?|morgens?|mittag|mittags|morning|afternoon|evening|matin|après[- ]?midi|apres[- ]?midi|sera|mattina|pomeriggio)\b/i.test(line);
+
+const splitMergedSections = (value: string): string[] => {
+  const raw = compact(value);
+  if (!raw) return [];
+  const lines = raw.split(/\n+/g).map((line) => line.trim()).filter(Boolean);
+  const sections: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    const startsSection = /^(?:[-–—* ]*)?(?:auftrag|ausführungsort|ausfuehrungsort|arbeitsort|standort|objekt)\s*\d*\s*[:#-]/i.test(line);
+    if (startsSection && current.length > 0) {
+      sections.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
     }
   }
-  return "";
+
+  if (current.length > 0) sections.push(current.join("\n"));
+  return sections.length > 0 ? sections : [raw];
 };
 
-const resolveSectionSite = (
-  record: MergedAppointmentRecord,
-  section: string,
-  sectionIndex: number,
-): string => {
-  const workSites = sortedWorkSites(record);
-  const sectionKey = normalize(section);
-  const matchedByIdentity = workSites.find((site) => {
-    const candidates = [site?.siteName, site?.siteAddress]
-      .map(normalize)
-      .filter(Boolean);
-    return candidates.some((candidate) => sectionKey.includes(candidate));
-  });
-  const matchedByPlace = workSites.filter((site) => {
-    const placeKey = normalize(
-      [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
-    );
-    return Boolean(placeKey && sectionKey.includes(placeKey));
-  });
-  const matched =
-    matchedByIdentity ||
-    (matchedByPlace.length === 1 ? matchedByPlace[0] : undefined);
-  const fallback = matched || workSites[sectionIndex] || workSites[0];
-  return (
-    normalizeSiteDisplay(fallback?.siteName) ||
-    normalizeSiteDisplay(inferSectionSiteName(section)) ||
-    compact(fallback?.siteAddress) ||
-    normalizeSiteDisplay(record.siteName) ||
-    compact(record.siteAddress) ||
-    `Arbeitsort ${sectionIndex + 1}`
-  );
-};
+const appointmentLineCandidates = (value: string): string[] => {
+  const raw = compact(value);
+  if (!raw) return [];
 
-const appointmentLineCandidates = (value: unknown): string[] => {
-  const source = compact(value);
-  if (!source) return [];
-  return source
-    .split(/\n+|(?<=[.!?])\s+/g)
-    .map((line) => compact(line).replace(/^\[(?:HINWEIS|NOTE)\]\s*/i, ""))
-    .filter(Boolean)
-    .filter((line) =>
-      /\b(?:termin|ausführungstermin|ausfuehrungstermin|zeitfenster|appointment)\b/i.test(
-        line,
-      ),
-    );
-};
+  const candidates = new Set<string>();
+  const pieces = raw
+    .split(/\n+|(?<=\.)\s+(?=[A-ZÄÖÜ0-9])|;+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-const titleCaseRelativeDay = (value: string): string => {
-  const clean = compact(value);
-  if (!clean) return "";
-  return clean.charAt(0).toLowerCase() + clean.slice(1);
+  for (const line of pieces) {
+    if (hasAppointmentWord(line) || hasTimeWord(line) || /\b\d{1,2}\.\d{1,2}(?:\.\d{2,4})?\b/.test(line)) {
+      candidates.add(line);
+    }
+  }
+
+  if (hasAppointmentWord(raw) || /\b\d{1,2}[:.]\d{2}\b/.test(raw)) {
+    candidates.add(raw);
+  }
+
+  return Array.from(candidates);
 };
 
 const parseAppointmentLine = (value: unknown): string => {
-  const line = compact(value);
+  const line = oneLine(value);
   if (!line) return "";
 
-  const dateMatch = line.match(
-    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/,
-  );
-  const withoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
-  const timeMatches = Array.from(
-    withoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
-  );
-  const times = timeMatches
-    .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
-    .filter((time, index, all) => all.indexOf(time) === index);
-
-  const weekdayMatch = line.match(
-    /\b((?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i,
-  );
+  const isoDateMatch = line.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  const dottedDateMatch = line.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\b/);
+  const weekdayMatch = line.match(/\b((?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i);
   const relativeMatch = line.match(/\b(heute|morgen|übermorgen|uebermorgen)\b/i);
 
-  let dayLabel = "";
-  if (dateMatch) {
-    const day = dateMatch[1].padStart(2, "0");
-    const month = dateMatch[2].padStart(2, "0");
-    const rawYear = dateMatch[3] || "";
-    const year = rawYear
-      ? rawYear.length === 2
-        ? `20${rawYear}`
-        : rawYear
-      : "";
-    dayLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+  let day = "";
+  if (isoDateMatch) {
+    day = `${isoDateMatch[3]}.${isoDateMatch[2]}.${isoDateMatch[1]}`;
+  } else if (dottedDateMatch) {
+    const rawYear = dottedDateMatch[3] || "";
+    const year = rawYear ? (rawYear.length === 2 ? `20${rawYear}` : rawYear) : "";
+    day = `${pad2(dottedDateMatch[1])}.${pad2(dottedDateMatch[2])}.${year}`.replace(/\.$/, ".");
   } else if (weekdayMatch) {
-    dayLabel = titleCaseRelativeDay(
-      `${weekdayMatch[1] || ""}${weekdayMatch[2]}`,
-    );
+    day = titleCaseRelativeDay(`${weekdayMatch[1] || ""}${weekdayMatch[2]}`);
   } else if (relativeMatch) {
-    dayLabel = titleCaseRelativeDay(relativeMatch[1]);
+    day = titleCaseRelativeDay(relativeMatch[1]);
   }
 
-  const timeLabel =
-    times.length >= 2
-      ? `${times[0]}–${times[1]} Uhr`
-      : times[0]
-        ? `${times[0]} Uhr`
-        : "";
+  const times = Array.from(line.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g))
+    .map((match) => timeLabel(match[1], match[2]))
+    .filter((item, index, list) => list.indexOf(item) === index);
 
-  if (!dayLabel && !timeLabel) {
-    return /\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line)
+  let time = "";
+  if (times.length >= 2 && /\b(?:bis|[-–—]|to|à|a)\b/i.test(line)) {
+    time = `${times[0]}–${times[1]} Uhr`;
+  } else if (times[0]) {
+    time = `${times[0]} Uhr`;
+  } else if (/\bvormittags?\b/i.test(line)) {
+    time = "vormittags";
+  } else if (/\bnachmittags?\b/i.test(line)) {
+    time = "nachmittags";
+  } else if (/\babends?\b/i.test(line)) {
+    time = "abends";
+  } else if (/\bmorgens?\b/i.test(line)) {
+    time = "morgens";
+  }
+
+  if (!day && !time) {
+    return /\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line) && hasAppointmentWord(line)
       ? "Termin klären"
       : "";
   }
-  return [dayLabel, timeLabel].filter(Boolean).join(" · ");
+
+  if (!day && time && !hasAppointmentWord(line)) return "";
+  return [day, time].filter(Boolean).join(" · ");
 };
 
 const parseDirectDate = (value: unknown): string => {
-  const raw = compact(value);
+  const raw = oneLine(value);
   if (!raw) return "";
-  const parsedLine = parseAppointmentLine(`Termin ${raw}`);
-  if (parsedLine) return parsedLine;
 
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "";
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(raw);
-  const time = hasTime
-    ? date.toLocaleTimeString("de-CH", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "";
-  return `${day}.${month}.${year}${time ? ` · ${time} Uhr` : ""}`;
+  const direct = parseAppointmentLine(`Termin ${raw}`);
+  if (direct) return direct;
+
+  const match = raw.match(/^(20\d{2})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!match) return "";
+  const date = `${match[3]}.${match[2]}.${match[1]}`;
+  const time = match[4] && match[5] ? `${match[4]}:${match[5]} Uhr` : "";
+  return [date, time].filter(Boolean).join(" · ");
+};
+
+const dateKeyFromLabel = (label: string): string => {
+  const line = oneLine(label);
+  const date = line.match(/\b(\d{2}\.\d{2}\.(?:\d{4})?|\d{2}\.\d{2}\.)\b/);
+  if (date) return normalize(date[1].replace(/\.$/, ""));
+  const relative = line.match(/^(heute|morgen|übermorgen|uebermorgen|(?:nächsten?|naechsten?|kommenden?|diesen?)?\s*(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))/i);
+  return relative ? normalize(relative[1]) : "";
+};
+
+const hasSpecificTime = (label: string): boolean =>
+  /\b\d{1,2}:\d{2}(?:[–-]\d{1,2}:\d{2})?\s*Uhr\b/i.test(label) ||
+  /\b(?:vormittags?|nachmittags?|abends?|morgens?)\b/i.test(label);
+
+const isDateOnlyEntry = (entry: MergedAppointmentEntry): boolean => {
+  const key = dateKeyFromLabel(entry.label);
+  return Boolean(key) && !hasSpecificTime(entry.label);
+};
+
+const siteLabel = (record: MergedAppointmentRecord, section: string, sectionIndex: number): string => {
+  const fromRecord = oneLine(record.siteName) || oneLine(record.siteAddress);
+  const fromSection = oneLine(
+    section.match(/(?:auftrag|ausführungsort|ausfuehrungsort|arbeitsort|standort|objekt)\s*\d*\s*[:#-]\s*([^\n]+)/i)?.[1] || "",
+  );
+  return fromSection || fromRecord || (sectionIndex > 0 ? `Auftrag ${sectionIndex + 1}` : "");
+};
+
+const dedupeAndPreferPreciseAppointments = (entries: MergedAppointmentEntry[]): MergedAppointmentEntry[] => {
+  const map = new Map<string, MergedAppointmentEntry>();
+  for (const raw of entries) {
+    const entry = {
+      site: oneLine(raw.site),
+      label: oneLine(raw.label),
+      source: oneLine(raw.source),
+    };
+    if (!entry.label || entry.label === "Termin klären") continue;
+    const key = `${normalize(entry.site)}|${normalize(entry.label)}`;
+    const previous = map.get(key);
+    if (!previous || entry.source.length > previous.source.length) map.set(key, entry);
+  }
+
+  const values = Array.from(map.values());
+  return values.filter((entry) => {
+    if (!isDateOnlyEntry(entry)) return true;
+    const entryDateKey = dateKeyFromLabel(entry.label);
+    const entrySiteKey = normalize(entry.site);
+    return !values.some((other) => {
+      if (other === entry) return false;
+      return (
+        normalize(other.site) === entrySiteKey &&
+        dateKeyFromLabel(other.label) === entryDateKey &&
+        hasSpecificTime(other.label)
+      );
+    });
+  });
 };
 
 export function collectMergedAppointmentEntries(
   records: Array<MergedAppointmentRecord | null | undefined> | null | undefined,
 ): MergedAppointmentEntry[] {
-  const result: MergedAppointmentEntry[] = [];
+  const collected: MergedAppointmentEntry[] = [];
 
   const add = (entry: MergedAppointmentEntry) => {
-    const labelKey = normalize(entry.label);
-    if (!labelKey || entry.label === "Termin klären") return;
-    const siteKey = normalize(entry.site);
-    const existingIndex = result.findIndex(
-      (current) =>
-        normalize(current.label) === labelKey &&
-        normalize(current.site) === siteKey,
-    );
-    if (existingIndex >= 0) {
-      if (entry.source.length > result[existingIndex].source.length) {
-        result[existingIndex] = entry;
-      }
-      return;
-    }
-    result.push(entry);
+    if (!entry.label || entry.label === "Termin klären") return;
+    collected.push(entry);
   };
 
   for (const record of Array.isArray(records) ? records : []) {
     if (!record) continue;
-    const rawNotes = compact(record.notes);
-    const rawSections = splitMergedSections(rawNotes);
-    const isMergedSource = rawSections.length > 1;
-    const sourceSections = isMergedSource
-      ? rawSections
-      : [
-          [
-            record.specialNotes,
-            record.notes,
-            record.description,
-            record.audioTranscript,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        ].filter(Boolean);
 
-    let recordEntryCount = 0;
-    sourceSections.forEach((section, sectionIndex) => {
-      const site = resolveSectionSite(record, section, sectionIndex);
+    const nested = [record.orders, record.mergedOrders, record.sourceOrders, record.children]
+      .filter(Array.isArray)
+      .flat() as Array<MergedAppointmentRecord | null | undefined>;
+    if (nested.length > 0) {
+      collectMergedAppointmentEntries(nested).forEach(add);
+    }
+
+    const rawNotes = compact(record.notes);
+    const sourceText = [record.specialNotes, record.notes, record.description, record.audioTranscript]
+      .filter(Boolean)
+      .map(compact)
+      .filter(Boolean)
+      .join("\n");
+    const sections = splitMergedSections(rawNotes || sourceText);
+
+    let textAppointmentCount = 0;
+    sections.forEach((section, sectionIndex) => {
+      const site = siteLabel(record, section, sectionIndex);
       for (const line of appointmentLineCandidates(section)) {
         const label = parseAppointmentLine(line);
         if (!label) continue;
         add({ site, label, source: line });
-        recordEntryCount += 1;
+        textAppointmentCount += 1;
       }
     });
 
-    if (recordEntryCount === 0) {
+    if (textAppointmentCount === 0) {
       const label = parseDirectDate(record.date);
       if (label) {
         add({
-          site: resolveSectionSite(record, "", 0),
+          site: siteLabel(record, "", 0),
           label,
-          source: compact(record.date),
+          source: oneLine(record.date),
         });
       }
     }
   }
 
-  return result;
+  return dedupeAndPreferPreciseAppointments(collected);
 }
 
-export function formatMergedAppointmentTooltip(
-  entries: MergedAppointmentEntry[],
-): string {
-  if (entries.length === 0) return "";
-  if (entries.length === 1) return `Termin ${entries[0].label}`;
+export function formatMergedAppointmentChipLabel(entries: MergedAppointmentEntry[]): string {
+  const clean = dedupeAndPreferPreciseAppointments(entries);
+  if (clean.length === 0) return "";
+  if (clean.length === 1) return `Termin ${clean[0].label}`;
+  return `${clean.length} Termine`;
+}
+
+export function formatMergedAppointmentTooltip(entries: MergedAppointmentEntry[]): string {
+  const clean = dedupeAndPreferPreciseAppointments(entries);
+  if (clean.length === 0) return "";
+  if (clean.length === 1) return `Termin: ${clean[0].label}`;
   return [
-    `Termine · ${entries.length}`,
-    ...entries.map(
-      (entry, index) => `${index + 1}. ${entry.site} — ${entry.label}`,
-    ),
+    `Termine · ${clean.length}`,
+    ...clean.map((entry, index) => {
+      const prefix = entry.site ? entry.site : `Termin ${index + 1}`;
+      return `${prefix}: ${entry.label}`;
+    }),
   ].join("\n");
-}
-
-export function formatMergedAppointmentChipLabel(
-  entries: MergedAppointmentEntry[],
-): string {
-  if (entries.length === 0) return "";
-  if (entries.length > 1) return `Termine · ${entries.length}`;
-  return `Termin ${entries[0].label}`;
 }

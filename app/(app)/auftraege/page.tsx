@@ -1,4 +1,6 @@
 "use client";
+
+// SMARTFLOW_V17_90L371Y_APPOINTMENT_CHIP_SINGLE_SOURCE
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
@@ -39,7 +41,8 @@
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
-import { createPortal } from "react-dom";
+import {
+  createPortal } from "react-dom";
 // CARD_BADGE_SPLIT_FINAL_V8
 import {
   type ComponentType,
@@ -47,8 +50,9 @@ import {
   useMemo,
   useRef,
   useState,
-} from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+  } from "react";
+import { useSearchParams,
+  useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
   ClipboardList,
@@ -77,7 +81,7 @@ import {
   Mic,
   Pencil,
   X,
-} from "lucide-react";
+  } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
@@ -85,7 +89,7 @@ import {
   ContactActionChip,
   buildMergedContactReviewEntries,
   formatMergedContactReviewTooltip,
-} from "@/components/communication-block";
+  } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import {
   collectMergedAppointmentEntries,
@@ -9085,6 +9089,24 @@ const getBottomBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
+  // SMARTFLOW_V17_90L371Y_APPOINTMENT_CHIP_SINGLE_SOURCE: Terminchip wird aus einer zentral normalisierten Terminliste gebaut.
+  const smartflowAppointmentEntriesV17_90L371Y = collectMergedAppointmentEntries([order as any]);
+  if (smartflowAppointmentEntriesV17_90L371Y.length > 1) {
+    pushUniqueBadge(badges, {
+      key: "appointments_multiple",
+      label: formatMergedAppointmentChipLabel(smartflowAppointmentEntriesV17_90L371Y),
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
+      tooltip: formatMergedAppointmentTooltip(smartflowAppointmentEntriesV17_90L371Y),
+    });
+  } else if (smartflowAppointmentEntriesV17_90L371Y.length === 1) {
+    pushUniqueBadge(badges, {
+      key: "appointment",
+      label: formatMergedAppointmentChipLabel(smartflowAppointmentEntriesV17_90L371Y),
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
+      tooltip: formatMergedAppointmentTooltip(smartflowAppointmentEntriesV17_90L371Y),
+    });
+  }
+
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
