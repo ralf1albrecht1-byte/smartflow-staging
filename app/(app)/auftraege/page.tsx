@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
 // SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
 // SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
 // SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
@@ -22605,7 +22606,7 @@ export default function AuftraegePage() {
                                           {`${siteIndex + 1}. ${formatWorkSiteTitle(site)}`}
                                         </span>
                                         <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
-                                          {groupItemCount} Leistung
+                                          {groupItemCount} Position
                                           {groupItemCount === 1 ? "" : "en"}
                                         </span>
                                         {isActiveSite && (

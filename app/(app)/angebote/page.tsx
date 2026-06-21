@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
 // SMARTFLOW_V17_90L370_OFFER_MERGED_MEDIA_CHIPS_ONLY
 // SMARTFLOW_V17_90L351_OFFER_APPOINTMENT_DUPLICATE_DISPLAY_ONLY
 // SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
@@ -10297,6 +10298,17 @@ export default function AngebotePage() {
 
                         const isExpanded = expandedItemIndex === idx;
                         const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
+                        const currentOfferUnitValueV17_90L371N = compactOfferValue(item?.unit);
+                        const offerUnitOptionsV17_90L371N = Array.from(
+                          new Set(
+                            [
+                              ...POSITION_UNIT_SUGGESTIONS,
+                              currentOfferUnitValueV17_90L371N,
+                            ]
+                              .map((unit) => compactOfferValue(unit))
+                              .filter(Boolean),
+                          ),
+                        );
 
                         return (
                           <div
@@ -10539,17 +10551,11 @@ export default function AngebotePage() {
                                       }
                                     >
                                       <option value="">Einheit prüfen</option>
-                                      <option value="Stunde">Stunde</option>
-                                      <option value="Tag">Tag</option>
-                                      <option value="Pauschal">Pauschal</option>
-                                      <option value="Meter">Meter</option>
-                                      <option value="Quadratmeter">Quadratmeter</option>
-                                      <option value="Kubikmeter">Kubikmeter</option>
-                                      <option value="Stück">Stück</option>
-                                      <option value="Räume">Räume</option>
-                                      <option value="Kilogramm">Kilogramm</option>
-                                      <option value="Tonne">Tonne</option>
-                                      <option value="Liter">Liter</option>
+                                      {offerUnitOptionsV17_90L371N.map((unit) => (
+                                        <option key={unit} value={unit}>
+                                          {unit}
+                                        </option>
+                                      ))}
                                     </select>
                                   </div>
                                   <div>
