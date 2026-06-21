@@ -1,6 +1,4 @@
 "use client";
-
-// SMARTFLOW_V17_90L371Y_APPOINTMENT_CHIP_SINGLE_SOURCE
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
@@ -41,8 +39,7 @@
 // SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
 // SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
-import {
-  createPortal } from "react-dom";
+import { createPortal } from "react-dom";
 // CARD_BADGE_SPLIT_FINAL_V8
 import {
   type ComponentType,
@@ -50,9 +47,8 @@ import {
   useMemo,
   useRef,
   useState,
-  } from "react";
-import { useSearchParams,
-  useRouter } from "next/navigation";
+} from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
   ClipboardList,
@@ -81,7 +77,7 @@ import {
   Mic,
   Pencil,
   X,
-  } from "lucide-react";
+} from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
@@ -89,7 +85,7 @@ import {
   ContactActionChip,
   buildMergedContactReviewEntries,
   formatMergedContactReviewTooltip,
-  } from "@/components/communication-block";
+} from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import {
   collectMergedAppointmentEntries,
@@ -9089,24 +9085,6 @@ const getBottomBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
-  // SMARTFLOW_V17_90L371Y_APPOINTMENT_CHIP_SINGLE_SOURCE: Terminchip wird aus einer zentral normalisierten Terminliste gebaut.
-  const smartflowAppointmentEntriesV17_90L371Y = collectMergedAppointmentEntries([order as any]);
-  if (smartflowAppointmentEntriesV17_90L371Y.length > 1) {
-    pushUniqueBadge(badges, {
-      key: "appointments_multiple",
-      label: formatMergedAppointmentChipLabel(smartflowAppointmentEntriesV17_90L371Y),
-      className: "bg-violet-100 text-violet-700 border border-violet-300",
-      tooltip: formatMergedAppointmentTooltip(smartflowAppointmentEntriesV17_90L371Y),
-    });
-  } else if (smartflowAppointmentEntriesV17_90L371Y.length === 1) {
-    pushUniqueBadge(badges, {
-      key: "appointment",
-      label: formatMergedAppointmentChipLabel(smartflowAppointmentEntriesV17_90L371Y),
-      className: "bg-violet-100 text-violet-700 border border-violet-300",
-      tooltip: formatMergedAppointmentTooltip(smartflowAppointmentEntriesV17_90L371Y),
-    });
-  }
-
   const canonicalSnapshotV2 = getCanonicalIntakeV2(order);
   if (canonicalSnapshotV2) {
     const communication = canonicalCommunicationDataV2(canonicalSnapshotV2);
@@ -9121,9 +9099,7 @@ const getBottomBadges = (
       });
     }
     const appointment = canonicalAppointmentBadgeV2(canonicalSnapshotV2);
-    // L371AC: alte Rohtext-Terminbadge-Logik deaktiviert.
-    // Termine kommen ab hier ausschließlich aus collectMergedAppointmentEntries.
-const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppointmentSourceV17_90L316(
+    const canonicalBranchMergedAppointmentEntriesV17_90L371AJ = hasExplicitOrderAppointmentSourceV17_90L316(
       order,
       parsedNotes,
     )
@@ -9137,17 +9113,40 @@ const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppoi
         )
       : [];
 
-    if (canonicalBranchMergedAppointmentEntriesV17_90L371R.length > 1) {
+    // SMARTFLOW_V17_90L371AJ: Auch in der kanonischen V2-Verzweigung zuerst die
+    // zentrale bereinigte Terminliste verwenden. Die ältere lokale Mehrtermin-
+    // Logik erzeugte weiterhin Dubletten wie "22.06.2026 · 10:00 Uhr" plus
+    // "morgen · 10:00 Uhr".
+    if (canonicalBranchMergedAppointmentEntriesV17_90L371AJ.length > 0) {
+      const firstAppointmentLabelV17_90L371AJ = compactText(
+        canonicalBranchMergedAppointmentEntriesV17_90L371AJ[0]?.label,
+      );
+      const visualV17_90L371AJ = extractAppointmentBadge(
+        firstAppointmentLabelV17_90L371AJ ? `Termin ${firstAppointmentLabelV17_90L371AJ}` : "",
+        order.date,
+        order.status,
+      );
       pushUniqueBadge(badges, {
-        key: "appointments_multiple",
+        key:
+          canonicalBranchMergedAppointmentEntriesV17_90L371AJ.length > 1
+            ? "appointments_multiple"
+            : "appointment",
         label: formatMergedAppointmentChipLabel(
-          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+          canonicalBranchMergedAppointmentEntriesV17_90L371AJ,
         ),
-        className: "bg-violet-100 text-violet-700 border border-violet-300",
+        className:
+          visualV17_90L371AJ?.className ||
+          "bg-violet-100 text-violet-700 border border-violet-300",
         tooltip: formatMergedAppointmentTooltip(
-          canonicalBranchMergedAppointmentEntriesV17_90L371R,
+          canonicalBranchMergedAppointmentEntriesV17_90L371AJ,
         ),
       });
+      return badges;
+    }
+
+    const localMultipleAppointmentBadgeV17_90L371S = getMultipleAppointmentBadge(order, parsedNotes);
+    if (localMultipleAppointmentBadgeV17_90L371S) {
+      pushUniqueBadge(badges, localMultipleAppointmentBadgeV17_90L371S);
       return badges;
     }
 
@@ -9166,17 +9165,6 @@ const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppoi
         label: appointment.label,
         className: "bg-violet-100 text-violet-700 border border-violet-300",
         tooltip: appointment.tooltip,
-      });
-    } else if (canonicalBranchMergedAppointmentEntriesV17_90L371R.length === 1) {
-      pushUniqueBadge(badges, {
-        key: "appointment",
-        label: formatMergedAppointmentChipLabel(
-          canonicalBranchMergedAppointmentEntriesV17_90L371R,
-        ),
-        className: "bg-violet-100 text-violet-700 border border-violet-300",
-        tooltip: formatMergedAppointmentTooltip(
-          canonicalBranchMergedAppointmentEntriesV17_90L371R,
-        ),
       });
     }
     return badges;
@@ -9320,7 +9308,14 @@ const canonicalBranchMergedAppointmentEntriesV17_90L371R = hasExplicitOrderAppoi
           ? "appointments_multiple"
           : "appointment",
       label: formatMergedAppointmentChipLabel(unifiedAppointmentEntries),
-      className: "bg-violet-100 text-violet-700 border border-violet-300",
+      className:
+        extractAppointmentBadge(
+          compactText(unifiedAppointmentEntries[0]?.label)
+            ? `Termin ${compactText(unifiedAppointmentEntries[0]?.label)}`
+            : "",
+          order.date,
+          order.status,
+        )?.className || "bg-violet-100 text-violet-700 border border-violet-300",
       tooltip: formatMergedAppointmentTooltip(unifiedAppointmentEntries),
     });
   } else {

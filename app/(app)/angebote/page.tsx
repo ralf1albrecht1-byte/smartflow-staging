@@ -494,6 +494,35 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
 };
 
 
+const getOfferAppointmentChipToneClassV17_90L371AJ = (value: unknown): string => {
+  const text = compactOfferValue(value).toLocaleLowerCase("de-CH");
+  const normal = "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100";
+  const soon = "border-violet-400 bg-violet-100 text-violet-900 hover:bg-violet-200";
+  const today = "border-orange-300 bg-orange-100 text-orange-800 hover:bg-orange-200";
+  const past = "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200";
+  if (!text) return normal;
+  if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) return past;
+  if (/\bheute\b/i.test(text)) return today;
+  if (/\b(?:morgen|übermorgen|uebermorgen)\b/i.test(text)) return soon;
+  const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  if (!dateMatch) return normal;
+  const now = new Date();
+  const rawYear = dateMatch[3];
+  const year = rawYear ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear) : now.getFullYear();
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const parsed = new Date(year, month - 1, day);
+  if (!Number.isFinite(parsed.getTime())) return normal;
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const targetStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+  const diffDays = Math.round((targetStart - todayStart) / 86400000);
+  if (diffDays < 0) return past;
+  if (diffDays === 0) return today;
+  if (diffDays <= 2) return soon;
+  return normal;
+};
+
+
 // V17.90L169: Einheitlich gegliederte Termin-, Warn- und Besonderheitenfenster.
 type StructuredOfferAppointmentTooltipV17_90L169 = {
   date: string;
@@ -1158,16 +1187,34 @@ function formatOfferMergedAppointmentDisplayLabelV17_90L371R(
   collectMergedAppointmentEntries((orders || []) as any).forEach((entry: any) => {
     add(entry?.site || entry?.address, entry?.label);
   });
-  fallbackLabels.forEach((label) => add("", label));
 
-  if (rows.length === 0) return "";
-  if (rows.length === 1) return rows[0].label;
+  // SMARTFLOW_V17_90L371AJ: Fallback-/Rohtext-Termine nur verwenden, wenn die
+  // zentrale Terminquelle gar nichts gefunden hat. Sonst entstehen Dubletten wie
+  // "Termin 29.06." neben "Termin 29.06.2026 · 09:00 Uhr".
+  if (rows.length === 0) {
+    fallbackLabels.forEach((label) => add("", label));
+  }
+
+  const timedDays = new Set(
+    rows
+      .filter((row) => /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(row.label))
+      .map((row) => (row.factKey || "").split("|")[0])
+      .filter((dayKey) => dayKey && dayKey !== "ohne-datum"),
+  );
+  const displayRows = rows.filter((row) => {
+    const [dayKey, timeKey] = (row.factKey || "").split("|");
+    return !(dayKey && dayKey !== "ohne-datum" && timeKey === "ohne-uhrzeit" && timedDays.has(dayKey));
+  });
+
+  if (displayRows.length === 0) return "";
+  if (displayRows.length === 1) return displayRows[0].label;
   return [
-    `Termine · ${rows.length}`,
-    ...rows.map((row, index) =>
+    `Termine · ${displayRows.length}`,
+    ...displayRows.map((row, index) =>
       `${index + 1}. ${row.site ? `${row.site} — ` : ""}${row.label}`,
     ),
   ].join("\n");
+
 }
 
 const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
@@ -3343,7 +3390,7 @@ function OfferAppointmentTooltipContentV17_90L169({
         site:
           appointmentParts.length > 0
             ? sitePart.trim()
-            : `Arbeitsort ${index + 1}`,
+            : "",
         appointment:
           appointmentParts.length > 0
             ? appointmentParts.join(" — ").trim()
@@ -8398,7 +8445,7 @@ export default function AngebotePage() {
                                   appointmentDisplayLabel,
                                 )
                               }
-                              className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                              className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border px-0 text-xs font-semibold shadow-sm ${getOfferAppointmentChipToneClassV17_90L371AJ(appointmentDisplayLabel)} ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                               aria-label={appointmentDisplayLabel}
                             >
                               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -8667,7 +8714,7 @@ export default function AngebotePage() {
                                                       event,
                                                     );
                                                   }}
-                                                  className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getOfferAppointmentChipToneClassV17_90L371AJ(appointmentDisplayLabel)}`}
                                                   aria-label={appointmentDisplayLabel}
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -9137,7 +9184,7 @@ export default function AngebotePage() {
                                                   event,
                                                 )
                                               }
-                                              className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
+                                              className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getOfferAppointmentChipToneClassV17_90L371AJ(appointmentDisplayLabel)}`}
                                               aria-label={appointmentDisplayLabel}
                                             >
                                               <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -9175,7 +9222,7 @@ export default function AngebotePage() {
                                                     appointmentDisplayLabel,
                                                   )
                                                 }
-                                                className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                                                className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border px-0 text-xs font-semibold shadow-sm ${getOfferAppointmentChipToneClassV17_90L371AJ(appointmentDisplayLabel)} ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                                 aria-label={appointmentDisplayLabel}
                                               >
                                                 <CalendarDays className="h-3.5 w-3.5 shrink-0" />

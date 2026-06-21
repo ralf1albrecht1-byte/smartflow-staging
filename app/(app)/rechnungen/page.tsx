@@ -2090,6 +2090,35 @@ const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => 
   return getInvoiceAppointmentTimingV17_90L324(text) !== "past";
 };
 
+
+const getInvoiceAppointmentChipToneClassV17_90L371AJ = (value: unknown): string => {
+  const text = compactInvoiceValue(value).toLocaleLowerCase("de-CH");
+  const normal = "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100";
+  const soon = "border-violet-400 bg-violet-100 text-violet-900 hover:bg-violet-200";
+  const today = "border-orange-300 bg-orange-100 text-orange-800 hover:bg-orange-200";
+  const past = "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200";
+  if (!text) return normal;
+  if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) return past;
+  if (/\bheute\b/i.test(text)) return today;
+  if (/\b(?:morgen|übermorgen|uebermorgen)\b/i.test(text)) return soon;
+  const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  if (!dateMatch) return normal;
+  const now = new Date();
+  const rawYear = dateMatch[3];
+  const year = rawYear ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear) : now.getFullYear();
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const parsed = new Date(year, month - 1, day);
+  if (!Number.isFinite(parsed.getTime())) return normal;
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const targetStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+  const diffDays = Math.round((targetStart - todayStart) / 86400000);
+  if (diffDays < 0) return past;
+  if (diffDays === 0) return today;
+  if (diffDays <= 2) return soon;
+  return normal;
+};
+
 const isInvoiceAppointmentHintForChipV17_90L326 = (value: unknown): boolean => {
   const text = compactInvoiceValue(value);
   if (!text) return false;
@@ -3353,49 +3382,27 @@ function collectInvoiceAppointmentEntriesV17_90L177R(
     entries.push(entry);
   };
 
-  const mergedAppointmentEntriesV17_90L371R = compactInvoiceAppointmentEntriesForDisplay(
+  // SMARTFLOW_V17_90L371AJ: Termin-Chips/Popover nur noch aus der zentral
+  // bereinigten Terminliste anzeigen. Die alte lokale Rohtext-Nachlese aus
+  // notes/specialNotes erzeugte weiterhin Dubletten wie "morgen · 10:00 Uhr",
+  // "22.06.2026" oder Reststücke wie "09:00 Uhr / 06".
+  const mergedAppointmentEntriesV17_90L371AJ = compactInvoiceAppointmentEntriesForDisplay(
     collectMergedAppointmentEntries((invoice.orders || []) as any),
   );
-  mergedAppointmentEntriesV17_90L371R.forEach((entry: any) => {
-    const rawLabel = compactInvoiceValue(entry?.label);
+  mergedAppointmentEntriesV17_90L371AJ.forEach((entry: any) => {
+    const rawLabel = compactInvoiceValue(entry?.label)
+      .replace(/^Termin\s*:??\s*/i, "")
+      .trim();
     if (!rawLabel) return;
     addEntry({
       site:
         cleanInvoiceExecutionSiteLabelV17_90L281(entry?.site) ||
         compactInvoiceValue(entry?.address) ||
         "Arbeitsort",
-      label: /^Termin\b/i.test(rawLabel) ? rawLabel : `Termin ${rawLabel}`,
-      source: compactInvoiceValue(entry?.source) || rawLabel,
+      label: rawLabel,
+      source: rawLabel,
     });
   });
-
-  for (const order of invoice.orders || []) {
-    const combinedSource = [
-      order?.specialNotes,
-      order?.notes,
-      order?.description,
-      order?.audioTranscript,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    const sections = splitInvoiceAppointmentSectionsV17_90L177R(combinedSource);
-
-    sections.forEach((section, sectionIndex) => {
-      const site = resolveInvoiceAppointmentSiteV17_90L177R(
-        order,
-        section,
-        sectionIndex,
-      );
-      for (const line of extractInvoiceAppointmentLinesV17_90L177R(section)) {
-        const label = parseInvoiceAppointmentLineV17_90L177R(line);
-        if (!label) continue;
-        addEntry({ site, label, source: line });
-      }
-    });
-
-    // V17.90L264: order.date is the administrative order date. It is
-    // intentionally not interpreted as an execution appointment.
-  }
 
   return entries;
 }
@@ -3419,9 +3426,10 @@ function formatInvoiceAppointmentLabel(invoice: Invoice): string {
   if (entries.length === 1) return entries[0].label;
   return [
     `Termine · ${entries.length}`,
-    ...entries.map(
-      (entry, index) => `${index + 1}. ${entry.site}: ${entry.label}`,
-    ),
+    ...entries.map((entry, index) => {
+      const site = cleanInvoiceExecutionSiteLabelV17_90L281(entry.site);
+      return `${index + 1}. ${site ? `${site} — ` : ""}${entry.label}`;
+    }),
   ].join("\n");
 }
 
@@ -8415,7 +8423,7 @@ export default function RechnungenPage() {
                                                     event.preventDefault();
                                                     event.stopPropagation();
                                                   }}
-                                                  className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getInvoiceAppointmentChipToneClassV17_90L371AJ(invoiceAppointmentDisplayLabel)}`}
                                                   aria-label={
                                                     invoiceAppointmentDisplayLabel
                                                   }
@@ -8721,7 +8729,7 @@ export default function RechnungenPage() {
                                               event.preventDefault();
                                               event.stopPropagation();
                                             }}
-                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                            className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getInvoiceAppointmentChipToneClassV17_90L371AJ(invoiceAppointmentDisplayLabel)}`}
                                             aria-label={
                                               invoiceAppointmentDisplayLabel
                                             }
