@@ -108,6 +108,7 @@ import { MissingCustomerDataBadge } from "@/components/missing-customer-data-bad
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
 // SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
 // SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
   "service",
@@ -3964,6 +3965,7 @@ type OfferCatalogDecision = {
 
 
 type ResponsiveOfferServiceRowV17_90L231 = {
+  typeLabel: string;
   name: string;
   amountLabel: string;
 };
@@ -4010,9 +4012,10 @@ function ResponsiveOfferServicePreviewV17_95({
         }`;
       const columnWidth = (width - 32) / 2;
       const widestRow = services.reduce((maxWidth, service) => {
+        const typeWidth = context.measureText(service.typeLabel).width;
         const nameWidth = context.measureText(service.name).width;
         const amountWidth = context.measureText(service.amountLabel).width;
-        return Math.max(maxWidth, nameWidth + amountWidth + 52);
+        return Math.max(maxWidth, typeWidth + nameWidth + amountWidth + 92);
       }, 0);
       setUseTwoColumns(widestRow <= columnWidth);
     };
@@ -4064,13 +4067,16 @@ function ResponsiveOfferServicePreviewV17_95({
         {visibleServices.map((service, serviceIndex) => (
           <div
             key={`${offerId}:responsive-service:${serviceIndex}`}
-            className="flex min-w-0 items-start gap-2 text-sm"
+            className="grid min-w-0 grid-cols-[7.5rem_minmax(0,1fr)_auto] items-start gap-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_auto]"
           >
-            <span className="mt-[0.45rem] h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
-            <span className="min-w-0 flex-1 break-words leading-snug">
+            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground max-sm:col-span-2">
+              {service.typeLabel}
+            </span>
+            <span className="min-w-0 break-words leading-snug">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500/80" />
               {service.name}
             </span>
-            <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
               {service.amountLabel}
             </span>
           </div>
@@ -7760,6 +7766,7 @@ export default function AngebotePage() {
                             ? "EUR"
                             : "CHF";
                         return {
+                          typeLabel: smartflowPositionTypeLabelV17_90L371K(item),
                           name,
                           amountLabel: blocked
                             ? "Preis prüfen"

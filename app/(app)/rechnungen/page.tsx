@@ -129,6 +129,7 @@ import { MissingCustomerDataBadge } from "@/components/missing-customer-data-bad
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
 // SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
 // SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
 const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
   "service",
@@ -8352,13 +8353,16 @@ export default function RechnungenPage() {
                                     (item: any, itemIndex: number) => (
                                       <div
                                         key={`${inv.id}-item-${itemIndex}`}
-                                        className="flex min-w-0 items-center gap-2 text-sm"
+                                        className="grid min-w-0 grid-cols-[7.5rem_minmax(0,1fr)_auto] items-start gap-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_auto]"
                                       >
-                                        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
-                                        <span className="truncate">
+                                        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground max-sm:col-span-2">
+                                          {smartflowPositionTypeLabelV17_90L371K(item)}
+                                        </span>
+                                        <span className="min-w-0 break-words leading-snug">
+                                          <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500/80" />
                                           {item.description}
                                         </span>
-                                        <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
+                                        <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
                                           {formatCurrency(
                                             Number(item.quantity || 0) *
                                               Number(item.unitPrice || 0),

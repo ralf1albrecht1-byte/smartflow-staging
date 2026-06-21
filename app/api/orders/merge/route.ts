@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
+// SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
   buildSpecialNotes,
@@ -274,6 +275,7 @@ const getItemSiteKey = (order: any, item: any) => {
 const buildItemMergeKey = (item: MergeItemInput) => {
   return [
     item.workSiteKey,
+    normalizePositionType(item.positionType),
     normalizeMergeKeyPart(item.serviceName),
     normalizeMergeKeyPart(item.unit),
     Number(item.unitPrice || 0).toFixed(2),
@@ -321,6 +323,7 @@ const toMergeItem = (order: any, item: any): MergeItemInput => {
   return {
     serviceName,
     description: item.description || serviceName || "",
+    positionType: normalizePositionType(item.positionType),
     quantity,
     unit: item.unit || "Stück",
     unitPrice,
