@@ -8433,7 +8433,18 @@ function getServiceUnitType(serviceUnit?: string | null): string {
   }
 
   for (const [type, aliases] of Object.entries(unitAliases)) {
-    if (aliases.some((alias) => unit.includes(alias))) return type;
+    if (
+      aliases.some((alias) => {
+        // SMARTFLOW_V17_90L371AP: Never match short unit aliases such as
+        // "t", "l", "h" or "m" as substrings inside free units like
+        // "Kanister". Short aliases are already handled by the exact pass
+        // above; the loose pass is only safe for longer words.
+        if (alias.length < 3) return false;
+        return unit.includes(alias);
+      })
+    ) {
+      return type;
+    }
   }
 
   return "unknown";
@@ -11374,7 +11385,8 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
   );
 
   const hasExpenseSignal = /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(text);
-  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text);
+  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
+    /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge)\b/iu.test(text);
   const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
   const localQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "")[0]?.unit ||
     getServiceUnitType(args.raw?.unit ?? args.raw?.einheit ?? null);
@@ -11396,6 +11408,61 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
   }
 
   return { positionType: normalizePositionType("service"), confidence: "unchanged" };
+}
+
+function cleanLineLocalCostPositionNameV17_90L371AP(args: {
+  positionType: string;
+  sourceText: string;
+  serviceName: string;
+}): string {
+  const positionType = normalizePositionType(args.positionType);
+  if (!["expense", "disposal", "flat_fee"].includes(positionType)) {
+    return args.serviceName;
+  }
+
+  const source = String(args.sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim();
+  const fallback = String(args.serviceName || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const candidateSource = source || fallback;
+
+  const cleaned = candidateSource
+    .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
+    .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+    .replace(/\s*[,;:–—-]\s*(?:pauschal|gesamt|total)?\s*$/iu, "")
+    .replace(/[,:;–—.\s]+$/g, "")
+    .replace(/^[-–—,:;.\s]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (cleaned.length >= 3 && cleaned.length <= 120) return cleaned;
+  return fallback;
+}
+
+const normalizedLineKeyV17_90L371AP = (value: unknown): string =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function isSameLineLocalFactV17_90L371AP(left: unknown, right: unknown): boolean {
+  const leftKey = normalizedLineKeyV17_90L371AP(left);
+  const rightKey = normalizedLineKeyV17_90L371AP(right);
+  if (!leftKey || !rightKey) return false;
+  return leftKey === rightKey ||
+    (leftKey.length >= 8 && rightKey.includes(leftKey)) ||
+    (rightKey.length >= 8 && leftKey.includes(rightKey));
 }
 
 function isLineLocalFlatCostCandidateV17_90L371AM(args: {
@@ -11457,7 +11524,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
     )
       .replace(/\s+/g, " ")
       .trim();
-    const serviceName = rawServiceName || "Leistung prüfen";
+    let serviceName = rawServiceName || "Leistung prüfen";
     const positionTypeGuardV17_90L371AM =
       classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
         raw,
@@ -11467,6 +11534,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
     const positionType = normalizePositionType(
       positionTypeGuardV17_90L371AM.positionType,
     );
+    serviceName = cleanLineLocalCostPositionNameV17_90L371AP({
+      positionType,
+      sourceText,
+      serviceName,
+    });
 
     let quantity = parsePositiveCanonicalNumberV17_90L89(
       raw?.quantity ?? raw?.menge,
@@ -17302,6 +17374,43 @@ export async function processIncomingMessage(
     );
   }
 
+  // SMARTFLOW_V17_90L371AP: If the exact same line is already a cost position
+  // (e.g. "Parkgebühr CHF 12"), it must not also be persisted as an operational
+  // special note. Access/parking instructions without a cost position remain.
+  const expensePositionSourceLinesV17_90L371AP = (
+    firstAiWorkItemsSnapshotV17_90L213 as readonly any[]
+  )
+    .filter((item: any) => {
+      const rawType = normalizePositionType(
+        item?.positionType ?? item?.position_type ?? item?.type,
+      );
+      if (["expense", "disposal", "flat_fee"].includes(rawType)) return true;
+      const source = String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "");
+      const name = String(item?.serviceName ?? item?.name ?? item?.service_name ?? "");
+      return normalizePositionType(
+        classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
+          raw: item,
+          serviceName: name,
+          sourceText: source,
+        }).positionType,
+      ) === "expense";
+    })
+    .map((item: any) =>
+      String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  if (expensePositionSourceLinesV17_90L371AP.length > 0) {
+    hinweisItems = hinweisItems.filter(
+      (line) =>
+        !expensePositionSourceLinesV17_90L371AP.some((sourceLine) =>
+          isSameLineLocalFactV17_90L371AP(line, sourceLine),
+        ),
+    );
+  }
+
   // V17.90L201: If original and normalized working text produced two
   // near-identical role statements, keep only one. Prefer the exact wording
   // present in the normalized German working text. No new fact is generated.
@@ -17513,7 +17622,12 @@ export async function processIncomingMessage(
     const unitPrice = Number((rawItem as any)?.unitPrice ?? (rawItem as any)?.unit_price ?? (rawItem as any)?.price ?? 0);
     if (!sourceText || !fallbackName || !Number.isFinite(unitPrice) || unitPrice <= 0) return rawItem;
 
-    const cleanedName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, fallbackName);
+    const sourceName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, fallbackName);
+    const cleanedName = cleanLineLocalCostPositionNameV17_90L371AP({
+      positionType,
+      sourceText,
+      serviceName: sourceName,
+    });
     const sourceUnit = extractLineLocalUnitLabelFromSourceV17_90L371AO(sourceText, quantity);
 
     const next: AiWorkItem = {
