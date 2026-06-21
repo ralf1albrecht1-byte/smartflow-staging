@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371J_POSITION_TYPE_ADDITIONAL_COSTS_FREE_TEXT
 // SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
 // SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
 // SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
@@ -23094,22 +23095,33 @@ export default function AuftraegePage() {
                                           </div>
                                         </div>
                                       <div className="group min-w-0">
-                                        <ServiceCombobox
-                                          value={getEditableServiceNameValue(
-                                            item.serviceName,
-                                          )}
-                                          services={services as ServiceOption[]}
-                                          onChange={(name, svc) =>
-                                            onItemServiceSelect(index, name, svc)
-                                          }
-                                          onServiceCreated={handleServiceCreated}
-                                          currentPrice={item.unitPrice}
-                                          currentUnit={item.unit}
-                                          positionType={(item as any).positionType}
-                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
-                                          showManualHint={false}
-                                          saveButtonPlacement="none"
-                                        />
+                                        {normalizePositionType((item as any).positionType) === "service" ? (
+                                          <ServiceCombobox
+                                            value={getEditableServiceNameValue(
+                                              item.serviceName,
+                                            )}
+                                            services={services as ServiceOption[]}
+                                            onChange={(name, svc) =>
+                                              onItemServiceSelect(index, name, svc)
+                                            }
+                                            onServiceCreated={handleServiceCreated}
+                                            currentPrice={item.unitPrice}
+                                            currentUnit={item.unit}
+                                            positionType={(item as any).positionType}
+                                            onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
+                                            showManualHint={false}
+                                            saveButtonPlacement="none"
+                                          />
+                                        ) : (
+                                          <Input
+                                            className="h-10"
+                                            value={getEditableServiceNameValue(item.serviceName)}
+                                            placeholder="Position / Beschreibung eingeben"
+                                            onChange={(event) =>
+                                              updateItem(index, "serviceName", event.target.value)
+                                            }
+                                          />
+                                        )}
                                         {!itemHasInternalReviewServiceName &&
                                           item.serviceName.trim().length > 28 && (
                                           <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">

@@ -1,3 +1,4 @@
+// SMARTFLOW_V17_90L371J_POSITION_TYPE_ADDITIONAL_COSTS_FREE_TEXT
 export type PositionType =
   | "service"
   | "material"
@@ -14,7 +15,7 @@ export const POSITION_TYPE_OPTIONS: Array<{ value: PositionType; label: string }
   { value: "material", label: "Material" },
   { value: "equipment", label: "Gerät / Maschine" },
   { value: "disposal", label: "Entsorgung" },
-  { value: "expense", label: "Spesen" },
+  { value: "expense", label: "Zusatzkosten" },
   { value: "flat_fee", label: "Pauschale" },
   { value: "other", label: "Sonstiges" },
 ];
@@ -60,6 +61,14 @@ export function normalizePositionType(value: unknown): PositionType {
     disposal: "disposal",
     entsorgung: "disposal",
     expense: "expense",
+    zusatzkosten: "expense",
+    "zusatz kosten": "expense",
+    additional_costs: "expense",
+    additional_cost: "expense",
+    zusatz: "expense",
+    kosten: "expense",
+    anfahrt: "expense",
+    fahrtkosten: "expense",
     spesen: "expense",
     fahrspesen: "expense",
     pauschale: "flat_fee",
