@@ -1,5 +1,4 @@
 "use client";
-// SMARTFLOW_V17_90L371J_POSITION_TYPE_ADDITIONAL_COSTS_FREE_TEXT
 // SMARTFLOW_V17_90L371H_ORDER_POSITIONTYPE_EDIT_RELOAD_FIX
 // SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
 // SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
@@ -140,6 +139,50 @@ import {
 import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
+  "smartflow:close-card-popovers-v17-90l227";
+
+// SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
+  "service",
+  "expense",
+  "material",
+  "equipment",
+  "disposal",
+  "flat_fee",
+  "other",
+];
+
+function smartflowResolvedPositionTypeV17_90L371K(item: any) {
+  const name = String(item?.serviceName ?? item?.description ?? "")
+    .trim()
+    .toLowerCase();
+  const type = normalizePositionType(item?.positionType);
+  if (type === "service" && /^(anfahrt|fahrtkosten|reisekosten|travel|deplacement)\b/.test(name)) {
+    return "expense";
+  }
+  return type;
+}
+
+function smartflowPositionTypeLabelV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  return getPositionTypeLabel(type);
+}
+
+function smartflowPositionTypeSortRankV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  const index = SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.indexOf(type);
+  return index >= 0 ? index : SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.length;
+}
+
+function smartflowComparePositionEntriesV17_90L371K(left: any, right: any) {
+  const leftItem = left?.item ?? left;
+  const rightItem = right?.item ?? right;
+  const rankDiff = smartflowPositionTypeSortRankV17_90L371K(leftItem) - smartflowPositionTypeSortRankV17_90L371K(rightItem);
+  if (rankDiff !== 0) return rankDiff;
+  const leftName = String(leftItem?.serviceName ?? leftItem?.description ?? "").toLowerCase();
+  const rightName = String(rightItem?.serviceName ?? rightItem?.description ?? "").toLowerCase();
+  return leftName.localeCompare(rightName, "de-CH");
+}
   "smartflow:close-card-popovers-v17-90l227";
 
 const NORMAL_DOG_ICON_DATA_URI =
@@ -11902,8 +11945,8 @@ function ResponsiveOrderServicePreviewV17_95({
           className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 active:scale-[0.99]"
         >
           {expanded
-            ? "Weniger Leistungen anzeigen"
-            : `+ ${hiddenCount} weitere Leistungen`}
+            ? "Weniger Positionen anzeigen"
+            : `+ ${hiddenCount} weitere Positionen`}
         </button>
       )}
     </div>
@@ -15354,7 +15397,7 @@ export default function AuftraegePage() {
     );
     if (hasRealItems) {
       toast.error(
-        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+        "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
       );
       return;
     }
@@ -16049,13 +16092,15 @@ export default function AuftraegePage() {
         ? `${item.quantity} ${unitShortLabel(item.unit)}`
         : "Menge prüfen";
     const totalLabel = total > 0 ? ` · ${formatCurrency(total, currency)}` : "";
-    return `${item.serviceName || "Leistung prüfen"} · ${quantityLabel}${totalLabel}`;
+    return `${item.serviceName || "Position prüfen"} · ${smartflowPositionTypeLabelV17_90L371K(item)} · ${quantityLabel}${totalLabel}`;
   };
 
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
         ...visibleFormItemsWithIndexesV17_90L359
           .filter(({ item }) => !item.workSiteId)
+          .slice()
+          .sort(smartflowComparePositionEntriesV17_90L371K)
           .map(({ item, index }, siteItemIndex) => ({
             item,
             index,
@@ -16065,7 +16110,9 @@ export default function AuftraegePage() {
           })),
         ...currentEditWorkSites.flatMap((site) => {
           const siteRows = visibleFormItemsWithIndexesV17_90L359
-            .filter(({ item }) => item.workSiteId === site.id);
+            .filter(({ item }) => item.workSiteId === site.id)
+            .slice()
+            .sort(smartflowComparePositionEntriesV17_90L371K);
 
           if (siteRows.length === 0) {
             return [
@@ -16092,7 +16139,10 @@ export default function AuftraegePage() {
           }));
         }),
       ]
-    : visibleFormItemsWithIndexesV17_90L359.map(({ item, index }) => ({
+    : visibleFormItemsWithIndexesV17_90L359
+        .slice()
+        .sort(smartflowComparePositionEntriesV17_90L371K)
+        .map(({ item, index }) => ({
         item,
         index,
         site: null as OrderWorkSite | null,
@@ -22267,6 +22317,7 @@ export default function AuftraegePage() {
                               services || [],
                             ) ||
                             (hasAnyItemReview ? "Manuell prüfen" : "");
+                          const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
                           const siteIndex = site
                             ? currentEditWorkSites.findIndex(
                                 (option) => option.id === site.id,
@@ -22783,7 +22834,7 @@ export default function AuftraegePage() {
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="text-[11px] text-muted-foreground">
                                           Zugeordnet: {groupItemCount}{" "}
-                                          Leistung(en)
+                                          Position(en)
                                         </div>
                                         <div className="flex flex-wrap items-center justify-end gap-2">
                                           <Button
@@ -22917,7 +22968,7 @@ export default function AuftraegePage() {
                                         </div>
                                         <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">
                                           <div className="truncate text-xs text-muted-foreground sm:text-sm">
-                                            {itemQuantityUnitSummaryV17_90L243} ×{" "}
+                                            {positionTypeLabelV17_90L371K} · {itemQuantityUnitSummaryV17_90L243} ×{" "}
                                             {itemPriceNumber > 0
                                               ? formatCurrency(itemPriceNumber, currency)
                                               : "Preis prüfen"}
@@ -23095,33 +23146,22 @@ export default function AuftraegePage() {
                                           </div>
                                         </div>
                                       <div className="group min-w-0">
-                                        {normalizePositionType((item as any).positionType) === "service" ? (
-                                          <ServiceCombobox
-                                            value={getEditableServiceNameValue(
-                                              item.serviceName,
-                                            )}
-                                            services={services as ServiceOption[]}
-                                            onChange={(name, svc) =>
-                                              onItemServiceSelect(index, name, svc)
-                                            }
-                                            onServiceCreated={handleServiceCreated}
-                                            currentPrice={item.unitPrice}
-                                            currentUnit={item.unit}
-                                            positionType={(item as any).positionType}
-                                            onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
-                                            showManualHint={false}
-                                            saveButtonPlacement="none"
-                                          />
-                                        ) : (
-                                          <Input
-                                            className="h-10"
-                                            value={getEditableServiceNameValue(item.serviceName)}
-                                            placeholder="Position / Beschreibung eingeben"
-                                            onChange={(event) =>
-                                              updateItem(index, "serviceName", event.target.value)
-                                            }
-                                          />
-                                        )}
+                                        <ServiceCombobox
+                                          value={getEditableServiceNameValue(
+                                            item.serviceName,
+                                          )}
+                                          services={services as ServiceOption[]}
+                                          onChange={(name, svc) =>
+                                            onItemServiceSelect(index, name, svc)
+                                          }
+                                          onServiceCreated={handleServiceCreated}
+                                          currentPrice={item.unitPrice}
+                                          currentUnit={item.unit}
+                                          positionType={(item as any).positionType}
+                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
+                                          showManualHint={false}
+                                          saveButtonPlacement="none"
+                                        />
                                         {!itemHasInternalReviewServiceName &&
                                           item.serviceName.trim().length > 28 && (
                                           <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
@@ -23636,12 +23676,12 @@ export default function AuftraegePage() {
                     )}
                   </div>
 
-                  {/* Leistungsübersicht — live from the editable items above */}
+                  {/* Positionsübersicht — live from the editable items above */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="font-semibold">
-                          Leistungsübersicht
+                          Positionsübersicht
                         </Label>
                         <div className="text-xs text-muted-foreground">
                           Live aus den Positionen oben
