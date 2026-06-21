@@ -2,6 +2,7 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
+// SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 import { prisma } from "@/lib/prisma";
 import { ensureAddressSplit } from "@/lib/address-parser";
 import { logAuditAsync } from "@/lib/audit";
@@ -11385,7 +11386,7 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
   );
 
   const hasExpenseSignal = /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(text);
-  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
+  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|scheuersaugmaschine|hochdruckreiniger|dampfreiniger|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
     /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge)\b/iu.test(text);
   const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
   const localQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "")[0]?.unit ||
@@ -11441,6 +11442,75 @@ function cleanLineLocalCostPositionNameV17_90L371AP(args: {
 
   if (cleaned.length >= 3 && cleaned.length <= 120) return cleaned;
   return fallback;
+}
+
+
+function cleanLineLocalUnitLabelV17_90L371AQ(value: unknown): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[,:;–—.\s]+$/g, "")
+    .replace(/\s*(?:à|@|\b(?:je|pro|per|par|por|at|each)\b)\s*$/iu, "")
+    .replace(/\s*\b(?:chf|eur|euro|sfr|fr)\b\s*$/iu, "")
+    .replace(/[,:;–—.\s]+$/g, "")
+    .trim();
+}
+
+function extractLineLocalUnitLabelFromSourceV17_90L371AQ(
+  sourceTextValue: unknown,
+  quantityValue: number,
+): string | null {
+  const source = String(sourceTextValue || "").replace(/\s+/g, " ").trim();
+  if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0) return null;
+
+  const quantityVariants = Array.from(
+    new Set([
+      String(quantityValue).replace(/\.0+$/, ""),
+      String(quantityValue).replace(/\.0+$/, "").replace(".", ","),
+      Number.isInteger(quantityValue) ? String(Math.trunc(quantityValue)) : "",
+    ].filter(Boolean)),
+  );
+
+  for (const quantityText of quantityVariants) {
+    const escapedQuantity = quantityText
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace("\\.", "[.,]");
+    const match = source.match(
+      new RegExp(
+        `\\b${escapedQuantity}\\s+([\\p{L}][\\p{L}0-9%/²³._-]*(?:\\s+[\\p{L}][\\p{L}0-9%/²³._-]*){0,2})\\s*(?=à|@|\\b(?:je|pro|per|par|por|at|each)\\b|\\b(?:chf|eur|euro|sfr|fr)\\b)`,
+        "iu",
+      ),
+    );
+    const label = cleanLineLocalUnitLabelV17_90L371AQ(match?.[1]);
+    if (!label || /^\d/.test(label)) continue;
+    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label)) continue;
+    return label;
+  }
+
+  return null;
+}
+
+function shouldPreferLineLocalUnitV17_90L371AQ(args: {
+  positionType: string;
+  rawUnit: string;
+  sourceUnit: string | null;
+}): boolean {
+  const sourceUnit = cleanLineLocalUnitLabelV17_90L371AQ(args.sourceUnit);
+  if (!sourceUnit) return false;
+
+  const positionType = normalizePositionType(args.positionType);
+  const rawUnit = cleanLineLocalUnitLabelV17_90L371AQ(args.rawUnit);
+  const rawKey = normalizeUnitText(rawUnit);
+  const sourceKey = normalizeUnitText(sourceUnit);
+  if (!sourceKey || rawKey === sourceKey) return false;
+
+  // Material units such as Kanister, Packungen, Rollen or Säcke are line-local
+  // business evidence. Do not replace them with catalog/service fallback units
+  // such as Quadratmeter, Stück or Tonne.
+  if (positionType === "material") return true;
+
+  // For non-material rows only replace clearly broken labels that still contain
+  // a price joiner. Normal service/equipment units such as Stunde stay as they are.
+  return /(?:^|\s)(?:à|@|je|pro|per|par|por|at|each)(?:\s|$)/iu.test(rawUnit);
 }
 
 const normalizedLineKeyV17_90L371AP = (value: unknown): string =>
@@ -11546,9 +11616,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
     const unitPrice = parsePositiveCanonicalNumberV17_90L89(
       raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
     );
-    const rawUnit = String(raw?.unit ?? raw?.einheit ?? "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const rawUnit = cleanLineLocalUnitLabelV17_90L371AQ(
+      String(raw?.unit ?? raw?.einheit ?? "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
     const rawUnitType = getServiceUnitType(rawUnit);
     let unit = rawUnitType !== "unknown"
       ? unitTypeToDisplayUnit(rawUnitType)
@@ -11556,6 +11628,21 @@ function buildCanonicalAiOrderItemsV17_90L88(
     let unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
       ? "ai"
       : "missing";
+
+    const lineLocalUnitV17_90L371AQ = extractLineLocalUnitLabelFromSourceV17_90L371AQ(
+      sourceText,
+      quantity,
+    );
+    if (
+      shouldPreferLineLocalUnitV17_90L371AQ({
+        positionType,
+        rawUnit,
+        sourceUnit: lineLocalUnitV17_90L371AQ,
+      })
+    ) {
+      unit = cleanLineLocalUnitLabelV17_90L371AQ(lineLocalUnitV17_90L371AQ) || unit;
+      unitSource = "ai";
+    }
 
     const explicitCurrency = String(raw?.currency || "")
       .trim()
@@ -17604,9 +17691,9 @@ export async function processIncomingMessage(
         "iu",
       ),
     );
-    const label = match?.[1]?.replace(/[,:;–—.\s]+$/g, "").replace(/\s+/g, " ").trim();
+    const label = cleanLineLocalUnitLabelV17_90L371AQ(match?.[1]);
     if (!label || /^\d/.test(label)) return null;
-    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten)$/iu.test(label)) return null;
+    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label)) return null;
     return label;
   };
 
