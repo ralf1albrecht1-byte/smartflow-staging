@@ -1,4 +1,5 @@
 'use client';
+// SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Info, Phone } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
@@ -668,9 +669,41 @@ function firstEmailFromText(value: string): string | null {
   return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || null;
 }
 
+function isCommunicationDateLikePhoneValueV17_90L371X(value?: string | null): boolean {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return false;
+  if (/^\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?$/.test(raw)) return true;
+  if (/^\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}(?:[T\s].*)?$/.test(raw)) return true;
+  const digits = raw.replace(/\D/g, '');
+  const validDate = (day: number, month: number, year?: number) => {
+    if (day < 1 || day > 31 || month < 1 || month > 12) return false;
+    if (year != null && (year < 2000 || year > 2099)) return false;
+    return true;
+  };
+  if (/^\d{8}$/.test(digits)) {
+    const dd = Number(digits.slice(0, 2));
+    const mm = Number(digits.slice(2, 4));
+    const yyyy = Number(digits.slice(4, 8));
+    const yFirst = Number(digits.slice(0, 4));
+    const ym = Number(digits.slice(4, 6));
+    const yd = Number(digits.slice(6, 8));
+    if (validDate(dd, mm, yyyy) || validDate(yd, ym, yFirst)) return true;
+  }
+  if (/^\d{6}$/.test(digits)) {
+    const dd = Number(digits.slice(0, 2));
+    const mm = Number(digits.slice(2, 4));
+    if (validDate(dd, mm)) return true;
+  }
+  return false;
+}
+
 function normalizePhoneForHref(value?: string | null): string {
-  const cleaned = String(value || '').replace(/[^+0-9]/g, '');
-  return cleaned.length >= 6 ? cleaned : '';
+  const raw = String(value || '').trim();
+  if (isCommunicationDateLikePhoneValueV17_90L371X(raw)) return '';
+  const cleaned = raw.replace(/[^+0-9]/g, '');
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return '';
+  return cleaned.startsWith('+') ? `+${digits}` : digits;
 }
 
 function getContactEmail(data: CommunicationData, sourceText: string): string {
@@ -727,7 +760,7 @@ function extractOperationalContactV17_90L85(
       }))
       .filter(({ phone }) => {
         const digits = phone.replace(/\D/g, "");
-        return digits.length >= 7 && digits.length <= 15;
+        return digits.length >= 7 && digits.length <= 15 && !isCommunicationDateLikePhoneValueV17_90L371X(phone);
       });
 
   const validEmailMatches = (value: string) =>
@@ -1263,6 +1296,7 @@ function contactReviewEntryFromSource(
         lines.some((line) => linePrefersChannel(line, 'whatsapp')) ? 'whatsapp' : null);
   const channelLabel = preferred === 'mail' ? 'E-Mail' : preferred === 'sms' ? 'SMS' : preferred === 'whatsapp' ? 'WhatsApp' : operational.noCall ? 'Keine Anrufe' : 'Kontakt';
   const value = preferred === 'mail' ? email : phone || email;
+  if (value && !value.includes('@') && isCommunicationDateLikePhoneValueV17_90L371X(value)) return null;
   if (!value && !preferred) return null;
   const noCall = lines.some((line) => /\b(?:nicht|keine|kein)\s+(?:telefonisch\s+)?(?:anrufen|anrufe|telefon|telefonieren)|\bno\s+calls?\b/i.test(line));
   const timeHint = preferred && preferred !== 'call' ? getChannelContactTimeHint(preferred, customerSource) : '';

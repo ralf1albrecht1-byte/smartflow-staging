@@ -1,8 +1,10 @@
 "use client";
+// SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
 // SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
+// SMARTFLOW_V17_90L371W_CONTACT_REVIEW_DATE_FIELD_STRIP
 // SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
 // SMARTFLOW_V17_90L371N_WORKSITE_BADGE_UNIT_HYDRATION_FIX
 // SMARTFLOW_V17_90L370_OFFER_MERGED_MEDIA_CHIPS_ONLY
@@ -343,19 +345,40 @@ function offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string |
   return cleaned || null;
 }
 
-function offer_sanitizeMergedContactReviewValueV17_90L371V(value: any): any {
+function offer_isContactReviewDateLikeValueV17_90L371W(value: any): boolean {
+  const text = compactOfferValue(value);
+  if (!text) return false;
+  if (offer_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
+  if (/^\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}(?:[T\s].*)?$/i.test(text)) return true;
+  if (/^\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?(?:\s*(?:[·,\-]|um)?\s*(?:[01]?\d|2[0-3])[:.]?[0-5]\d(?:\s*uhr)?)?$/i.test(text)) return true;
+  return offer_isAppointmentOnlyContactValueV17_90L371V(text);
+}
+
+function offer_isContactReviewDateFieldV17_90L371W(key?: string | null): boolean {
+  return /^(?:date|createdat|updatedat|appointmentdate|appointmenttime|executiondate|executiontime|scheduledat|startat|startsat|starttime|time|termin|datum|zeit)$/i.test(String(key || ""));
+}
+
+function offer_sanitizeMergedContactReviewValueV17_90L371V(value: any, key?: string | null): any {
+  // L371W: Der Sammel-Kontaktchip darf nie Datum-/Termin-Felder als Kontaktwert anzeigen.
+  // Datum bleibt im violetten Terminchip; hier wird es aus den Record-Daten entfernt.
+  if (offer_isContactReviewDateFieldV17_90L371W(key)) return null;
+  if (typeof value === "number") {
+    return offer_isContactReviewDateLikeValueV17_90L371W(value) ? null : value;
+  }
   if (typeof value === "string") {
     return offer_stripAppointmentOnlyContactReviewTextV17_90L371Q(value);
   }
   if (Array.isArray(value)) {
     return value
-      .map((entry) => offer_sanitizeMergedContactReviewValueV17_90L371V(entry))
+      .map((entry) => offer_sanitizeMergedContactReviewValueV17_90L371V(entry, key))
       .filter((entry) => entry !== null && entry !== undefined && entry !== "");
   }
   if (value && typeof value === "object") {
     const copy: any = { ...value };
-    Object.keys(copy).forEach((key) => {
-      copy[key] = offer_sanitizeMergedContactReviewValueV17_90L371V(copy[key]);
+    Object.keys(copy).forEach((childKey) => {
+      const cleaned = offer_sanitizeMergedContactReviewValueV17_90L371V(copy[childKey], childKey);
+      if (cleaned === null || cleaned === undefined || cleaned === "") delete copy[childKey];
+      else copy[childKey] = cleaned;
     });
     return copy;
   }
@@ -372,18 +395,11 @@ function offer_contactReviewIdentityKeyV17_90L371V(record: any): string {
 }
 
 function offer_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
-  const cleaned = (Array.isArray(records) ? records : [])
-    .map((record: any) => offer_sanitizeMergedContactReviewValueV17_90L371V(record))
-    .filter(Boolean);
-  const seen = new Set<string>();
-  const result: any[] = [];
-  cleaned.forEach((record: any) => {
-    const key = offer_contactReviewIdentityKeyV17_90L371V(record);
-    if (key && seen.has(key)) return;
-    if (key) seen.add(key);
-    result.push(record);
-  });
-  return result as T[];
+  // SMARTFLOW_V17_90L371X: Kontakt-/Datumsbereinigung passiert zentral in
+  // components/communication-block.tsx und components/merged-contact-review-chip.tsx.
+  // Die Page darf Records nicht rekursiv mutieren, weil dadurch Ladefehler
+  // und verlorene Termin-/Arbeitsortdaten entstehen können.
+  return (Array.isArray(records) ? records : []).filter(Boolean) as T[];
 }
 function collectOfferCurrencyReviewDetailsV17_90L227(
   document: Offer,

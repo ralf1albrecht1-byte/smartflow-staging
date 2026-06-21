@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 
 import { createPortal } from "react-dom";
 import { AlertTriangle, X } from "lucide-react";
@@ -14,11 +15,40 @@ function isTouchPointer(): boolean {
   return window.matchMedia("(pointer: coarse)").matches;
 }
 
+function isMergedContactDateLikeValueV17_90L371X(value?: string | null): boolean {
+  const raw = String(value || "").replace(/\s+/g, " ").trim();
+  if (!raw) return false;
+  if (/^\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?$/.test(raw)) return true;
+  if (/^\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}(?:[T\s].*)?$/.test(raw)) return true;
+  const digits = raw.replace(/\D/g, "");
+  const validDate = (day: number, month: number, year?: number) => {
+    if (day < 1 || day > 31 || month < 1 || month > 12) return false;
+    if (year != null && (year < 2000 || year > 2099)) return false;
+    return true;
+  };
+  if (/^\d{8}$/.test(digits)) {
+    const dd = Number(digits.slice(0, 2));
+    const mm = Number(digits.slice(2, 4));
+    const yyyy = Number(digits.slice(4, 8));
+    const yFirst = Number(digits.slice(0, 4));
+    const ym = Number(digits.slice(4, 6));
+    const yd = Number(digits.slice(6, 8));
+    if (validDate(dd, mm, yyyy) || validDate(yd, ym, yFirst)) return true;
+  }
+  if (/^\d{6}$/.test(digits)) {
+    const dd = Number(digits.slice(0, 2));
+    const mm = Number(digits.slice(2, 4));
+    if (validDate(dd, mm)) return true;
+  }
+  return false;
+}
+
 function normalizePhoneForAction(value: string): string {
   const raw = String(value || "").trim();
+  if (isMergedContactDateLikeValueV17_90L371X(raw)) return "";
   const hasPlus = raw.startsWith("+");
   const digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
+  if (digits.length < 7 || digits.length > 15) return "";
   return hasPlus ? `+${digits}` : digits;
 }
 
@@ -182,7 +212,7 @@ function explicitMergedContactsV17_90L175(
       .trim();
     const companyPhone = String(record?.customer?.phone || "").trim();
     const companyEmail = String(record?.customer?.email || "").trim();
-    if (companyPhone) {
+    if (companyPhone && normalizePhoneForAction(companyPhone)) {
       result.push({
         siteLabel: companyLabel,
         contactName: "Firmenkontakt",
@@ -266,7 +296,8 @@ function explicitMergedContactsV17_90L175(
         if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) continue;
 
         const email = line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
-        const phone = line.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.trim();
+        const rawPhone = line.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.trim();
+        const phone = rawPhone && normalizePhoneForAction(rawPhone) ? rawPhone : "";
         if (!email && !phone) continue;
 
         const normalized = normalizeContactTextV17_90L175(line);
@@ -318,8 +349,9 @@ function explicitMergedContactsV17_90L175(
   });
 
   return result.filter(
-    (entry, index, all) =>
-      all.findIndex(
+    (entry, index, all) => {
+      if (!String(entry.contactValue || "").includes("@") && !normalizePhoneForAction(entry.contactValue)) return false;
+      return all.findIndex(
         (candidate) =>
           normalizeContactTextV17_90L175(candidate.siteLabel) ===
             normalizeContactTextV17_90L175(entry.siteLabel) &&
@@ -327,7 +359,8 @@ function explicitMergedContactsV17_90L175(
             normalizePhoneForAction(entry.contactValue) &&
           normalizeContactTextV17_90L175(candidate.channelLabel) ===
             normalizeContactTextV17_90L175(entry.channelLabel),
-      ) === index,
+      ) === index;
+    },
   );
 }
 
@@ -362,6 +395,7 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
   return fallbackEntries.filter((entry, index, all) => {
     const joined = `${entry.contactName || ""} ${entry.detail || ""}`;
     if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(joined)) return false;
+    if (!String(entry.contactValue || "").includes("@") && !normalizePhoneForAction(entry.contactValue)) return false;
     const siteKey = normalizeContactTextV17_90L175(entry.siteLabel);
     const valueKey = normalizePhoneForAction(entry.contactValue);
     const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
@@ -386,7 +420,7 @@ type ContactEntryGroupV17_90L177 = {
 function mergedContactValueKeyV17_90L177(value: string): string {
   const raw = String(value || "").trim();
   if (raw.includes("@")) return normalizeContactTextV17_90L175(raw);
-  return normalizePhoneForAction(raw) || normalizeContactTextV17_90L175(raw);
+  return normalizePhoneForAction(raw);
 }
 
 function mergedContactChannelPriorityV17_90L178(value?: string | null): number {
