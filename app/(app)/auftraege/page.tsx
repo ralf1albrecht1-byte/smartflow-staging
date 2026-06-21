@@ -493,6 +493,56 @@ const cleanPositionQuantityValueV17_90L371B = (value: unknown) => {
   return Number(text || 0) > 0 ? text : "";
 };
 
+const resolveOrderPositionTypeForOfferHandoffV17_90L371F = (
+  sourceItem: any,
+  fallbackItems?: any[] | null,
+  index?: number,
+) => {
+  const sourceRaw =
+    sourceItem?.positionType ??
+    sourceItem?.type ??
+    sourceItem?.itemType ??
+    sourceItem?.kind ??
+    null;
+
+  const fallbackByIndex =
+    typeof index === "number" && Array.isArray(fallbackItems)
+      ? fallbackItems[index]
+      : null;
+  const sourceNameKey = compactText(
+    sourceItem?.serviceName || sourceItem?.description || "",
+  ).toLowerCase();
+  const fallbackByName =
+    !fallbackByIndex && sourceNameKey && Array.isArray(fallbackItems)
+      ? fallbackItems.find(
+          (candidate) =>
+            compactText(candidate?.serviceName || candidate?.description || "").toLowerCase() ===
+            sourceNameKey,
+        )
+      : null;
+  const fallbackRaw =
+    fallbackByIndex?.positionType ??
+    fallbackByIndex?.type ??
+    fallbackByIndex?.itemType ??
+    fallbackByIndex?.kind ??
+    fallbackByName?.positionType ??
+    fallbackByName?.type ??
+    fallbackByName?.itemType ??
+    fallbackByName?.kind ??
+    null;
+
+  const sourceType = normalizePositionType(sourceRaw);
+  const fallbackType = normalizePositionType(fallbackRaw);
+
+  // V17.90L371F: Beim Auftrag → Angebot darf ein bewusst manuell gesetzter
+  // Typ wie Material/Gerät/Zusatzkosten nicht wieder auf Dienstleistung
+  // zurückfallen, wenn die Save-API den Typ im Rückgabepayload nicht mitliefert.
+  if ((!sourceRaw || sourceType === "service") && fallbackRaw && fallbackType !== "service") {
+    return fallbackType;
+  }
+  return sourceType;
+};
+
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
@@ -17623,12 +17673,12 @@ export default function AuftraegePage() {
       // Do not merge "equivalent" rows here: separate work areas can share the
       // same quantity/price and still be distinct contractual positions.
       const orderItems = Array.isArray(saved.items) ? saved.items : [];
-      const offerItems = orderItems.map((i: any) => ({
+      const offerItems = orderItems.map((i: any, index: number) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 0),
         unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
-        positionType: normalizePositionType((i as any).positionType),
+        positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -18337,11 +18387,12 @@ export default function AuftraegePage() {
     const orderItems = Array.isArray(sourceOrder.items)
       ? sourceOrder.items
       : [];
-    const offerItems = orderItems.map((i: any) => ({
+    const offerItems = orderItems.map((i: any, index: number) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 0),
-      unit: i.unit ?? "",
+      unit: cleanPositionFieldValueV17_90L371B(i.unit),
       unitPrice: String(i.unitPrice ?? 0),
+      positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
       siteName: i.workSite?.siteName || null,
       siteAddress: i.workSite?.siteAddress || null,
       sitePlz: i.workSite?.sitePlz || null,
