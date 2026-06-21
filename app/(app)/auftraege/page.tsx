@@ -1,4 +1,9 @@
 "use client";
+// SMARTFLOW_V17_90L371D_ORDER_POSITION_REPAIR_AFTER_L371C
+// SMARTFLOW_V17_90L371B_POSITION_UI_ALL3_PLACEHOLDER_SANITIZE
+// SMARTFLOW_V17_90L369_MERGED_IMAGE_CHIP_MATCH_NORMAL_HOVER_PREVIEW
+// SMARTFLOW_V17_90L368_MERGED_IMAGE_CHIP_HOVER_PREVIEW
+// SMARTFLOW_V17_90L367_MERGED_IMAGE_CHIP_STABLE_ICON_NO_HYDRATION_SWAP
 // SMARTFLOW_V17_90L366_MERGED_IMAGE_THUMBNAIL_NO_HOVER_POPOVER
 // SMARTFLOW_V17_90L365_MERGED_MEDIA_THUMBNAIL_EMPTY_WORKSITE_FILTER
 // SMARTFLOW_V17_90L364D_MERGED_MEDIA_CHIPS_TYPESCRIPT_FIX
@@ -78,6 +83,7 @@ import {
   formatMergedAppointmentTooltip,
 } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -294,6 +300,7 @@ interface OrderItem {
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
   serviceName: string;
+  positionType?: string | null;
   description: string;
   quantity: number;
   unit: string;
@@ -383,6 +390,7 @@ interface ServiceDef {
   name: string;
   defaultPrice: number;
   unit: string;
+  positionType?: string | null;
 }
 
 const statuses = ["Alle", "Offen", "Erledigt"];
@@ -435,6 +443,7 @@ const unitConflictTextByReason: Record<string, string> = {
 interface FormItem {
   key: string; // client-side key for React
   serviceName: string;
+  positionType?: string | null;
   unit: string;
   unitPrice: string;
   quantity: string;
@@ -449,7 +458,7 @@ interface FormItem {
   pendingReviewSourceServiceName?: string;
   recognitionReviewKey?: string;
   sourceDescription?: string;
-  // V17.90L313: Rein manuell über „+ Leistung“ angelegte Zeilen dürfen
+  // V17.90L313: Rein manuell über „+ Position“ angelegte Zeilen dürfen
   // keine alte Kundennachrichten-Quelle per Namens-Fallback anzeigen.
   _manualUserAdded?: boolean;
   workSiteId?: string | null;
@@ -459,7 +468,8 @@ interface FormItem {
 const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
-  unit: "Einheit prüfen",
+  positionType: "service",
+  unit: "",
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
@@ -471,6 +481,17 @@ const createEmptyItem = (): FormItem => ({
   recognitionReviewKey: "",
   workSiteId: null,
 });
+
+
+const POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B = /^(?:(?:einheit|menge|preis)?\s*(?:prüfen|pruefen|prufen)\s*)+$/i;
+const cleanPositionFieldValueV17_90L371B = (value: unknown) => {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B.test(text) ? "" : text;
+};
+const cleanPositionQuantityValueV17_90L371B = (value: unknown) => {
+  const text = cleanPositionFieldValueV17_90L371B(value);
+  return Number(text || 0) > 0 ? text : "";
+};
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
@@ -652,7 +673,7 @@ const parseOrderServiceReviewTooltipV17_90L174 = (
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean);
-      const title = lines.shift() || "Leistungen prüfen";
+      const title = lines.shift() || "Positionen prüfen";
       const items: Array<{ title: string; details: string[] }> = [];
       let current: { title: string; details: string[] } | null = null;
 
@@ -977,7 +998,7 @@ const getOrderServiceReviewDetailV17_90L134 = (
 ): string => {
   const reason = getOrderServiceReviewReasonV17_90L134(item, services);
   if (!reason) return "";
-  const name = compactText(item?.serviceName) || "Neue Leistung";
+  const name = compactText(item?.serviceName) || "Neue Position";
   const quantity = Number(item?.quantity || 0);
   const price = Number(item?.unitPrice || 0);
   const unit = compactText(item?.unit) || "–";
@@ -8501,10 +8522,10 @@ const getSystemBadges = (
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
       {
         key: "service_review_summary",
-        label: `Leistungen prüfen · ${serviceReviewCount}`,
+        label: `Positionen prüfen · ${serviceReviewCount}`,
         className:
           "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-        tooltip: serviceReviewTooltip || "Leistungen prüfen.",
+        tooltip: serviceReviewTooltip || "Positionen prüfen.",
         serviceReviewGroups,
       },
     ];
@@ -10146,7 +10167,7 @@ const renderOrderServiceReviewTooltipLinesV17_135G = (
   keyPrefix: string,
 ) => {
   const headingPattern =
-    /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
   let serviceIndexInSection = 0;
 
   return tooltip.split("\n").map((line, index) => {
@@ -10256,7 +10277,7 @@ const OrderServiceReviewTooltipContentV17_135G = ({
                     </span>
                   </span>
                   <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                    Leistungen prüfen · {group.count}
+                    Positionen prüfen · {group.count}
                   </span>
                 </span>
                 {active && (
@@ -10773,7 +10794,7 @@ const renderBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -10920,7 +10941,7 @@ const renderMobileSafeBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Positionen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -11603,7 +11624,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     : [];
 
   if (items.length === 0) {
-    blockers.push("Keine Leistungen vorhanden");
+    blockers.push("Keine Positionen vorhanden");
   }
 
   const hasUnresolvedServiceOrUnit = items.some(
@@ -11788,7 +11809,7 @@ function ResponsiveOrderServicePreviewV17_95({
       }}
     >
       <div className="mb-2 text-xs font-medium text-muted-foreground">
-        Leistungen · {services.length}
+        Positionen · {services.length}
       </div>
       <div
         ref={listRef}
@@ -12869,7 +12890,7 @@ export default function AuftraegePage() {
           serviceName: canonicalServiceNameForOrderItem(
             item.serviceName ?? "",
           ),
-          unit: item.unit ?? "Stunde",
+          unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: shouldRequireFreshManualPrice
             ? ""
             : Number(item.unitPrice || 0) === 0
@@ -16019,7 +16040,8 @@ export default function AuftraegePage() {
       }));
 
   const unitShortLabel = (unit: string) => {
-    const normalized = (unit || "").toLowerCase();
+    const cleanedUnit = cleanPositionFieldValueV17_90L371B(unit);
+    const normalized = (cleanedUnit || "").toLowerCase();
     if (normalized === "quadratmeter") return "m²";
     if (normalized === "kubikmeter") return "m³";
     if (normalized === "meter") return "m";
@@ -16030,9 +16052,8 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
-    if (normalized.includes("prüfen") || normalized.includes("pruefen"))
-      return "prüfen";
-    return unit || "–";
+    if (POSITION_PLACEHOLDER_VALUE_RE_V17_90L371B.test(normalized)) return "";
+    return cleanedUnit || "–";
   };
 
   const liveOverviewRows = visibleFormItemsV17_90L359
@@ -16047,8 +16068,10 @@ export default function AuftraegePage() {
       return {
         index: index + 1,
         serviceName: item.serviceName.trim(),
-        unit: item.unit,
-        unitLabel: unitShortLabel(item.unit),
+        
+        positionType: normalizePositionType((item as any).positionType),
+        unit: cleanPositionFieldValueV17_90L371B(item.unit),
+        unitLabel: unitShortLabel(cleanPositionFieldValueV17_90L371B(item.unit)),
         quantity,
         unitPrice,
         hasQuantity,
@@ -16573,13 +16596,17 @@ export default function AuftraegePage() {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
-    const sourceFormItems = itemsOverride ?? formItems;
+    const sourceFormItems = (itemsOverride ?? formItems).map((item) => ({
+      ...item,
+      unit: cleanPositionFieldValueV17_90L371B(item.unit),
+      quantity: cleanPositionQuantityValueV17_90L371B(item.quantity),
+    }));
     const sourceFormWorkSites = workSitesOverride ?? formWorkSites;
     let validItems = mergeEquivalentFormItems(
       sourceFormItems.filter((i) => i.serviceName.trim()),
     );
     if (validItems.length === 0) {
-      toast.error("Mindestens eine Leistung auswählen");
+      toast.error("Mindestens eine Position auswählen");
       return null;
     }
 
@@ -16674,7 +16701,7 @@ export default function AuftraegePage() {
     );
     if (workSiteWithoutServiceV17_90L292) {
       toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Leistung ausfüllen.",
+        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
       );
       return null;
     }
@@ -16703,7 +16730,7 @@ export default function AuftraegePage() {
       cleanWorkSites.length > 1 &&
       validItems.some((item) => !item.workSiteId)
     ) {
-      toast.error("Bitte jeder Leistung einen Arbeitsort zuordnen.");
+      toast.error("Bitte jeder Position einen Arbeitsort zuordnen.");
       return null;
     }
     const desc = form.description?.trim() || buildDescription();
@@ -17250,6 +17277,8 @@ export default function AuftraegePage() {
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          
+          positionType: normalizePositionType((item as any).positionType),
           description:
             hasCurrentEditCurrencyReview && itemCurrencyConfirmed
               ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
@@ -17257,7 +17286,7 @@ export default function AuftraegePage() {
                 ? buildItemDescription({ ...item, aiWarning: "" })
                 : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
-          unit: item.unit,
+          unit: cleanPositionFieldValueV17_90L371B(item.unit),
           unitPrice: itemIsStillBlockedByCurrency
             ? 0
             : Number(item.unitPrice || 0),
@@ -17597,8 +17626,9 @@ export default function AuftraegePage() {
       const offerItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 0),
-        unit: i.unit ?? "",
+        unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
+        positionType: normalizePositionType((i as any).positionType),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -17668,8 +17698,9 @@ export default function AuftraegePage() {
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 0),
-        unit: i.unit ?? "",
+        unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
+        positionType: normalizePositionType((i as any).positionType),
         siteName: i.workSite?.siteName || null,
         siteAddress: i.workSite?.siteAddress || null,
         sitePlz: i.workSite?.sitePlz || null,
@@ -18184,6 +18215,8 @@ export default function AuftraegePage() {
     const hasAudio = hasMergedOrderAudioEvidenceV17_90L364(o);
     if (!hasImage && !hasAudio) return null;
 
+    // V17.90L369: merged image chip must behave like the normal image chip:
+    // stable blue icon on the card, desktop hover preview, click/tap opens gallery.
     const imagePreviewUrl = mergedOrderImagePreviewUrlsV17_90L365[o.id] || "";
     const baseClass =
       "inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1";
@@ -18210,30 +18243,43 @@ export default function AuftraegePage() {
           </button>
         )}
         {hasImage && (
-          <button
-            type="button"
+          <span
+            className="group relative inline-flex h-8 w-8 shrink-0 overflow-visible"
             data-card-toggle-ignore="true"
-            aria-label="Bild öffnen"
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void openOrderImageMediaV17_90L364(o);
-            }}
-            className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            onClick={(event) => event.stopPropagation()}
           >
-            {imagePreviewUrl ? (
+            <button
+              type="button"
+              data-card-toggle-ignore="true"
+              aria-label="Bilder ansehen"
+              title="Bilder ansehen"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void openOrderImageMediaV17_90L364(o);
+              }}
+              className={`${baseClass} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/60`}
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+            {imagePreviewUrl && (
               <span
                 aria-hidden="true"
-                className="block h-full w-full bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: `url(${imagePreviewUrl})` }}
-              />
-            ) : (
-              <ImageIcon className="h-4 w-4" />
+                className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-2 text-left shadow-xl group-hover:block group-focus-within:block dark:border-slate-700 dark:bg-slate-950"
+              >
+                <span
+                  className="block h-24 w-full rounded-lg bg-cover bg-center bg-no-repeat"
+                  style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+                />
+                <span className="mt-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Anklicken zum Öffnen
+                </span>
+              </span>
             )}
-          </button>
+          </span>
         )}
       </>
     );
@@ -18793,7 +18839,7 @@ export default function AuftraegePage() {
       );
     }
 
-    const sheetTitle = activeMobileTooltip.title || "Leistungen prüfen";
+    const sheetTitle = activeMobileTooltip.title || "Positionen prüfen";
     const reviewGroups = activeMobileTooltip.serviceReviewGroups || [];
     const renderMobileServiceSections = (
       sections: OrderMobileServiceReviewSectionV17_90L174[],
@@ -18917,7 +18963,7 @@ export default function AuftraegePage() {
                           </span>
                         </span>
                         <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
-                          Leistungen prüfen · {group.count}
+                          Positionen prüfen · {group.count}
                         </span>
                       </button>
                       {active && (
@@ -19906,7 +19952,7 @@ export default function AuftraegePage() {
                                 ))}
                               </div>
                               <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
-                                Leistungen · {mobileOrderServiceNames.length}
+                                Positionen · {mobileOrderServiceNames.length}
                               </div>
                               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                 <select
@@ -21474,7 +21520,7 @@ export default function AuftraegePage() {
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
                   <span>
-                    {visibleServiceItemCountV17_90L359} Leistung(en)
+                    {visibleServiceItemCountV17_90L359} Position(en)
                     · {formatCurrency(itemsTotal, currency)} ·{" "}
                     {form.date || "–"} · {form.status}
                   </span>
@@ -21494,8 +21540,8 @@ export default function AuftraegePage() {
                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <Label className="whitespace-nowrap text-base font-semibold">
                             {hasMultipleEditWorkSites
-                              ? "Arbeitsorte & Leistungen"
-                              : `Leistungen · ${visibleServiceItemCountV17_90L359} *`}
+                              ? "Arbeitsorte & Positionen"
+                              : `Positionen · ${visibleServiceItemCountV17_90L359} *`}
                           </Label>
                           {currentEditMergedHeaderBadge &&
                             currentEditExecutionHeaderBadge &&
@@ -21544,14 +21590,14 @@ export default function AuftraegePage() {
                             className="h-7 shrink-0 px-2 text-xs"
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
-                            Leistung
+                            Position
                           </Button>
                         </div>
                       </div>
                       {hasMultipleEditWorkSites ? (
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span className="min-w-0 truncate">
-                            {currentEditWorkSites.length} Arbeitsorte · {visibleServiceItemCountV17_90L359} Leistungen
+                            {currentEditWorkSites.length} Arbeitsorte · {visibleServiceItemCountV17_90L359} Positionen
                           </span>
                           <span className="shrink-0 font-mono font-medium text-foreground">
                             {formatCurrency(itemsTotal, currency)}
@@ -21559,7 +21605,7 @@ export default function AuftraegePage() {
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">
-                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                          Kompakte Übersicht. Zum Bearbeiten die Position aufklappen.
                         </p>
                       )}
                     </div>
@@ -21931,14 +21977,18 @@ export default function AuftraegePage() {
                             blockingReviewFieldListV17_90L243
                               ? `${blockingReviewFieldListV17_90L243} prüfen`
                               : "";
+                          const itemQuantityDisplayValueV17_90L371D =
+                            cleanPositionQuantityValueV17_90L371B(item.quantity);
+                          const itemUnitDisplayValueV17_90L371D =
+                            cleanPositionFieldValueV17_90L371B(item.unit);
                           const itemQuantityUnitSummaryV17_90L243 =
-                            quantityInputReview && unitInputCriticalV17_90L243
-                              ? "Einheit und Menge prüfen"
-                              : quantityInputReview
-                                ? `Menge prüfen ${unitShortLabel(item.unit)}`.trim()
-                                : unitInputCriticalV17_90L243
-                                  ? `${item.quantity || "–"} · Einheit prüfen`
-                                  : `${item.quantity} ${unitShortLabel(item.unit)}`.trim();
+                            quantityInputReview
+                              ? itemPriceNumber > 0
+                                ? `Menge fehlt · ${formatCurrency(itemPriceNumber, currency)} erkannt`
+                                : "Menge fehlt"
+                              : unitInputCriticalV17_90L243
+                                ? `${itemQuantityDisplayValueV17_90L371D || "Menge fehlt"} · Einheit prüfen`
+                                : `${itemQuantityDisplayValueV17_90L371D} ${unitShortLabel(itemUnitDisplayValueV17_90L371D || item.unit)}`.trim();
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             !itemHasInternalReviewServiceName &&
@@ -21988,9 +22038,13 @@ export default function AuftraegePage() {
                               }`
                             : "";
                           const orderSummaryParts = [
-                            Number(item.quantity || 0) > 0
-                              ? `${item.quantity} ${unitShortLabel(item.unit)}`
-                              : unitShortLabel(item.unit),
+                            itemQuantityDisplayValueV17_90L371D
+                              ? `${itemQuantityDisplayValueV17_90L371D} ${unitShortLabel(itemUnitDisplayValueV17_90L371D || item.unit)}`.trim()
+                              : itemUnitDisplayValueV17_90L371D
+                                ? itemUnitDisplayValueV17_90L371D
+                                : quantityInputReview
+                                  ? "Menge fehlt"
+                                  : "",
                             itemPriceNumber > 0
                               ? `à ${formatCurrency(itemPriceNumber, currency)}`
                               : "Preis prüfen",
@@ -22459,7 +22513,7 @@ export default function AuftraegePage() {
                                         )}
                                         {siteHasNoItems && !siteNeedsReview && (
                                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                                            Keine Leistungen
+                                            Keine Positionen
                                           </span>
                                         )}
                                       </div>
@@ -22475,12 +22529,12 @@ export default function AuftraegePage() {
                                               onPointerDown={(event) => event.stopPropagation()}
                                             >
                                               <span className="truncate whitespace-nowrap">
-                                                Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                                Positionen prüfen · {groupReviewSummaryV17_90L135G.count}
                                               </span>
                                               <ViewportAwareOrderServiceTooltip
                                                 badge={{
                                                   key: `site_service_review_${site?.id || "general"}`,
-                                                  label: `Leistungen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
+                                                  label: `Positionen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
                                                   className:
                                                     "border-amber-300 bg-amber-100 text-amber-900",
                                                   tooltip:
@@ -22732,7 +22786,7 @@ export default function AuftraegePage() {
                                       : "Noch keine Leistungen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
-                                    Arbeitsort und zugehörige Leistung vollständig
+                                    Arbeitsort und zugehörige Position vollständig
                                     ausfüllen oder den Arbeitsort löschen.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -22746,7 +22800,7 @@ export default function AuftraegePage() {
                                           addItemToWorkSite(site.id)
                                         }
                                       >
-                                        + Leistung hier hinzufügen
+                                        + Position hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
@@ -22795,8 +22849,8 @@ export default function AuftraegePage() {
                                             {item.serviceName.trim() ||
                                               (hasMultipleEditWorkSites &&
                                               !item.workSiteId
-                                                ? "Ausführungsort und Leistung auswählen"
-                                                : "Leistung auswählen")}
+                                                ? "Ausführungsort und Position auswählen"
+                                                : "Position auswählen")}
                                           </span>
                                         </div>
                                         <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">
@@ -22849,8 +22903,8 @@ export default function AuftraegePage() {
                                               );
                                             }}
                                             className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                                            title="Leistungsaktionen"
-                                            aria-label="Leistungsaktionen"
+                                            title="Positionsaktionen"
+                                            aria-label="Positionsaktionen"
                                           >
                                             <MoreVertical className="h-4 w-4" />
                                           </button>
@@ -22867,7 +22921,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Trash2 className="h-4 w-4" />
-                                                Leistung löschen
+                                                Position löschen
                                               </button>
                                               <button
                                                 type="button"
@@ -22879,7 +22933,7 @@ export default function AuftraegePage() {
                                                 }}
                                               >
                                                 <Plus className="h-4 w-4" />
-                                                In Leistungskatalog übernehmen
+                                                In Katalog übernehmen
                                               </button>
                                             </div>
                                           )}
@@ -22893,8 +22947,8 @@ export default function AuftraegePage() {
                                             removeItem(index);
                                           }}
                                           className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
-                                          title="Leistung löschen"
-                                          aria-label="Leistung löschen"
+                                          title="Position löschen"
+                                          aria-label="Position löschen"
                                         >
                                           <Trash2 className="h-4 w-4" />
                                         </button>
@@ -22960,6 +23014,24 @@ export default function AuftraegePage() {
                                           </select>
                                         </div>
                                       )}
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <div>
+                                            <Label className="text-xs">Typ *</Label>
+                                            <select
+                                              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                              value={normalizePositionType((item as any).positionType)}
+                                              onChange={(event: any) =>
+                                                updateItem(index, "positionType", normalizePositionType(event?.target?.value))
+                                              }
+                                            >
+                                              {POSITION_TYPE_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        </div>
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -22972,6 +23044,8 @@ export default function AuftraegePage() {
                                           onServiceCreated={handleServiceCreated}
                                           currentPrice={item.unitPrice}
                                           currentUnit={item.unit}
+                                          positionType={(item as any).positionType}
+                                          onPositionTypeChange={(positionType) => updateItem(index, "positionType", positionType)}
                                           showManualHint={false}
                                           saveButtonPlacement="none"
                                         />
@@ -22986,35 +23060,28 @@ export default function AuftraegePage() {
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <div>
                                         <Label className="text-xs">Einheit</Label>
-                                        <select
-                                          className={`flex h-9 w-full rounded-md border bg-background px-2 text-sm ${
+                                        <Input
+                                          list={`position-unit-options-${index}`}
+                                          className={`h-9 ${
                                             unitInputCriticalV17_90L243
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                              : "border-input"
+                                              : ""
                                           }`}
-                                          value={
-                                            unitMissingInTextReason &&
-                                            !manualUnitConfirmed &&
-                                            normalizeForMatch(item.unit).includes("pruefen")
-                                              ? "Einheit prüfen"
-                                              : item.unit
-                                          }
+                                          value={cleanPositionFieldValueV17_90L371B(item.unit)}
+                                          placeholder="frei eingeben oder Vorschlag wählen"
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,
                                               "unit",
-                                              e?.target?.value ?? "Stunde",
+                                              e?.target?.value ?? "",
                                             )
                                           }
-                                        >
-                                          {priceTypes.map((pt) => (
-                                            <option key={pt} value={pt}>
-                                              {pt === "Einheit prüfen"
-                                                ? "prüfen"
-                                                : pt}
-                                            </option>
+                                        />
+                                        <datalist id={`position-unit-options-${index}`}>
+                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
+                                            <option key={unit} value={unit} />
                                           ))}
-                                        </select>
+                                        </datalist>
                                       </div>
 
                                       <div>
@@ -23027,9 +23094,9 @@ export default function AuftraegePage() {
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                               : ""
                                           }`}
-                                          value={item.quantity}
+                                          value={cleanPositionQuantityValueV17_90L371B(item.quantity)}
                                           placeholder={
-                                            quantityInputReview ? "prüfen" : "0"
+                                            quantityInputReview ? "Menge eingeben" : "0"
                                           }
                                           onFocus={(e) =>
                                             e.currentTarget.select()
@@ -23270,7 +23337,7 @@ export default function AuftraegePage() {
                         Auftragsdaten & Betrag
                       </Label>
                       <span className="text-xs text-muted-foreground">
-                        Klar getrennt von den Leistungen
+                        Klar getrennt von den Positionen
                       </span>
                     </div>
 
@@ -23504,7 +23571,7 @@ export default function AuftraegePage() {
                           Leistungsübersicht
                         </Label>
                         <div className="text-xs text-muted-foreground">
-                          Live aus den Leistungen oben
+                          Live aus den Positionen oben
                         </div>
                       </div>
                       <Button
