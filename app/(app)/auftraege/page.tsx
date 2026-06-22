@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
 // SMARTFLOW_V17_90L371AR_REVIEW_FLOW_CONTACT_DEDUPE
@@ -892,13 +893,29 @@ function renderOrderSourceContextTooltipContentV17_90L371AV(tooltip: string, lab
       <span className="block font-semibold text-slate-950 dark:text-slate-50">
         {titleLine}
       </span>
-      <span className="block max-h-64 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800 shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      <span
+        className="block max-h-64 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800 shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        tabIndex={0}
+        onWheel={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
+        onScroll={(event) => event.stopPropagation()}
+      >
         {bodyLines.map((line, index) => {
           const isHighlightedSourceLineV17_90L371AV = line.trim().startsWith("➜");
           const visibleLine = line.trim().replace(/^➜\s*/, "");
           return (
             <span
               key={`order_source_context_${index}`}
+              ref={
+                isHighlightedSourceLineV17_90L371AV
+                  ? (node) => {
+                      if (!node || typeof window === "undefined") return;
+                      window.requestAnimationFrame(() =>
+                        node.scrollIntoView({ block: "center", inline: "nearest" }),
+                      );
+                    }
+                  : undefined
+              }
               className={`block whitespace-pre-wrap break-words ${
                 isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
               }`}
@@ -10602,7 +10619,9 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
           onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
           onPointerDown={clearAutoCloseTimer}
           onPointerUp={scheduleAutoClose}
-          onScroll={clearAutoCloseTimer}
+          onWheel={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
+          onTouchMove={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
+          onScroll={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onPointerLeave={scheduleHideTooltip}
           style={{
             left: position.left,
