@@ -11386,8 +11386,9 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
   );
 
   const hasExpenseSignal = /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(text);
-  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|scheuersaugmaschine|hochdruckreiniger|dampfreiniger|spezialmaschine|hubwagen|werkzeug|werkzeuge|equipment|machine|machines|tool|tools|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
-    /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge)\b/iu.test(text);
+  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|scheuersaugmaschine|hochdruckreiniger|dampfreiniger|spezialmaschine|hubwagen|werkzeug|werkzeuge|geruest|gerueste|geruestbau|baugeruest|geruestmiete|gerueststandzeit|arbeitsbuehne|hebebuehne|bautrockner|poliermaschine|equipment|machine|machines|tool|tools|scaffold|scaffolding|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
+    /\b(?:geruest\s+(?:aufbau|standzeit|benutzung|miete)|(?:aufbau|standzeit|benutzung|miete)\s+geruest)\b/.test(text) ||
+    /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge|geruest|buehne|trockner)\b/iu.test(text);
   const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
   const localQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "")[0]?.unit ||
     getServiceUnitType(args.raw?.unit ?? args.raw?.einheit ?? null);
@@ -11445,6 +11446,70 @@ function cleanLineLocalCostPositionNameV17_90L371AP(args: {
 }
 
 
+
+function cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR(args: {
+  serviceName: string;
+  sourceText: string;
+  quantity: number;
+  unitPrice: number;
+}): string {
+  const original = String(args.serviceName || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!original) return original;
+
+  const fromExistingName = stripCanonicalAmountSuffixFromServiceNameV17_90L199({
+    serviceName: original,
+    quantity: Number(args.quantity || 0),
+  })
+    .replace(/\s*(?:à|@|\b(?:je|pro|per|par|por|at|each)\b)\s*$/iu, "")
+    .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
+    .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+    .replace(/[,:;–—.\s]+$/g, "")
+    .replace(/^[-–—,:;.\s]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const source = String(args.sourceText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const quantity = Number(args.quantity || 0);
+  if (source && Number.isFinite(quantity) && quantity > 0) {
+    const quantityPattern = (Number.isInteger(quantity)
+      ? String(Math.trunc(quantity))
+      : String(Number(quantity.toFixed(4))))
+      .split(".")
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("[.,]");
+    const sourceCandidate = source
+      .replace(
+        new RegExp(
+          `\\s*[,;:–—-]?\\s+${quantityPattern}\\s+[\\p{L}0-9%/²³._-]+(?:\\s+[\\p{L}0-9%/²³._-]+){0,3}\\s*(?:à|@|\\b(?:je|pro|per|par|por|at|each)\\b|\\b(?:chf|eur|euro|sfr|fr)\\b).*?$`,
+          "iu",
+        ),
+        "",
+      )
+      .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
+      .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+      .replace(/[,:;–—.\s]+$/g, "")
+      .replace(/^[-–—,:;.\s]+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (
+      sourceCandidate.length >= 3 &&
+      sourceCandidate.length <= 120 &&
+      normalizeUnitText(original).includes(normalizeUnitText(sourceCandidate))
+    ) {
+      return sourceCandidate;
+    }
+  }
+
+  return fromExistingName.length >= 3 && /\p{L}/u.test(fromExistingName)
+    ? fromExistingName
+    : original;
+}
+
 function cleanLineLocalUnitLabelV17_90L371AQ(value: unknown): string {
   return String(value || "")
     .replace(/\s+/g, " ")
@@ -11501,12 +11566,21 @@ function shouldPreferLineLocalUnitV17_90L371AQ(args: {
   const rawUnit = cleanLineLocalUnitLabelV17_90L371AQ(args.rawUnit);
   const rawKey = normalizeUnitText(rawUnit);
   const sourceKey = normalizeUnitText(sourceUnit);
-  if (!sourceKey || rawKey === sourceKey) return false;
+  if (!sourceKey) return false;
 
-  // Material units such as Kanister, Packungen, Rollen or Säcke are line-local
-  // business evidence. Do not replace them with catalog/service fallback units
-  // such as Quadratmeter, Stück or Tonne.
-  if (positionType === "material") return true;
+  // SMARTFLOW_V17_90L371AR:
+  // "Laufmeter" is an explicit business unit. getServiceUnitType() internally
+  // groups it as "meter", but the persisted unit must keep the exact line-local
+  // wording instead of collapsing to "Meter" / UI "m".
+  if (positionType === "material") {
+    const rawUnitType = getServiceUnitType(rawUnit);
+    const normalizedDisplayKey = normalizeUnitText(
+      rawUnitType !== "unknown" ? unitTypeToDisplayUnit(rawUnitType) : rawUnit,
+    );
+    return sourceKey !== normalizedDisplayKey || rawKey !== normalizedDisplayKey;
+  }
+
+  if (rawKey === sourceKey) return false;
 
   // For non-material rows only replace clearly broken labels that still contain
   // a price joiner. Normal service/equipment units such as Stunde stay as they are.
@@ -11533,6 +11607,39 @@ function isSameLineLocalFactV17_90L371AP(left: unknown, right: unknown): boolean
   return leftKey === rightKey ||
     (leftKey.length >= 8 && rightKey.includes(leftKey)) ||
     (rightKey.length >= 8 && leftKey.includes(rightKey));
+}
+
+
+function normalizedBillableCostFactKeyV17_90L371AR(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b/giu, " ")
+    .replace(/\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b/giu, " ")
+    .replace(/\b(?:pauschal|pauschale|preis|betrag|kosten|gebuehr|gebuehren|gebühr|gebühren)\b/giu, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSameBillableCostFactV17_90L371AR(left: unknown, right: unknown): boolean {
+  const leftKey = normalizedBillableCostFactKeyV17_90L371AR(left);
+  const rightKey = normalizedBillableCostFactKeyV17_90L371AR(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+  if (leftKey.length >= 6 && rightKey.includes(leftKey)) return true;
+  if (rightKey.length >= 6 && leftKey.includes(rightKey)) return true;
+
+  const leftTokens = new Set(leftKey.split(/\s+/g).filter((token) => token.length >= 4));
+  const rightTokens = rightKey.split(/\s+/g).filter((token) => token.length >= 4);
+  if (leftTokens.size === 0 || rightTokens.length === 0) return false;
+  const overlap = rightTokens.filter((token) => leftTokens.has(token)).length;
+  return overlap >= 2 && overlap / Math.min(leftTokens.size, rightTokens.length) >= 0.67;
 }
 
 function isLineLocalFlatCostCandidateV17_90L371AM(args: {
@@ -11643,6 +11750,13 @@ function buildCanonicalAiOrderItemsV17_90L88(
       unit = cleanLineLocalUnitLabelV17_90L371AQ(lineLocalUnitV17_90L371AQ) || unit;
       unitSource = "ai";
     }
+
+    serviceName = cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR({
+      serviceName,
+      sourceText,
+      quantity,
+      unitPrice,
+    });
 
     const explicitCurrency = String(raw?.currency || "")
       .trim()
@@ -17493,8 +17607,19 @@ export async function processIncomingMessage(
     hinweisItems = hinweisItems.filter(
       (line) =>
         !expensePositionSourceLinesV17_90L371AP.some((sourceLine) =>
-          isSameLineLocalFactV17_90L371AP(line, sourceLine),
+          isSameLineLocalFactV17_90L371AP(line, sourceLine) ||
+          isSameBillableCostFactV17_90L371AR(line, sourceLine),
         ),
+    );
+  }
+
+  // SMARTFLOW_V17_90L371AR: The onsite contact is persisted as its own
+  // canonical field. Do not also serialize the same person as a second
+  // operational hint, otherwise the UI shows "Kontakt" and "Kontakt vor Ort"
+  // with the same name.
+  if (onsiteContactHint?.contactName || onsiteContactHint?.hint) {
+    hinweisItems = hinweisItems.filter(
+      (line) => !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint),
     );
   }
 
