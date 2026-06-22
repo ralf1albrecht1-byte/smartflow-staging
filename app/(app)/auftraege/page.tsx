@@ -906,6 +906,20 @@ function renderOrderSourceContextTooltipContentV17_90L371AV(tooltip: string, lab
           return (
             <span
               key={`order_source_context_${index}`}
+              ref={
+                isHighlightedSourceLineV17_90L371AV
+                  ? (node) => {
+                      const container = node?.parentElement as HTMLElement | null;
+                      if (!node || !container || typeof window === "undefined") return;
+                      if (container.dataset.smartflowSourceAutoscrolled === "1") return;
+                      container.dataset.smartflowSourceAutoscrolled = "1";
+                      window.requestAnimationFrame(() => {
+                        const targetTop = node.offsetTop - Math.max(0, (container.clientHeight - node.clientHeight) / 2);
+                        container.scrollTop = Math.max(0, targetTop);
+                      });
+                    }
+                  : undefined
+              }
               className={`block whitespace-pre-wrap break-words ${
                 isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
               }`}
@@ -7514,6 +7528,10 @@ const compactRedReviewDetailLinesV17_90L73 = (badge: ReviewBadge) => {
     .filter((line) => !boilerplateLine.test(line))
     .filter((line) => !/^Text:/i.test(line))
     .map((line) => line.replace(/^•\s*/, "").trim())
+    .filter((line) => {
+      const lineKey = normalizeForMatch(line);
+      return Boolean(lineKey && lineKey !== labelKey && lineKey !== "leistung nicht erkannt");
+    })
     .filter(Boolean)
     .map((line) => (line.length > 128 ? `${line.slice(0, 125).trim()}…` : line))
     .slice(0, 6);
@@ -7543,6 +7561,14 @@ const concreteRedReviewPositionCountV17_90L242 = (
   let orderLevelReviewCount = 0;
 
   badges.forEach((badge) => {
+    const recognitionDetails = badge.key === "recognition_review"
+      ? compactRedReviewDetailLinesV17_90L73(badge)
+      : [];
+    if (recognitionDetails.length > 0) {
+      orderLevelReviewCount += recognitionDetails.length;
+      return;
+    }
+
     const badgePositionKeys = redReviewPositionKeysV17_90L242(badge);
     if (badgePositionKeys.size > 0) {
       badgePositionKeys.forEach((key) => positionKeys.add(key));
@@ -7725,6 +7751,12 @@ const consolidateRedReviewRowsV17_90L245 = (badges: ReviewBadge[]) => {
     });
 
     if (!foundServiceRow) {
+      if (badge.key === "recognition_review" && details.length > 0) {
+        details.forEach((detail) => {
+          if (detail && !orderLevelRows.includes(detail)) orderLevelRows.push(detail);
+        });
+        return;
+      }
       const label = compactText(badge.label).replace(/\s*·\s*\d+\s*$/, "");
       if (label && !orderLevelRows.includes(label)) orderLevelRows.push(label);
     }
@@ -10466,7 +10498,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     const nextPosition = calculatePosition();
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
-    scheduleAutoClose();
+    // Kein Auto-Close: Nutzer muss im Popover scrollen können. Schließen per Klick/außen/Mouseleave.
   };
   const scheduleShowTooltip = () => {
     clearHideTimer();
@@ -10614,7 +10646,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
           role="tooltip"
           onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
           onPointerDown={clearAutoCloseTimer}
-          onPointerUp={scheduleAutoClose}
+          onPointerUp={clearAutoCloseTimer}
           onWheel={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onTouchMove={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onScroll={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}

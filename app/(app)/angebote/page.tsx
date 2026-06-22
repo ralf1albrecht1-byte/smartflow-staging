@@ -411,6 +411,20 @@ function renderOfferPositionSourcePopoverV17_90L371AT(sourceLine: string, label:
             return (
               <span
                 key={`source_context_${index}`}
+                ref={
+                  isHighlightedSourceLineV17_90L371AV
+                    ? (node) => {
+                        const container = node?.parentElement as HTMLElement | null;
+                        if (!node || !container || typeof window === "undefined") return;
+                        if (container.dataset.smartflowSourceAutoscrolled === "1") return;
+                        container.dataset.smartflowSourceAutoscrolled = "1";
+                        window.requestAnimationFrame(() => {
+                          const targetTop = node.offsetTop - Math.max(0, (container.clientHeight - node.clientHeight) / 2);
+                          container.scrollTop = Math.max(0, targetTop);
+                        });
+                      }
+                    : undefined
+                }
                 className={`block whitespace-pre-wrap break-words ${
                   isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
                 }`}
@@ -3406,7 +3420,6 @@ function OfferViewportTooltipV17_95({
         return;
       }
       openTooltipImmediately();
-      scheduleAutoClose();
     };
     trigger.addEventListener("focusout", focusOut);
     trigger.addEventListener("click", clicked);
@@ -3447,7 +3460,9 @@ function OfferViewportTooltipV17_95({
 
   useEffect(() => {
     if (!open) return;
-    const update = () => {
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
       const next = calculatePosition();
       if (next) setPosition(next);
     };
@@ -3471,7 +3486,7 @@ function OfferViewportTooltipV17_95({
           role="tooltip"
           onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
           onPointerDown={clearAutoCloseTimer}
-          onPointerUp={scheduleAutoClose}
+          onPointerUp={clearAutoCloseTimer}
           onWheel={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onTouchMove={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onScroll={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
