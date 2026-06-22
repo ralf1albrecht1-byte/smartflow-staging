@@ -10388,6 +10388,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     bottom?: number;
   } | null>(null);
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  const isStickySourceTooltipV17_90L371BB = isOrderSourceContextTooltipV17_90L371AV(badge, tooltip);
 
   const clearOpenTimer = () => {
     if (openTimerRef.current) {
