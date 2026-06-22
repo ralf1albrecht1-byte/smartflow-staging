@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
 // SMARTFLOW_V17_90L371AR_REVIEW_FLOW_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
@@ -22029,10 +22030,23 @@ export default function AuftraegePage() {
                                   className="rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50"
                                 >
                                   <div className="font-semibold leading-snug">
-                                    {compactRecognitionReviewSourceV17_90L262(
-                                      recognitionReviewDisplayTextV17_90L359(detail),
-                                      140,
-                                    )}
+                                    <span className="relative inline-flex max-w-full cursor-help">
+                                      <span className="break-words">
+                                        {compactRecognitionReviewSourceV17_90L262(
+                                          recognitionReviewDisplayTextV17_90L359(detail),
+                                          140,
+                                        )}
+                                      </span>
+                                      <ViewportAwareOrderBadgeTooltipV17_95
+                                        badge={{
+                                          key: `recognition_source_${recognitionReviewDetailKeyV17_90L70(detail)}_${index}`,
+                                          label: "Leistung nicht erkannt",
+                                          className: "border-red-300 bg-red-50 text-red-700",
+                                          tooltip: `Original aus Kundennachricht:\n${recognitionReviewDisplayTextV17_90L359(detail)}`,
+                                        }}
+                                        align="left"
+                                      />
+                                    </span>
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     <Button
@@ -22436,6 +22450,11 @@ export default function AuftraegePage() {
                                   item.serviceName,
                                   itemEvidenceInput,
                                 ));
+                          const itemSourceTooltipTextV17_90L371AT = compactText(
+                            sourceLineForItem
+                              ? `Original aus Kundennachricht:\n${sourceLineForItem}`
+                              : "",
+                          );
                           const catalogSummary = catalogService
                             ? `${catalogService.unit}${
                                 catalogPrice > 0
@@ -23271,13 +23290,26 @@ export default function AuftraegePage() {
                                             <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
                                               <span
                                                 title={itemReviewReasonV17_90L134}
-                                                className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                className={`relative max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                   hasCriticalItemReview
                                                     ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
                                                     : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
                                                 }`}
                                               >
                                                 {itemReviewReasonV17_90L134}
+                                                {itemSourceTooltipTextV17_90L371AT && (
+                                                  <ViewportAwareOrderBadgeTooltipV17_95
+                                                    badge={{
+                                                      key: `item_source_${item.key}`,
+                                                      label: itemReviewReasonV17_90L134,
+                                                      className: hasCriticalItemReview
+                                                        ? "border-red-300 bg-red-50 text-red-700"
+                                                        : "border-amber-300 bg-amber-50 text-amber-800",
+                                                      tooltip: itemSourceTooltipTextV17_90L371AT,
+                                                    }}
+                                                    align="left"
+                                                  />
+                                                )}
                                               </span>
                                             </span>
                                           )}

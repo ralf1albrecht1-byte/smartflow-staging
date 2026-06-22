@@ -2,6 +2,7 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
+// SMARTFLOW_V17_90L371AT_EXPLICIT_COST_FALLBACK_SOURCE_POPOVERS
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 import { prisma } from "@/lib/prisma";
 import { ensureAddressSplit } from "@/lib/address-parser";
@@ -14332,7 +14333,9 @@ function parseExplicitPricedServiceLinesV17_90L60(
   const result: ExplicitPricedServiceLineV17_90L60[] = [];
 
   lines.forEach((rawLine, index) => {
-    const raw = compactText(rawLine);
+    const raw = compactText(rawLine)
+      .replace(/[.;]+$/g, "")
+      .trim();
     if (!raw) return;
 
     const pricedPatterns = [
@@ -14371,7 +14374,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
 
     const flatMatch = raw.match(
       new RegExp(
-        `^(.*?)\s*,?\s*(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
+        `^(.*?)\\s*,?\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
         "i",
       ),
     );
@@ -14401,7 +14404,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
     // materialisiert.
     const amountOnlyCostMatch = raw.match(
       new RegExp(
-        `^(.*?)\s+(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
+        `^(.*?)\\s+(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
         "i",
       ),
     );
@@ -17659,7 +17662,7 @@ export async function processIncomingMessage(
   // SMARTFLOW_V17_90L371AP: If the exact same line is already a cost position
   // (e.g. "Parkgebühr CHF 12"), it must not also be persisted as an operational
   // special note. Access/parking instructions without a cost position remain.
-  const expensePositionSourceLinesV17_90L371AP = (
+  const firstAiExpensePositionSourceLinesV17_90L371AP = (
     firstAiWorkItemsSnapshotV17_90L213 as readonly any[]
   )
     .filter((item: any) => {
@@ -17683,6 +17686,23 @@ export async function processIncomingMessage(
         .trim(),
     )
     .filter(Boolean);
+
+  const explicitFallbackExpenseSourceLinesV17_90L371AT =
+    buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
+      messageText,
+      intakeCurrency,
+    )
+      .map((item: any) =>
+        String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+
+  const expensePositionSourceLinesV17_90L371AP = dedupeSpecialNoteLines([
+    ...firstAiExpensePositionSourceLinesV17_90L371AP,
+    ...explicitFallbackExpenseSourceLinesV17_90L371AT,
+  ]);
 
   if (expensePositionSourceLinesV17_90L371AP.length > 0) {
     hinweisItems = hinweisItems.filter(
@@ -18214,20 +18234,54 @@ export async function processIncomingMessage(
         .join("\n"),
     );
 
-  if (canonicalAiOrderItemsBaseV17_90L234.length === 0) {
-    const explicitExpenseFallbackRawItemsV17_90L371AR =
-      buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
-        messageText,
-        intakeCurrency,
-      );
-    if (explicitExpenseFallbackRawItemsV17_90L371AR.length > 0) {
-      canonicalAiOrderItemsBaseV17_90L234 = buildCanonicalAiOrderItemsV17_90L88(
-        explicitExpenseFallbackRawItemsV17_90L371AR,
+  const explicitExpenseFallbackRawItemsV17_90L371AT =
+    buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
+      messageText,
+      intakeCurrency,
+    );
+  if (explicitExpenseFallbackRawItemsV17_90L371AT.length > 0) {
+    const explicitExpenseFallbackCanonicalItemsV17_90L371AT =
+      buildCanonicalAiOrderItemsV17_90L88(
+        explicitExpenseFallbackRawItemsV17_90L371AT,
         translationText,
         messageText,
       );
+    const fallbackItemsToAppendV17_90L371AT =
+      explicitExpenseFallbackCanonicalItemsV17_90L371AT.filter((fallbackItem) => {
+        const fallbackSource = String(
+          fallbackItem.sourceText || fallbackItem.evidence || fallbackItem.description || "",
+        );
+        const fallbackName = String(fallbackItem.serviceName || "");
+        return !canonicalAiOrderItemsBaseV17_90L234.some((existingItem) => {
+          const existingSource = String(
+            existingItem.sourceText || existingItem.evidence || existingItem.description || "",
+          );
+          if (
+            existingSource &&
+            fallbackSource &&
+            (isSameLineLocalFactV17_90L371AP(existingSource, fallbackSource) ||
+              isSameBillableCostFactV17_90L371AR(existingSource, fallbackSource))
+          ) {
+            return true;
+          }
+          const sameLabel =
+            normalizeSemanticText(existingItem.serviceName) ===
+            normalizeSemanticText(fallbackName);
+          const sameAmount =
+            Math.abs(Number(existingItem.unitPrice || 0) - Number(fallbackItem.unitPrice || 0)) < 0.001;
+          const sameQuantity =
+            Math.abs(Number(existingItem.quantity || 0) - Number(fallbackItem.quantity || 0)) < 0.001;
+          return sameLabel && sameAmount && sameQuantity;
+        });
+      });
+
+    if (fallbackItemsToAppendV17_90L371AT.length > 0) {
+      canonicalAiOrderItemsBaseV17_90L234 = [
+        ...canonicalAiOrderItemsBaseV17_90L234,
+        ...fallbackItemsToAppendV17_90L371AT,
+      ];
       console.info(
-        `[${source}] ✅ explicit priced cost fallback kept ${canonicalAiOrderItemsBaseV17_90L234.length} billable cost item(s) before canonical lock`,
+        `[${source}] ✅ explicit priced cost fallback kept ${fallbackItemsToAppendV17_90L371AT.length} billable cost item(s) before canonical lock`,
       );
     }
   }

@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
@@ -291,6 +292,71 @@ const compactOfferValue = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+const normalizeOfferSourceMatchV17_90L371AT = (value: unknown) =>
+  compactOfferValue(value)
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function findOfferPositionSourceLineV17_90L371AT(
+  sourceText: unknown,
+  item: any,
+): string {
+  const source = String(sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  const itemName = compactOfferValue(item?.description || item?.serviceName);
+  const itemKey = normalizeOfferSourceMatchV17_90L371AT(itemName);
+  if (!source || !itemKey) return "";
+  const nameTokens = itemKey.split(" ").filter((token) => token.length >= 4);
+  const quantity = Number(item?.quantity || 0);
+  const unitPrice = Number(item?.unitPrice || 0);
+  let bestLine = "";
+  let bestScore = 0;
+  const lines = source
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactOfferValue(line))
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const lineKey = normalizeOfferSourceMatchV17_90L371AT(line);
+    if (!lineKey) continue;
+    let score = lineKey.includes(itemKey) ? 12 : 0;
+    score += nameTokens.filter((token) => lineKey.includes(token)).length * 4;
+    if (quantity > 0 && new RegExp(`\\b${String(quantity).replace(".", "[.,]")}\\b`).test(lineKey)) score += 4;
+    if (unitPrice > 0 && new RegExp(`\\b${String(unitPrice).replace(".", "[.,]")}\\b`).test(lineKey)) score += 4;
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+  return bestScore >= 4 ? bestLine : "";
+}
+
+function renderOfferPositionSourcePopoverV17_90L371AT(sourceLine: string, label: string) {
+  const source = compactOfferValue(sourceLine);
+  if (!source) return null;
+  return (
+    <OfferViewportTooltipV17_95 preferredWidth={420}>
+      <div className="space-y-2 text-left text-xs leading-snug">
+        <div className="font-semibold text-slate-900 dark:text-slate-50">
+          Original aus Kundennachricht
+        </div>
+        <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-2 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          {source}
+        </div>
+        <div className="text-[10px] text-muted-foreground">
+          {label || "Position prüfen"}
+        </div>
+      </div>
+    </OfferViewportTooltipV17_95>
+  );
+}
 type OfferCurrencyReviewDetailV17_90L227 = {
   serviceName: string;
   sourceCurrency: string;
@@ -10495,6 +10561,24 @@ export default function AngebotePage() {
                           !matchedService ||
                           !samePrice ||
                           !sameUnit;
+                        const offerSourceCorpusForItemV17_90L371AT = [
+                          (item as any)?.sourceDescription,
+                          (item as any)?.sourceText,
+                          (item as any)?.source_text,
+                          (item as any)?.evidence,
+                          linkedOrderData?.notes,
+                          linkedOrderData?.audioTranscript,
+                          form.specialNotes,
+                          form.notes,
+                        ]
+                          .filter(Boolean)
+                          .join("\n");
+                        const itemSourceLineV17_90L371AT =
+                          compactOfferValue((item as any)?.sourceDescription || (item as any)?.sourceText || (item as any)?.source_text || (item as any)?.evidence) ||
+                          findOfferPositionSourceLineV17_90L371AT(
+                            offerSourceCorpusForItemV17_90L371AT,
+                            item,
+                          );
                         const itemReviewReasonV17_90L134 =
                           (positionBlockingIssues.length > 0 ? positionBlockingIssues.join(", ") : "") ||
                           getOfferServiceReviewReasonV17_90L134(
@@ -10609,13 +10693,17 @@ export default function AngebotePage() {
                                     <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
                                       <span
                                         title={itemReviewReasonV17_90L134}
-                                        className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                        className={`relative max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                           hasCriticalReview
                                             ? "border-red-300 bg-red-100 text-red-800"
                                             : "border-amber-300 bg-amber-100 text-amber-800"
                                         }`}
                                       >
                                         {itemReviewReasonV17_90L134}
+                                        {renderOfferPositionSourcePopoverV17_90L371AT(
+                                          itemSourceLineV17_90L371AT,
+                                          itemReviewReasonV17_90L134,
+                                        )}
                                       </span>
                                     </span>
                                   )}
