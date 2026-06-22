@@ -14371,23 +14371,62 @@ function parseExplicitPricedServiceLinesV17_90L60(
 
     const flatMatch = raw.match(
       new RegExp(
-        `^(.*?)\\s*,?\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
+        `^(.*?)\s*,?\s*(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
         "i",
       ),
     );
-    if (!flatMatch) return;
-    const price = parseIntakeDecimalNumber(flatMatch[3]);
-    if (!price) return;
-    const currencyRaw = flatMatch[2] || flatMatch[4];
+    if (flatMatch) {
+      const price = parseIntakeDecimalNumber(flatMatch[3]);
+      if (!price) return;
+      const currencyRaw = flatMatch[2] || flatMatch[4];
+      result.push({
+        index,
+        raw,
+        serviceName: cleanExplicitServiceLabelV17_90L60(flatMatch[1]),
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice: price,
+        detectedCurrency: currencyRaw
+          ? normalizeCurrencyTokenV17_90L43(String(currencyRaw))
+          : null,
+      });
+      return;
+    }
+
+    // SMARTFLOW_V17_90L371AR: eindeutige Zusatzkosten mit Betrag sind
+    // abrechenbare Positionen, auch wenn kein Wort wie "pauschal" dabei steht:
+    // "Parkgebühr Baustelle CHF 12", "Bewilligung CHF 30",
+    // "Entsorgung Altmaterial CHF 40", "Anfahrt CHF 18".
+    // Normale Leistungszeilen ohne Zusatzkosten-Semantik werden hier nicht
+    // materialisiert.
+    const amountOnlyCostMatch = raw.match(
+      new RegExp(
+        `^(.*?)\s+(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
+        "i",
+      ),
+    );
+    if (!amountOnlyCostMatch) return;
+    const costLabel = cleanExplicitServiceLabelV17_90L60(amountOnlyCostMatch[1]);
+    const costPrice = parseIntakeDecimalNumber(amountOnlyCostMatch[3]);
+    const costCurrencyRaw = amountOnlyCostMatch[2] || amountOnlyCostMatch[4];
+    if (!costPrice) return;
+    const inferredType = normalizePositionType(
+      classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
+        raw: { positionType: "expense" },
+        serviceName: costLabel,
+        sourceText: raw,
+      }).positionType,
+    );
+    if (!["expense", "disposal", "flat_fee"].includes(inferredType)) return;
     result.push({
       index,
       raw,
-      serviceName: cleanExplicitServiceLabelV17_90L60(flatMatch[1]),
+      serviceName: costLabel,
       quantity: 1,
       unit: "Pauschal",
-      unitPrice: price,
-      detectedCurrency: currencyRaw
-        ? normalizeCurrencyTokenV17_90L43(String(currencyRaw))
+      unitPrice: costPrice,
+      detectedCurrency: costCurrencyRaw
+        ? normalizeCurrencyTokenV17_90L43(String(costCurrencyRaw))
         : null,
     });
   });
@@ -14410,6 +14449,48 @@ function parseExplicitPricedServiceLinesV17_90L60(
       serviceName: normalizeVisibleServiceNameCasingV17_66(matches[0].serviceName),
     };
   });
+}
+
+function buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
+  sourceText: string | null | undefined,
+  fallbackCurrency: string,
+): any[] {
+  return parseExplicitPricedServiceLinesV17_90L60(sourceText)
+    .filter((entry) => {
+      const inferredType = normalizePositionType(
+        classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
+          raw: { positionType: "expense" },
+          serviceName: entry.serviceName,
+          sourceText: entry.raw,
+        }).positionType,
+      );
+      return ["expense", "disposal", "flat_fee"].includes(inferredType);
+    })
+    .map((entry) => ({
+      positionType: "expense",
+      serviceName: entry.serviceName,
+      name: entry.serviceName,
+      action_name: entry.serviceName,
+      service_name: entry.serviceName,
+      quantity: entry.quantity,
+      menge: entry.quantity,
+      unit: entry.unit,
+      einheit: entry.unit,
+      unitPrice: entry.unitPrice,
+      unit_price: entry.unitPrice,
+      price: entry.unitPrice,
+      totalPrice: roundIntakeMoney(entry.quantity * entry.unitPrice),
+      currency: entry.detectedCurrency || fallbackCurrency || "CHF",
+      sourceText: entry.raw,
+      source_text: entry.raw,
+      evidence: entry.raw,
+      raw: entry.raw,
+      confidence: "hoch",
+      needsReview: false,
+      needs_review: false,
+      reviewReason: "",
+      review_reason: "",
+    }));
 }
 
 function explicitLineItemFingerprintV17_90L60(input: {
@@ -18132,6 +18213,24 @@ export async function processIncomingMessage(
         .filter(Boolean)
         .join("\n"),
     );
+
+  if (canonicalAiOrderItemsBaseV17_90L234.length === 0) {
+    const explicitExpenseFallbackRawItemsV17_90L371AR =
+      buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
+        messageText,
+        intakeCurrency,
+      );
+    if (explicitExpenseFallbackRawItemsV17_90L371AR.length > 0) {
+      canonicalAiOrderItemsBaseV17_90L234 = buildCanonicalAiOrderItemsV17_90L88(
+        explicitExpenseFallbackRawItemsV17_90L371AR,
+        translationText,
+        messageText,
+      );
+      console.info(
+        `[${source}] ✅ explicit priced cost fallback kept ${canonicalAiOrderItemsBaseV17_90L234.length} billable cost item(s) before canonical lock`,
+      );
+    }
+  }
 
   // V17.90L269: The price checker is strictly read-only and receives only
   // each item's own first-AI sourceText through the item object. It may create

@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AR_REVIEW_FLOW_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
 // SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
@@ -3939,6 +3940,43 @@ const uniqueOrderInfoLinesV17_66 = (lines: Array<string | null | undefined>) => 
   return result;
 };
 
+const orderContactLineKindV17_90L371AR = (value?: string | null) => {
+  const line = compactText(value);
+  if (/^Kontakt\s+vor\s+Ort\s*:/i.test(line)) return "onsite";
+  if (/^Kontakt\s*:/i.test(line)) return "generic";
+  return null;
+};
+
+const orderContactIdentityKeyV17_90L371AR = (value?: string | null) =>
+  normalizeForMatch(
+    compactText(value)
+      .replace(/^Kontakt\s+vor\s+Ort\s*:\s*/i, "")
+      .replace(/^Kontakt\s*:\s*/i, "")
+      .replace(/(?:nur\s+)?(?:whatsapp|sms|telefon|anruf|e-?mail|email)/gi, " ")
+      .replace(/(?:zuerst|vorher|anrufen|melden|kontaktieren)/gi, " "),
+  );
+
+const dedupeOrderContactInfoLinesV17_90L371AR = (lines: string[]) => {
+  const onsiteKeys = lines
+    .filter((line) => orderContactLineKindV17_90L371AR(line) === "onsite")
+    .map(orderContactIdentityKeyV17_90L371AR)
+    .filter(Boolean);
+
+  if (onsiteKeys.length === 0) return lines;
+
+  return lines.filter((line) => {
+    if (orderContactLineKindV17_90L371AR(line) !== "generic") return true;
+    const genericKey = orderContactIdentityKeyV17_90L371AR(line);
+    if (!genericKey) return true;
+    return !onsiteKeys.some(
+      (onsiteKey) =>
+        onsiteKey === genericKey ||
+        (Math.min(onsiteKey.length, genericKey.length) >= 8 &&
+          (onsiteKey.includes(genericKey) || genericKey.includes(onsiteKey))),
+    );
+  });
+};
+
 type OrderInfoSummaryV17_65 = {
   safety: string[];
   primary: string[];
@@ -5690,6 +5728,26 @@ const isUnresolvedRecognitionReviewPlaceholderItemV17_90L359 = (
       (!supportedName &&
         (Number(item.quantity || 0) <= 0 || Number(item.unitPrice || 0) <= 0)),
   );
+};
+
+// SMARTFLOW_V17_90L371AR: A read-only recognition finding must not immediately
+// render a large empty editable position form. Before the user presses
+// "Übernehmen", the editor shows only the compact red review card with
+// Übernehmen/Verwerfen. Real red positions with a concrete name/quantity, e.g.
+// "Spezialreiniger 4 Eimer, Preis prüfen", stay visible.
+const isUnacceptedRecognitionReviewDraftItemV17_90L371AR = (
+  item: FormItem,
+): boolean => {
+  if ((item as any)._manualUserAdded) return false;
+  if (compactText(item.recognitionReviewKey)) return false;
+
+  const name = compactText(item.serviceName);
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const hasConcreteAmount = quantity > 0 || unitPrice > 0;
+  const hasConcreteName = Boolean(name && !isInternalReviewServiceName(name));
+
+  return Boolean(!hasConcreteAmount && !hasConcreteName);
 };
 
 const recognitionReviewHasSeparateDisplayTextV17_90L253 = (
@@ -14375,12 +14433,18 @@ export default function AuftraegePage() {
 
   const visibleFormItemsWithIndexesV17_90L359 = formItems
     .map((item, index) => ({ item, index }))
-    .filter(
-      ({ item }) =>
-        !currentRecognitionReviewDetailsV17_90L69.some((detail) =>
-          isUnresolvedRecognitionReviewPlaceholderItemV17_90L359(detail, item),
-        ),
-    );
+    .filter(({ item }) => {
+      if (
+        currentRecognitionReviewDetailsV17_90L69.length > 0 &&
+        isUnacceptedRecognitionReviewDraftItemV17_90L371AR(item)
+      ) {
+        return false;
+      }
+
+      return !currentRecognitionReviewDetailsV17_90L69.some((detail) =>
+        isUnresolvedRecognitionReviewPlaceholderItemV17_90L359(detail, item),
+      );
+    });
   const visibleFormItemsV17_90L359 = visibleFormItemsWithIndexesV17_90L359.map(
     ({ item }) => item,
   );
@@ -16484,8 +16548,10 @@ export default function AuftraegePage() {
           orderInfoLinesEquivalentV17_66(compactText(line), reviewText),
         ),
     );
-  const primaryInfoLines = formInfoSummary.primary.filter(
-    (line) => !isRecognitionReviewSpecialNoteV17_90L262(line),
+  const primaryInfoLines = dedupeOrderContactInfoLinesV17_90L371AR(
+    formInfoSummary.primary.filter(
+      (line) => !isRecognitionReviewSpecialNoteV17_90L262(line),
+    ),
   );
   const compactPrimaryInfoLines: string[] = canonicalFormInfoV2
     ? [...primaryInfoLines]
@@ -16602,11 +16668,13 @@ export default function AuftraegePage() {
     ...recognizedDangerNoteLinesV17_90L328,
     ...manualSpecialNoteGroupsV17_90L329.safety,
   ]);
-  const displayPrimaryInfoLinesV17_90L328 = uniqueOrderInfoLinesV17_66([
-    ...compactPrimaryInfoLines,
-    ...recognizedPrimaryInfoLinesV17_90L328,
-    ...manualSpecialNoteGroupsV17_90L329.primary,
-  ]).filter(
+  const displayPrimaryInfoLinesV17_90L328 = dedupeOrderContactInfoLinesV17_90L371AR(
+    uniqueOrderInfoLinesV17_66([
+      ...compactPrimaryInfoLines,
+      ...recognizedPrimaryInfoLinesV17_90L328,
+      ...manualSpecialNoteGroupsV17_90L329.primary,
+    ]),
+  ).filter(
     (line) =>
       !displayDangerNoteLinesV17_90L328.some((warning) =>
         orderInfoLinesEquivalentV17_66(warning, line),
