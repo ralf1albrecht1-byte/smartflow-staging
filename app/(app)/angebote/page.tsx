@@ -4088,6 +4088,8 @@ function OfferServiceReviewTooltip({
   const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInTriggerRef = useRef(false);
+  const pointerInTooltipRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
   const [position, setPosition] = useState<{
@@ -4182,7 +4184,11 @@ function OfferServiceReviewTooltip({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      if (pointerInTriggerRef.current || pointerInTooltipRef.current) return;
+      setOpen(false);
+    }, 650);
   };
 
   useEffect(() => {
@@ -4195,14 +4201,23 @@ function OfferServiceReviewTooltip({
       }
     };
 
-    trigger.addEventListener("pointerenter", scheduleShowTooltip);
-    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    const handleTriggerPointerEnterV17_90L371BB = () => {
+      pointerInTriggerRef.current = true;
+      scheduleShowTooltip();
+    };
+    const handleTriggerPointerLeaveV17_90L371BB = () => {
+      pointerInTriggerRef.current = false;
+      scheduleHideTooltip();
+    };
+
+    trigger.addEventListener("pointerenter", handleTriggerPointerEnterV17_90L371BB);
+    trigger.addEventListener("pointerleave", handleTriggerPointerLeaveV17_90L371BB);
     trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
 
     return () => {
-      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
-      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("pointerenter", handleTriggerPointerEnterV17_90L371BB);
+      trigger.removeEventListener("pointerleave", handleTriggerPointerLeaveV17_90L371BB);
       trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
       clearOpenTimer();
@@ -4238,8 +4253,14 @@ function OfferServiceReviewTooltip({
         <span
           ref={tooltipRef}
           role="tooltip"
-          onPointerEnter={clearHideTimer}
-          onPointerLeave={scheduleHideTooltip}
+          onPointerEnter={() => {
+            pointerInTooltipRef.current = true;
+            clearHideTimer();
+          }}
+          onPointerLeave={() => {
+            pointerInTooltipRef.current = false;
+            scheduleHideTooltip();
+          }}
           style={{
             left: position.left,
             width: position.width,

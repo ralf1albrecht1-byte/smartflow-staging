@@ -10120,6 +10120,7 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
   forceVisible = false,
 ) => {
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  const isStickySourceTooltipV17_90L371BB = isOrderSourceContextTooltipV17_90L371AV(badge, tooltip);
   if (!tooltip) return null;
   const alignClass = align === "right" ? "right-0" : "left-0";
   const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
@@ -10376,6 +10377,8 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInTriggerRef = useRef(false);
+  const pointerInTooltipRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
@@ -10519,7 +10522,11 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      if (pointerInTriggerRef.current || pointerInTooltipRef.current) return;
+      setOpen(false);
+    }, isStickySourceTooltipV17_90L371BB ? 450 : 900);
   };
 
   useEffect(() => {
@@ -10532,15 +10539,24 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       }
     };
 
-    trigger.addEventListener("pointerenter", scheduleShowTooltip);
-    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    const handleTriggerPointerEnterV17_90L371BB = () => {
+      pointerInTriggerRef.current = true;
+      scheduleShowTooltip();
+    };
+    const handleTriggerPointerLeaveV17_90L371BB = () => {
+      pointerInTriggerRef.current = false;
+      scheduleHideTooltip();
+    };
+
+    trigger.addEventListener("pointerenter", handleTriggerPointerEnterV17_90L371BB);
+    trigger.addEventListener("pointerleave", handleTriggerPointerLeaveV17_90L371BB);
     trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
     trigger.addEventListener("click", openTooltipByClick);
 
     return () => {
-      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
-      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("pointerenter", handleTriggerPointerEnterV17_90L371BB);
+      trigger.removeEventListener("pointerleave", handleTriggerPointerLeaveV17_90L371BB);
       trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
       trigger.removeEventListener("click", openTooltipByClick);
@@ -10648,13 +10664,20 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         <span
           ref={tooltipRef}
           role="tooltip"
-          onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
+          onPointerEnter={() => {
+            pointerInTooltipRef.current = true;
+            clearHideTimer();
+            clearAutoCloseTimer();
+          }}
           onPointerDown={clearAutoCloseTimer}
           onPointerUp={clearAutoCloseTimer}
           onWheel={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onTouchMove={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
           onScroll={(event) => { event.stopPropagation(); clearAutoCloseTimer(); }}
-          onPointerLeave={scheduleHideTooltip}
+          onPointerLeave={() => {
+            pointerInTooltipRef.current = false;
+            scheduleHideTooltip();
+          }}
           style={{
             left: position.left,
             width: position.width,

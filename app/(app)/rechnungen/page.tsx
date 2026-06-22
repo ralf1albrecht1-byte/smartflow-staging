@@ -3685,6 +3685,8 @@ function InvoiceViewportTooltip({
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInTriggerRef = useRef(false);
+  const pointerInTooltipRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
     left: number;
@@ -3801,8 +3803,9 @@ function InvoiceViewportTooltip({
     clearHideTimer();
     hideTimerRef.current = setTimeout(() => {
       hideTimerRef.current = null;
+      if (pointerInTriggerRef.current || pointerInTooltipRef.current) return;
       setTooltipOpen(false);
-    }, 1600);
+    }, autoClose ? 900 : 650);
   };
 
   useEffect(() => {
@@ -3810,10 +3813,12 @@ function InvoiceViewportTooltip({
     if (!trigger) return;
     const pointerEntered = () => {
       if (isMobileDismissMode()) return;
+      pointerInTriggerRef.current = true;
       scheduleShowTooltip();
     };
     const pointerLeft = () => {
       if (isMobileDismissMode()) return;
+      pointerInTriggerRef.current = false;
       scheduleHide();
     };
     const focused = () => {
@@ -3944,6 +3949,7 @@ function InvoiceViewportTooltip({
             role="tooltip"
             onPointerEnter={() => {
               if (isMobileDismissMode()) return;
+              pointerInTooltipRef.current = true;
               clearHideTimer();
               clearAutoCloseTimer();
             }}
@@ -3972,6 +3978,7 @@ function InvoiceViewportTooltip({
             }}
             onPointerLeave={() => {
               if (isMobileDismissMode()) return;
+              pointerInTooltipRef.current = false;
               scheduleHide();
             }}
             style={{
