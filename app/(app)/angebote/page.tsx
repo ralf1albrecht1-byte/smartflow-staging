@@ -411,16 +411,6 @@ function renderOfferPositionSourcePopoverV17_90L371AT(sourceLine: string, label:
             return (
               <span
                 key={`source_context_${index}`}
-                ref={
-                  isHighlightedSourceLineV17_90L371AV
-                    ? (node) => {
-                        if (!node || typeof window === "undefined") return;
-                        window.requestAnimationFrame(() =>
-                          node.scrollIntoView({ block: "center", inline: "nearest" }),
-                        );
-                      }
-                    : undefined
-                }
                 className={`block whitespace-pre-wrap break-words ${
                   isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
                 }`}
@@ -4204,7 +4194,9 @@ function OfferServiceReviewTooltip({
 
   useEffect(() => {
     if (!open) return;
-    const update = () => {
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
     };

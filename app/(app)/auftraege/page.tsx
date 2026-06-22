@@ -906,16 +906,6 @@ function renderOrderSourceContextTooltipContentV17_90L371AV(tooltip: string, lab
           return (
             <span
               key={`order_source_context_${index}`}
-              ref={
-                isHighlightedSourceLineV17_90L371AV
-                  ? (node) => {
-                      if (!node || typeof window === "undefined") return;
-                      window.requestAnimationFrame(() =>
-                        node.scrollIntoView({ block: "center", inline: "nearest" }),
-                      );
-                    }
-                  : undefined
-              }
               className={`block whitespace-pre-wrap break-words ${
                 isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
               }`}
@@ -5566,7 +5556,11 @@ const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
   const lines = ["Leistung nicht erkannt"];
 
   if (details.length > 0) {
-    lines.push(...details.slice(0, 8).map(formatRecognitionReviewLineV17_90L69));
+    const detailLines = details
+      .slice(0, 8)
+      .map(formatRecognitionReviewLineV17_90L69)
+      .filter((line) => !/^•\s*Leistung nicht erkannt\.?$/i.test(line.trim()));
+    lines.push(...(detailLines.length > 0 ? detailLines : ["• Leistung nicht erkannt."]));
   } else {
     lines.push("• Leistung nicht erkannt.");
   }
@@ -10592,7 +10586,9 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
 
   useEffect(() => {
     if (!open) return;
-    const update = () => {
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
     };
@@ -10975,7 +10971,9 @@ const ViewportAwareOrderServiceTooltip = ({
 
   useEffect(() => {
     if (!open) return;
-    const update = () => {
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
     };
@@ -11185,7 +11183,9 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
 
   useEffect(() => {
     if (!open) return;
-    const update = () => {
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
       const nextPosition = calculatePosition();
       if (nextPosition) setPosition(nextPosition);
     };
@@ -22163,14 +22163,15 @@ export default function AuftraegePage() {
                                   key={`${recognitionReviewDetailKeyV17_90L70(detail)}-${index}`}
                                   className="rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50"
                                 >
-                                  <div className="font-semibold leading-snug">
-                                    <span className="relative inline-flex max-w-full cursor-help">
-                                      <span className="break-words">
-                                        {compactRecognitionReviewSourceV17_90L262(
-                                          recognitionReviewDisplayTextV17_90L359(detail),
-                                          140,
-                                        )}
-                                      </span>
+                                  <div className="flex flex-wrap items-start gap-2 font-semibold leading-snug">
+                                    <span className="min-w-0 flex-1 break-words">
+                                      {compactRecognitionReviewSourceV17_90L262(
+                                        recognitionReviewDisplayTextV17_90L359(detail),
+                                        140,
+                                      )}
+                                    </span>
+                                    <span className="relative inline-flex shrink-0 cursor-help select-none rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700 shadow-sm hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-900/40">
+                                      Text
                                       <ViewportAwareOrderBadgeTooltipV17_95
                                         badge={{
                                           key: `recognition_source_${recognitionReviewDetailKeyV17_90L70(detail)}_${index}`,
