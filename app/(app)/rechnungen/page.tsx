@@ -364,52 +364,75 @@ function buildInvoiceSourceContextTooltipV17_90L371AU(
 ): string {
   const source = compactInvoiceValue(sourceLine);
   if (!source) return "";
-  const lines = String(sourceText || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+/g)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return `➜ ${source}`;
+
+  const normalizeContextInputV17_90L371AV = (value: unknown) =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+
+  const splitContextLinesV17_90L371AV = (value: unknown) => {
+    const raw = normalizeContextInputV17_90L371AV(value)
+      .replace(/\b(WhatsApp|Kundennachricht)\s*:\s*/gi, "$1:\n")
+      .replace(/\b(Neuer Auftrag:)\s*/gi, "$1\n")
+      .replace(/(?<=[.!?])\s+(?=[A-ZÄÖÜÀ-ÖØ-Þ0-9])/gu, "\n");
+    return raw
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  };
+
+  const rawLines = splitContextLinesV17_90L371AV(sourceText);
+  const lines = rawLines.length > 0 ? rawLines.slice(0, 160) : [source];
   const sourceKey = normalizeInvoiceSourceMatchV17_90L371AT(source);
   const matchedIndex = lines.findIndex((line) => {
     const lineKey = normalizeInvoiceSourceMatchV17_90L371AT(line);
     return Boolean(sourceKey && lineKey && (lineKey.includes(sourceKey) || sourceKey.includes(lineKey)));
   });
-  const renderedLines = lines.slice(0, 120).map((line, index) =>
+
+  const renderedLines = lines.map((line, index) =>
     index === matchedIndex ? `➜ ${line}` : `  ${line}`,
   );
+
   if (matchedIndex < 0) renderedLines.unshift(`➜ ${source}`);
   return renderedLines.join("\n");
 }
 
+function sourcePopoverHighlightClassV17_90L371AV(label: string) {
+  return /(?:preis\s*prüfen|preis\s*pruefen|preis\s*prufen|menge|einheit|leistung\s*nicht\s*erkannt|vor\s+angebot|vor\s+rechnung|unklar)/i.test(label)
+    ? "rounded-md bg-red-100 px-1.5 py-1 font-bold text-red-950 ring-1 ring-red-200 dark:bg-red-900/40 dark:text-red-100 dark:ring-red-800"
+    : "rounded-md bg-amber-100 px-1.5 py-1 font-bold text-amber-950 ring-1 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:ring-amber-800";
+}
+
 function renderInvoicePositionSourcePopoverV17_90L371AT(sourceLine: string, label: string) {
-  const source = compactInvoiceValue(sourceLine);
+  const source = String(sourceLine || "").trim();
   if (!source) return null;
+  const highlightClass = sourcePopoverHighlightClassV17_90L371AV(label);
   return (
-    <InvoiceViewportTooltip preferredWidth={420} autoClose={false}>
-      <div className="space-y-2 text-left text-xs leading-snug">
-        <div className="font-semibold text-slate-900 dark:text-slate-50">
+    <InvoiceViewportTooltip preferredWidth={520} autoClose={false}>
+      <div className="w-full space-y-2 text-left text-xs leading-snug">
+        <div className="font-semibold text-slate-950 dark:text-slate-50">
           Original aus Kundennachricht
         </div>
-        <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-2 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+        <div className="max-h-64 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800 shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           {source.split("\n").map((line, index) => {
-            const isHighlightedSourceLineV17_90L371AU = line.trim().startsWith("➜");
+            const trimmed = line.trim();
+            const isHighlightedSourceLineV17_90L371AV = trimmed.startsWith("➜");
+            const visibleLine = trimmed.replace(/^➜\s*/, "");
             return (
               <span
                 key={`source_context_${index}`}
                 className={`block whitespace-pre-wrap break-words ${
-                  isHighlightedSourceLineV17_90L371AU
-                    ? "rounded bg-amber-100 px-1 py-0.5 font-bold text-amber-950 dark:bg-amber-900/40 dark:text-amber-100"
-                    : ""
+                  isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
                 }`}
               >
-                {line}
+                {visibleLine}
               </span>
             );
           })}
         </div>
-        <div className="text-[10px] text-muted-foreground">
+        <div className="text-[10px] font-medium text-muted-foreground">
           {label || "Position prüfen"}
         </div>
       </div>
@@ -10185,7 +10208,7 @@ export default function RechnungenPage() {
                                           >
                                             {itemReviewReasonV17_90L134}
                                             {renderInvoicePositionSourcePopoverV17_90L371AT(
-                                              itemSourceLineV17_90L371AT,
+                                              itemSourceContextV17_90L371AU || itemSourceLineV17_90L371AT,
                                               itemReviewReasonV17_90L134,
                                             )}
                                           </span>

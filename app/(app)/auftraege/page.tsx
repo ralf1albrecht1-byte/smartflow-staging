@@ -826,12 +826,22 @@ function buildOrderSourceContextTooltipV17_90L371AU(
   const source = compactText(String(sourceLine ?? ""));
   if (!source) return "";
 
-  const lines = String(customerText ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+/g)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const splitContextLinesV17_90L371AV = (value: unknown) => {
+    const raw = String(value ?? "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[ \t]+/g, " ")
+      .trim()
+      .replace(/\b(WhatsApp|Kundennachricht)\s*:\s*/gi, "$1:\n")
+      .replace(/\b(Neuer Auftrag:)\s*/gi, "$1\n")
+      .replace(/(?<=[.!?])\s+(?=[A-ZÄÖÜÀ-ÖØ-Þ0-9])/gu, "\n");
+    return raw
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  };
+
+  const lines = splitContextLinesV17_90L371AV(customerText).slice(0, 160);
 
   if (lines.length === 0) {
     return `Original aus Kundennachricht:\n➜ ${source}`;
@@ -847,12 +857,62 @@ function buildOrderSourceContextTooltipV17_90L371AU(
     );
   });
 
-  const renderedLines = lines.slice(0, 120).map((line, index) =>
+  const renderedLines = lines.map((line, index) =>
     index === matchedIndex ? `➜ ${line}` : `  ${line}`,
   );
 
   if (matchedIndex < 0) renderedLines.unshift(`➜ ${source}`);
   return [`Original aus Kundennachricht:`, ...renderedLines].join("\n");
+}
+
+function isOrderSourceContextTooltipV17_90L371AV(badge: ReviewBadge, tooltip: string) {
+  return (
+    badge.key.startsWith("item_source_") ||
+    badge.key.startsWith("recognition_source_") ||
+    tooltip.trim().startsWith("Original aus Kundennachricht")
+  );
+}
+
+function sourcePopoverHighlightClassV17_90L371AV(label: string) {
+  return /(?:preis\s*prüfen|preis\s*pruefen|preis\s*prufen|menge|einheit|leistung\s*nicht\s*erkannt|vor\s+angebot|vor\s+rechnung|unklar)/i.test(label)
+    ? "rounded-md bg-red-100 px-1.5 py-1 font-bold text-red-950 ring-1 ring-red-200 dark:bg-red-900/40 dark:text-red-100 dark:ring-red-800"
+    : "rounded-md bg-amber-100 px-1.5 py-1 font-bold text-amber-950 ring-1 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:ring-amber-800";
+}
+
+function renderOrderSourceContextTooltipContentV17_90L371AV(tooltip: string, label: string) {
+  const lines = String(tooltip || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const titleLine = lines[0]?.replace(/:$/, "") || "Original aus Kundennachricht";
+  const bodyLines = lines[0]?.startsWith("Original aus Kundennachricht") ? lines.slice(1) : lines;
+  const highlightClass = sourcePopoverHighlightClassV17_90L371AV(label);
+  return (
+    <span className="block w-full space-y-2 text-left text-xs leading-snug">
+      <span className="block font-semibold text-slate-950 dark:text-slate-50">
+        {titleLine}
+      </span>
+      <span className="block max-h-64 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800 shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+        {bodyLines.map((line, index) => {
+          const isHighlightedSourceLineV17_90L371AV = line.trim().startsWith("➜");
+          const visibleLine = line.trim().replace(/^➜\s*/, "");
+          return (
+            <span
+              key={`order_source_context_${index}`}
+              className={`block whitespace-pre-wrap break-words ${
+                isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
+              }`}
+            >
+              {visibleLine}
+            </span>
+          );
+        })}
+      </span>
+      <span className="block text-[10px] font-medium text-muted-foreground">
+        {label || "Position prüfen"}
+      </span>
+    </span>
+  );
 }
 
 
@@ -10561,7 +10621,9 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
                 ? renderOrderAppointmentTooltipContentV17_90L169(badge, tooltip)
                 : isOperationalDetailBadgeV17_90L169(badge)
                   ? renderOrderOperationalTooltipContentV17_90L169(badge, tooltip)
-                  : tooltip.split("\n").map((line, index) => {
+                  : isOrderSourceContextTooltipV17_90L371AV(badge, tooltip)
+                    ? renderOrderSourceContextTooltipContentV17_90L371AV(tooltip, badge.label)
+                    : tooltip.split("\n").map((line, index) => {
                       const isHighlightedSourceLineV17_90L371AU = line.trim().startsWith("➜");
                       return (
                         <span
