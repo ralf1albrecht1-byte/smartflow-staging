@@ -2,8 +2,6 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
-// SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
-// SMARTFLOW_V17_90L371AT_EXPLICIT_COST_FALLBACK_SOURCE_POPOVERS
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 import { prisma } from "@/lib/prisma";
 import { ensureAddressSplit } from "@/lib/address-parser";
@@ -11666,6 +11664,81 @@ function isLineLocalFlatCostCandidateV17_90L371AM(args: {
   return (!args.unit || isReviewUnitV17_90L(args.unit) || args.quantity <= 0) && !hasExplicitQuantityUnit;
 }
 
+
+function hasLooseLineLocalCountEvidenceV17_90L371BD(
+  sourceText: string,
+): boolean {
+  const source = String(sourceText || "").replace(/\s+/g, " ").trim();
+  if (!source) return false;
+
+  // Generic count+noun evidence, not a service vocabulary list. This keeps
+  // open-price material/equipment rows such as "2 Kanister" or "4 Tage"
+  // eligible, while free-text instructions without any billable amount stay
+  // review-only.
+  return /\b\d+(?:[.,]\d+)?\s+[\p{L}][\p{L}0-9%/²³._-]{2,}\b/u.test(
+    source,
+  );
+}
+
+function hasHardLineLocalBillingEvidenceV17_90L371BD(args: {
+  sourceText: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+}): boolean {
+  const sourceText = String(args.sourceText || "").trim();
+  if (!sourceText) return false;
+
+  const unitPrice = Number(args.unitPrice || 0);
+  if (Number.isFinite(unitPrice) && unitPrice > 0) return true;
+
+  const quantity = Number(args.quantity || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+  if (!args.unit || isReviewUnitV17_90L(args.unit)) return false;
+
+  if (detectAllQuantityUnitsFromText(sourceText).length > 0) return true;
+  return hasLooseLineLocalCountEvidenceV17_90L371BD(sourceText);
+}
+
+function shouldConvertWeakCanonicalItemToReviewV17_90L371BD(args: {
+  serviceName: string;
+  sourceText: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  explicitNeedsReview: boolean;
+  missingServiceName: boolean;
+  missingEvidence: boolean;
+}): boolean {
+  if (args.missingServiceName || args.missingEvidence) return true;
+  if (isInternalReviewServiceNameV17_90L(args.serviceName)) return false;
+  if (
+    hasHardLineLocalBillingEvidenceV17_90L371BD({
+      sourceText: args.sourceText,
+      quantity: args.quantity,
+      unit: args.unit,
+      unitPrice: args.unitPrice,
+    })
+  ) {
+    return false;
+  }
+
+  // If the first AI already marks a row as review and the row has no hard
+  // billing evidence, it must not become a normal editable material/service
+  // position. The UI should present it as a red review decision instead.
+  return args.explicitNeedsReview || true;
+}
+
+function canonicalReviewLabelFromEvidenceV17_90L371BD(
+  sourceText: string,
+  fallback: string,
+): string {
+  const source = compactText(sourceText);
+  if (source && source.length <= 160) return source;
+  const cleaned = compactText(fallback);
+  return cleaned || "Leistung prüfen";
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
   _translatedText?: string | null,
@@ -11792,12 +11865,48 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     const missingServiceName = !rawServiceName;
     const missingEvidence = !sourceText;
-    const missingPrice = unitPrice <= 0;
-    const missingQuantity = quantity <= 0;
-    const missingUnit = !unit || isReviewUnitV17_90L(unit);
     const explicitNeedsReview = Boolean(
       raw?.needsReview ?? raw?.needs_review ?? false,
     );
+    const weakEvidenceReviewOnlyV17_90L371BD =
+      shouldConvertWeakCanonicalItemToReviewV17_90L371BD({
+        serviceName,
+        sourceText,
+        quantity,
+        unit,
+        unitPrice,
+        explicitNeedsReview,
+        missingServiceName,
+        missingEvidence,
+      });
+
+    if (weakEvidenceReviewOnlyV17_90L371BD) {
+      const reviewLabel = canonicalReviewLabelFromEvidenceV17_90L371BD(
+        sourceText,
+        serviceName,
+      );
+      return {
+        serviceName: "Leistung prüfen",
+        positionType: normalizePositionType("service"),
+        description: sourceText || reviewLabel,
+        quantity: 0,
+        unit: "Einheit prüfen",
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: `service_action_unclear:${reviewLabel}`,
+        sourceText: sourceText || null,
+        evidence: sourceText || null,
+        detectedCurrency,
+        canonicalOrder,
+        confidence,
+        unitSource: "missing",
+      } as CanonicalAiOrderItemV17_90L88;
+    }
+
+    const missingPrice = unitPrice <= 0;
+    const missingQuantity = quantity <= 0;
+    const missingUnit = !unit || isReviewUnitV17_90L(unit);
     const positionTypeNeedsReview =
       positionTypeGuardV17_90L371AM.confidence === "review";
     const explicitReviewReason = String(
@@ -14334,9 +14443,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
   const result: ExplicitPricedServiceLineV17_90L60[] = [];
 
   lines.forEach((rawLine, index) => {
-    const raw = compactText(rawLine)
-      .replace(/[.;]+$/g, "")
-      .trim();
+    const raw = compactText(rawLine);
     if (!raw) return;
 
     const pricedPatterns = [
@@ -14375,7 +14482,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
 
     const flatMatch = raw.match(
       new RegExp(
-        `^(.*?)\\s*,?\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
+        `^(.*?)\s*,?\s*(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
         "i",
       ),
     );
@@ -14405,7 +14512,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
     // materialisiert.
     const amountOnlyCostMatch = raw.match(
       new RegExp(
-        `^(.*?)\\s+(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
+        `^(.*?)\s+(?:(${currencyPattern})\s*)?(${numberPattern})(?:\s*(${currencyPattern}))?\s*$`,
         "i",
       ),
     );
@@ -14413,14 +14520,6 @@ function parseExplicitPricedServiceLinesV17_90L60(
     const costLabel = cleanExplicitServiceLabelV17_90L60(amountOnlyCostMatch[1]);
     const costPrice = parseIntakeDecimalNumber(amountOnlyCostMatch[3]);
     const costCurrencyRaw = amountOnlyCostMatch[2] || amountOnlyCostMatch[4];
-    // SMARTFLOW_V17_90L371AU: Amount-only fallback is intentionally stricter
-    // than normal priced service parsing. It exists only for explicit billable
-    // costs such as "Parkgebühr CHF 12". A bare trailing number without a
-    // currency is often an address/house number ("Industriestrasse 30",
-    // "Bahnhofstrasse 18", "Landstrasse 70") and must never become an expense.
-    if (!costCurrencyRaw) return;
-    if (/(?:strasse|straße|str\.?|weg|gasse|platz|allee|rain|quai|street|road|avenue)\s+\d+[a-z]?/i.test(raw)) return;
-    if (/^\s*\d{4}\s+[A-Za-zÄÖÜäöü]/.test(raw)) return;
     if (!costPrice) return;
     const inferredType = normalizePositionType(
       classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
@@ -17671,7 +17770,7 @@ export async function processIncomingMessage(
   // SMARTFLOW_V17_90L371AP: If the exact same line is already a cost position
   // (e.g. "Parkgebühr CHF 12"), it must not also be persisted as an operational
   // special note. Access/parking instructions without a cost position remain.
-  const firstAiExpensePositionSourceLinesV17_90L371AP = (
+  const expensePositionSourceLinesV17_90L371AP = (
     firstAiWorkItemsSnapshotV17_90L213 as readonly any[]
   )
     .filter((item: any) => {
@@ -17695,23 +17794,6 @@ export async function processIncomingMessage(
         .trim(),
     )
     .filter(Boolean);
-
-  const explicitFallbackExpenseSourceLinesV17_90L371AT =
-    buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
-      messageText,
-      intakeCurrency,
-    )
-      .map((item: any) =>
-        String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "")
-          .replace(/\s+/g, " ")
-          .trim(),
-      )
-      .filter(Boolean);
-
-  const expensePositionSourceLinesV17_90L371AP = dedupeSpecialNoteLines([
-    ...firstAiExpensePositionSourceLinesV17_90L371AP,
-    ...explicitFallbackExpenseSourceLinesV17_90L371AT,
-  ]);
 
   if (expensePositionSourceLinesV17_90L371AP.length > 0) {
     hinweisItems = hinweisItems.filter(
@@ -18243,54 +18325,20 @@ export async function processIncomingMessage(
         .join("\n"),
     );
 
-  const explicitExpenseFallbackRawItemsV17_90L371AT =
-    buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
-      messageText,
-      intakeCurrency,
-    );
-  if (explicitExpenseFallbackRawItemsV17_90L371AT.length > 0) {
-    const explicitExpenseFallbackCanonicalItemsV17_90L371AT =
-      buildCanonicalAiOrderItemsV17_90L88(
-        explicitExpenseFallbackRawItemsV17_90L371AT,
+  if (canonicalAiOrderItemsBaseV17_90L234.length === 0) {
+    const explicitExpenseFallbackRawItemsV17_90L371AR =
+      buildExplicitPricedExpenseFallbackRawItemsV17_90L371AR(
+        messageText,
+        intakeCurrency,
+      );
+    if (explicitExpenseFallbackRawItemsV17_90L371AR.length > 0) {
+      canonicalAiOrderItemsBaseV17_90L234 = buildCanonicalAiOrderItemsV17_90L88(
+        explicitExpenseFallbackRawItemsV17_90L371AR,
         translationText,
         messageText,
       );
-    const fallbackItemsToAppendV17_90L371AT =
-      explicitExpenseFallbackCanonicalItemsV17_90L371AT.filter((fallbackItem) => {
-        const fallbackSource = String(
-          fallbackItem.sourceText || fallbackItem.evidence || fallbackItem.description || "",
-        );
-        const fallbackName = String(fallbackItem.serviceName || "");
-        return !canonicalAiOrderItemsBaseV17_90L234.some((existingItem) => {
-          const existingSource = String(
-            existingItem.sourceText || existingItem.evidence || existingItem.description || "",
-          );
-          if (
-            existingSource &&
-            fallbackSource &&
-            (isSameLineLocalFactV17_90L371AP(existingSource, fallbackSource) ||
-              isSameBillableCostFactV17_90L371AR(existingSource, fallbackSource))
-          ) {
-            return true;
-          }
-          const sameLabel =
-            normalizeSemanticText(existingItem.serviceName) ===
-            normalizeSemanticText(fallbackName);
-          const sameAmount =
-            Math.abs(Number(existingItem.unitPrice || 0) - Number(fallbackItem.unitPrice || 0)) < 0.001;
-          const sameQuantity =
-            Math.abs(Number(existingItem.quantity || 0) - Number(fallbackItem.quantity || 0)) < 0.001;
-          return sameLabel && sameAmount && sameQuantity;
-        });
-      });
-
-    if (fallbackItemsToAppendV17_90L371AT.length > 0) {
-      canonicalAiOrderItemsBaseV17_90L234 = [
-        ...canonicalAiOrderItemsBaseV17_90L234,
-        ...fallbackItemsToAppendV17_90L371AT,
-      ];
       console.info(
-        `[${source}] ✅ explicit priced cost fallback kept ${fallbackItemsToAppendV17_90L371AT.length} billable cost item(s) before canonical lock`,
+        `[${source}] ✅ explicit priced cost fallback kept ${canonicalAiOrderItemsBaseV17_90L234.length} billable cost item(s) before canonical lock`,
       );
     }
   }
