@@ -4068,6 +4068,7 @@ function OfferServiceReviewTooltip({
   align?: "left" | "right";
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -4218,6 +4219,7 @@ function OfferServiceReviewTooltip({
         typeof document !== "undefined" &&
         createPortal(
         <span
+          ref={tooltipRef}
           role="tooltip"
           onPointerEnter={clearHideTimer}
           onPointerLeave={scheduleHideTooltip}
