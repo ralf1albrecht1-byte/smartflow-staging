@@ -3802,7 +3802,7 @@ function InvoiceViewportTooltip({
     hideTimerRef.current = setTimeout(() => {
       hideTimerRef.current = null;
       setTooltipOpen(false);
-    }, 500);
+    }, 1600);
   };
 
   useEffect(() => {
@@ -3835,8 +3835,10 @@ function InvoiceViewportTooltip({
         return;
       }
       if (open) {
+        clearOpenTimer();
+        clearHideTimer();
         clearAutoCloseTimer();
-        setTooltipOpen(false);
+        setTooltipOpen(true);
         return;
       }
       openTooltipImmediately();

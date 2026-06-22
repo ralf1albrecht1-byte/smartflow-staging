@@ -10490,6 +10490,10 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       clearOpenTimer();
       clearHideTimer();
       clearAutoCloseTimer();
+      if (isOrderSourceContextTooltipV17_90L371AV(badge, tooltip)) {
+        setOpen(true);
+        return;
+      }
       setOpen(false);
       return;
     }
@@ -10515,7 +10519,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
   };
 
   useEffect(() => {
@@ -10945,7 +10949,7 @@ const ViewportAwareOrderServiceTooltip = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
   };
 
   useEffect(() => {
@@ -11157,7 +11161,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
   };
 
   useEffect(() => {

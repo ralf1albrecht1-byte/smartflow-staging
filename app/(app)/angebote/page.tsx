@@ -3401,7 +3401,7 @@ function OfferViewportTooltipV17_95({
   const scheduleHide = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
   };
 
   useEffect(() => {
@@ -3415,8 +3415,10 @@ function OfferViewportTooltipV17_95({
     trigger.addEventListener("focusin", openTooltipImmediately);
     const clicked = () => {
       if (open) {
+        clearOpenTimer();
+        clearHideTimer();
         clearAutoCloseTimer();
-        setOpen(false);
+        setOpen(true);
         return;
       }
       openTooltipImmediately();
@@ -4180,7 +4182,7 @@ function OfferServiceReviewTooltip({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 1600);
   };
 
   useEffect(() => {
