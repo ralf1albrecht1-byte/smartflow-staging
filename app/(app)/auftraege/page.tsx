@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
 // SMARTFLOW_V17_90L371AR_REVIEW_FLOW_CONTACT_DEDUPE
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
@@ -808,6 +809,51 @@ type ReviewBadge = {
 
 const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
+
+const normalizeOrderSourceContextMatchV17_90L371AU = (value: unknown) =>
+  compactText(String(value ?? ""))
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function buildOrderSourceContextTooltipV17_90L371AU(
+  customerText: unknown,
+  sourceLine: unknown,
+): string {
+  const source = compactText(String(sourceLine ?? ""));
+  if (!source) return "";
+
+  const lines = String(customerText ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return `Original aus Kundennachricht:\n➜ ${source}`;
+  }
+
+  const sourceKey = normalizeOrderSourceContextMatchV17_90L371AU(source);
+  const matchedIndex = lines.findIndex((line) => {
+    const lineKey = normalizeOrderSourceContextMatchV17_90L371AU(line);
+    return Boolean(
+      sourceKey &&
+        lineKey &&
+        (lineKey.includes(sourceKey) || sourceKey.includes(lineKey)),
+    );
+  });
+
+  const renderedLines = lines.slice(0, 120).map((line, index) =>
+    index === matchedIndex ? `➜ ${line}` : `  ${line}`,
+  );
+
+  if (matchedIndex < 0) renderedLines.unshift(`➜ ${source}`);
+  return [`Original aus Kundennachricht:`, ...renderedLines].join("\n");
+}
 
 
 // SMARTFLOW_V17_90L371Q: Merged contact review must not treat execution appointments as contacts.
@@ -10515,14 +10561,21 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
                 ? renderOrderAppointmentTooltipContentV17_90L169(badge, tooltip)
                 : isOperationalDetailBadgeV17_90L169(badge)
                   ? renderOrderOperationalTooltipContentV17_90L169(badge, tooltip)
-                  : tooltip.split("\n").map((line, index) => (
-                      <span
-                        key={`viewport_plain_${badge.key}_${index}`}
-                        className="block whitespace-pre-wrap break-words"
-                      >
-                        {line}
-                      </span>
-                    ))}
+                  : tooltip.split("\n").map((line, index) => {
+                      const isHighlightedSourceLineV17_90L371AU = line.trim().startsWith("➜");
+                      return (
+                        <span
+                          key={`viewport_plain_${badge.key}_${index}`}
+                          className={`block whitespace-pre-wrap break-words ${
+                            isHighlightedSourceLineV17_90L371AU
+                              ? "rounded-md bg-amber-100 px-1 py-0.5 font-bold text-amber-950 dark:bg-amber-900/40 dark:text-amber-100"
+                              : ""
+                          }`}
+                        >
+                          {line}
+                        </span>
+                      );
+                    })}
         </span>,
           document.body,
         )}
@@ -22042,7 +22095,10 @@ export default function AuftraegePage() {
                                           key: `recognition_source_${recognitionReviewDetailKeyV17_90L70(detail)}_${index}`,
                                           label: "Leistung nicht erkannt",
                                           className: "border-red-300 bg-red-50 text-red-700",
-                                          tooltip: `Original aus Kundennachricht:\n${recognitionReviewDisplayTextV17_90L359(detail)}`,
+                                          tooltip: buildOrderSourceContextTooltipV17_90L371AU(
+                                            visibleCustomerMessageText || customerMessageText,
+                                            recognitionReviewDisplayTextV17_90L359(detail),
+                                          ),
                                         }}
                                         align="left"
                                       />
@@ -22450,11 +22506,12 @@ export default function AuftraegePage() {
                                   item.serviceName,
                                   itemEvidenceInput,
                                 ));
-                          const itemSourceTooltipTextV17_90L371AT = compactText(
-                            sourceLineForItem
-                              ? `Original aus Kundennachricht:\n${sourceLineForItem}`
-                              : "",
-                          );
+                          const itemSourceTooltipTextV17_90L371AT = sourceLineForItem
+                            ? buildOrderSourceContextTooltipV17_90L371AU(
+                                visibleCustomerMessageText || customerMessageText,
+                                sourceLineForItem,
+                              )
+                            : "";
                           const catalogSummary = catalogService
                             ? `${catalogService.unit}${
                                 catalogPrice > 0

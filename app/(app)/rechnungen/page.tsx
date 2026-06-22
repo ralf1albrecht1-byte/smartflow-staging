@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 // SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
@@ -357,6 +358,31 @@ function findInvoicePositionSourceLineV17_90L371AT(
   return bestScore >= 4 ? bestLine : "";
 }
 
+function buildInvoiceSourceContextTooltipV17_90L371AU(
+  sourceText: unknown,
+  sourceLine: unknown,
+): string {
+  const source = compactInvoiceValue(sourceLine);
+  if (!source) return "";
+  const lines = String(sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return `➜ ${source}`;
+  const sourceKey = normalizeInvoiceSourceMatchV17_90L371AT(source);
+  const matchedIndex = lines.findIndex((line) => {
+    const lineKey = normalizeInvoiceSourceMatchV17_90L371AT(line);
+    return Boolean(sourceKey && lineKey && (lineKey.includes(sourceKey) || sourceKey.includes(lineKey)));
+  });
+  const renderedLines = lines.slice(0, 120).map((line, index) =>
+    index === matchedIndex ? `➜ ${line}` : `  ${line}`,
+  );
+  if (matchedIndex < 0) renderedLines.unshift(`➜ ${source}`);
+  return renderedLines.join("\n");
+}
+
 function renderInvoicePositionSourcePopoverV17_90L371AT(sourceLine: string, label: string) {
   const source = compactInvoiceValue(sourceLine);
   if (!source) return null;
@@ -367,7 +393,21 @@ function renderInvoicePositionSourcePopoverV17_90L371AT(sourceLine: string, labe
           Original aus Kundennachricht
         </div>
         <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-2 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          {source}
+          {source.split("\n").map((line, index) => {
+            const isHighlightedSourceLineV17_90L371AU = line.trim().startsWith("➜");
+            return (
+              <span
+                key={`source_context_${index}`}
+                className={`block whitespace-pre-wrap break-words ${
+                  isHighlightedSourceLineV17_90L371AU
+                    ? "rounded bg-amber-100 px-1 py-0.5 font-bold text-amber-950 dark:bg-amber-900/40 dark:text-amber-100"
+                    : ""
+                }`}
+              >
+                {line}
+              </span>
+            );
+          })}
         </div>
         <div className="text-[10px] text-muted-foreground">
           {label || "Position prüfen"}
@@ -10031,7 +10071,13 @@ export default function RechnungenPage() {
                                 invoiceSourceCorpusForItemV17_90L371AT,
                                 item,
                               );
-                            const itemReviewReasonV17_90L134 =
+                            const itemSourceContextV17_90L371AU = itemSourceLineV17_90L371AT
+                          ? buildInvoiceSourceContextTooltipV17_90L371AU(
+                              invoiceSourceCorpusForItemV17_90L371AT,
+                              itemSourceLineV17_90L371AT,
+                            )
+                          : "";
+                        const itemReviewReasonV17_90L134 =
                               (positionBlockingIssues.length > 0 ? positionBlockingIssues.join(", ") : "") ||
                               getInvoiceServiceReviewReasonV17_90L134(
                                 item,

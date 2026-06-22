@@ -2,6 +2,7 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
+// SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_EXPLICIT_COST_FALLBACK_SOURCE_POPOVERS
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 import { prisma } from "@/lib/prisma";
@@ -14412,6 +14413,14 @@ function parseExplicitPricedServiceLinesV17_90L60(
     const costLabel = cleanExplicitServiceLabelV17_90L60(amountOnlyCostMatch[1]);
     const costPrice = parseIntakeDecimalNumber(amountOnlyCostMatch[3]);
     const costCurrencyRaw = amountOnlyCostMatch[2] || amountOnlyCostMatch[4];
+    // SMARTFLOW_V17_90L371AU: Amount-only fallback is intentionally stricter
+    // than normal priced service parsing. It exists only for explicit billable
+    // costs such as "Parkgebühr CHF 12". A bare trailing number without a
+    // currency is often an address/house number ("Industriestrasse 30",
+    // "Bahnhofstrasse 18", "Landstrasse 70") and must never become an expense.
+    if (!costCurrencyRaw) return;
+    if (/(?:strasse|straße|str\.?|weg|gasse|platz|allee|rain|quai|street|road|avenue)\s+\d+[a-z]?/i.test(raw)) return;
+    if (/^\s*\d{4}\s+[A-Za-zÄÖÜäöü]/.test(raw)) return;
     if (!costPrice) return;
     const inferredType = normalizePositionType(
       classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
