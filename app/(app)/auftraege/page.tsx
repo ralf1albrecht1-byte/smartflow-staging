@@ -19334,6 +19334,11 @@ export default function AuftraegePage() {
   ): string => {
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
+    // SMARTFLOW_V17_90L371BJ_ORDER_CARD_ITEM_REVIEW_SCOPE
+    // Keep card review labels item-scoped. Order-level reviewReasons can contain
+    // unrelated recognition reviews (e.g. Material mitnehmen) and must not turn
+    // already valid rows like Teeküche/Abdeckvlies red. Currency mismatch is
+    // still checked separately with the existing service-specific helper below.
     const reviewText = normalizeForMatch(
       [
         item.unit,
@@ -19342,7 +19347,6 @@ export default function AuftraegePage() {
         (item as any).sourceText,
         (item as any).evidence,
         (item as any).reviewReason,
-        ...(reviewReasons || []),
       ]
         .filter(Boolean)
         .join(" "),
