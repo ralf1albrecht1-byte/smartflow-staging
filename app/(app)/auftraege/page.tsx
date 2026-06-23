@@ -19896,62 +19896,56 @@ export default function AuftraegePage() {
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
             const mobileServiceLine = getMobileOrderCardServiceSummary(o);
-            const mobileOrderServiceRows: ResponsiveOrderServiceRowV17_90L231[] =
-              (o.items || [])
-                .map((item) => {
-                  const name = canonicalServiceNameForOrderItem(
-                    item.serviceName || "",
-                  );
-                  if (!name) return null;
-                  const quantity = Number(item.quantity || 0);
-                  const unitPrice = Number(item.unitPrice || 0);
-                  const storedTotal = Number(item.totalPrice);
-                  const calculatedTotal = quantity * unitPrice;
-                  const blocked = Boolean(
-                    isBlockedOrderItemForTotal(item, o.reviewReasons) ||
-                      hasCurrencyMismatchReviewForService(
-                        o.reviewReasons,
-                        item.serviceName,
-                      ),
-                  );
-                  const amount =
-                    Number.isFinite(storedTotal) && storedTotal > 0
-                      ? storedTotal
-                      : calculatedTotal;
-                  const currency =
-                    item.currency === "EUR" || item.detectedCurrency === "EUR"
-                      ? "EUR"
-                      : o.currency === "EUR"
-                        ? "EUR"
-                        : "CHF";
-                  const itemReviewReason = compactText((item as any).reviewReason);
-                  const itemSourceText = compactText((item as any).sourceText);
-                  const isServiceActionReview = itemReviewReason.startsWith(
-                    "service_action_unclear:",
-                  );
-                  const isReviewPreviewRow = blocked || isServiceActionReview;
-                  return {
-                    typeLabel: isServiceActionReview
-                      ? "Position prüfen"
-                      : smartflowPositionTypeLabelV17_90L371K(item),
-                    name: isServiceActionReview
-                      ? itemSourceText || name || "Position prüfen"
-                      : name,
-                    amountLabel: blocked
-                      ? "Preis prüfen"
-                      : formatCurrency(
-                          Number.isFinite(amount) ? amount : 0,
-                          currency,
-                        ),
-                    countAsPosition: true,
-                    tone: isReviewPreviewRow ? "review" : "normal",
-                  };
-                })
-                .filter(
-                  (
-                    row,
-                  ): row is ResponsiveOrderServiceRowV17_90L231 => Boolean(row),
-                );
+            const mobileOrderServiceRows: ResponsiveOrderServiceRowV17_90L231[] = [];
+            (o.items || []).forEach((item) => {
+              const name = canonicalServiceNameForOrderItem(
+                item.serviceName || "",
+              );
+              if (!name) return;
+              const quantity = Number(item.quantity || 0);
+              const unitPrice = Number(item.unitPrice || 0);
+              const storedTotal = Number(item.totalPrice);
+              const calculatedTotal = quantity * unitPrice;
+              const blocked = Boolean(
+                isBlockedOrderItemForTotal(item, o.reviewReasons) ||
+                  hasCurrencyMismatchReviewForService(
+                    o.reviewReasons,
+                    item.serviceName,
+                  ),
+              );
+              const amount =
+                Number.isFinite(storedTotal) && storedTotal > 0
+                  ? storedTotal
+                  : calculatedTotal;
+              const currency =
+                item.currency === "EUR" || item.detectedCurrency === "EUR"
+                  ? "EUR"
+                  : o.currency === "EUR"
+                    ? "EUR"
+                    : "CHF";
+              const itemReviewReason = compactText((item as any).reviewReason);
+              const itemSourceText = compactText((item as any).sourceText);
+              const isServiceActionReview = itemReviewReason.startsWith(
+                "service_action_unclear:",
+              );
+              const isReviewPreviewRow = blocked || isServiceActionReview;
+              mobileOrderServiceRows.push({
+                typeLabel: isServiceActionReview
+                  ? "Position prüfen"
+                  : smartflowPositionTypeLabelV17_90L371K(item),
+                name: isServiceActionReview
+                  ? itemSourceText || name || "Position prüfen"
+                  : name,
+                amountLabel: blocked
+                  ? "Preis prüfen"
+                  : formatCurrency(
+                      Number.isFinite(amount) ? amount : 0,
+                      currency,
+                    ),
+                countAsPosition: true,
+                tone: isReviewPreviewRow ? "review" : "normal",
+              });
+            });
             if (mobileOrderServiceRows.length === 0 && o.serviceName) {
               mobileOrderServiceRows.push({
                 typeLabel: "Dienstleistung",
