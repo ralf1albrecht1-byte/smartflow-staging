@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BG_CARD_REVIEW_PREVIEW_ROWS
 // SMARTFLOW_V17_90L371BF_SERVICE_ACTION_REVIEW_COMPACT_DECISION
 // SMARTFLOW_V17_90L371BE_ORDER_SERVICE_ACTION_REVIEW_VISIBLE
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
@@ -12337,6 +12338,10 @@ type ResponsiveOrderServiceRowV17_90L231 = {
   typeLabel: string;
   name: string;
   amountLabel: string;
+  // V17.90L371BG: Card preview may show compact review lines (e.g. Material mitnehmen)
+  // without increasing the saved position count.
+  countAsPosition?: boolean;
+  tone?: "normal" | "review";
 };
 
 function ResponsiveOrderServicePreviewV17_95({
@@ -12355,8 +12360,14 @@ function ResponsiveOrderServicePreviewV17_95({
   const listRef = useRef<HTMLDivElement>(null);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
   const serviceKey = services
-    .map((service) => `${service.name}\u241f${service.amountLabel}`)
+    .map(
+      (service) =>
+        `${service.typeLabel}\u241f${service.name}\u241f${service.amountLabel}\u241f${service.countAsPosition === false ? "review" : "position"}`,
+    )
     .join("\u241e");
+  const countedPositionCount = services.filter(
+    (service) => service.countAsPosition !== false,
+  ).length;
 
   useEffect(() => {
     const element = listRef.current;
@@ -12428,7 +12439,7 @@ function ResponsiveOrderServicePreviewV17_95({
       }}
     >
       <div className="mb-2 text-xs font-medium text-muted-foreground">
-        Positionen · {services.length}
+        Positionen · {countedPositionCount}
       </div>
       <div
         ref={listRef}
@@ -12444,11 +12455,21 @@ function ResponsiveOrderServicePreviewV17_95({
             key={`${orderId}:responsive-service:${serviceIndex}`}
             className="grid min-w-0 grid-cols-[7.5rem_minmax(0,1fr)_auto] items-start gap-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_auto]"
           >
-            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground max-sm:col-span-2">
+            <span
+              className={`min-w-0 truncate text-xs font-medium max-sm:col-span-2 ${
+                service.tone === "review"
+                  ? "text-red-700 dark:text-red-300"
+                  : "text-muted-foreground"
+              }`}
+            >
               {service.typeLabel}
             </span>
             <span className="min-w-0 break-words leading-snug">
-              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500/80" />
+              <span
+                className={`mr-2 inline-block h-2 w-2 rounded-full ${
+                  service.tone === "review" ? "bg-red-500/80" : "bg-emerald-500/80"
+                }`}
+              />
               {service.name}
             </span>
             <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
@@ -19903,15 +19924,27 @@ export default function AuftraegePage() {
                       : o.currency === "EUR"
                         ? "EUR"
                         : "CHF";
+                  const itemReviewReason = compactText((item as any).reviewReason);
+                  const itemSourceText = compactText((item as any).sourceText);
+                  const isServiceActionReview = itemReviewReason.startsWith(
+                    "service_action_unclear:",
+                  );
+                  const isReviewPreviewRow = blocked || isServiceActionReview;
                   return {
-                    typeLabel: smartflowPositionTypeLabelV17_90L371K(item),
-                    name,
+                    typeLabel: isServiceActionReview
+                      ? "Position prüfen"
+                      : smartflowPositionTypeLabelV17_90L371K(item),
+                    name: isServiceActionReview
+                      ? itemSourceText || name || "Position prüfen"
+                      : name,
                     amountLabel: blocked
                       ? "Preis prüfen"
                       : formatCurrency(
                           Number.isFinite(amount) ? amount : 0,
                           currency,
                         ),
+                    countAsPosition: true,
+                    tone: isReviewPreviewRow ? "review" : "normal",
                   };
                 })
                 .filter(
@@ -19927,8 +19960,38 @@ export default function AuftraegePage() {
                   getSafeOrderTotal(o),
                   o.currency === "EUR" ? "EUR" : "CHF",
                 ),
+                countAsPosition: true,
+                tone: "normal",
               });
             }
+            // V17.90L371BG: Keep the outside card informative without changing persisted items.
+            // Separate recognition reviews such as "Material mitnehmen" are shown as compact
+            // red preview rows, but they do not increase the Positionen count.
+            const existingMobileReviewSourceKeysV17_90L371BG = new Set(
+              mobileOrderServiceRows
+                .map((row) => normalizeForMatch(row.name))
+                .filter(Boolean),
+            );
+            getRecognitionReviewDetailsV17_90L69(o).forEach((detail) => {
+              const reviewText = compactText(
+                detail.sourceText || detail.relatedRoleText || detail.serviceName || "Position prüfen",
+              );
+              const reviewKey = normalizeForMatch(reviewText);
+              if (!reviewText || existingMobileReviewSourceKeysV17_90L371BG.has(reviewKey)) return;
+              existingMobileReviewSourceKeysV17_90L371BG.add(reviewKey);
+              const reviewTypeLabel = /\bmaterial\b/i.test(
+                `${detail.serviceName || ""} ${detail.sourceText || ""} ${detail.relatedRoleText || ""}`,
+              )
+                ? "Material prüfen"
+                : "Position prüfen";
+              mobileOrderServiceRows.push({
+                typeLabel: reviewTypeLabel,
+                name: reviewText,
+                amountLabel: "Preis prüfen",
+                countAsPosition: false,
+                tone: "review",
+              });
+            });
             const mobileOrderServiceNames = mobileOrderServiceRows.map(
               (row) => row.name,
             );
