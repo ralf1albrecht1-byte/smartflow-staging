@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BE_ORDER_SERVICE_ACTION_REVIEW_VISIBLE
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
@@ -510,6 +511,11 @@ interface FormItem {
   pendingManualReviewDecision?: boolean;
   pendingReviewSourceServiceName?: string;
   recognitionReviewKey?: string;
+  // V17.90L371BE: Persisted first-AI unclear-action rows are real red
+  // editable positions. They may appear on the card as "Leistung prüfen" and
+  // must not be hidden from the editor just because a separate recognition
+  // review block exists.
+  persistedServiceActionReview?: boolean;
   sourceDescription?: string;
   // V17.90L313: Rein manuell über „+ Position“ angelegte Zeilen dürfen
   // keine alte Kundennachrichten-Quelle per Namens-Fallback anzeigen.
@@ -532,6 +538,7 @@ const createEmptyItem = (): FormItem => ({
   pendingManualReviewDecision: false,
   pendingReviewSourceServiceName: "",
   recognitionReviewKey: "",
+  persistedServiceActionReview: false,
   workSiteId: null,
 });
 
@@ -5867,11 +5874,30 @@ const isUnresolvedRecognitionReviewPlaceholderItemV17_90L359 = (
 // "Übernehmen", the editor shows only the compact red review card with
 // Übernehmen/Verwerfen. Real red positions with a concrete name/quantity, e.g.
 // "Spezialreiniger 4 Eimer, Preis prüfen", stay visible.
+const serviceActionUnclearSourceTextV17_90L371BE = (
+  value?: string | null,
+) => {
+  const raw = compactText(value);
+  const match = raw.match(/service[_\s-]*action[_\s-]*unclear\s*:\s*(.+)$/i);
+  return compactText(match?.[1] || "");
+};
+
+const isPersistedServiceActionReviewDraftItemV17_90L371BE = (
+  item: FormItem,
+): boolean =>
+  Boolean(
+    item.persistedServiceActionReview &&
+      item.pendingManualReviewDecision &&
+      !compactText(item.recognitionReviewKey) &&
+      compactText(item.sourceDescription),
+  );
+
 const isUnacceptedRecognitionReviewDraftItemV17_90L371AR = (
   item: FormItem,
 ): boolean => {
   if ((item as any)._manualUserAdded) return false;
   if (compactText(item.recognitionReviewKey)) return false;
+  if (isPersistedServiceActionReviewDraftItemV17_90L371BE(item)) return false;
 
   const name = compactText(item.serviceName);
   const quantity = Number(item.quantity || 0);
@@ -13423,6 +13449,8 @@ export default function AuftraegePage() {
         const persistedHardReviewTextV17_90L247 = normalizeForMatch(
           [item.reviewReason, item.description].filter(Boolean).join(" "),
         );
+        const serviceActionUnclearSourceTextFromItemV17_90L371BE =
+          serviceActionUnclearSourceTextV17_90L371BE(item.reviewReason);
         const hasPendingManualReviewDecisionV17_90L247 = Boolean(
           !isManualReviewConfirmed &&
             (isInternalReviewServiceName(item.serviceName) ||
@@ -13481,7 +13509,12 @@ export default function AuftraegePage() {
             hasPendingManualReviewDecisionV17_90L247
               ? canonicalServiceNameForOrderItem(item.serviceName)
               : "",
-          sourceDescription: compactText(item.description),
+          persistedServiceActionReview: Boolean(
+            serviceActionUnclearSourceTextFromItemV17_90L371BE,
+          ),
+          sourceDescription:
+            serviceActionUnclearSourceTextFromItemV17_90L371BE ||
+            compactText(item.description),
           workSiteId: item.workSiteId || null,
         };
       });
