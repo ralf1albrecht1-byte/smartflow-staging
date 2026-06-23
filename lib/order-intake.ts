@@ -3,6 +3,7 @@
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
+// SMARTFLOW_V17_90L371BL_MATERIAL_SURFACE_INVALID_KEEP_GUARD
 // SMARTFLOW_V17_90L371BK_MATERIAL_SURFACE_LINE_GUARD
 import { prisma } from "@/lib/prisma";
 import { ensureAddressSplit } from "@/lib/address-parser";
@@ -32,13 +33,15 @@ import {
   runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
-import { sealCanonicalIntakeV2, verifyCanonicalIntakeV2 } from "@/lib/intake-v2/server";
+import {
+  sealCanonicalIntakeV2,
+  verifyCanonicalIntakeV2,
+} from "@/lib/intake-v2/server";
 import { INTAKE_V2_SCHEMA_VERSION } from "@/lib/intake-v2/schema";
 import { assembleCanonicalFactsV2 } from "@/lib/intake-v2/facts";
 import { normalizePositionType } from "@/lib/position-types";
 
 // SMARTFLOW_V17_90L361_POST_AI_FIREWALL_CUSTOMER_SERVICE_ADDRESS
-
 
 // V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
 // No business rule is changed here. The trace only records how service names,
@@ -73,7 +76,9 @@ function redactIntakeDiagnosticText(value: unknown, maxLength = 1800): string {
 
 // V17.90L194: Stable, non-secret fingerprint for line-local intake evidence.
 // This is used for dedupe/audit only; it is not a cryptographic identifier.
-function createCanonicalSourceFingerprintV17_90L194(value: unknown): string | null {
+function createCanonicalSourceFingerprintV17_90L194(
+  value: unknown,
+): string | null {
   const normalized = String(value || "")
     .toLowerCase()
     .normalize("NFD")
@@ -112,7 +117,9 @@ function summarizeIntakeDiagnosticItems(
 
     return {
       index: index + 1,
-      positionType: normalizePositionType(rawItem?.positionType ?? rawItem?.position_type ?? rawItem?.type),
+      positionType: normalizePositionType(
+        rawItem?.positionType ?? rawItem?.position_type ?? rawItem?.type,
+      ),
       serviceName: redactIntakeDiagnosticText(
         rawItem?.serviceName ??
           rawItem?.name ??
@@ -137,9 +144,7 @@ function summarizeIntakeDiagnosticItems(
         30,
       ),
       needsReview:
-        typeof rawItem?.needsReview === "boolean"
-          ? rawItem.needsReview
-          : null,
+        typeof rawItem?.needsReview === "boolean" ? rawItem.needsReview : null,
       reviewReason: redactIntakeDiagnosticText(
         rawItem?.reviewReason ?? rawItem?.review_reason ?? "",
         220,
@@ -169,7 +174,6 @@ function logIntakeDiagnosticTrace(
   }
 }
 
-
 type OpenAiUsageSummaryV17_90L337 = {
   promptTokens: number | null;
   cachedInputTokens: number | null;
@@ -187,9 +191,7 @@ function estimateOpenAiCostUsdV17_90L337(
   model: string,
   usage: any,
 ): number | null {
-  const promptTokens = readOpenAiUsageNumberV17_90L337(
-    usage?.prompt_tokens,
-  );
+  const promptTokens = readOpenAiUsageNumberV17_90L337(usage?.prompt_tokens);
   const completionTokens = readOpenAiUsageNumberV17_90L337(
     usage?.completion_tokens,
   );
@@ -199,14 +201,24 @@ function estimateOpenAiCostUsdV17_90L337(
     readOpenAiUsageNumberV17_90L337(
       usage?.prompt_tokens_details?.cached_tokens,
     ) || 0;
-  const uncachedInputTokens = Math.max((promptTokens || 0) - cachedInputTokens, 0);
+  const uncachedInputTokens = Math.max(
+    (promptTokens || 0) - cachedInputTokens,
+    0,
+  );
   const normalizedModel = String(model || "").toLowerCase();
-  const rates =
-    normalizedModel.includes("gpt-4.1-mini")
-      ? { inputPerMillion: 0.4, cachedInputPerMillion: 0.1, outputPerMillion: 1.6 }
-      : normalizedModel.includes("gpt-4.1")
-        ? { inputPerMillion: 2.0, cachedInputPerMillion: 0.5, outputPerMillion: 8.0 }
-        : { inputPerMillion: 0, cachedInputPerMillion: 0, outputPerMillion: 0 };
+  const rates = normalizedModel.includes("gpt-4.1-mini")
+    ? {
+        inputPerMillion: 0.4,
+        cachedInputPerMillion: 0.1,
+        outputPerMillion: 1.6,
+      }
+    : normalizedModel.includes("gpt-4.1")
+      ? {
+          inputPerMillion: 2.0,
+          cachedInputPerMillion: 0.5,
+          outputPerMillion: 8.0,
+        }
+      : { inputPerMillion: 0, cachedInputPerMillion: 0, outputPerMillion: 0 };
 
   if (!rates.inputPerMillion && !rates.outputPerMillion) return null;
 
@@ -227,9 +239,7 @@ function summarizeOpenAiUsageV17_90L337(
     cachedInputTokens: readOpenAiUsageNumberV17_90L337(
       usage?.prompt_tokens_details?.cached_tokens,
     ),
-    completionTokens: readOpenAiUsageNumberV17_90L337(
-      usage?.completion_tokens,
-    ),
+    completionTokens: readOpenAiUsageNumberV17_90L337(usage?.completion_tokens),
     totalTokens: readOpenAiUsageNumberV17_90L337(usage?.total_tokens),
     estimatedUsd: estimateOpenAiCostUsdV17_90L337(model, usage),
   };
@@ -244,9 +254,7 @@ function logIntakePerfV17_90L337(
   if (!enabled) return;
 
   try {
-    console.log(
-      `[INTAKE_PERF:${traceId}] ${stage} ${JSON.stringify(payload)}`,
-    );
+    console.log(`[INTAKE_PERF:${traceId}] ${stage} ${JSON.stringify(payload)}`);
   } catch (error: any) {
     console.warn(
       `[INTAKE_PERF:${traceId}] ${stage} serialization_failed`,
@@ -254,7 +262,6 @@ function logIntakePerfV17_90L337(
     );
   }
 }
-
 
 type FinalAiStructuredRoleV17_90L215 =
   | "safety"
@@ -289,11 +296,12 @@ type FinalAiRoleReviewResultV17_90L216 = {
   additions: ReadOnlySpecialNoteAdditionV17_90L216[];
 };
 
-const emptyFinalAiRoleReviewResultV17_90L216 = (): FinalAiRoleReviewResultV17_90L216 => ({
-  findings: [],
-  suppressions: [],
-  additions: [],
-});
+const emptyFinalAiRoleReviewResultV17_90L216 =
+  (): FinalAiRoleReviewResultV17_90L216 => ({
+    findings: [],
+    suppressions: [],
+    additions: [],
+  });
 
 type ReadOnlyWorkCoverageMissingFindingV17_90L251 = {
   semanticId: string;
@@ -323,7 +331,9 @@ const emptyFinalAiWorkCoverageResultV17_90L251 =
   });
 
 function compactExactSourceTextV17_90L251(value: unknown): string {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function deterministicReviewFindingIdV17_90L252(value: unknown): string {
@@ -350,10 +360,10 @@ function exactQuoteExistsInSourceV17_90L251(
   const candidate = compactExactSourceTextV17_90L251(quote);
   return Boolean(
     source &&
-      candidate &&
-      source.toLocaleLowerCase("de-CH").includes(
-        candidate.toLocaleLowerCase("de-CH"),
-      ),
+    candidate &&
+    source
+      .toLocaleLowerCase("de-CH")
+      .includes(candidate.toLocaleLowerCase("de-CH")),
   );
 }
 
@@ -405,9 +415,9 @@ function matchRoleEntryForSentenceV17_90L266(
         .trim();
       return Boolean(
         roleKey &&
-          (roleKey === sentenceKey ||
-            (roleKey.length >= 18 && sentenceKey.includes(roleKey)) ||
-            (sentenceKey.length >= 18 && roleKey.includes(sentenceKey))),
+        (roleKey === sentenceKey ||
+          (roleKey.length >= 18 && sentenceKey.includes(roleKey)) ||
+          (sentenceKey.length >= 18 && roleKey.includes(sentenceKey))),
       );
     }) || null
   );
@@ -466,7 +476,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               "missingWork.quote muss ein kurzes, exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Nicht umformulieren, nicht übersetzen und nichts erfinden.",
               "semanticId ist eine kurze, sprachunabhängige Identität derselben Arbeit, z. B. work_1. Sie dient nur zur Gruppierung und darf keine fachlichen Werte enthalten.",
               "Melde nur Befunde mit confidence=high. classification=uncertain bedeutet: Du bist sicher, dass der Eintrag eine mögliche Arbeit beschreibt, aber seine fachlichen Details oder die Abdeckung sind unklar. Bei Unsicherheit darüber, ob überhaupt eine Arbeit gemeint ist, melde keinen Befund.",
-              "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":\"exakter roleEntries.text-Wert oder null\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"roleAssessments\":[{\"roleText\":\"exakter roleEntries.text-Wert\",\"classification\":\"possible_work_missing|possible_work_covered|not_work|uncertain\",\"semanticId\":\"work_1 oder leer\",\"source\":\"original|translation oder leer\",\"quote\":\"exaktes Zitat oder leer\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"itemAssessments\":[{\"index\":1,\"classification\":\"valid|invalid_entity_contamination|invalid_evidence_mismatch|uncertain\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}],\"invalidItems\":[{\"index\":1,\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}]}",
+              'Gib ausschließlich JSON zurück: {"missingWork":[{"semanticId":"work_1","source":"original|translation","quote":"exaktes Zitat","relatedRoleText":"exakter roleEntries.text-Wert oder null","confidence":"high|medium|low","reason":"kurz"}],"roleAssessments":[{"roleText":"exakter roleEntries.text-Wert","classification":"possible_work_missing|possible_work_covered|not_work|uncertain","semanticId":"work_1 oder leer","source":"original|translation oder leer","quote":"exaktes Zitat oder leer","confidence":"high|medium|low","reason":"kurz"}],"itemAssessments":[{"index":1,"classification":"valid|invalid_entity_contamination|invalid_evidence_mismatch|uncertain","confidence":"high|medium|low","reason":"kurz"}],"invalidItems":[{"index":1,"confidence":"high|medium|low","reason":"kurz"}]}',
             ].join("\n"),
           },
           {
@@ -475,7 +485,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               originalText: String(args.originalText || "").slice(0, 6500),
               translatedText: String(args.translatedText || "").slice(0, 6500),
               customerName: String(args.customerName || "").slice(0, 220),
-              executionSiteName: String(args.executionSiteName || "").slice(0, 220),
+              executionSiteName: String(args.executionSiteName || "").slice(
+                0,
+                220,
+              ),
               workItems: args.workItems.slice(0, 40),
               roleEntries: args.roleEntries.slice(0, 40),
             }),
@@ -515,9 +528,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
             ) {
               return false;
             }
-            const roleText = compactExactSourceTextV17_90L251(
-              entry?.roleText,
-            );
+            const roleText = compactExactSourceTextV17_90L251(entry?.roleText);
             const matchedRole = args.roleEntries.find(
               (candidate) =>
                 compactExactSourceTextV17_90L251(candidate.text) === roleText,
@@ -553,14 +564,20 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                     "Nicht melden: Verbote oder negative Anweisungen, Termin, Kommunikation, Zugang/Schlüssel, Parkplatz, Sicherheit sowie rein organisatorische Bedingungen. Die übergebenen roleEntries mit safety, access oder parking sind verbindlich keine Leistung.",
                     "Melde nur, wenn du mit hoher Sicherheit erkennst, dass an einem Ort möglicherweise eine auszuführende Kundenarbeit gemeint ist. Erfinde niemals die konkrete Tätigkeit.",
                     "quote muss ein kurzes exakt zusammenhängendes Zitat aus originalText oder translatedText sein. Bevorzuge das Original. Pro zugrunde liegender Aussage genau ein Befund.",
-                    "Gib ausschließlich JSON zurück: {\"missingWork\":[{\"semanticId\":\"work_1\",\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"relatedRoleText\":null,\"confidence\":\"high\",\"reason\":\"mögliche Arbeit fachlich noch unklar\"}]}",
+                    'Gib ausschließlich JSON zurück: {"missingWork":[{"semanticId":"work_1","source":"original|translation","quote":"exaktes Zitat","relatedRoleText":null,"confidence":"high","reason":"mögliche Arbeit fachlich noch unklar"}]}',
                   ].join("\n"),
                 },
                 {
                   role: "user",
                   content: JSON.stringify({
-                    originalText: String(args.originalText || "").slice(0, 6500),
-                    translatedText: String(args.translatedText || "").slice(0, 6500),
+                    originalText: String(args.originalText || "").slice(
+                      0,
+                      6500,
+                    ),
+                    translatedText: String(args.translatedText || "").slice(
+                      0,
+                      6500,
+                    ),
                     workItems: args.workItems.slice(0, 40),
                     roleEntries: args.roleEntries.slice(0, 40),
                   }),
@@ -579,7 +596,9 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
             parsed = {
               ...(parsed || {}),
               missingWork: [
-                ...(Array.isArray(parsed?.missingWork) ? parsed.missingWork : []),
+                ...(Array.isArray(parsed?.missingWork)
+                  ? parsed.missingWork
+                  : []),
                 ...retryParsed.missingWork.slice(0, 6),
               ],
             };
@@ -680,7 +699,9 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                 ) {
                   return null;
                 }
-                const candidate = candidateById.get(String(assessment?.id || ""));
+                const candidate = candidateById.get(
+                  String(assessment?.id || ""),
+                );
                 if (!candidate) return null;
                 const matchedRole = matchRoleEntryForSentenceV17_90L266(
                   candidate.text,
@@ -741,9 +762,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
       (Array.isArray(parsed?.itemAssessments)
         ? parsed.itemAssessments.filter((entry: any) =>
-            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
-              String(entry?.classification || "").toLowerCase(),
-            ),
+            [
+              "invalid_entity_contamination",
+              "invalid_evidence_mismatch",
+            ].includes(String(entry?.classification || "").toLowerCase()),
           ).length
         : 0);
     if (
@@ -782,7 +804,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                 {
                   role: "user",
                   content: JSON.stringify({
-                    originalText: String(args.originalText || "").slice(0, 6500),
+                    originalText: String(args.originalText || "").slice(
+                      0,
+                      6500,
+                    ),
                     translatedText: String(args.translatedText || "").slice(
                       0,
                       6500,
@@ -1103,10 +1128,9 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                     candidates: prefilteredCandidatesV17_90L268,
                     workItems: args.workItems.slice(0, 40),
                     customerName: String(args.customerName || "").slice(0, 220),
-                    executionSiteName: String(args.executionSiteName || "").slice(
-                      0,
-                      220,
-                    ),
+                    executionSiteName: String(
+                      args.executionSiteName || "",
+                    ).slice(0, 220),
                     structuredNonWorkEvidence:
                       structuredNonWorkEvidenceV17_90L268,
                   }),
@@ -1157,8 +1181,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                   reason:
                     compactExactSourceTextV17_90L251(
                       decision?.reason || candidate.reason,
-                    ).slice(0, 240) ||
-                    "mögliche Arbeit fachlich noch unklar",
+                    ).slice(0, 240) || "mögliche Arbeit fachlich noch unklar",
                 },
               ];
             });
@@ -1196,9 +1219,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
       (Array.isArray(parsed?.invalidItems) ? parsed.invalidItems.length : 0) +
       (Array.isArray(parsed?.itemAssessments)
         ? parsed.itemAssessments.filter((entry: any) =>
-            ["invalid_entity_contamination", "invalid_evidence_mismatch"].includes(
-              String(entry?.classification || "").toLowerCase(),
-            ),
+            [
+              "invalid_entity_contamination",
+              "invalid_evidence_mismatch",
+            ].includes(String(entry?.classification || "").toLowerCase()),
           ).length
         : 0);
     if (
@@ -1236,16 +1260,18 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
                 {
                   role: "user",
                   content: JSON.stringify({
-                    originalText: String(args.originalText || "").slice(0, 8500),
+                    originalText: String(args.originalText || "").slice(
+                      0,
+                      8500,
+                    ),
                     translatedText: String(args.translatedText || "").slice(
                       0,
                       8500,
                     ),
                     customerName: String(args.customerName || "").slice(0, 220),
-                    executionSiteName: String(args.executionSiteName || "").slice(
-                      0,
-                      220,
-                    ),
+                    executionSiteName: String(
+                      args.executionSiteName || "",
+                    ).slice(0, 220),
                     workItems: args.workItems.slice(0, 40),
                   }),
                 },
@@ -1297,13 +1323,14 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
         520,
       );
       const matchedRoleEntry = args.roleEntries.find(
-        (entry) =>
-          compactExactSourceTextV17_90L251(entry.text) === roleText,
+        (entry) => compactExactSourceTextV17_90L251(entry.text) === roleText,
       );
       const roleExists = Boolean(matchedRoleEntry);
-      const authoritativeNonServiceRole = ["safety", "access", "parking"].includes(
-        String(matchedRoleEntry?.role || "").toLowerCase(),
-      );
+      const authoritativeNonServiceRole = [
+        "safety",
+        "access",
+        "parking",
+      ].includes(String(matchedRoleEntry?.role || "").toLowerCase());
       if (
         confidence !== "high" ||
         !roleExists ||
@@ -1337,14 +1364,18 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
           | "original"
           | "translation"
           | "";
-        const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(0, 520);
+        const quote = compactExactSourceTextV17_90L251(raw?.quote).slice(
+          0,
+          520,
+        );
         const providedSemanticId = compactExactSourceTextV17_90L251(
           raw?.semanticId,
         )
           .replace(/[^a-zA-Z0-9_-]+/g, "_")
           .slice(0, 120);
-        const relatedRoleTextCandidate =
-          compactExactSourceTextV17_90L251(raw?.relatedRoleText).slice(0, 520);
+        const relatedRoleTextCandidate = compactExactSourceTextV17_90L251(
+          raw?.relatedRoleText,
+        ).slice(0, 520);
         const relatedRoleEntry = relatedRoleTextCandidate
           ? args.roleEntries.find(
               (entry) =>
@@ -1355,9 +1386,11 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
         const relatedRoleText = relatedRoleEntry
           ? relatedRoleTextCandidate
           : null;
-        const authoritativeNonServiceRole = ["safety", "access", "parking"].includes(
-          String(relatedRoleEntry?.role || "").toLowerCase(),
-        );
+        const authoritativeNonServiceRole = [
+          "safety",
+          "access",
+          "parking",
+        ].includes(String(relatedRoleEntry?.role || "").toLowerCase());
         const normalizedQuoteKey = compactExactSourceTextV17_90L251(quote)
           .toLocaleLowerCase("de-CH")
           .normalize("NFD")
@@ -1383,10 +1416,10 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
               .trim();
             return Boolean(
               roleKey &&
-                normalizedQuoteKey &&
-                (roleKey === normalizedQuoteKey ||
-                  roleKey.includes(normalizedQuoteKey) ||
-                  normalizedQuoteKey.includes(roleKey)),
+              normalizedQuoteKey &&
+              (roleKey === normalizedQuoteKey ||
+                roleKey.includes(normalizedQuoteKey) ||
+                normalizedQuoteKey.includes(roleKey)),
             );
           },
         );
@@ -1398,9 +1431,7 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
         }
         const semanticId =
           providedSemanticId ||
-          deterministicReviewFindingIdV17_90L252(
-            relatedRoleText || quote,
-          );
+          deterministicReviewFindingIdV17_90L252(relatedRoleText || quote);
         if (
           confidence !== "high" ||
           !["original", "translation"].includes(source) ||
@@ -1418,12 +1449,12 @@ async function runReadOnlyWorkCoverageCheckerV17_90L251(args: {
           const existing = compactExactSourceTextV17_90L251(item.sourceText);
           return Boolean(
             existing &&
-              (existing.toLocaleLowerCase("de-CH").includes(
-                quote.toLocaleLowerCase("de-CH"),
-              ) ||
-                quote.toLocaleLowerCase("de-CH").includes(
-                  existing.toLocaleLowerCase("de-CH"),
-                )),
+            (existing
+              .toLocaleLowerCase("de-CH")
+              .includes(quote.toLocaleLowerCase("de-CH")) ||
+              quote
+                .toLocaleLowerCase("de-CH")
+                .includes(existing.toLocaleLowerCase("de-CH"))),
           );
         });
         if (evidenceAlreadyRepresented) return null;
@@ -1549,12 +1580,62 @@ const normalizeRoleReviewTextV17_90L106 = (value: unknown): string =>
     .trim();
 
 const ROLE_COVERAGE_STOPWORDS_V17_90L217 = new Set([
-  "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer",
-  "einem", "einen", "ist", "sind", "war", "wird", "und", "oder", "bei",
-  "beim", "im", "in", "am", "an", "auf", "zur", "zum", "von", "vom",
-  "mit", "nur", "bitte", "per", "via", "the", "a", "an", "at", "to",
-  "and", "or", "with", "please", "le", "la", "les", "un", "une", "de",
-  "du", "des", "et", "ou", "avec", "dans", "au", "aux",
+  "der",
+  "die",
+  "das",
+  "den",
+  "dem",
+  "des",
+  "ein",
+  "eine",
+  "einer",
+  "einem",
+  "einen",
+  "ist",
+  "sind",
+  "war",
+  "wird",
+  "und",
+  "oder",
+  "bei",
+  "beim",
+  "im",
+  "in",
+  "am",
+  "an",
+  "auf",
+  "zur",
+  "zum",
+  "von",
+  "vom",
+  "mit",
+  "nur",
+  "bitte",
+  "per",
+  "via",
+  "the",
+  "a",
+  "an",
+  "at",
+  "to",
+  "and",
+  "or",
+  "with",
+  "please",
+  "le",
+  "la",
+  "les",
+  "un",
+  "une",
+  "de",
+  "du",
+  "des",
+  "et",
+  "ou",
+  "avec",
+  "dans",
+  "au",
+  "aux",
 ]);
 
 function roleCoverageTokensV17_90L217(value: unknown): string[] {
@@ -1587,7 +1668,9 @@ function roleStatementCoveredByPeersV17_90L217(args: {
   );
   if (peers.length === 0) return false;
 
-  const peerUnion = new Set(peers.flatMap((entry) => roleCoverageTokensV17_90L217(entry.text)));
+  const peerUnion = new Set(
+    peers.flatMap((entry) => roleCoverageTokensV17_90L217(entry.text)),
+  );
   const unionCoversSource = sourceTokens.every((token) => peerUnion.has(token));
   if (unionCoversSource) return true;
 
@@ -1615,14 +1698,19 @@ function ordinaryHintCoveredByAppointmentV17_90L217(
   hint: unknown,
   appointment: unknown,
 ): boolean {
-  const hintText = String(hint || "").replace(/\s+/g, " ").trim();
+  const hintText = String(hint || "")
+    .replace(/\s+/g, " ")
+    .trim();
   const appointmentText = String(appointment || "")
     .replace(/\s+/g, " ")
     .trim();
   if (!hintText || !appointmentText) return false;
 
-  const hintMinute = hintText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] || "";
-  const appointmentMinute = appointmentText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] || "";
+  const hintMinute =
+    hintText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] || "";
+  const appointmentMinute =
+    appointmentText.match(/\b(\d{1,3})\s*(?:min(?:ute)?n?|minutes?)\b/i)?.[1] ||
+    "";
   if (!hintMinute || hintMinute !== appointmentMinute) return false;
 
   const hintTokens = new Set(roleCoverageTokensV17_90L217(hintText));
@@ -1632,12 +1720,13 @@ function ordinaryHintCoveredByAppointmentV17_90L217(
   if (hintTokens.size < 2) return false;
 
   const hintNegated = hasCanonicalRoleNegationV17_90L201(hintText);
-  const appointmentNegated = hasCanonicalRoleNegationV17_90L201(
-    appointmentText,
-  );
+  const appointmentNegated =
+    hasCanonicalRoleNegationV17_90L201(appointmentText);
   if (hintNegated !== appointmentNegated) return false;
 
-  const covered = [...hintTokens].every((token) => appointmentTokens.has(token));
+  const covered = [...hintTokens].every((token) =>
+    appointmentTokens.has(token),
+  );
   if (covered) return true;
 
   // V17.90L230: Equivalent pre-announcement wording is often normalized from
@@ -1652,7 +1741,8 @@ function ordinaryHintCoveredByAppointmentV17_90L217(
     return false;
   }
   const hintChannel = normalizeAiContactChannelV17_90L86(hintText);
-  const appointmentChannel = normalizeAiContactChannelV17_90L86(appointmentText);
+  const appointmentChannel =
+    normalizeAiContactChannelV17_90L86(appointmentText);
   if (hintChannel && appointmentChannel && hintChannel !== appointmentChannel) {
     return false;
   }
@@ -1703,7 +1793,9 @@ function isCompleteAccessCandidateV17_90L229(
   value: unknown,
   kinds: Set<string>,
 ): boolean {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text || kinds.size === 0 || text.length > 220) return false;
   if (
     /\b(?:eine|einer|einem|einen|der|die|das|den|dem|des|für|fuer|und|oder|mit|bei|beim|am|an|im|in|zum|zur)\s*$/iu.test(
@@ -1783,7 +1875,9 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
     ordinary: "h",
   };
   const roleEntries = (
-    Object.entries(args.roles) as Array<[FinalAiStructuredRoleV17_90L215, string[]]>
+    Object.entries(args.roles) as Array<
+      [FinalAiStructuredRoleV17_90L215, string[]]
+    >
   ).flatMap(([currentRole, lines]) =>
     lines.map((text, index) => ({
       id: `${rolePrefixes[currentRole]}${index + 1}`,
@@ -1834,7 +1928,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
               "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt safety und darf nicht unterdrückt werden.",
               "Ergänzungen müssen ein kurzes, exaktes, zusammenhängendes Zitat aus originalText oder translatedText sein. Nutze additions nur, wenn ein klarer Rollenhinweis vollständig in entries fehlt.",
               "Melde nur eindeutige Aktionen mit confidence high. Bei Unsicherheit nichts ändern.",
-              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"a1\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}],\"suppressions\":[{\"id\":\"h1\",\"duplicateOfId\":\"a1|null\",\"duplicateOfAppointmentIndex\":0,\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}],\"additions\":[{\"source\":\"original|translation\",\"quote\":\"exaktes Zitat\",\"expectedRole\":\"safety|access|parking|other|ordinary\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze Begründung\"}]}",
+              'Gib ausschließlich JSON zurück: {"verdicts":[{"id":"a1","expectedRole":"safety|access|parking|other|ordinary","confidence":"high|medium|low","reason":"kurze Begründung"}],"suppressions":[{"id":"h1","duplicateOfId":"a1|null","duplicateOfAppointmentIndex":0,"confidence":"high|medium|low","reason":"kurze Begründung"}],"additions":[{"source":"original|translation","quote":"exaktes Zitat","expectedRole":"safety|access|parking|other|ordinary","confidence":"high|medium|low","reason":"kurze Begründung"}]}',
             ].join("\n"),
           },
           {
@@ -1858,7 +1952,9 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
     }
 
     const payload = await response.json();
-    const rawContent = String(payload?.choices?.[0]?.message?.content || "").trim();
+    const rawContent = String(
+      payload?.choices?.[0]?.message?.content || "",
+    ).trim();
     const parsed = rawContent ? JSON.parse(rawContent) : null;
     const rawVerdicts = Array.isArray(parsed?.verdicts) ? parsed.verdicts : [];
     const findings: ReadOnlySpecialNoteRoleFindingV17_90L106[] = [];
@@ -1870,11 +1966,18 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
         | FinalAiStructuredRoleV17_90L215
         | "";
       const confidence = String(raw?.confidence || "").toLowerCase();
-      if (!source || !allowedRoles.has(expectedRole as FinalAiStructuredRoleV17_90L215)) {
+      if (
+        !source ||
+        !allowedRoles.has(expectedRole as FinalAiStructuredRoleV17_90L215)
+      ) {
         continue;
       }
-      if (confidence !== "high" || expectedRole === source.currentRole) continue;
-      if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text) && expectedRole !== "safety") {
+      if (confidence !== "high" || expectedRole === source.currentRole)
+        continue;
+      if (
+        /\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text) &&
+        expectedRole !== "safety"
+      ) {
         continue;
       }
 
@@ -1907,9 +2010,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       if (!source || confidence !== "high") continue;
       if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text)) continue;
 
-      const duplicateTarget = sourceById.get(
-        String(raw?.duplicateOfId || ""),
-      );
+      const duplicateTarget = sourceById.get(String(raw?.duplicateOfId || ""));
       const rawAppointmentIndex = raw?.duplicateOfAppointmentIndex;
       const appointmentIndex = Number(rawAppointmentIndex);
       const hasAppointmentTarget =
@@ -3179,7 +3280,8 @@ function cleanAiStructuredBillingName(value: any): string | null {
     /\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b/i.test(
       candidate,
     );
-  if (/\d/.test(candidate) && !hasStructuredCompanySuffixV17_90L361) return null;
+  if (/\d/.test(candidate) && !hasStructuredCompanySuffixV17_90L361)
+    return null;
   if (
     /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       candidate,
@@ -3264,7 +3366,9 @@ function extractAiStructuredBillingEvidence(
     normalizeStructuredTextField(kundeData?.telefon),
   );
   const phone =
-    structuredPhone && evidence && sourceContainsPhoneV17_90L86(evidence, structuredPhone)
+    structuredPhone &&
+    evidence &&
+    sourceContainsPhoneV17_90L86(evidence, structuredPhone)
       ? structuredPhone
       : null;
 
@@ -3342,7 +3446,9 @@ function hasExplicitExecutionNotBillingAddressDirectiveV17_51(
 function isBrokenExecutionSiteRoleFragmentV17_90L176(
   value?: string | null,
 ): boolean {
-  const key = normalizeUnitText(value || "").replace(/\s+/g, " ").trim();
+  const key = normalizeUnitText(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!key) return true;
   const labels = [
     "ausfuehrungsadresse",
@@ -3357,7 +3463,9 @@ function isBrokenExecutionSiteRoleFragmentV17_90L176(
     "job site",
   ];
   return labels.some(
-    (label) => key === label || (key.length >= 3 && key.length < label.length && label.endsWith(key)),
+    (label) =>
+      key === label ||
+      (key.length >= 3 && key.length < label.length && label.endsWith(key)),
   );
 }
 
@@ -3386,23 +3494,23 @@ function preferOriginalExecutionSiteNameV17_90L199(args: {
   if (!originalName) return aiName;
   if (!aiName) return originalName;
 
-  const fieldsCompatible = (
-    left?: string | null,
-    right?: string | null,
-  ) => {
+  const fieldsCompatible = (left?: string | null, right?: string | null) => {
     const a = normalizeUnitText(left || "");
     const b = normalizeUnitText(right || "");
     return !a || !b || a === b;
   };
   const sameAddress =
-    fieldsCompatible(args.aiAddress.siteAddress, args.originalAddress.siteAddress) &&
+    fieldsCompatible(
+      args.aiAddress.siteAddress,
+      args.originalAddress.siteAddress,
+    ) &&
     fieldsCompatible(args.aiAddress.sitePlz, args.originalAddress.sitePlz) &&
     fieldsCompatible(args.aiAddress.siteCity, args.originalAddress.siteCity) &&
     Boolean(
       args.aiAddress.siteAddress ||
-        args.originalAddress.siteAddress ||
-        args.aiAddress.siteCity ||
-        args.originalAddress.siteCity,
+      args.originalAddress.siteAddress ||
+      args.aiAddress.siteCity ||
+      args.originalAddress.siteCity,
     );
   if (!sameAddress) return aiName;
 
@@ -3431,7 +3539,6 @@ function preferOriginalExecutionSiteNameV17_90L199(args: {
   return sharedTail >= 2 ? originalName : aiName;
 }
 
-
 // V17.90L203: Preserve a fuller object/scope label when the same address line
 // contains a longer non-contradictory name. This is structural: the current
 // site name anchors the start and the verified street anchors the end.
@@ -3442,7 +3549,9 @@ function enrichExecutionSiteNameFromEvidenceV17_90L203(args: {
   translatedText?: string | null;
 }): string | null {
   const currentName = cleanExecutionSiteNameCandidate(args.currentName);
-  const siteAddress = String(args.siteAddress || "").replace(/\s+/g, " ").trim();
+  const siteAddress = String(args.siteAddress || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!currentName || !siteAddress) return currentName;
 
   const currentKey = normalizeUnitText(currentName);
@@ -3469,11 +3578,20 @@ function enrichExecutionSiteNameFromEvidenceV17_90L203(args: {
       [currentName, suffix].filter(Boolean).join(", "),
     );
     if (!candidate || candidate.length > 140) continue;
-    if (/\b(?:chf|eur|usd|gbp)\b|@|\+?\d[\d\s().\/-]{6,}\d/i.test(candidate)) continue;
-    if (/\b(?:kontakt|termin|schlüssel|schluessel|code|whatsapp|sms|anrufen|telefon|parken|parkieren)\b/i.test(suffix)) continue;
+    if (/\b(?:chf|eur|usd|gbp)\b|@|\+?\d[\d\s().\/-]{6,}\d/i.test(candidate))
+      continue;
+    if (
+      /\b(?:kontakt|termin|schlüssel|schluessel|code|whatsapp|sms|anrufen|telefon|parken|parkieren)\b/i.test(
+        suffix,
+      )
+    )
+      continue;
 
     const candidateKey = normalizeUnitText(candidate);
-    if (!candidateKey.includes(currentKey) || candidateKey.length <= normalizeUnitText(best).length) {
+    if (
+      !candidateKey.includes(currentKey) ||
+      candidateKey.length <= normalizeUnitText(best).length
+    ) {
       continue;
     }
     best = candidate;
@@ -3565,7 +3683,9 @@ function extractAiStructuredExecutionAddress(
   // V17.90L194: Keep an evidence-backed partial AI address as a review
   // candidate. Missing ZIP/city must remain visibly unresolved instead of
   // forcing a second whole-message parser to recreate the address.
-  const hasUsableAddress = Boolean(siteName || siteAddress || sitePlz || siteCity);
+  const hasUsableAddress = Boolean(
+    siteName || siteAddress || sitePlz || siteCity,
+  );
   if (!hasUsableAddress) return null;
 
   const evidence = normalizeStructuredTextBlock(
@@ -3667,7 +3787,9 @@ function hasSameAddressInstructionV17_90L28(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausfuehrungsadresse|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausführungsadresse|billing(?:\s+address)?\s*(?:(?:-|\/)\s*)*(?:and\s+)?execution\s+address|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
+  return /\b(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausfuehrungsadresse|rechnungs(?:adresse)?\s*(?:(?:-|\/)\s*)*(?:und\s+)?ausführungsadresse|billing(?:\s+address)?\s*(?:(?:-|\/)\s*)*(?:and\s+)?execution\s+address|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(
+    text,
+  );
 }
 
 function sameAddressWorkAreaDescriptorV17_66(
@@ -3675,16 +3797,15 @@ function sameAddressWorkAreaDescriptorV17_66(
 ): string | null {
   const source = String(rawText || "");
   if (!source.trim()) return null;
-  const original = source.split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+  const original =
+    source.split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
   const translated = source
     .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)
     .slice(1)
     .join("\n");
   const candidates = [translated, original].filter(Boolean);
-  const sameAddressTail =
-    String.raw`(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+(?:street\s+)?address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
-  const workMarker =
-    String.raw`(?:arbeitsbereich|work\s+area|zone\s+de\s+travail|area\s+di\s+lavoro|die\s+arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
+  const sameAddressTail = String.raw`(?:gleiche[nrms]?\s+adresse|(?:an\s+)?(?:der\s+)?(?:selben|selber|selbe|derselben|dieselben|dieselbe)\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+(?:street\s+)?address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
+  const workMarker = String.raw`(?:arbeitsbereich|work\s+area|zone\s+de\s+travail|area\s+di\s+lavoro|die\s+arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
   const stopMarker =
     /^(?:kontakt|contact|vor[-\s]?ort|onsite|leistungen?|services?|termin|appointment|zugang|access|schl[uü]ssel|key|park|gefahr|achtung|invoice|rechnung|rechnungsadresse)\b/i;
   const stripSameAddressRoleTextV17_90L194 = (value: string): string =>
@@ -3721,7 +3842,9 @@ function sameAddressWorkAreaDescriptorV17_66(
     // Labelled multi-line block, e.g. "Work area:" followed by rooms.
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      const markerMatch = line.match(new RegExp(`^${workMarker}\\s*(?:ist|:|-)?\\s*(.*)$`, "i"));
+      const markerMatch = line.match(
+        new RegExp(`^${workMarker}\\s*(?:ist|:|-)?\\s*(.*)$`, "i"),
+      );
       if (!markerMatch) continue;
       const descriptors: string[] = [];
       if (markerMatch[1]) {
@@ -3731,7 +3854,11 @@ function sameAddressWorkAreaDescriptorV17_66(
       for (let offset = 1; offset <= 6; offset += 1) {
         const next = lines[index + offset];
         if (!next || stopMarker.test(next)) break;
-        if (parseBillingStreetLine(next) || parseBillingPlzCityFromLine(next).plz) break;
+        if (
+          parseBillingStreetLine(next) ||
+          parseBillingPlzCityFromLine(next).plz
+        )
+          break;
         descriptors.push(next);
       }
       const cleaned = compactRepeatedExecutionSiteDescriptorsV17_48(
@@ -3750,7 +3877,9 @@ function sameAddressWorkAreaDescriptorV17_66(
       .map((line) => compactText(line))
       .filter(Boolean);
     for (const line of sentenceLines) {
-      const inlineWork = line.match(new RegExp(`${workMarker}\\s*(?:ist|sind|:|-)?\\s*(.+)$`, "i"));
+      const inlineWork = line.match(
+        new RegExp(`${workMarker}\\s*(?:ist|sind|:|-)?\\s*(.+)$`, "i"),
+      );
       if (inlineWork?.[1]) {
         const inlineSource = String(inlineWork[1] || "");
         const descriptor = cleanExecutionSiteNameCandidate(
@@ -3758,7 +3887,8 @@ function sameAddressWorkAreaDescriptorV17_66(
         );
         if (descriptor) return descriptor;
       }
-      if (!new RegExp(sameAddressTail, "i").test(normalizeUnitText(line))) continue;
+      if (!new RegExp(sameAddressTail, "i").test(normalizeUnitText(line)))
+        continue;
       const afterSameAddress = line.match(
         new RegExp(
           String.raw`${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*(.+?)(?=\b(?:kontakt|leistungen?|schluessel|schlüssel|termin|sms|whatsapp|telefon|anfahrt|fahrt|$))`,
@@ -3832,7 +3962,11 @@ function shouldQuarantineBillingAddressRoleV17_61(args: {
   // V17.90L28: "gleiche Adresse / same address" is not an ambiguous second
   // address. Keep the billing address and allow room/site labels such as
   // "Trainingsraum hinten" without opening Adresse prüfen.
-  if (hasSameAddressInstruction && hasFullAddressCandidate && hasUsableBillingName) {
+  if (
+    hasSameAddressInstruction &&
+    hasFullAddressCandidate &&
+    hasUsableBillingName
+  ) {
     return { quarantine: false, reviewReasons: [] };
   }
 
@@ -4087,7 +4221,10 @@ function cleanExecutionSiteNameCandidate(
       /^\s*(?:ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|arbeitsort|auftragsort|uftragsort|objektadresse|einsatzort|ausführung|ausfuehrung|objekt)\s*:?\s*/i,
       "",
     )
-    .replace(/^\s*(?:bei|beim|am|an|im|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    .replace(
+      /^\s*(?:bei|beim|am|an|im|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i,
+      "",
+    )
     // V17.90L206: A work-area phrase may arrive without its leading
     // preposition ("der Werkstatt und im Treppenhaus"). Remove only the
     // orphaned grammatical wrapper; the actual place nouns stay unchanged.
@@ -4298,7 +4435,9 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
 }): string | null {
   const currentStreet = cleanExecutionStreetCandidate(args.currentStreet);
   if (!currentStreet) return currentStreet;
-  const currentKey = normalizeUnitText(currentStreet).replace(/\s+/g, " ").trim();
+  const currentKey = normalizeUnitText(currentStreet)
+    .replace(/\s+/g, " ")
+    .trim();
   const currentHouseNumber = currentStreet.match(/\b\d+[a-z]?\b/i)?.[0] || "";
   if (!currentKey || !currentHouseNumber) return currentStreet;
 
@@ -4326,11 +4465,16 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
     })
     .filter((candidate) => {
       const candidateHouseNumber = candidate.match(/\b\d+[a-z]?\b/i)?.[0] || "";
-      return candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase();
+      return (
+        candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase()
+      );
     });
   const uniqueDirectMatches = Array.from(
     new Map(
-      directMatches.map((candidate) => [normalizeUnitText(candidate), candidate]),
+      directMatches.map((candidate) => [
+        normalizeUnitText(candidate),
+        candidate,
+      ]),
     ).values(),
   );
   if (uniqueDirectMatches.length === 1) return uniqueDirectMatches[0];
@@ -4342,21 +4486,28 @@ function restoreExecutionStreetLeadingCharacterV17_90L229(args: {
         .replace(/\r/g, "\n")
         .split(/\n+|(?<=[.!?])\s+/g),
     )
-    .map((line) => parseBillingStreetLine(line) || cleanExecutionStreetCandidate(line))
+    .map(
+      (line) =>
+        parseBillingStreetLine(line) || cleanExecutionStreetCandidate(line),
+    )
     .filter((line): line is string => Boolean(line));
 
   const matches = candidates.filter((candidate) => {
-    const candidateKey = normalizeUnitText(candidate).replace(/\s+/g, " ").trim();
+    const candidateKey = normalizeUnitText(candidate)
+      .replace(/\s+/g, " ")
+      .trim();
     const candidateHouseNumber = candidate.match(/\b\d+[a-z]?\b/i)?.[0] || "";
     return Boolean(
       candidateKey &&
-        candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase() &&
-        candidateKey.length === currentKey.length + 1 &&
-        candidateKey.endsWith(currentKey),
+      candidateHouseNumber.toLowerCase() === currentHouseNumber.toLowerCase() &&
+      candidateKey.length === currentKey.length + 1 &&
+      candidateKey.endsWith(currentKey),
     );
   });
   const unique = Array.from(
-    new Map(matches.map((candidate) => [normalizeUnitText(candidate), candidate])).values(),
+    new Map(
+      matches.map((candidate) => [normalizeUnitText(candidate), candidate]),
+    ).values(),
   );
   return unique.length === 1 ? unique[0] : currentStreet;
 }
@@ -4705,7 +4856,6 @@ function repairExecutionSiteNameFromText(args: {
   return args.currentSiteName;
 }
 
-
 // V17.90L84: "Empfang" kann ein echter Teil des Objekt-/Bereichsnamens sein
 // (z. B. "Konferenzraum und Empfang"). Nur ein klarer Zugangskontext am
 // Empfang beendet den Adress-/Objektblock.
@@ -4715,7 +4865,9 @@ const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
 function stripExecutionOperationalTailV17_90L39(
   value?: string | null,
 ): string | null {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) return null;
   const match = text.match(EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39);
   if (!match || match.index == null) return text;
@@ -4726,25 +4878,24 @@ function stripExecutionOperationalTailV17_90L39(
   return cleaned || null;
 }
 
-function isExecutionOperationalHintV17_90L39(
-  value?: string | null,
-): boolean {
+function isExecutionOperationalHintV17_90L39(value?: string | null): boolean {
   return EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39.test(
     String(value || ""),
   );
 }
 
-
-function cleanExecutionSiteNoteV17_90L70(
-  value?: string | null,
-): string | null {
+function cleanExecutionSiteNoteV17_90L70(value?: string | null): string | null {
   const note = String(value || "")
     .replace(/\s+/g, " ")
     .replace(/^[,;:\-–—\s]+|[,;:\-–—\s]+$/g, "")
     .trim();
   if (!note || note.length > 120) return null;
   if (/\b(?:CHF|EUR|Fr\.?|Franken|Euro)\b/i.test(note)) return null;
-  if (/\b(?:eingang|zugang|zutritt|empfang|rezeption|reception|tor|tuer|tür)\b/i.test(note)) {
+  if (
+    /\b(?:eingang|zugang|zutritt|empfang|rezeption|reception|tor|tuer|tür)\b/i.test(
+      note,
+    )
+  ) {
     return note;
   }
   return stripExecutionOperationalTailV17_90L39(note);
@@ -4866,7 +5017,8 @@ function applySafeBillingCustomerGuard(args: {
   // Uncertainty is persisted separately as review metadata.
   const aiName = cleanBillingCustomerNameCandidate(kundeData.name || null);
   const evidenceName = cleanBillingCustomerNameCandidate(evidence.name || null);
-  if (!aiName && allowSelfIntroName && evidenceName) kundeData.name = evidenceName;
+  if (!aiName && allowSelfIntroName && evidenceName)
+    kundeData.name = evidenceName;
   else if (!aiName && evidenceName) kundeData.name = evidenceName;
 
   if (!String(kundeData.strasse || "").trim() && evidence.street) {
@@ -4898,9 +5050,9 @@ function applySafeBillingCustomerGuard(args: {
 
   const hasCompletePreparedBilling = Boolean(
     cleanBillingCustomerNameCandidate(kundeData.name || null) &&
-      String(kundeData.strasse || "").trim() &&
-      String(kundeData.plz || "").trim() &&
-      String(kundeData.ort || "").trim(),
+    String(kundeData.strasse || "").trim() &&
+    String(kundeData.plz || "").trim() &&
+    String(kundeData.ort || "").trim(),
   );
 
   return {
@@ -4977,7 +5129,9 @@ function extractPhoneMatchFromTextV17_90L85(
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(source))) {
-    const candidate = String(match[0] || "").replace(/\s+/g, " ").trim();
+    const candidate = String(match[0] || "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (!candidate) continue;
     if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(candidate)) continue;
 
@@ -4985,7 +5139,8 @@ function extractPhoneMatchFromTextV17_90L85(
     // V17.90L194: Dates and address fragments must never become contact data.
     // A real auto-persisted phone requires at least nine digits.
     if (digits.length < 9 || digits.length > 15) continue;
-    if (/^\d{1,2}[.:]\d{2}(?:\s*[-–]\s*\d{1,2}[.:]\d{2})?$/.test(candidate)) continue;
+    if (/^\d{1,2}[.:]\d{2}(?:\s*[-–]\s*\d{1,2}[.:]\d{2})?$/.test(candidate))
+      continue;
 
     return {
       phone: candidate,
@@ -5037,7 +5192,9 @@ function extractCanonicalBillingPhoneV17_90L195(args: {
   const phonePattern = /\+?\d[\d\s()./-]{6,}\d/g;
   let match: RegExpExecArray | null;
   while ((match = phonePattern.exec(billingPrefix))) {
-    const candidate = String(match[0] || "").replace(/\s+/g, " ").trim();
+    const candidate = String(match[0] || "")
+      .replace(/\s+/g, " ")
+      .trim();
     const digits = normalizePhoneDigits(candidate);
     if (digits.length < 9 || digits.length > 15) continue;
     if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?:\s|$)/.test(candidate)) continue;
@@ -5097,7 +5254,9 @@ function extractCanonicalBillingEmailV17_90L196(args: {
     .filter(Boolean);
   if (candidates.length === 0) return null;
 
-  const aiEmail = String(args.aiBillingEmail || "").trim().toLowerCase();
+  const aiEmail = String(args.aiBillingEmail || "")
+    .trim()
+    .toLowerCase();
   if (aiEmail) {
     const supported = candidates.find(
       (candidate) => candidate.toLowerCase() === aiEmail,
@@ -5117,11 +5276,16 @@ function canonicalizeStructuredRoleLinesV17_90L195(
       String(line || "")
         .replace(/\r\n/g, "\n")
         .replace(/\r/g, "\n")
-        .split(/\n+|[;]\s+|\s+[·|]\s+|(?=\b(?:Termin|Kontakt|Zugang|Zutritt|Eingang|Seiteneingang|Zufahrt|Schlüssel|Schluessel|Code|Parkieren|Parkplatz|Besucherplatz|Leiter)\b)/gi),
+        .split(
+          /\n+|[;]\s+|\s+[·|]\s+|(?=\b(?:Termin|Kontakt|Zugang|Zutritt|Eingang|Seiteneingang|Zufahrt|Schlüssel|Schluessel|Code|Parkieren|Parkplatz|Besucherplatz|Leiter)\b)/gi,
+        ),
     )
     .map((line) =>
       line
-        .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+        .replace(
+          /^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i,
+          "",
+        )
         .replace(/^\s*(?:Zugang|Parken|Parkierung|Hinweis)\s*:\s*/i, "")
         .replace(/\s+/g, " ")
         .trim(),
@@ -5137,8 +5301,10 @@ function canonicalizeStructuredRoleLinesV17_90L195(
 
   const rejectCrossRole = (line: string) => {
     if (role === "access") {
-      return /^(?:termin|kontakt)\s*:/i.test(line) ||
-        (/\b(?:anrufen|whatsapp|sms)\b/i.test(line) && !rolePattern.test(line));
+      return (
+        /^(?:termin|kontakt)\s*:/i.test(line) ||
+        (/\b(?:anrufen|whatsapp|sms)\b/i.test(line) && !rolePattern.test(line))
+      );
     }
     if (role === "parking") return /^(?:termin|kontakt|zugang)\s*:/i.test(line);
     return /^(?:termin|kontakt|zugang|park(?:en|ierung))\s*:/i.test(line);
@@ -5150,9 +5316,11 @@ function canonicalizeStructuredRoleLinesV17_90L195(
     .filter(Boolean);
 
   if (role === "access") {
-    const keyLineIndex = selected.findIndex((line) => /\b(?:schlüssel|schluessel)\b/i.test(line));
-    const standaloneCodeIndex = selected.findIndex(
-      (line) => /^code\s*[:#-]?\s*[A-Za-z0-9-]+$/i.test(line),
+    const keyLineIndex = selected.findIndex((line) =>
+      /\b(?:schlüssel|schluessel)\b/i.test(line),
+    );
+    const standaloneCodeIndex = selected.findIndex((line) =>
+      /^code\s*[:#-]?\s*[A-Za-z0-9-]+$/i.test(line),
     );
     if (
       keyLineIndex >= 0 &&
@@ -5160,7 +5328,8 @@ function canonicalizeStructuredRoleLinesV17_90L195(
       keyLineIndex !== standaloneCodeIndex &&
       !/\bcode\b/i.test(selected[keyLineIndex])
     ) {
-      selected[keyLineIndex] = `${selected[keyLineIndex]} · ${selected[standaloneCodeIndex]}`;
+      selected[keyLineIndex] =
+        `${selected[keyLineIndex]} · ${selected[standaloneCodeIndex]}`;
       selected.splice(standaloneCodeIndex, 1);
     }
   }
@@ -5252,7 +5421,6 @@ function canonicalizeStructuredRoleLinesV17_90L195(
   });
 }
 
-
 function extractPhoneFromText(value: string | null | undefined): string | null {
   return extractPhoneMatchFromTextV17_90L85(value)?.phone || null;
 }
@@ -5277,7 +5445,6 @@ function normalizeContactEvidenceV17_90L86(value?: string | null): string {
     .trim();
 }
 
-
 function normalizeCustomerIdentityV17_90L87(value: unknown): string {
   return normalizeContactEvidenceV17_90L86(String(value || ""))
     .replace(/\s+/g, " ")
@@ -5296,8 +5463,12 @@ function hasExplicitStoredCustomerReuseIntentV17_90L87(
   // It covers the supported intake languages and is used only as a fail-safe
   // when the model omits the dedicated reuse_requested field.
   return (
-    /\b(?:kunde|kundendaten|rechnungsadresse|customer|client|cliente|azienda|societe|société)\b.{0,90}\b(?:bereits|schon|already|existing|stored|gespeichert|vorhanden|deja|déjà|gia|già|existente)\b/.test(text) &&
-    /\b(?:verwenden|wiederverwenden|reuse|use|utiliser|riutilizzare|usar|reutilizar)\b/.test(text)
+    /\b(?:kunde|kundendaten|rechnungsadresse|customer|client|cliente|azienda|societe|société)\b.{0,90}\b(?:bereits|schon|already|existing|stored|gespeichert|vorhanden|deja|déjà|gia|già|existente)\b/.test(
+      text,
+    ) &&
+    /\b(?:verwenden|wiederverwenden|reuse|use|utiliser|riutilizzare|usar|reutilizar)\b/.test(
+      text,
+    )
   );
 }
 
@@ -5353,8 +5524,8 @@ function findPreferredStoredCustomerByExactNameV17_90L88B(
     .map(({ customer, sourceOrder }) => {
       const addressComplete = Boolean(
         String(customer.address || "").trim() &&
-          String(customer.plz || "").trim() &&
-          String(customer.city || "").trim(),
+        String(customer.plz || "").trim() &&
+        String(customer.city || "").trim(),
       );
       const masterComplete = Boolean(
         String(customer.customerNumber || "").trim() && addressComplete,
@@ -5405,9 +5576,34 @@ function semanticRoleOverlapV17_90L87(
   if (a === b || a.includes(b) || b.includes(a)) return true;
 
   const stop = new Set([
-    "der", "die", "das", "den", "dem", "ein", "eine", "einer", "und",
-    "oder", "mit", "bei", "im", "in", "am", "an", "auf", "zu", "zur",
-    "zum", "von", "vor", "ort", "bitte", "nur", "ist", "sind", "wird",
+    "der",
+    "die",
+    "das",
+    "den",
+    "dem",
+    "ein",
+    "eine",
+    "einer",
+    "und",
+    "oder",
+    "mit",
+    "bei",
+    "im",
+    "in",
+    "am",
+    "an",
+    "auf",
+    "zu",
+    "zur",
+    "zum",
+    "von",
+    "vor",
+    "ort",
+    "bitte",
+    "nur",
+    "ist",
+    "sind",
+    "wird",
   ]);
   const tokens = (value: string) =>
     Array.from(
@@ -5450,10 +5646,12 @@ function lineMatchesOnsiteContactIdentityV17_90L87(
     .split(/\s+/g)
     .filter(
       (token) =>
-        token.length >= 2 &&
-        !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token),
+        token.length >= 2 && !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token),
     );
-  return nameTokens.length >= 1 && nameTokens.every((token) => normalizedLine.includes(token));
+  return (
+    nameTokens.length >= 1 &&
+    nameTokens.every((token) => normalizedLine.includes(token))
+  );
 }
 
 function normalizeAiContactChannelV17_90L86(
@@ -5478,9 +5676,9 @@ function sourceContainsPhoneV17_90L86(
       const candidate = normalizePhoneDigits(match[0]);
       return Boolean(
         candidate &&
-          (candidate === digits ||
-            candidate.endsWith(digits) ||
-            digits.endsWith(candidate)),
+        (candidate === digits ||
+          candidate.endsWith(digits) ||
+          digits.endsWith(candidate)),
       );
     },
   );
@@ -5509,25 +5707,31 @@ function resolveSourceCommunicationV17_90L272(
     };
   }
 
-  const noSms = /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) sms\b/.test(
-    text,
-  );
-  const noWhatsapp = /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) whats ?app\b/.test(
-    text,
-  );
-  const noCall = /\b(?:nicht|kein(?:e)?|keine|ohne|no|do not|dont|without|ne pas|non|sin|nao|sem|nod|ned|nid)\b.{0,24}\b(?:anrufen|telefonieren|anruf|calls?|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
-    text,
-  );
+  const noSms =
+    /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) sms\b/.test(
+      text,
+    );
+  const noWhatsapp =
+    /\b(?:kein(?:e)?|keine|kei|ohne|no|without|sans|pas de|niente|senza|sin|sem) whats ?app\b/.test(
+      text,
+    );
+  const noCall =
+    /\b(?:nicht|kein(?:e)?|keine|ohne|no|do not|dont|without|ne pas|non|sin|nao|sem|nod|ned|nid)\b.{0,24}\b(?:anrufen|telefonieren|anruf|calls?|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
+      text,
+    );
 
-  const exclusiveSms = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bsms\b/.test(
-    text,
-  );
-  const exclusiveWhatsapp = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bwhats ?app\b/.test(
-    text,
-  );
-  const exclusiveCall = /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,24}\b(?:anrufen|telefonieren|anruf|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
-    text,
-  );
+  const exclusiveSms =
+    /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bsms\b/.test(
+      text,
+    );
+  const exclusiveWhatsapp =
+    /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,18}\bwhats ?app\b/.test(
+      text,
+    );
+  const exclusiveCall =
+    /\b(?:nur|only|uniquement|solo|solamente|apenas)\b.{0,24}\b(?:anrufen|telefonieren|anruf|call|phone|appeler|chiamare|llamar|ligar|aalute|anlute)\b/.test(
+      text,
+    );
 
   const positiveSms =
     !noSms &&
@@ -5616,16 +5820,23 @@ function sourceSupportsContactNameV17_90L86(
   const normalizedName = normalizeContactEvidenceV17_90L86(name);
   if (!normalizedName) return false;
   const normalizedSource = normalizeContactEvidenceV17_90L86(source);
-  if (!normalizedSource || sourceExplicitlyRejectsContactNameV17_90L272(source, name)) {
+  if (
+    !normalizedSource ||
+    sourceExplicitlyRejectsContactNameV17_90L272(source, name)
+  ) {
     return false;
   }
 
   const tokens = normalizedName
     .split(/\s+/g)
-    .filter((token) => token.length >= 2 && !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token));
+    .filter(
+      (token) =>
+        token.length >= 2 && !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token),
+    );
   const namePresent =
     normalizedSource.includes(normalizedName) ||
-    (tokens.length >= 1 && tokens.every((token) => normalizedSource.includes(token)));
+    (tokens.length >= 1 &&
+      tokens.every((token) => normalizedSource.includes(token)));
   if (!namePresent) return false;
 
   const clauses = String(source || "")
@@ -5636,7 +5847,8 @@ function sourceSupportsContactNameV17_90L86(
       const normalizedClause = normalizeContactEvidenceV17_90L86(clause);
       return (
         normalizedClause.includes(normalizedName) ||
-        (tokens.length >= 1 && tokens.every((token) => normalizedClause.includes(token)))
+        (tokens.length >= 1 &&
+          tokens.every((token) => normalizedClause.includes(token)))
       );
     });
 
@@ -5655,7 +5867,9 @@ function sourceSupportsContactNameV17_90L86(
     const communication =
       "(?:anrufen|telefonieren|melden|kontaktieren|sms|whats ?app|call|phone|appeler|chiamare|llamar|ligar|erreichbar|reachable)";
     return (
-      new RegExp(`${escapedName}.{0,55}${communication}`).test(normalizedClause) ||
+      new RegExp(`${escapedName}.{0,55}${communication}`).test(
+        normalizedClause,
+      ) ||
       new RegExp(`${communication}.{0,55}${escapedName}`).test(normalizedClause)
     );
   });
@@ -5678,8 +5892,14 @@ function cleanLikelyContactNameV17_90L86(value?: string | null): string | null {
   if (properIndex > 0) cleaned = parts.slice(properIndex).join(" ");
 
   cleaned = cleaned
-    .replace(/\b(?:erreichbar|available|reachable)\s*(?:unter|at|via)?\s*$/i, "")
-    .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i, "")
+    .replace(
+      /\b(?:erreichbar|available|reachable)\s*(?:unter|at|via)?\s*$/i,
+      "",
+    )
+    .replace(
+      /\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i,
+      "",
+    )
     .replace(/^[\s:.,;\-–—]+|[\s:.,;\-–—]+$/g, "")
     .trim();
 
@@ -5739,10 +5959,10 @@ function buildOnsiteContactHintV17_90L86(args: {
     phone,
     phoneBelongsToSiteContact: Boolean(
       candidateDigits &&
-        phoneDigits &&
-        (phoneDigits === candidateDigits ||
-          phoneDigits.endsWith(candidateDigits) ||
-          candidateDigits.endsWith(phoneDigits)),
+      phoneDigits &&
+      (phoneDigits === candidateDigits ||
+        phoneDigits.endsWith(candidateDigits) ||
+        candidateDigits.endsWith(phoneDigits)),
     ),
     contactName,
     preferredChannel,
@@ -5786,7 +6006,9 @@ function extractAiOnsiteContactHintV17_90L86(
   const rawPhone = aiContact.telefon || aiContact.phone || null;
   const phone =
     evidenceScope && sourceContainsPhoneV17_90L86(evidenceScope, rawPhone)
-      ? String(rawPhone || "").replace(/\s+/g, " ").trim()
+      ? String(rawPhone || "")
+          .replace(/\s+/g, " ")
+          .trim()
       : null;
   const rawName = cleanLikelyContactNameV17_90L86(aiContact.name);
   const contactName =
@@ -5830,10 +6052,7 @@ function extractAiCommunicationInstructionHintV17_90L265(
   if (!normalizedContact || normalizedContact.vorhanden === false) return null;
 
   const evidence = normalizeStructuredTextBlock(normalizedContact.evidence);
-  if (
-    !evidence ||
-    !structuredEvidenceMatchesOriginalText(evidence, rawText)
-  ) {
+  if (!evidence || !structuredEvidenceMatchesOriginalText(evidence, rawText)) {
     return null;
   }
 
@@ -5849,14 +6068,14 @@ function extractAiCommunicationInstructionHintV17_90L265(
     ? sourceCommunicationV17_90L272.noCall
     : Boolean(
         normalizedContact.nicht_anrufen ??
-          normalizedContact.no_phone_call ??
-          false,
+        normalizedContact.no_phone_call ??
+        false,
       );
-  if (!sourceCommunicationV17_90L272.hasExplicitRule && !noPhoneCall) return null;
+  if (!sourceCommunicationV17_90L272.hasExplicitRule && !noPhoneCall)
+    return null;
 
-  const normalizedEvidence = normalizeAppointmentResolverTextV17_90L271(
-    evidence,
-  );
+  const normalizedEvidence =
+    normalizeAppointmentResolverTextV17_90L271(evidence);
   const noSms = sourceCommunicationV17_90L272.noSms;
   const noWhatsapp = sourceCommunicationV17_90L272.noWhatsapp;
   const explicitNoCall = noPhoneCall;
@@ -5974,8 +6193,7 @@ function extractOnsiteContactHint(
     const contactName = cleanLikelyContactNameV17_90L86(localNameSource);
     const properNameTokenCount = String(contactName || "")
       .split(/\s+/g)
-      .filter((part) => /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part))
-      .length;
+      .filter((part) => /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part)).length;
     // For a bare location phrase, the deterministic fallback needs a visible
     // person-name structure. Otherwise a later invoice or office phone could
     // be attached to the worksite. Verified AI contact data remains primary.
@@ -6033,7 +6251,8 @@ function normalizeStructuredAppointmentDateV17_90L86(
   const raw = String(value || "").trim();
   if (!raw) return null;
   const iso = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
-  if (iso) return `${String(iso[3]).padStart(2, "0")}.${String(iso[2]).padStart(2, "0")}.${iso[1]}`;
+  if (iso)
+    return `${String(iso[3]).padStart(2, "0")}.${String(iso[2]).padStart(2, "0")}.${iso[1]}`;
   const local = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   if (!local) return null;
   const year = local[3]
@@ -6043,7 +6262,6 @@ function normalizeStructuredAppointmentDateV17_90L86(
     : "";
   return `${String(local[1]).padStart(2, "0")}.${String(local[2]).padStart(2, "0")}${year ? `.${year}` : "."}`;
 }
-
 
 type IntakeAppointmentReferenceV17_90L271 = {
   year: number;
@@ -6107,13 +6325,62 @@ const APPOINTMENT_WEEKDAY_ALIASES_V17_90L271: Array<{
   weekday: number;
   aliases: string[];
 }> = [
-  { weekday: 1, aliases: ["montag", "monday", "lundi", "lunedi", "lunes", "segunda feira"] },
-  { weekday: 2, aliases: ["dienstag", "tuesday", "mardi", "martedi", "martes", "terca feira"] },
-  { weekday: 3, aliases: ["mittwoch", "wednesday", "mercredi", "mercoledi", "miercoles", "quarta feira"] },
-  { weekday: 4, aliases: ["donnerstag", "thursday", "jeudi", "giovedi", "jueves", "quinta feira"] },
-  { weekday: 5, aliases: ["freitag", "friday", "vendredi", "venerdi", "viernes", "sexta feira"] },
-  { weekday: 6, aliases: ["samstag", "sonnabend", "saturday", "samedi", "sabato", "sabado"] },
-  { weekday: 0, aliases: ["sonntag", "sunday", "dimanche", "domenica", "domingo"] },
+  {
+    weekday: 1,
+    aliases: ["montag", "monday", "lundi", "lunedi", "lunes", "segunda feira"],
+  },
+  {
+    weekday: 2,
+    aliases: [
+      "dienstag",
+      "tuesday",
+      "mardi",
+      "martedi",
+      "martes",
+      "terca feira",
+    ],
+  },
+  {
+    weekday: 3,
+    aliases: [
+      "mittwoch",
+      "wednesday",
+      "mercredi",
+      "mercoledi",
+      "miercoles",
+      "quarta feira",
+    ],
+  },
+  {
+    weekday: 4,
+    aliases: [
+      "donnerstag",
+      "thursday",
+      "jeudi",
+      "giovedi",
+      "jueves",
+      "quinta feira",
+    ],
+  },
+  {
+    weekday: 5,
+    aliases: [
+      "freitag",
+      "friday",
+      "vendredi",
+      "venerdi",
+      "viernes",
+      "sexta feira",
+    ],
+  },
+  {
+    weekday: 6,
+    aliases: ["samstag", "sonnabend", "saturday", "samedi", "sabato", "sabado"],
+  },
+  {
+    weekday: 0,
+    aliases: ["sonntag", "sunday", "dimanche", "domenica", "domingo"],
+  },
 ];
 
 function addReferenceDaysV17_90L271(
@@ -6148,7 +6415,11 @@ function resolveRelativeAppointmentDateV17_90L271(args: {
   );
   if (!text) return null;
 
-  if (/\b(?:ubermorgen|day after tomorrow|apres demain|dopodomani|pasado manana|depois de amanha)\b/.test(text)) {
+  if (
+    /\b(?:ubermorgen|day after tomorrow|apres demain|dopodomani|pasado manana|depois de amanha)\b/.test(
+      text,
+    )
+  ) {
     return addReferenceDaysV17_90L271(args.reference, 2);
   }
   if (/\b(?:heute|today|aujourd hui|oggi|hoy|hoje)\b/.test(text)) {
@@ -6161,9 +6432,10 @@ function resolveRelativeAppointmentDateV17_90L271(args: {
   const weekdayMatches = APPOINTMENT_WEEKDAY_ALIASES_V17_90L271.filter(
     (entry) =>
       entry.aliases.some((alias) =>
-        new RegExp(`(?:^|\\s)${alias.replace(/\s+/g, "\\s+")}(?:$|\\s)`, "i").test(
-          text,
-        ),
+        new RegExp(
+          `(?:^|\\s)${alias.replace(/\s+/g, "\\s+")}(?:$|\\s)`,
+          "i",
+        ).test(text),
       ),
   );
   const uniqueWeekdays = Array.from(
@@ -6172,16 +6444,18 @@ function resolveRelativeAppointmentDateV17_90L271(args: {
   if (uniqueWeekdays.length !== 1) return null;
   const targetWeekday = uniqueWeekdays[0];
 
-  const explicitlyNextWeek = /\b(?:nachste woche|naechste woche|next week|semaine prochaine|prochaine semaine|settimana prossima|proxima semana)\b/.test(
-    text,
-  );
-  const explicitNextOccurrence = /\b(?:nachsten|naechsten|nachste|naechste|next|prochain|prochaine|prossimo|prossima|proximo|proxima)\b/.test(
-    text,
-  );
+  const explicitlyNextWeek =
+    /\b(?:nachste woche|naechste woche|next week|semaine prochaine|prochaine semaine|settimana prossima|proxima semana)\b/.test(
+      text,
+    );
+  const explicitNextOccurrence =
+    /\b(?:nachsten|naechsten|nachste|naechste|next|prochain|prochaine|prossimo|prossima|proximo|proxima)\b/.test(
+      text,
+    );
 
   let delta: number;
   if (explicitlyNextWeek) {
-    const daysUntilNextMonday = ((8 - args.reference.weekday) % 7) || 7;
+    const daysUntilNextMonday = (8 - args.reference.weekday) % 7 || 7;
     const mondayBasedOffset = targetWeekday === 0 ? 6 : targetWeekday - 1;
     delta = daysUntilNextMonday + mondayBasedOffset;
   } else {
@@ -6203,7 +6477,9 @@ function resolveRelativeAppointmentDateV17_90L271(args: {
 function normalizeStructuredAppointmentTimeV17_90L86(
   value?: string | null,
 ): string | null {
-  const match = String(value || "").match(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b|\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const match = String(value || "").match(
+    /\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b|\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i,
+  );
   if (!match) return null;
   const hour = match[1] || match[3];
   const minute = match[2] || "00";
@@ -6239,11 +6515,7 @@ function normalizeStructuredAppointmentDaypartV17_90L256(
   return CANONICAL_APPOINTMENT_DAYPARTS_V17_90L256.get(raw) || null;
 }
 
-type AppointmentPhraseStatusV17_90L270 =
-  | "klar"
-  | "vage"
-  | "unklar"
-  | null;
+type AppointmentPhraseStatusV17_90L270 = "klar" | "vage" | "unklar" | null;
 
 function normalizeAppointmentPhraseStatusV17_90L270(
   appointment: AiAppointmentV17_90L86,
@@ -6281,7 +6553,10 @@ function stripResolvedRelativeDatePhraseV17_90L272(value: string): string {
   const weekday =
     "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|lunes|martes|miercoles|jueves|viernes|sabado|domingo)";
   return String(value || "")
-    .replace(/^\s*(?:am|an|auf|fuer|für)?\s*(?:heute|morgen|uebermorgen|übermorgen|today|tomorrow|day after tomorrow|aujourd hui|demain|apres demain)\b[,:;\s-]*/i, "")
+    .replace(
+      /^\s*(?:am|an|auf|fuer|für)?\s*(?:heute|morgen|uebermorgen|übermorgen|today|tomorrow|day after tomorrow|aujourd hui|demain|apres demain)\b[,:;\s-]*/i,
+      "",
+    )
     .replace(
       new RegExp(
         `^\\s*(?:am|an|auf|fuer|für)?\\s*(?:(?:naechste|nächste|kommende|next|prochaine|prossima)\\s+woche\\s+)?(?:(?:naechsten|nächsten|naechste|nächste|kommenden|kommende|next|prochain|prochaine|prossimo|prossima)\\s+)?${weekday}\\b[,:;\\s-]*`,
@@ -6335,9 +6610,7 @@ const APPOINTMENT_MONTH_ALIASES_V17_90L279: Record<number, string[]> = {
   12: ["dezember", "december", "decembre", "dicembre", "diciembre", "dezembro"],
 };
 
-function normalizeNamedAppointmentDateSourceV17_90L279(
-  value: unknown,
-): string {
+function normalizeNamedAppointmentDateSourceV17_90L279(value: unknown): string {
   return String(value || "")
     .toLowerCase()
     .normalize("NFD")
@@ -6358,7 +6631,8 @@ function sourceContainsNamedAppointmentDateV17_90L279(args: {
   const aliases = APPOINTMENT_MONTH_ALIASES_V17_90L279[args.month] || [];
   const source = normalizeNamedAppointmentDateSourceV17_90L279(args.source);
   const expectedYear = String(args.year || "").trim();
-  if (!source || !Number.isFinite(args.day) || aliases.length === 0) return false;
+  if (!source || !Number.isFinite(args.day) || aliases.length === 0)
+    return false;
 
   const aliasPattern = aliases
     .map((alias) => normalizeNamedAppointmentDateSourceV17_90L279(alias))
@@ -6411,7 +6685,9 @@ function sourceSupportsAppointmentPartV17_90L86(
   // An AI date may add a year although the customer only wrote day/month.
   // Validate the local day/month pair instead of comparing one long digit blob.
   const isoDate = rawValue.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
-  const localDate = rawValue.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
+  const localDate = rawValue.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
+  );
   const day = isoDate?.[3] || localDate?.[1] || "";
   const month = isoDate?.[2] || localDate?.[2] || "";
   const year = isoDate?.[1] || localDate?.[3] || "";
@@ -6427,11 +6703,7 @@ function sourceSupportsAppointmentPartV17_90L86(
         source: rawSource,
         day: Number(dayValue),
         month: Number(monthValue),
-        year: year
-          ? year.length === 2
-            ? `20${year}`
-            : year
-          : null,
+        year: year ? (year.length === 2 ? `20${year}` : year) : null,
       })
     ) {
       return true;
@@ -6450,7 +6722,6 @@ function sourceSupportsAppointmentPartV17_90L86(
 
   return false;
 }
-
 
 function inferAppointmentNoticeV17_90L203(
   appointment: AiAppointmentV17_90L86,
@@ -6503,7 +6774,10 @@ function buildStructuredAppointmentHintsV17_90L86(
     const kind = normalizeContactEvidenceV17_90L86(
       appointment?.art || appointment?.type,
     );
-    if (kind && !/\b(?:ausfuehrung|ausführung|execution|work|auftrag|termin)\b/.test(kind)) {
+    if (
+      kind &&
+      !/\b(?:ausfuehrung|ausführung|execution|work|auftrag|termin)\b/.test(kind)
+    ) {
       continue;
     }
 
@@ -6548,9 +6822,8 @@ function buildStructuredAppointmentHintsV17_90L86(
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
     const phrase = compactAppointmentPhraseV17_90L270(appointment);
-    const phraseStatus = normalizeAppointmentPhraseStatusV17_90L270(
-      appointment,
-    );
+    const phraseStatus =
+      normalizeAppointmentPhraseStatusV17_90L270(appointment);
     const evidenceText = [phrase, appointment?.evidence]
       .filter(Boolean)
       .join(" ");
@@ -6580,9 +6853,10 @@ function buildStructuredAppointmentHintsV17_90L86(
       Number.isFinite(explicitMinutesRaw) && explicitMinutesRaw > 0
         ? explicitMinutesRaw
         : inferredNoticeV17_90L203.minutes;
-    const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
-      ? Math.round(minutesRaw)
-      : 0;
+    const minutes =
+      Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
+        ? Math.round(minutesRaw)
+        : 0;
     let announcementChannel = normalizeAiContactChannelV17_90L86(
       appointment?.ankuendigung_kanal || appointment?.announcement_channel,
     );
@@ -6639,7 +6913,13 @@ function buildStructuredAppointmentHintsV17_90L86(
       exactPhraseDescriptor ||
       (phraseStatus === "unklar" ? "Termin klären" : "");
     const line = `Termin: ${[date, timeDescriptor, notice].filter(Boolean).join(" · ")}`;
-    if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
+    if (
+      !result.some(
+        (existing) =>
+          normalizeContactEvidenceV17_90L86(existing) ===
+          normalizeContactEvidenceV17_90L86(line),
+      )
+    ) {
       result.push(line);
     }
   }
@@ -6692,12 +6972,8 @@ function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
   // V17.90L103: Dedicated first-AI role arrays are already atomic business
   // facts. Do not split sentences, merge codes or reclassify them afterwards.
   return dedupeProtectedStructuredRoleLinesV17_90L103([
-    ...extractProtectedStructuredRoleValuesV17_90L103(
-      auftrag?.zugangshinweise,
-    ),
-    ...extractProtectedStructuredRoleValuesV17_90L103(
-      auftrag?.parkhinweise,
-    ),
+    ...extractProtectedStructuredRoleValuesV17_90L103(auftrag?.zugangshinweise),
+    ...extractProtectedStructuredRoleValuesV17_90L103(auftrag?.parkhinweise),
     ...extractProtectedStructuredRoleValuesV17_90L103(
       auftrag?.sonstige_hinweise,
     ),
@@ -6925,9 +7201,10 @@ function shouldSkipPaidNormalizationForCleanStandardGermanV17_90L99(args: {
   ];
   if (foreignOrMixedSignals.some((pattern) => pattern.test(text))) return false;
 
-  const germanFunctionWords = text.match(
-    /\b(?:der|die|das|den|dem|des|ein|eine|einen|einem|einer|und|oder|aber|bitte|nicht|keine|bei|beim|vor|nach|wird|werden|ist|sind|liegt|verwenden|anrufen|reinigen|adresse|termin|leistungen)\b/g,
-  ) || [];
+  const germanFunctionWords =
+    text.match(
+      /\b(?:der|die|das|den|dem|des|ein|eine|einen|einem|einer|und|oder|aber|bitte|nicht|keine|bei|beim|vor|nach|wird|werden|ist|sind|liegt|verwenden|anrufen|reinigen|adresse|termin|leistungen)\b/g,
+    ) || [];
   return new Set(germanFunctionWords).size >= 8;
 }
 
@@ -7159,7 +7436,8 @@ function canonicalRoleVariantKeyV17_90L201(value: unknown): string {
 function canonicalRoleInvariantTokensV17_90L201(value: unknown): string[] {
   return Array.from(
     new Set(
-      canonicalRoleVariantKeyV17_90L201(value).match(/\b\d+(?:[.,]\d+)?\b/g) || [],
+      canonicalRoleVariantKeyV17_90L201(value).match(/\b\d+(?:[.,]\d+)?\b/g) ||
+        [],
     ),
   ).sort();
 }
@@ -7179,7 +7457,10 @@ function canonicalRoleEditSimilarityV17_90L201(
   if (!left || !right) return 0;
   if (left === right) return 1;
 
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
     const current = [leftIndex];
     for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
@@ -7215,7 +7496,10 @@ function canonicalRoleLinesEquivalentV17_90L201(
   const leftInvariants = canonicalRoleInvariantTokensV17_90L201(left);
   const rightInvariants = canonicalRoleInvariantTokensV17_90L201(right);
   if (leftInvariants.join("|") !== rightInvariants.join("|")) return false;
-  if (hasCanonicalRoleNegationV17_90L201(left) !== hasCanonicalRoleNegationV17_90L201(right)) {
+  if (
+    hasCanonicalRoleNegationV17_90L201(left) !==
+    hasCanonicalRoleNegationV17_90L201(right)
+  ) {
     return false;
   }
 
@@ -7234,7 +7518,9 @@ function translatedRoleEvidenceScoreV17_90L201(
 
   const lineTokens = lineKey.split(/\s+/g).filter((token) => token.length >= 3);
   if (lineTokens.length === 0) return 0;
-  const matched = lineTokens.filter((token) => translationKey.includes(token)).length;
+  const matched = lineTokens.filter((token) =>
+    translationKey.includes(token),
+  ).length;
   return matched / lineTokens.length >= 0.8 ? 1 : 0;
 }
 
@@ -7249,7 +7535,9 @@ function originalRoleEvidenceScoreV17_90L231(
 
   const lineTokens = lineKey.split(/\s+/g).filter((token) => token.length >= 3);
   if (lineTokens.length === 0) return 0;
-  const matched = lineTokens.filter((token) => sourceKey.includes(token)).length;
+  const matched = lineTokens.filter((token) =>
+    sourceKey.includes(token),
+  ).length;
   return matched / lineTokens.length >= 0.8 ? 1 : 0;
 }
 
@@ -7260,7 +7548,9 @@ function dedupeTranslatedRoleVariantsV17_90L201(
   const result: string[] = [];
 
   for (const rawLine of lines) {
-    const line = String(rawLine || "").replace(/\s+/g, " ").trim();
+    const line = String(rawLine || "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (!line || /\[object Object\]/i.test(line)) continue;
 
     const duplicateIndex = result.findIndex((existing) =>
@@ -7312,7 +7602,8 @@ function dedupeTranslatedAccessRoleVariantsV17_90L230(
 
   for (const line of base) {
     const candidateKinds = accessEvidenceKindsV17_90L217(line);
-    const candidateInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
+    const candidateInvariants =
+      canonicalRoleInvariantTokensV17_90L201(line).join("|");
     const candidateScore = translatedRoleEvidenceScoreV17_90L201(
       line,
       translationText,
@@ -7357,7 +7648,7 @@ function dedupeTranslatedAccessRoleVariantsV17_90L230(
       const crossSourcePair =
         (existingScore > 0 && candidateOriginalScore > 0) ||
         (candidateScore > 0 && existingOriginalScore > 0);
-      return crossSourcePair || (existingScore > 0) !== (candidateScore > 0);
+      return crossSourcePair || existingScore > 0 !== candidateScore > 0;
     });
 
     if (duplicateIndex < 0) {
@@ -7383,10 +7674,12 @@ function preferTranslatedCanonicalRoleVariantsV17_90L201(
     const equivalents = candidateLines.filter((candidate) =>
       canonicalRoleLinesEquivalentV17_90L201(protectedLine, candidate),
     );
-    return dedupeTranslatedRoleVariantsV17_90L201(
-      [protectedLine, ...equivalents],
-      translationText,
-    )[0] || protectedLine;
+    return (
+      dedupeTranslatedRoleVariantsV17_90L201(
+        [protectedLine, ...equivalents],
+        translationText,
+      )[0] || protectedLine
+    );
   });
   return dedupeTranslatedRoleVariantsV17_90L201(preferred, translationText);
 }
@@ -7424,7 +7717,10 @@ function preferCompleteTranslatedRoleVariantsV17_90L202(
   lines: string[],
   translationText?: string | null,
 ): string[] {
-  const deduped = dedupeTranslatedRoleVariantsV17_90L201(lines, translationText);
+  const deduped = dedupeTranslatedRoleVariantsV17_90L201(
+    lines,
+    translationText,
+  );
   const tokenSet = (value: string) =>
     new Set(
       canonicalRoleVariantKeyV17_90L201(value)
@@ -7444,7 +7740,8 @@ function preferCompleteTranslatedRoleVariantsV17_90L202(
       translationText,
     );
     const lineTokens = tokenSet(line);
-    const lineInvariants = canonicalRoleInvariantTokensV17_90L201(line).join("|");
+    const lineInvariants =
+      canonicalRoleInvariantTokensV17_90L201(line).join("|");
 
     return !all.some((candidate, candidateIndex) => {
       if (candidateIndex === index) return false;
@@ -7468,7 +7765,6 @@ function preferCompleteTranslatedRoleVariantsV17_90L202(
   });
 }
 
-
 // V17.90L204: Canonical business-fact assembly lives exclusively in
 // lib/intake-v2/facts.ts. No second local assembler may rewrite sealed facts.
 
@@ -7479,7 +7775,9 @@ function dedupeProtectedStructuredRoleLinesV17_90L103(
   const result: string[] = [];
 
   for (const rawLine of lines) {
-    const line = String(rawLine || "").replace(/\s+/g, " ").trim();
+    const line = String(rawLine || "")
+      .replace(/\s+/g, " ")
+      .trim();
     const key = normalizeSemanticText(line);
     if (!line || !key || seen.has(key) || /\[object Object\]/i.test(line)) {
       continue;
@@ -7791,7 +8089,9 @@ function isGeneratedMailOnlyHintV17_90L70(value?: string | null): boolean {
 function cleanOperationalHintForwarderTailV17_90L70(
   value?: string | null,
 ): string {
-  let text = String(value || "").replace(/\s+/g, " ").trim();
+  let text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) return "";
 
   const cutPatterns = [
@@ -7834,7 +8134,8 @@ function extractParkingTargetV17_90L70(
           ? "Lieferantenfeld"
           : rawLabel.includes("ladezone")
             ? "Ladezone"
-            : rawLabel.includes("parking space") || rawLabel.includes("stellplatz")
+            : rawLabel.includes("parking space") ||
+                rawLabel.includes("stellplatz")
               ? "Parkplatz"
               : rawLabel === "platz"
                 ? "Platz"
@@ -7851,12 +8152,17 @@ function enrichParkingHintsV17_90L70(
   const targetText = `${target.label} ${target.number}`;
   let foundParkingHint = false;
   const enriched = lines.map((line) => {
-    if (!/\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|besucherfeld|lieferantenfeld|ladezone|parking|stellplatz|rampe)\b/i.test(line)) {
+    if (
+      !/\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|besucherfeld|lieferantenfeld|ladezone|parking|stellplatz|rampe)\b/i.test(
+        line,
+      )
+    ) {
       return line;
     }
     foundParkingHint = true;
     if (new RegExp(`\\b${target.number}\\b`).test(line)) return line;
-    if (target.label === "Rampe") return `Lieferwagen neben ${targetText} parken`;
+    if (target.label === "Rampe")
+      return `Lieferwagen neben ${targetText} parken`;
     return `Lieferwagen auf ${targetText} parken`;
   });
   if (!foundParkingHint) {
@@ -8055,11 +8361,11 @@ function extractSemanticSpecialNotesFallback(
     const channelMatch = rawLine.match(
       /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
     );
-    const phoneMatches = Array.from(
-      rawLine.matchAll(/\+?\d[\d\s()./-]{6,}\d/g),
-    )
+    const phoneMatches = Array.from(rawLine.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
       .map((match) => ({
-        phone: String(match[0] || "").replace(/\s+/g, " ").trim(),
+        phone: String(match[0] || "")
+          .replace(/\s+/g, " ")
+          .trim(),
         index: match.index || 0,
       }))
       .filter(({ phone }) => {
@@ -8068,7 +8374,8 @@ function extractSemanticSpecialNotesFallback(
       });
 
     if (phoneMatches.length === 0) return undefined;
-    if (!channelMatch || channelMatch.index == null) return phoneMatches[0].phone;
+    if (!channelMatch || channelMatch.index == null)
+      return phoneMatches[0].phone;
 
     return phoneMatches.sort(
       (left, right) =>
@@ -8163,9 +8470,7 @@ function extractSemanticSpecialNotesFallback(
     }
 
     if (isPositiveChannelInstructionLine(rawLine, "sms")) {
-      jobHints.push(
-        phone ? `SMS bevorzugt: ${phone}` : "SMS bevorzugt",
-      );
+      jobHints.push(phone ? `SMS bevorzugt: ${phone}` : "SMS bevorzugt");
     }
 
     if (
@@ -8926,8 +9231,9 @@ function detectAllQuantityUnitsFromText(
       // false review Meter → Quadratmeter after an otherwise correct AI result.
       if (
         start >= 0 &&
-        matches.some((existing) =>
-          Math.max(start, existing.start) < Math.min(end, existing.end),
+        matches.some(
+          (existing) =>
+            Math.max(start, existing.start) < Math.min(end, existing.end),
         )
       ) {
         continue;
@@ -8965,14 +9271,21 @@ function detectExplicitQuantityRangeV17_90L121(
   if (!source) return null;
 
   const unitPatterns: Array<{ unit: string; pattern: string }> = [
-    { unit: "square_meter", pattern: "(?:m2|m²|qm|quadratmeter|quadrat meter|sqm)" },
+    {
+      unit: "square_meter",
+      pattern: "(?:m2|m²|qm|quadratmeter|quadrat meter|sqm)",
+    },
     { unit: "cubic_meter", pattern: "(?:m3|m³|cbm|kubikmeter|kubik meter)" },
-    { unit: "hour", pattern: "(?:stunden?|std\.?|h|hours?|heures?|horas?|ore)" },
+    {
+      unit: "hour",
+      pattern: "(?:stunden?|std\.?|h|hours?|heures?|horas?|ore)",
+    },
     { unit: "day", pattern: "(?:tage?|arbeitstage?|days?|jours?|giorni?)" },
     { unit: "meter", pattern: "(?:laufmeter|lfm|meter|metres?|mètres?)" },
     {
       unit: "piece",
-      pattern: "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?|sack|säcke|saecke|kartuschen?|eimer|rollen?|gebinde|paletten?)",
+      pattern:
+        "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?|sack|säcke|saecke|kartuschen?|eimer|rollen?|gebinde|paletten?)",
     },
     { unit: "kilogram", pattern: "(?:kilogramm|kg)" },
     { unit: "ton", pattern: "(?:tonnen?|to\.?|t)" },
@@ -8989,7 +9302,13 @@ function detectExplicitQuantityRangeV17_90L121(
 
     const min = Number(String(match[1]).replace(",", "."));
     const max = Number(String(match[2]).replace(",", "."));
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0 || max <= min) {
+    if (
+      !Number.isFinite(min) ||
+      !Number.isFinite(max) ||
+      min <= 0 ||
+      max <= 0 ||
+      max <= min
+    ) {
       continue;
     }
 
@@ -10086,15 +10405,13 @@ function formatWorkNameForDisplay(value: string): string {
     .join(" ");
 }
 
-
 // V17.90L76: Keep the structured AI service label as the visible semantic
 // name. This cleanup is structural only: it removes amount/review tails while
 // preserving Unicode, wording and specificity from the structured result.
 function cleanStructuredAiServiceNameV17_90L76(
   value: string | null | undefined,
 ): string {
-  const countUnit =
-    String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
+  const countUnit = String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
 
   let cleaned = compactText(value)
     .replace(
@@ -10116,7 +10433,10 @@ function cleanStructuredAiServiceNameV17_90L76(
       /\s+(?:(?:bitte\s+)?separat|bitte|manuell)\s+(?:prüfen|pruefen|kontrollieren)\s*$/iu,
       "",
     )
-    .replace(/\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu, "")
+    .replace(
+      /\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu,
+      "",
+    )
     .replace(/[\s,;:\-–—]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -10138,7 +10458,6 @@ function cleanStructuredAiServiceNameV17_90L76(
   }
   return cleaned;
 }
-
 
 function structuredNameMatchesCatalogServiceV17_90L76(
   structuredName: string,
@@ -10184,7 +10503,6 @@ function structuredNameMatchesCatalogServiceV17_90L76(
     ),
   );
 }
-
 
 type StructuredOrderItemSnapshotV17_90L76 = {
   serviceName: string;
@@ -10260,7 +10578,10 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
     .sort((left, right) => left.order - right.order);
   if (uniqueSnapshots.length === 0) return currentItems;
 
-  const currentGroups = new Map<string, StructuredOrderItemSnapshotV17_90L76[]>();
+  const currentGroups = new Map<
+    string,
+    StructuredOrderItemSnapshotV17_90L76[]
+  >();
   currentItems.forEach((item) => {
     const signature = structuredOrderItemSignatureV17_90L76(
       item,
@@ -10288,7 +10609,9 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
     restored.push({
       ...base,
       serviceName: snapshot.serviceName,
-      positionType: normalizePositionType((snapshot as any).positionType || (base as any).positionType),
+      positionType: normalizePositionType(
+        (snapshot as any).positionType || (base as any).positionType,
+      ),
       sourceText: base.sourceText || snapshot.sourceText || snapshot.evidence,
       evidence: base.evidence || snapshot.evidence || snapshot.sourceText,
     });
@@ -10299,7 +10622,6 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
   });
   return restored;
 }
-
 
 // V17.90L89: The structured LLM result is the canonical intake source.
 // Legacy validators are read-only advisers from this point on. They may create
@@ -10360,8 +10682,7 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
     .map((part) => escapeRegExpLocal(part))
     .join("[.,]");
 
-  const explicitUnitPattern =
-    String.raw`m(?:²|2|³|3)|qm|quadratmeter(?:n)?|kubikmeter(?:n)?|meter(?:n)?|laufmeter(?:n)?|stück(?:e|en)?|stueck(?:e|en)?|stk\.?|stunden?|std\.?|tage?n?|pauschale?n?`;
+  const explicitUnitPattern = String.raw`m(?:²|2|³|3)|qm|quadratmeter(?:n)?|kubikmeter(?:n)?|meter(?:n)?|laufmeter(?:n)?|stück(?:e|en)?|stueck(?:e|en)?|stk\.?|stunden?|std\.?|tage?n?|pauschale?n?`;
   const explicitQuantityUnitAnywhere = new RegExp(
     `\\b${quantityPattern}\\s*(?:${explicitUnitPattern})(?=\\s|$|[,;:.])`,
     "giu",
@@ -10381,16 +10702,16 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
     "u",
   );
 
-  const leadingQuantity = new RegExp(
-    `^${quantityPattern}\\s+(?=\\p{L})`,
-    "iu",
-  );
+  const leadingQuantity = new RegExp(`^${quantityPattern}\\s+(?=\\p{L})`, "iu");
   const cleaned = original
     .replace(parenthesizedQuantityUnit, " ")
     .replace(explicitQuantityUnitAnywhere, " ")
     .replace(explicitUnitSuffix, "")
     .replace(structuralCountSuffix, "")
-    .replace(/^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i, "")
+    .replace(
+      /^\s*(?:(?:und|sowie|plus|danach|dann|noch|zusätzlich|zusaetzlich)\s+)+/i,
+      "",
+    )
     .replace(leadingQuantity, "")
     .replace(/\s+/g, " ")
     .replace(/[,;:\s]+$/g, "")
@@ -10398,7 +10719,6 @@ function stripCanonicalAmountSuffixFromServiceNameV17_90L199(args: {
 
   return cleaned.length >= 4 && /\p{L}/u.test(cleaned) ? cleaned : original;
 }
-
 
 // V17.90L200/L202: Prefer a clean, line-local German service label from
 // the item's own evidence or the generated German working translation before
@@ -10525,8 +10845,9 @@ function preferLineLocalGermanServiceNameV17_90L200(args: {
 
   const unique = (values: string[]) =>
     Array.from(
-      new Map(values.map((candidate) => [normalizeUnitText(candidate), candidate]))
-        .values(),
+      new Map(
+        values.map((candidate) => [normalizeUnitText(candidate), candidate]),
+      ).values(),
     );
   const uniqueTranslated = unique(translatedCandidates);
   if (uniqueTranslated.length === 1) return uniqueTranslated[0];
@@ -10583,16 +10904,18 @@ function completeCanonicalServiceNamesV17_90L202(
     );
     const canInheritDominantAction = Boolean(
       dominantAction &&
-        !hasAction &&
-        getServiceUnitType(item.unit) !== "flat" &&
-        Number(item.quantity || 0) > 0 &&
-        Number(item.unitPrice || 0) > 0 &&
-        ownEvidenceIsPriced &&
-        serviceName &&
-        !isInternalReviewServiceNameV17_90L(serviceName),
+      !hasAction &&
+      getServiceUnitType(item.unit) !== "flat" &&
+      Number(item.quantity || 0) > 0 &&
+      Number(item.unitPrice || 0) > 0 &&
+      ownEvidenceIsPriced &&
+      serviceName &&
+      !isInternalReviewServiceNameV17_90L(serviceName),
     );
     if (canInheritDominantAction) {
-      serviceName = `${serviceName} ${dominantAction}`.replace(/\s+/g, " ").trim();
+      serviceName = `${serviceName} ${dominantAction}`
+        .replace(/\s+/g, " ")
+        .trim();
     }
 
     return {
@@ -10606,15 +10929,32 @@ function repairCanonicalServiceSpellingFromContextV17_90L202(
   items: CanonicalAiOrderItemV17_90L88[],
   contextText?: string | null,
 ): CanonicalAiOrderItemV17_90L88[] {
-  const contextTokens = String(contextText || "").match(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{6,}/gu) || [];
+  const contextTokens =
+    String(contextText || "").match(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{6,}/gu) || [];
   if (contextTokens.length === 0) return items;
 
-  const normalizeToken = (value: string) => normalizeUnitText(value).replace(/[^a-z0-9]/g, "");
+  const normalizeToken = (value: string) =>
+    normalizeUnitText(value).replace(/[^a-z0-9]/g, "");
   const stop = new Set([
-    "reinigen", "reinigung", "abstauben", "abwischen", "streichen",
-    "schleifen", "schneiden", "entsorgen", "sortieren", "putzen",
-    "montieren", "ersetzen", "reparieren", "entkalken", "verlegen",
-    "befestigen", "pruefen", "kontrollieren", "erstellen",
+    "reinigen",
+    "reinigung",
+    "abstauben",
+    "abwischen",
+    "streichen",
+    "schleifen",
+    "schneiden",
+    "entsorgen",
+    "sortieren",
+    "putzen",
+    "montieren",
+    "ersetzen",
+    "reparieren",
+    "entkalken",
+    "verlegen",
+    "befestigen",
+    "pruefen",
+    "kontrollieren",
+    "erstellen",
   ]);
 
   return items.map((item) => {
@@ -10646,7 +10986,8 @@ function repairCanonicalServiceSpellingFromContextV17_90L202(
         )
         .sort((left, right) => right.score - left.score);
 
-      if (matches.length !== 1 && matches[0]?.score === matches[1]?.score) return word;
+      if (matches.length !== 1 && matches[0]?.score === matches[1]?.score)
+        return word;
       const best = matches[0];
       if (!best) return word;
 
@@ -10663,19 +11004,13 @@ function repairCanonicalServiceSpellingFromContextV17_90L202(
       return replacement;
     });
 
-    return changed
-      ? { ...item, serviceName: repaired.join("") }
-      : item;
+    return changed ? { ...item, serviceName: repaired.join("") } : item;
   });
 }
 
-function extractLeadingCountFromEvidenceV17_90L89(
-  value: unknown,
-): number {
+function extractLeadingCountFromEvidenceV17_90L89(value: unknown): number {
   const source = compactText(value);
-  const match = source.match(
-    /^\s*[-•]?\s*(\d+(?:[.,]\d+)?)\s+(?=[\p{L}])/u,
-  );
+  const match = source.match(/^\s*[-•]?\s*(\d+(?:[.,]\d+)?)\s+(?=[\p{L}])/u);
   return parsePositiveCanonicalNumberV17_90L89(match?.[1]);
 }
 
@@ -10717,7 +11052,6 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
   return (moneyMatches?.length || 0) === 1;
 }
 
-
 // V17.90L204: A number attached to a singular floor/location label is a
 // location identifier (for example "6 Etage" = 6th floor), not a billable
 // quantity. This guard is line-local and does not depend on service words.
@@ -10752,16 +11086,17 @@ function detectSingularOrdinalLocationEvidenceV17_90L204(
   }
 
   const rawLabel = normalizeUnitText(match[2]);
-  const label: OrdinalLocationEvidenceV17_90L204["label"] =
-    rawLabel.startsWith("stock")
-      ? "Stockwerk"
-      : rawLabel === "geschoss"
-        ? "Geschoss"
-        : rawLabel === "floor" || rawLabel === "storey"
-          ? "Floor"
-          : rawLabel === "piano"
-            ? "Piano"
-            : "Etage";
+  const label: OrdinalLocationEvidenceV17_90L204["label"] = rawLabel.startsWith(
+    "stock",
+  )
+    ? "Stockwerk"
+    : rawLabel === "geschoss"
+      ? "Geschoss"
+      : rawLabel === "floor" || rawLabel === "storey"
+        ? "Floor"
+        : rawLabel === "piano"
+          ? "Piano"
+          : "Etage";
   return { number: Number(match[1]), label };
 }
 
@@ -10815,7 +11150,6 @@ function normalizeOrdinalLocationServiceNameV17_90L204(args: {
 
   return normalized.replace(/\s+/g, " ").trim();
 }
-
 
 // V17.90L226: Evidence-bound structural completion before the canonical lock.
 // This layer is deliberately service-agnostic: it does not classify trades or
@@ -10916,7 +11250,9 @@ function canonicalMarkerIndexesV17_90L226(
   source: string,
   pattern: RegExp,
 ): number[] {
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
   const globalPattern = new RegExp(pattern.source, flags);
   return Array.from(source.matchAll(globalPattern))
     .map((match) => match.index ?? -1)
@@ -10945,7 +11281,8 @@ function inferCanonicalCountFromOwnEvidenceV17_90L226(args: {
   const source = String(args.sourceText || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
-  const countPattern = /(?:^|[^\d])(\d+(?:[.,]\d+)?)\s+([\p{L}][\p{L}'’\-]{2,})/giu;
+  const countPattern =
+    /(?:^|[^\d])(\d+(?:[.,]\d+)?)\s+([\p{L}][\p{L}'’\-]{2,})/giu;
   for (const match of source.matchAll(countPattern)) {
     const quantity = parseCanonicalEvidenceNumberV17_90L226(match[1]);
     if (!quantity || quantity > 100000) continue;
@@ -10956,15 +11293,14 @@ function inferCanonicalCountFromOwnEvidenceV17_90L226(args: {
     // A singular floor/location number is an ordinal location, not a billing
     // quantity. Plural counts remain eligible.
     if (
-      /^(?:etage|stock|stockwerk|geschoss|floor|storey|piano)$/i.test(
-        nounKey,
-      )
+      /^(?:etage|stock|stockwerk|geschoss|floor|storey|piano)$/i.test(nounKey)
     ) {
       continue;
     }
 
     const overlapsService = [...serviceTokens].some(
-      (token) => token === nounKey || token.includes(nounKey) || nounKey.includes(token),
+      (token) =>
+        token === nounKey || token.includes(nounKey) || nounKey.includes(token),
     );
     if (!overlapsService) continue;
     return { quantity, unit: "Stück" };
@@ -10980,8 +11316,10 @@ function analyzeCanonicalEvidenceStructureV17_90L226(args: {
   const source = String(args.sourceText || "");
   const amounts = extractCanonicalEvidenceAmountsV17_90L226(source);
 
-  const flatMarkerPattern = /\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total\s+price|total\s+amount|flat\s+rate|lump\s+sum|forfait(?:\s+total)?|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|a\s+corpo|precio\s+total|importe\s+total|tarifa\s+fija|pre[cç]o\s+total|valor\s+total|pre[cç]o\s+fixo)\b/giu;
-  const perUnitPattern = /(?:\b(?:pro|je|per|each|par|por|cada)\b|(?:à|@)\s*(?:(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|GBP|€|\$|£)\s*)?\d)/giu;
+  const flatMarkerPattern =
+    /\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total\s+price|total\s+amount|flat\s+rate|lump\s+sum|forfait(?:\s+total)?|prix\s+total|montant\s+total|prezzo\s+totale|importo\s+totale|a\s+corpo|precio\s+total|importe\s+total|tarifa\s+fija|pre[cç]o\s+total|valor\s+total|pre[cç]o\s+fixo)\b/giu;
+  const perUnitPattern =
+    /(?:\b(?:pro|je|per|each|par|por|cada)\b|(?:à|@)\s*(?:(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|GBP|€|\$|£)\s*)?\d)/giu;
 
   const flatMarkers = canonicalMarkerIndexesV17_90L226(
     source,
@@ -11033,7 +11371,6 @@ function analyzeCanonicalEvidenceStructureV17_90L226(args: {
   };
 }
 
-
 type SharedFlatPackageEvidenceV17_90L232 = {
   serviceName: string;
   sourceText: string;
@@ -11072,7 +11409,10 @@ function rawAiItemServiceNameV17_90L232(raw: any): string {
 
 function sharedPackageEvidenceKeyV17_90L232(value: unknown): string {
   return normalizeSemanticText(String(value || ""))
-    .replace(/\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total price|total amount|flat rate|lump sum|forfait total|prix total|montant total|prezzo totale|importo totale|a corpo|precio total|importe total|tarifa fija|preco total|preço total|valor total|preco fixo|preço fixo)\b.*$/iu, "")
+    .replace(
+      /\b(?:gesamtpreis|totalpreis|endpreis|fixpreis|festpreis|pauschalpreis|pauschale|pauschal|insgesamt|total price|total amount|flat rate|lump sum|forfait total|prix total|montant total|prezzo totale|importo totale|a corpo|precio total|importe total|tarifa fija|preco total|preço total|valor total|preco fixo|preço fixo)\b.*$/iu,
+      "",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -11093,7 +11433,9 @@ function sharedPackageEvidenceEquivalentV17_90L232(
     rightKey.split(/\s+/g).filter((token) => token.length >= 3),
   );
   if (leftTokens.size < 3 || rightTokens.size < 3) return false;
-  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const overlap = [...leftTokens].filter((token) =>
+    rightTokens.has(token),
+  ).length;
   return overlap / Math.max(leftTokens.size, rightTokens.size) >= 0.9;
 }
 
@@ -11109,7 +11451,9 @@ function stripSharedFlatPriceTailV17_90L232(value: unknown): string {
 }
 
 function explicitSharedFlatFragmentV17_90L232(value: unknown): string | null {
-  const source = String(value || "").replace(/\s+/g, " ").trim();
+  const source = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!source) return null;
 
   const currency = String.raw`(?:CHF|SFR\.?|FR\.?|EUR|EURO|USD|DOLLAR|GBP|PFUND|€|\$|£)`;
@@ -11159,9 +11503,9 @@ function findSharedFlatPackageEvidenceV17_90L232(args: {
       if (lines[index - 1]) candidateTexts.push(`${lines[index - 1]}\n${line}`);
     }
 
-    const exactIndex = corpus.toLocaleLowerCase("de-CH").indexOf(
-      sourceEvidence.toLocaleLowerCase("de-CH"),
-    );
+    const exactIndex = corpus
+      .toLocaleLowerCase("de-CH")
+      .indexOf(sourceEvidence.toLocaleLowerCase("de-CH"));
     if (exactIndex >= 0) {
       const tail = corpus.slice(
         exactIndex + sourceEvidence.length,
@@ -11175,16 +11519,24 @@ function findSharedFlatPackageEvidenceV17_90L232(args: {
       // Flattened WhatsApp text may differ only in punctuation/spacing. Search
       // for the first and last substantial evidence tokens and inspect only the
       // short local tail between the shared service and the next statement.
-      const tokens = evidenceKey.split(/\s+/g).filter((token) => token.length >= 4);
+      const tokens = evidenceKey
+        .split(/\s+/g)
+        .filter((token) => token.length >= 4);
       if (tokens.length >= 2) {
         const corpusKey = normalizeSemanticText(corpus);
         const firstIndex = corpusKey.indexOf(tokens[0]);
         const lastToken = tokens[tokens.length - 1];
-        const lastIndex = firstIndex >= 0 ? corpusKey.indexOf(lastToken, firstIndex) : -1;
+        const lastIndex =
+          firstIndex >= 0 ? corpusKey.indexOf(lastToken, firstIndex) : -1;
         if (firstIndex >= 0 && lastIndex >= firstIndex) {
-          const approximateTail = corpusKey.slice(lastIndex + lastToken.length, lastIndex + lastToken.length + 180);
-          const flatFragment = explicitSharedFlatFragmentV17_90L232(approximateTail);
-          if (flatFragment) candidateTexts.push(`${sourceEvidence}\n${flatFragment}`);
+          const approximateTail = corpusKey.slice(
+            lastIndex + lastToken.length,
+            lastIndex + lastToken.length + 180,
+          );
+          const flatFragment =
+            explicitSharedFlatFragmentV17_90L232(approximateTail);
+          if (flatFragment)
+            candidateTexts.push(`${sourceEvidence}\n${flatFragment}`);
         }
       }
     }
@@ -11217,18 +11569,21 @@ function findSharedFlatPackageEvidenceV17_90L232(args: {
     }
 
     const price = structure.inferredFlatPrice;
-    const currency = String(detectCurrencyFromText(candidate) || "")
-      .trim()
-      .toUpperCase() || null;
+    const currency =
+      String(detectCurrencyFromText(candidate) || "")
+        .trim()
+        .toUpperCase() || null;
     const result = {
       serviceName,
-      sourceText: `${serviceName}\n${explicitSharedFlatFragmentV17_90L232(candidate) || candidate}`
-        .replace(/\n{3,}/g, "\n\n")
-        .trim(),
+      sourceText:
+        `${serviceName}\n${explicitSharedFlatFragmentV17_90L232(candidate) || candidate}`
+          .replace(/\n{3,}/g, "\n\n")
+          .trim(),
       price,
       currency,
     };
-    if (!best || result.sourceText.length < best.sourceText.length) best = result;
+    if (!best || result.sourceText.length < best.sourceText.length)
+      best = result;
   }
 
   return best;
@@ -11264,7 +11619,9 @@ function mergeSharedFlatPackageRowsV17_90L232(
     if (groupIndexes.length < 2) continue;
 
     const serviceNames = groupIndexes
-      .map((candidateIndex) => rawAiItemServiceNameV17_90L232(rawItems[candidateIndex]))
+      .map((candidateIndex) =>
+        rawAiItemServiceNameV17_90L232(rawItems[candidateIndex]),
+      )
       .filter(Boolean);
     if (new Set(serviceNames.map(canonicalServiceKeyV17_90L88)).size < 2) {
       continue;
@@ -11295,7 +11652,9 @@ function mergeSharedFlatPackageRowsV17_90L232(
     if (
       explicitRowPrices.length > 1 ||
       (explicitRowPrices.length === 1 &&
-        Math.abs(explicitRowPrices[0] - roundIntakeMoney(packageEvidence.price)) >= 0.01)
+        Math.abs(
+          explicitRowPrices[0] - roundIntakeMoney(packageEvidence.price),
+        ) >= 0.01)
     ) {
       continue;
     }
@@ -11315,7 +11674,8 @@ function mergeSharedFlatPackageRowsV17_90L232(
       unit_price: packageEvidence.price,
       price: packageEvidence.price,
       currency:
-        packageEvidence.currency || String(firstRaw?.currency || "CHF").toUpperCase(),
+        packageEvidence.currency ||
+        String(firstRaw?.currency || "CHF").toUpperCase(),
       sourceText: packageEvidence.sourceText,
       source_text: packageEvidence.sourceText,
       evidence: packageEvidence.sourceText,
@@ -11345,7 +11705,6 @@ function mergeSharedFlatPackageRowsV17_90L232(
   return result;
 }
 
-
 type PositionTypeGuardOutcomeV17_90L371AM = {
   positionType: string;
   confidence: "clear" | "unchanged" | "review";
@@ -11353,12 +11712,32 @@ type PositionTypeGuardOutcomeV17_90L371AM = {
 };
 
 function normalizePositionTypeTokenV17_90L371AM(value: unknown): string | null {
-  const key = normalizeUnitText(value || "").replace(/[^a-z0-9]+/g, " ").trim();
+  const key = normalizeUnitText(value || "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
   if (!key) return null;
-  if (/\b(?:service|dienstleistung|leistung|arbeit|work|labor|labour)\b/.test(key)) return "service";
-  if (/\b(?:material|materialien|produkt|product|verbrauchsmaterial|supplies?)\b/.test(key)) return "material";
-  if (/\b(?:equipment|geraet|gerät|maschine|maschinen|werkzeug|tool|tools|machine|machines)\b/.test(key)) return "equipment";
-  if (/\b(?:expense|kosten|zusatzkosten|spesen|fee|fees|charge|charges|anfahrt|fahrtkosten|entsorgung|disposal|flat\s*fee)\b/.test(key)) return "expense";
+  if (
+    /\b(?:service|dienstleistung|leistung|arbeit|work|labor|labour)\b/.test(key)
+  )
+    return "service";
+  if (
+    /\b(?:material|materialien|produkt|product|verbrauchsmaterial|supplies?)\b/.test(
+      key,
+    )
+  )
+    return "material";
+  if (
+    /\b(?:equipment|geraet|gerät|maschine|maschinen|werkzeug|tool|tools|machine|machines)\b/.test(
+      key,
+    )
+  )
+    return "equipment";
+  if (
+    /\b(?:expense|kosten|zusatzkosten|spesen|fee|fees|charge|charges|anfahrt|fahrtkosten|entsorgung|disposal|flat\s*fee)\b/.test(
+      key,
+    )
+  )
+    return "expense";
   return null;
 }
 
@@ -11371,7 +11750,10 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
     args.raw?.positionType ?? args.raw?.position_type ?? args.raw?.type,
   );
   const normalizedExplicit = normalizePositionType(
-    explicitToken || args.raw?.positionType || args.raw?.position_type || args.raw?.type,
+    explicitToken ||
+      args.raw?.positionType ||
+      args.raw?.position_type ||
+      args.raw?.type,
   );
   const text = normalizeUnitText(
     [
@@ -11386,11 +11768,24 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
       .join(" "),
   );
 
-  const hasExpenseSignal = /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(text);
-  const hasEquipmentSignal = /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|scheuersaugmaschine|hochdruckreiniger|dampfreiniger|spezialmaschine|hubwagen|werkzeug|werkzeuge|geruest|gerueste|geruestbau|baugeruest|geruestmiete|gerueststandzeit|arbeitsbuehne|hebebuehne|bautrockner|poliermaschine|equipment|machine|machines|tool|tools|scaffold|scaffolding|apparat|apparatur|miete|mieten|rental)\b/.test(text) ||
-    /\b(?:geruest\s+(?:aufbau|standzeit|benutzung|miete)|(?:aufbau|standzeit|benutzung|miete)\s+geruest)\b/.test(text) ||
-    /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge|geruest|buehne|trockner)\b/iu.test(text);
-  const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
+  const hasExpenseSignal =
+    /\b(?:anfahrt|fahrtkosten|wegkosten|reisekosten|transportkosten|einsatzpauschale|zusatzkosten|nebenkosten|spesen|gebuehr|gebuehren|gebühr|gebühren|parkgebuehr|parkgebühr|maut|deponie|entsorgung|entsorgungskosten|abfallentsorgung|schmutzwasser|abwasser|disposal|waste|dumping|travel\s+costs?|trip\s+charge|call\s*out|callout|delivery\s+fee)\b/.test(
+      text,
+    );
+  const hasEquipmentSignal =
+    /\b(?:geraet|geraete|gerät|geräte|maschine|maschinen|einscheibenmaschine|scheuersaugmaschine|hochdruckreiniger|dampfreiniger|spezialmaschine|hubwagen|werkzeug|werkzeuge|geruest|gerueste|geruestbau|baugeruest|geruestmiete|gerueststandzeit|arbeitsbuehne|hebebuehne|bautrockner|poliermaschine|equipment|machine|machines|tool|tools|scaffold|scaffolding|apparat|apparatur|miete|mieten|rental)\b/.test(
+      text,
+    ) ||
+    /\b(?:geruest\s+(?:aufbau|standzeit|benutzung|miete)|(?:aufbau|standzeit|benutzung|miete)\s+geruest)\b/.test(
+      text,
+    ) ||
+    /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge|geruest|buehne|trockner)\b/iu.test(
+      text,
+    );
+  const clearMaterialSignal =
+    /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(
+      text,
+    );
   const localQuantityUnitsV17_90L371BK = detectAllQuantityUnitsFromText(
     args.sourceText || "",
   );
@@ -11442,7 +11837,9 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
   })();
 
   const materialIncompatibleUnit =
-    ["square_meter", "cubic_meter", "hour", "day"].includes(localQuantityUnit) ||
+    ["square_meter", "cubic_meter", "hour", "day"].includes(
+      localQuantityUnit,
+    ) ||
     (localQuantityUnit === "meter" &&
       !hasPricedLineLocalSheetMaterialSignalV17_90L371BK);
   const hasMaterialSignal =
@@ -11450,20 +11847,32 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
     (clearMaterialSignal && !materialIncompatibleUnit);
 
   if (hasExpenseSignal) {
-    return { positionType: normalizePositionType("expense"), confidence: "clear" };
+    return {
+      positionType: normalizePositionType("expense"),
+      confidence: "clear",
+    };
   }
   if (hasEquipmentSignal) {
-    return { positionType: normalizePositionType("equipment"), confidence: "clear" };
+    return {
+      positionType: normalizePositionType("equipment"),
+      confidence: "clear",
+    };
   }
   if (hasMaterialSignal) {
-    return { positionType: normalizePositionType("material"), confidence: "clear" };
+    return {
+      positionType: normalizePositionType("material"),
+      confidence: "clear",
+    };
   }
 
   if (explicitToken) {
     return { positionType: normalizedExplicit, confidence: "unchanged" };
   }
 
-  return { positionType: normalizePositionType("service"), confidence: "unchanged" };
+  return {
+    positionType: normalizePositionType("service"),
+    confidence: "unchanged",
+  };
 }
 
 function cleanLineLocalCostPositionNameV17_90L371AP(args: {
@@ -11487,8 +11896,14 @@ function cleanLineLocalCostPositionNameV17_90L371AP(args: {
   const candidateSource = source || fallback;
 
   const cleaned = candidateSource
-    .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
-    .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+    .replace(
+      /\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu,
+      "",
+    )
+    .replace(
+      /\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu,
+      "",
+    )
     .replace(/\s*[,;:–—-]\s*(?:pauschal|gesamt|total)?\s*$/iu, "")
     .replace(/[,:;–—.\s]+$/g, "")
     .replace(/^[-–—,:;.\s]+/g, "")
@@ -11498,8 +11913,6 @@ function cleanLineLocalCostPositionNameV17_90L371AP(args: {
   if (cleaned.length >= 3 && cleaned.length <= 120) return cleaned;
   return fallback;
 }
-
-
 
 function cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR(args: {
   serviceName: string;
@@ -11517,8 +11930,14 @@ function cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR(args: {
     quantity: Number(args.quantity || 0),
   })
     .replace(/\s*(?:à|@|\b(?:je|pro|per|par|por|at|each)\b)\s*$/iu, "")
-    .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
-    .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+    .replace(
+      /\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu,
+      "",
+    )
+    .replace(
+      /\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu,
+      "",
+    )
     .replace(/[,:;–—.\s]+$/g, "")
     .replace(/^[-–—,:;.\s]+/g, "")
     .replace(/\s+/g, " ")
@@ -11529,9 +11948,11 @@ function cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR(args: {
     .trim();
   const quantity = Number(args.quantity || 0);
   if (source && Number.isFinite(quantity) && quantity > 0) {
-    const quantityPattern = (Number.isInteger(quantity)
-      ? String(Math.trunc(quantity))
-      : String(Number(quantity.toFixed(4))))
+    const quantityPattern = (
+      Number.isInteger(quantity)
+        ? String(Math.trunc(quantity))
+        : String(Number(quantity.toFixed(4)))
+    )
       .split(".")
       .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("[.,]");
@@ -11543,8 +11964,14 @@ function cleanBillablePositionNameBeforeCanonicalLockV17_90L371AR(args: {
         ),
         "",
       )
-      .replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu, "")
-      .replace(/\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, "")
+      .replace(
+        /\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b.*$/iu,
+        "",
+      )
+      .replace(
+        /\s+\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu,
+        "",
+      )
       .replace(/[,:;–—.\s]+$/g, "")
       .replace(/^[-–—,:;.\s]+/g, "")
       .replace(/\s+/g, " ")
@@ -11578,15 +12005,22 @@ function extractLineLocalUnitLabelFromSourceV17_90L371AQ(
   sourceTextValue: unknown,
   quantityValue: number,
 ): string | null {
-  const source = String(sourceTextValue || "").replace(/\s+/g, " ").trim();
-  if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0) return null;
+  const source = String(sourceTextValue || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0)
+    return null;
 
   const quantityVariants = Array.from(
-    new Set([
-      String(quantityValue).replace(/\.0+$/, ""),
-      String(quantityValue).replace(/\.0+$/, "").replace(".", ","),
-      Number.isInteger(quantityValue) ? String(Math.trunc(quantityValue)) : "",
-    ].filter(Boolean)),
+    new Set(
+      [
+        String(quantityValue).replace(/\.0+$/, ""),
+        String(quantityValue).replace(/\.0+$/, "").replace(".", ","),
+        Number.isInteger(quantityValue)
+          ? String(Math.trunc(quantityValue))
+          : "",
+      ].filter(Boolean),
+    ),
   );
 
   for (const quantityText of quantityVariants) {
@@ -11601,7 +12035,8 @@ function extractLineLocalUnitLabelFromSourceV17_90L371AQ(
     );
     const label = cleanLineLocalUnitLabelV17_90L371AQ(match?.[1]);
     if (!label || /^\d/.test(label)) continue;
-    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label)) continue;
+    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label))
+      continue;
     return label;
   }
 
@@ -11631,7 +12066,9 @@ function shouldPreferLineLocalUnitV17_90L371AQ(args: {
     const normalizedDisplayKey = normalizeUnitText(
       rawUnitType !== "unknown" ? unitTypeToDisplayUnit(rawUnitType) : rawUnit,
     );
-    return sourceKey !== normalizedDisplayKey || rawKey !== normalizedDisplayKey;
+    return (
+      sourceKey !== normalizedDisplayKey || rawKey !== normalizedDisplayKey
+    );
   }
 
   if (rawKey === sourceKey) return false;
@@ -11654,15 +12091,19 @@ const normalizedLineKeyV17_90L371AP = (value: unknown): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-function isSameLineLocalFactV17_90L371AP(left: unknown, right: unknown): boolean {
+function isSameLineLocalFactV17_90L371AP(
+  left: unknown,
+  right: unknown,
+): boolean {
   const leftKey = normalizedLineKeyV17_90L371AP(left);
   const rightKey = normalizedLineKeyV17_90L371AP(right);
   if (!leftKey || !rightKey) return false;
-  return leftKey === rightKey ||
+  return (
+    leftKey === rightKey ||
     (leftKey.length >= 8 && rightKey.includes(leftKey)) ||
-    (rightKey.length >= 8 && leftKey.includes(rightKey));
+    (rightKey.length >= 8 && leftKey.includes(rightKey))
+  );
 }
-
 
 function normalizedBillableCostFactKeyV17_90L371AR(value: unknown): string {
   return String(value || "")
@@ -11673,15 +12114,27 @@ function normalizedBillableCostFactKeyV17_90L371AR(value: unknown): string {
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
-    .replace(/\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b/giu, " ")
-    .replace(/\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b/giu, " ")
-    .replace(/\b(?:pauschal|pauschale|preis|betrag|kosten|gebuehr|gebuehren|gebühr|gebühren)\b/giu, " ")
+    .replace(
+      /\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\b/giu,
+      " ",
+    )
+    .replace(
+      /\b[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b/giu,
+      " ",
+    )
+    .replace(
+      /\b(?:pauschal|pauschale|preis|betrag|kosten|gebuehr|gebuehren|gebühr|gebühren)\b/giu,
+      " ",
+    )
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function isSameBillableCostFactV17_90L371AR(left: unknown, right: unknown): boolean {
+function isSameBillableCostFactV17_90L371AR(
+  left: unknown,
+  right: unknown,
+): boolean {
   const leftKey = normalizedBillableCostFactKeyV17_90L371AR(left);
   const rightKey = normalizedBillableCostFactKeyV17_90L371AR(right);
   if (!leftKey || !rightKey) return false;
@@ -11689,11 +12142,18 @@ function isSameBillableCostFactV17_90L371AR(left: unknown, right: unknown): bool
   if (leftKey.length >= 6 && rightKey.includes(leftKey)) return true;
   if (rightKey.length >= 6 && leftKey.includes(rightKey)) return true;
 
-  const leftTokens = new Set(leftKey.split(/\s+/g).filter((token) => token.length >= 4));
-  const rightTokens = rightKey.split(/\s+/g).filter((token) => token.length >= 4);
+  const leftTokens = new Set(
+    leftKey.split(/\s+/g).filter((token) => token.length >= 4),
+  );
+  const rightTokens = rightKey
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4);
   if (leftTokens.size === 0 || rightTokens.length === 0) return false;
   const overlap = rightTokens.filter((token) => leftTokens.has(token)).length;
-  return overlap >= 2 && overlap / Math.min(leftTokens.size, rightTokens.length) >= 0.67;
+  return (
+    overlap >= 2 &&
+    overlap / Math.min(leftTokens.size, rightTokens.length) >= 0.67
+  );
 }
 
 function isLineLocalFlatCostCandidateV17_90L371AM(args: {
@@ -11711,27 +12171,31 @@ function isLineLocalFlatCostCandidateV17_90L371AM(args: {
   const source = normalizeUnitText(args.sourceText || "");
   if (!source) return false;
 
-  const hasExplicitPerUnitSignal = /(?:\b(?:pro|je|per|each|par|por)\b|\sà\s|@)/i.test(source);
+  const hasExplicitPerUnitSignal =
+    /(?:\b(?:pro|je|per|each|par|por)\b|\sà\s|@)/i.test(source);
   if (hasExplicitPerUnitSignal) return false;
 
-  const hasExplicitQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "").length > 0;
-  return (!args.unit || isReviewUnitV17_90L(args.unit) || args.quantity <= 0) && !hasExplicitQuantityUnit;
+  const hasExplicitQuantityUnit =
+    detectAllQuantityUnitsFromText(args.sourceText || "").length > 0;
+  return (
+    (!args.unit || isReviewUnitV17_90L(args.unit) || args.quantity <= 0) &&
+    !hasExplicitQuantityUnit
+  );
 }
-
 
 function hasLooseLineLocalCountEvidenceV17_90L371BD(
   sourceText: string,
 ): boolean {
-  const source = String(sourceText || "").replace(/\s+/g, " ").trim();
+  const source = String(sourceText || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!source) return false;
 
   // Generic count+noun evidence, not a service vocabulary list. This keeps
   // open-price material/equipment rows such as "2 Kanister" or "4 Tage"
   // eligible, while free-text instructions without any billable amount stay
   // review-only.
-  return /\b\d+(?:[.,]\d+)?\s+[\p{L}][\p{L}0-9%/²³._-]{2,}\b/u.test(
-    source,
-  );
+  return /\b\d+(?:[.,]\d+)?\s+[\p{L}][\p{L}0-9%/²³._-]{2,}\b/u.test(source);
 }
 
 function hasHardLineLocalBillingEvidenceV17_90L371BD(args: {
@@ -11858,17 +12322,14 @@ function buildCanonicalAiOrderItemsV17_90L88(
         .trim(),
     );
     const rawUnitType = getServiceUnitType(rawUnit);
-    let unit = rawUnitType !== "unknown"
-      ? unitTypeToDisplayUnit(rawUnitType)
-      : rawUnit || "Einheit prüfen";
-    let unitSource: CanonicalUnitSourceV17_90L89 = rawUnit
-      ? "ai"
-      : "missing";
+    let unit =
+      rawUnitType !== "unknown"
+        ? unitTypeToDisplayUnit(rawUnitType)
+        : rawUnit || "Einheit prüfen";
+    let unitSource: CanonicalUnitSourceV17_90L89 = rawUnit ? "ai" : "missing";
 
-    const lineLocalUnitV17_90L371AQ = extractLineLocalUnitLabelFromSourceV17_90L371AQ(
-      sourceText,
-      quantity,
-    );
+    const lineLocalUnitV17_90L371AQ =
+      extractLineLocalUnitLabelFromSourceV17_90L371AQ(sourceText, quantity);
     if (
       shouldPreferLineLocalUnitV17_90L371AQ({
         positionType,
@@ -11876,7 +12337,8 @@ function buildCanonicalAiOrderItemsV17_90L88(
         sourceUnit: lineLocalUnitV17_90L371AQ,
       })
     ) {
-      unit = cleanLineLocalUnitLabelV17_90L371AQ(lineLocalUnitV17_90L371AQ) || unit;
+      unit =
+        cleanLineLocalUnitLabelV17_90L371AQ(lineLocalUnitV17_90L371AQ) || unit;
       unitSource = "ai";
     }
 
@@ -11971,30 +12433,30 @@ function buildCanonicalAiOrderItemsV17_90L88(
 
     const needsReview = Boolean(
       explicitNeedsReview ||
-        positionTypeNeedsReview ||
-        missingServiceName ||
-        missingEvidence ||
-        missingPrice ||
-        missingQuantity ||
-        missingUnit,
+      positionTypeNeedsReview ||
+      missingServiceName ||
+      missingEvidence ||
+      missingPrice ||
+      missingQuantity ||
+      missingUnit,
     );
     const reviewReason =
       explicitReviewReason ||
       (positionTypeNeedsReview
         ? `position_type_review:${serviceName}`
         : missingServiceName
-        ? "service_name_missing"
-        : missingEvidence
-          ? `source_evidence_missing:${serviceName}`
-          : missingPrice
-            ? `price_unclear:${serviceName}`
-            : missingQuantity
-              ? `quantity_review:${serviceName}`
-              : missingUnit
-                ? `unit_missing_in_text:${serviceName}`
-                : explicitNeedsReview
-                  ? `ai_review_required:${serviceName}`
-                  : null);
+          ? "service_name_missing"
+          : missingEvidence
+            ? `source_evidence_missing:${serviceName}`
+            : missingPrice
+              ? `price_unclear:${serviceName}`
+              : missingQuantity
+                ? `quantity_review:${serviceName}`
+                : missingUnit
+                  ? `unit_missing_in_text:${serviceName}`
+                  : explicitNeedsReview
+                    ? `ai_review_required:${serviceName}`
+                    : null);
 
     return {
       serviceName,
@@ -12068,7 +12530,9 @@ function buildEvidenceBoundRescueCanonicalItemsV17_90L217(
       const unitPrice = Number(item.unitPrice || 0);
       const unitType = getServiceUnitType(item.unit || null);
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
-      if (/\b(?:preis\s+(?:offen|unklar|folgt)|ohne\s+preis)\b/i.test(evidence)) {
+      if (
+        /\b(?:preis\s+(?:offen|unklar|folgt)|ohne\s+preis)\b/i.test(evidence)
+      ) {
         return false;
       }
       if (
@@ -12102,7 +12566,8 @@ function buildEvidenceBoundRescueCanonicalItemsV17_90L217(
       quantity: item.quantity,
       unit: item.unit,
       unitPrice: item.unitPrice,
-      currency: item.detectedCurrency || detectCurrencyFromText(item.sourceText || ""),
+      currency:
+        item.detectedCurrency || detectCurrencyFromText(item.sourceText || ""),
       sourceText: item.sourceText || item.evidence || item.description,
       confidence: "hoch",
     }));
@@ -12159,8 +12624,12 @@ function canonicalItemMatchScoreV17_90L88(
   if (canonicalName && candidateName) {
     if (canonicalName === candidateName) score += 30;
     else {
-      const left = new Set(canonicalName.split(/\s+/g).filter((v) => v.length >= 4));
-      const right = new Set(candidateName.split(/\s+/g).filter((v) => v.length >= 4));
+      const left = new Set(
+        canonicalName.split(/\s+/g).filter((v) => v.length >= 4),
+      );
+      const right = new Set(
+        candidateName.split(/\s+/g).filter((v) => v.length >= 4),
+      );
       const overlap = [...left].filter((token) => right.has(token)).length;
       if (overlap >= 1) score += overlap * 8;
     }
@@ -12168,14 +12637,23 @@ function canonicalItemMatchScoreV17_90L88(
   return score;
 }
 
-
 function findOwnSourceLineForServiceV17_90L88(
   serviceName: string,
   originalText: string,
 ): string | null {
   const stop = new Set([
-    "reinigen", "pruefen", "prüfen", "kontrollieren", "warten", "einsetzen",
-    "nach", "aufwand", "pauschal", "bitte", "separat", "leistung",
+    "reinigen",
+    "pruefen",
+    "prüfen",
+    "kontrollieren",
+    "warten",
+    "einsetzen",
+    "nach",
+    "aufwand",
+    "pauschal",
+    "bitte",
+    "separat",
+    "leistung",
   ]);
   const tokens = canonicalServiceKeyV17_90L88(serviceName)
     .split(/\s+/g)
@@ -12236,8 +12714,8 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     ).toUpperCase();
     const isForeignCurrency = Boolean(
       canonicalCurrency &&
-        finalCurrency &&
-        canonicalCurrency !== String(finalCurrency).toUpperCase(),
+      finalCurrency &&
+      canonicalCurrency !== String(finalCurrency).toUpperCase(),
     );
     const quantity = Number(canonical.quantity || 0);
     const unit = canonical.unit || "Einheit prüfen";
@@ -12258,11 +12736,11 @@ function reconcileWithCanonicalAiItemsV17_90L88(
               : null);
     const needsReview = Boolean(
       canonical.needsReview ||
-        canonicalReviewReason ||
-        isForeignCurrency ||
-        missingPrice ||
-        missingQuantity ||
-        missingUnit,
+      canonicalReviewReason ||
+      isForeignCurrency ||
+      missingPrice ||
+      missingQuantity ||
+      missingUnit,
     );
 
     result.push({
@@ -12312,7 +12790,6 @@ function reconcileWithCanonicalAiItemsV17_90L88(
   // set. Later parser/validator rows are diagnostics or proposals only and may
   // never be appended, removed, merged or reordered here.
   return result;
-
 }
 
 function canonicalItemsStableAfterValidationV17_90L89(
@@ -12336,9 +12813,7 @@ function canonicalItemsStableAfterValidationV17_90L89(
     )
       .trim()
       .toUpperCase();
-    const actualCurrency = String(
-      item.detectedCurrency || finalCurrency || "",
-    )
+    const actualCurrency = String(item.detectedCurrency || finalCurrency || "")
       .trim()
       .toUpperCase();
     const expectedEvidence = String(
@@ -12417,21 +12892,19 @@ function recognitionWarningCoveredByCanonicalV17_90L89(
         itemEvidenceKey.includes(evidenceKey);
       const sameQuantity =
         Number(payload.quantity || 0) <= 0 ||
-        Math.abs(
-          Number(item.quantity || 0) - Number(payload.quantity || 0),
-        ) < 0.0001;
+        Math.abs(Number(item.quantity || 0) - Number(payload.quantity || 0)) <
+          0.0001;
       const samePrice =
         Number(payload.unitPrice || 0) <= 0 ||
-        Math.abs(
-          Number(item.unitPrice || 0) - Number(payload.unitPrice || 0),
-        ) < 0.0001;
+        Math.abs(Number(item.unitPrice || 0) - Number(payload.unitPrice || 0)) <
+          0.0001;
       return Boolean(
         sameService &&
-          sameEvidence &&
-          sameQuantity &&
-          samePrice &&
-          !isReviewUnitV17_90L(item.unit) &&
-          Number(item.totalPrice || 0) > 0,
+        sameEvidence &&
+        sameQuantity &&
+        samePrice &&
+        !isReviewUnitV17_90L(item.unit) &&
+        Number(item.totalPrice || 0) > 0,
       );
     });
   } catch {
@@ -12449,13 +12922,46 @@ function isRecognitionReviewStateOnlyNameV17_90L175(
     .trim();
   if (!key) return true;
   const roleTokens = new Set([
-    "preis", "preise", "price", "prices", "prix", "prezzo",
-    "menge", "mengen", "quantity", "quantities", "quantite", "quantita",
-    "einheit", "einheiten", "unit", "units", "unite", "unita",
-    "offen", "unklar", "unbekannt", "pruefen", "prufen", "klaeren",
-    "noch", "fehlt", "fehlend", "tbd", "open", "unclear", "unknown",
-    "missing", "check", "verify", "pending", "ouvert", "incertain",
-    "aperto", "verificare", "definire",
+    "preis",
+    "preise",
+    "price",
+    "prices",
+    "prix",
+    "prezzo",
+    "menge",
+    "mengen",
+    "quantity",
+    "quantities",
+    "quantite",
+    "quantita",
+    "einheit",
+    "einheiten",
+    "unit",
+    "units",
+    "unite",
+    "unita",
+    "offen",
+    "unklar",
+    "unbekannt",
+    "pruefen",
+    "prufen",
+    "klaeren",
+    "noch",
+    "fehlt",
+    "fehlend",
+    "tbd",
+    "open",
+    "unclear",
+    "unknown",
+    "missing",
+    "check",
+    "verify",
+    "pending",
+    "ouvert",
+    "incertain",
+    "aperto",
+    "verificare",
+    "definire",
   ]);
   const tokens = key.split(" ").filter(Boolean);
   return tokens.length > 0 && tokens.every((token) => roleTokens.has(token));
@@ -12494,12 +13000,12 @@ function recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
       );
       const sameEvidence = Boolean(
         evidenceKey &&
-          canonicalEvidenceKey &&
-          (canonicalEvidenceKey === evidenceKey ||
-            (canonicalEvidenceKey.length >= 8 &&
-              evidenceKey.length >= 8 &&
-              (canonicalEvidenceKey.includes(evidenceKey) ||
-                evidenceKey.includes(canonicalEvidenceKey)))),
+        canonicalEvidenceKey &&
+        (canonicalEvidenceKey === evidenceKey ||
+          (canonicalEvidenceKey.length >= 8 &&
+            evidenceKey.length >= 8 &&
+            (canonicalEvidenceKey.includes(evidenceKey) ||
+              evidenceKey.includes(canonicalEvidenceKey)))),
       );
       const sameQuantity =
         payloadQuantity <= 0 ||
@@ -12510,16 +13016,16 @@ function recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
         !payloadUnit || !canonicalUnit || payloadUnit === canonicalUnit;
       const canonicalPriceOpen = Boolean(
         Number(canonical.unitPrice || 0) <= 0 &&
-          String(canonical.reviewReason || "").startsWith("price_unclear:") &&
-          canonical.serviceName &&
-          !isInternalReviewServiceNameV17_90L(canonical.serviceName),
+        String(canonical.reviewReason || "").startsWith("price_unclear:") &&
+        canonical.serviceName &&
+        !isInternalReviewServiceNameV17_90L(canonical.serviceName),
       );
 
       return Boolean(
         canonicalPriceOpen &&
-          sameQuantity &&
-          sameUnit &&
-          (sameEvidence || statusOnlyName),
+        sameQuantity &&
+        sameUnit &&
+        (sameEvidence || statusOnlyName),
       );
     });
   } catch {
@@ -12602,8 +13108,8 @@ function filterLegacyValidationReviewReasonsV17_90L89(
     const detected = String(item.detectedCurrency || "").toUpperCase();
     return Boolean(
       detected &&
-        finalCurrency &&
-        detected !== String(finalCurrency).toUpperCase(),
+      finalCurrency &&
+      detected !== String(finalCurrency).toUpperCase(),
     );
   });
   const hasOpenPrice = finalItems.some(
@@ -12617,9 +13123,7 @@ function filterLegacyValidationReviewReasonsV17_90L89(
   );
 
   const finalItemReasons = new Set(
-    finalItems
-      .map((item) => String(item.reviewReason || ""))
-      .filter(Boolean),
+    finalItems.map((item) => String(item.reviewReason || "")).filter(Boolean),
   );
 
   return Array.from(new Set(reasons)).filter((reason) => {
@@ -12690,13 +13194,15 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
 
   const safetyWarnings = parsed.safetyWarnings.filter(
     (line) =>
-      !protectedHints.some((hint) => semanticRoleOverlapV17_90L87(line, hint)) &&
-      !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
+      !protectedHints.some((hint) =>
+        semanticRoleOverlapV17_90L87(line, hint),
+      ) && !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
   );
   const ordinaryHints = parsed.jobHints.filter(
     (line) =>
-      !protectedHints.some((hint) => semanticRoleOverlapV17_90L87(line, hint)) &&
-      !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
+      !protectedHints.some((hint) =>
+        semanticRoleOverlapV17_90L87(line, hint),
+      ) && !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
   );
 
   const rebuiltBase = buildSpecialNotes({
@@ -12710,7 +13216,9 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
     .filter(Boolean)
     .filter((line) => {
       if (!canonicalContactHint) return true;
-      const cleaned = line.replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ)\]\s*/i, "").trim();
+      const cleaned = line
+        .replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+        .trim();
       const role = classifySpecialNoteRoleV17_90L93(cleaned);
       if (role !== "communication") return true;
       return (
@@ -12752,7 +13260,6 @@ function cleanVisibleReviewInstructionSuffixV17_90L76<
   });
 }
 
-
 // V17.90L77: A generated internal review row must not survive when the exact
 // same source line, quantity and unit price are already represented by a real
 // service row. This removes only proven duplicates and leaves genuinely
@@ -12793,7 +13300,8 @@ function removeGeneratedReviewDuplicatesByEvidenceV17_90L77<
 
       return (
         candidateEvidence === evidence ||
-        (candidateEvidence.length >= 18 && evidence.includes(candidateEvidence)) ||
+        (candidateEvidence.length >= 18 &&
+          evidence.includes(candidateEvidence)) ||
         (evidence.length >= 18 && candidateEvidence.includes(evidence))
       );
     });
@@ -12886,7 +13394,10 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
       "",
     )
     // Visible labels must not start with the count. Quantity lives in its field.
-    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)(?=\s|$|[,;:.])\s*/i, "")
+    .replace(
+      /^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)(?=\s|$|[,;:.])\s*/i,
+      "",
+    )
     .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
     .replace(
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
@@ -12919,8 +13430,7 @@ type TranslatedPricedServiceSegmentV17_66 = {
 function extractTranslatedPricedServiceSegmentsV17_66(
   translatedBlock: string,
 ): TranslatedPricedServiceSegmentV17_66[] {
-  const unitPattern =
-    String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
+  const unitPattern = String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
   const currencyPattern = String.raw`CHF|Fr\.?|SFr\.?|EUR|Euro|€|USD|\$|GBP|£`;
   const numberPattern = String.raw`\d+(?:[.,]\d+)?`;
   const amountPattern = new RegExp(
@@ -12945,10 +13455,14 @@ function extractTranslatedPricedServiceSegmentsV17_66(
         const price = parseIntakeDecimalNumber(match[4]);
         const labelSource = line
           .slice(previousEnd, match.index)
-          .replace(/^\s*(?:(?:und|sowie|danach|dann|noch|plus|zusätzlich|zusaetzlich)\s+)+/i, "")
+          .replace(
+            /^\s*(?:(?:und|sowie|danach|dann|noch|plus|zusätzlich|zusaetzlich)\s+)+/i,
+            "",
+          )
           .replace(/[,:;\-–—]+\s*$/g, "")
           .trim();
-        const serviceName = cleanTranslatedServiceLabelFromLineV17_90L(labelSource);
+        const serviceName =
+          cleanTranslatedServiceLabelFromLineV17_90L(labelSource);
         if (
           typeof quantity === "number" &&
           Number.isFinite(quantity) &&
@@ -12968,9 +13482,10 @@ function extractTranslatedPricedServiceSegmentsV17_66(
   return result;
 }
 
-function normalizeVisibleServiceNameCasingV17_66(value?: string | null): string {
-  const countUnit =
-    String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
+function normalizeVisibleServiceNameCasingV17_66(
+  value?: string | null,
+): string {
+  const countUnit = String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
   const text = compactText(value)
     .replace(
       new RegExp(
@@ -13054,7 +13569,10 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
   label = label
     // V17.90L26: visible labels must not start with the count. Quantity lives
     // in the Menge field, e.g. "18 Tische ..." -> "Tische ...".
-    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)\b\s*/i, "")
+    .replace(
+      /^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)\b\s*/i,
+      "",
+    )
     .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
     .replace(
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
@@ -13065,7 +13583,10 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
       /\s*,?\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
       "",
     )
-    .replace(/\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu, "")
+    .replace(
+      /\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu,
+      "",
+    )
     .replace(/\s+/g, " ")
     .replace(/[\s,;:.\-–—]+$/g, "")
     .trim();
@@ -13810,7 +14331,6 @@ function extractBlockedForeignCurrencyLineV17_90L3(
   return pool.sort((a, b) => a.length - b.length)[0] || null;
 }
 
-
 // V17.90L43: Letzte, formatierungsunabhängige Duplikatsicherung direkt vor
 // dem Speichern. Eine konkrete Fremdwährungsquelle aus der ORIGINALNACHRICHT
 // darf höchstens eine rote Prüfposition erzeugen. Die Zuordnung basiert nur
@@ -13822,7 +14342,9 @@ type ForeignCurrencySourceAnchorV17_90L43 = {
 };
 
 function normalizeCurrencyTokenV17_90L43(value?: string | null): string | null {
-  const token = String(value || "").trim().toUpperCase();
+  const token = String(value || "")
+    .trim()
+    .toUpperCase();
   if (token === "CHF") return "CHF";
   if (token === "EUR" || token === "EURO" || token === "€") return "EUR";
   if (token === "USD" || token === "DOLLAR" || token === "$") return "USD";
@@ -13831,7 +14353,11 @@ function normalizeCurrencyTokenV17_90L43(value?: string | null): string | null {
 }
 
 function parsePositiveMoneyV17_90L43(value?: string | null): number | null {
-  const parsed = Number(String(value || "").replace(/'/g, "").replace(",", "."));
+  const parsed = Number(
+    String(value || "")
+      .replace(/'/g, "")
+      .replace(",", "."),
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -13915,7 +14441,10 @@ function dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43<
   );
   if (anchors.length === 0) return items;
 
-  const anchorsByCurrency = new Map<string, ForeignCurrencySourceAnchorV17_90L43[]>();
+  const anchorsByCurrency = new Map<
+    string,
+    ForeignCurrencySourceAnchorV17_90L43[]
+  >();
   for (const anchor of anchors) {
     const list = anchorsByCurrency.get(anchor.currency) || [];
     list.push(anchor);
@@ -13948,12 +14477,16 @@ function dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43<
           } else if (
             evidence &&
             anchorEvidence &&
-            (evidence.includes(anchorEvidence) || anchorEvidence.includes(evidence))
+            (evidence.includes(anchorEvidence) ||
+              anchorEvidence.includes(evidence))
           ) {
             score = Math.max(score, 300);
           }
 
-          if (rawEvidence && lineHasDecimalNumberV17_90L3(rawEvidence, anchor.amount)) {
+          if (
+            rawEvidence &&
+            lineHasDecimalNumberV17_90L3(rawEvidence, anchor.amount)
+          ) {
             score += 80;
           }
         }
@@ -13963,7 +14496,9 @@ function dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43<
           score += 15;
         }
         if (String(item.detectedCurrency || "").trim()) score += 10;
-        if (String(item.reviewReason || "").startsWith("item_currency_mismatch:")) {
+        if (
+          String(item.reviewReason || "").startsWith("item_currency_mismatch:")
+        ) {
           score += 5;
         }
 
@@ -14092,7 +14627,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     );
 
   if (translatedLines.length === 0) return items;
-  const translatedSegments = extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
+  const translatedSegments =
+    extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
 
   return items.map((item) => {
     const currentName = compactText(item.serviceName);
@@ -14123,7 +14659,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
           (segment) =>
             Math.abs(segment.quantity - quantity) < 0.0001 &&
             Math.abs(segment.unitPrice - unitPrice) < 0.0001 &&
-            getServiceUnitType(segment.unit) === getServiceUnitType(String(item.unit || "")),
+            getServiceUnitType(segment.unit) ===
+              getServiceUnitType(String(item.unit || "")),
         )
         .map((segment) => segment.serviceName),
     ]
@@ -14152,7 +14689,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
         const translatedCandidate = uniqueCandidates[0];
         if (
           normalizeUnitText(translatedCandidate) &&
-          normalizeUnitText(translatedCandidate) !== normalizeUnitText(cleanedName)
+          normalizeUnitText(translatedCandidate) !==
+            normalizeUnitText(cleanedName)
         ) {
           return { ...item, serviceName: translatedCandidate };
         }
@@ -14406,7 +14944,6 @@ function logIntakeAudit(payload: {
   }
 }
 
-
 // V17.90L60: Generic line-local reconciliation for long structured messages.
 // Every explicitly priced service line remains its own position. This prevents
 // the AI from merging separate work areas with equal unit prices and prevents
@@ -14454,7 +14991,10 @@ function displayUnitFromExplicitLineV17_90L60(rawUnit: string): string {
 function cleanExplicitServiceLabelV17_90L60(value: string): string {
   const cleaned = compactText(value)
     .replace(/^[-–—•*]+\s*/, "")
-    .replace(/^(?:folgende\s+arbeiten\s+ausf(?:ü|ue)hren|leistungen?)\s*:?\s*/i, "")
+    .replace(
+      /^(?:folgende\s+arbeiten\s+ausf(?:ü|ue)hren|leistungen?)\s*:?\s*/i,
+      "",
+    )
     .replace(/[,:;\-–—]+\s*$/, "")
     .trim();
   if (!cleaned) return "Leistung prüfen";
@@ -14490,8 +15030,7 @@ function parseExplicitPricedServiceLinesV17_90L60(
     /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
   )[0];
   const lines = splitIntakeLines(originalPart);
-  const unitPattern =
-    String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
+  const unitPattern = String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
   const currencyPattern = String.raw`CHF|Fr\.?|SFr\.?|EUR|Euro|€|USD|\$|GBP|£`;
   const numberPattern = String.raw`\d+(?:[.,]\d+)?`;
   const result: ExplicitPricedServiceLineV17_90L60[] = [];
@@ -14517,7 +15056,9 @@ function parseExplicitPricedServiceLinesV17_90L60(
       const quantity = parseIntakeDecimalNumber(match[2]);
       const unit = displayUnitFromExplicitLineV17_90L60(match[3]);
       const firstPattern = match.length >= 7;
-      const price = parseIntakeDecimalNumber(firstPattern ? match[5] : match[4]);
+      const price = parseIntakeDecimalNumber(
+        firstPattern ? match[5] : match[4],
+      );
       const currencyRaw = firstPattern ? match[4] || match[6] : match[5];
       if (!quantity || !price) return;
       result.push({
@@ -14571,7 +15112,9 @@ function parseExplicitPricedServiceLinesV17_90L60(
       ),
     );
     if (!amountOnlyCostMatch) return;
-    const costLabel = cleanExplicitServiceLabelV17_90L60(amountOnlyCostMatch[1]);
+    const costLabel = cleanExplicitServiceLabelV17_90L60(
+      amountOnlyCostMatch[1],
+    );
     const costPrice = parseIntakeDecimalNumber(amountOnlyCostMatch[3]);
     const costCurrencyRaw = amountOnlyCostMatch[2] || amountOnlyCostMatch[4];
     if (!costPrice) return;
@@ -14596,9 +15139,11 @@ function parseExplicitPricedServiceLinesV17_90L60(
     });
   });
 
-  const translatedBlock = splitAutomaticGermanTranslationBlockV17_90L(sourceText);
+  const translatedBlock =
+    splitAutomaticGermanTranslationBlockV17_90L(sourceText);
   if (!translatedBlock.trim()) return result;
-  const translatedSegments = extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
+  const translatedSegments =
+    extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
   if (translatedSegments.length === 0) return result;
 
   return result.map((entry) => {
@@ -14611,7 +15156,9 @@ function parseExplicitPricedServiceLinesV17_90L60(
     if (matches.length !== 1) return entry;
     return {
       ...entry,
-      serviceName: normalizeVisibleServiceNameCasingV17_66(matches[0].serviceName),
+      serviceName: normalizeVisibleServiceNameCasingV17_66(
+        matches[0].serviceName,
+      ),
     };
   });
 }
@@ -14714,7 +15261,11 @@ function findAggregateEntrySubsetV17_90L60(
     }
     if (sum >= targetQuantity || current.length >= 6) return;
     for (let index = start; index < candidates.length; index += 1) {
-      walk(index + 1, [...current, candidates[index]], sum + candidates[index].quantity);
+      walk(
+        index + 1,
+        [...current, candidates[index]],
+        sum + candidates[index].quantity,
+      );
       if (found) return;
     }
   };
@@ -14745,7 +15296,10 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
   const removedAggregateIndexes = new Set<number>();
   const assigned = new Map<number, T>();
 
-  const materialize = (entry: ExplicitPricedServiceLineV17_90L60, base?: T): T =>
+  const materialize = (
+    entry: ExplicitPricedServiceLineV17_90L60,
+    base?: T,
+  ): T =>
     ({
       ...(base || ({} as T)),
       serviceName:
@@ -14762,16 +15316,18 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
       reviewReason: base?.reviewReason || "line_local_service_reconciled",
       sourceText: entry.raw,
       evidence: entry.raw,
-      detectedCurrency: entry.detectedCurrency || base?.detectedCurrency || null,
+      detectedCurrency:
+        entry.detectedCurrency || base?.detectedCurrency || null,
     }) as T;
 
   entries.forEach((entry, entryIndex) => {
     const fingerprint = explicitLineItemFingerprintV17_90L60(entry);
     const candidates = items
       .map((item, itemIndex) => ({ item, itemIndex }))
-      .filter(({ item, itemIndex }) =>
-        !usedItemIndexes.has(itemIndex) &&
-        explicitLineItemFingerprintV17_90L60(item) === fingerprint,
+      .filter(
+        ({ item, itemIndex }) =>
+          !usedItemIndexes.has(itemIndex) &&
+          explicitLineItemFingerprintV17_90L60(item) === fingerprint,
       )
       .map(({ item, itemIndex }) => ({
         item,
@@ -14797,13 +15353,17 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
     const targetUnitType = getServiceUnitType(item.unit);
     if (!targetQuantity || !targetPrice || targetUnitType === "unknown") return;
 
-    const unresolved = entries.filter((entry, entryIndex) =>
-      !assigned.has(entryIndex) &&
-      Math.abs(entry.unitPrice - targetPrice) < 0.0001 &&
-      getServiceUnitType(entry.unit) === targetUnitType,
+    const unresolved = entries.filter(
+      (entry, entryIndex) =>
+        !assigned.has(entryIndex) &&
+        Math.abs(entry.unitPrice - targetPrice) < 0.0001 &&
+        getServiceUnitType(entry.unit) === targetUnitType,
     );
     if (unresolved.length < 2) return;
-    const subset = findAggregateEntrySubsetV17_90L60(unresolved, targetQuantity);
+    const subset = findAggregateEntrySubsetV17_90L60(
+      unresolved,
+      targetQuantity,
+    );
     if (!subset) return;
     removedAggregateIndexes.add(itemIndex);
     subset.forEach((entry) => {
@@ -14821,7 +15381,8 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
     .filter((item): item is T => Boolean(item));
   const remaining = items.filter(
     (_item, itemIndex) =>
-      !usedItemIndexes.has(itemIndex) && !removedAggregateIndexes.has(itemIndex),
+      !usedItemIndexes.has(itemIndex) &&
+      !removedAggregateIndexes.has(itemIndex),
   );
 
   return [...lineItems, ...remaining];
@@ -15555,9 +16116,12 @@ function dedupeEquivalentSourceRowsV17_90L81<T extends Record<string, any>>(
   };
   const nameScore = (value: unknown) => {
     const name = normalizeSemanticText(value);
-    const actionBonus = /\b(?:pruefen|erstellen|reinigen|montieren|ersetzen|absaugen|reparieren|entkalken|streichen|verlegen|befestigen)\b/.test(name)
-      ? 100
-      : 0;
+    const actionBonus =
+      /\b(?:pruefen|erstellen|reinigen|montieren|ersetzen|absaugen|reparieren|entkalken|streichen|verlegen|befestigen)\b/.test(
+        name,
+      )
+        ? 100
+        : 0;
     return actionBonus + name.length;
   };
 
@@ -15588,10 +16152,10 @@ function dedupeEquivalentSourceRowsV17_90L81<T extends Record<string, any>>(
       ].join("|");
       const namesNested = Boolean(
         name &&
-          existingName &&
-          (name === existingName ||
-            name.includes(existingName) ||
-            existingName.includes(name)),
+        existingName &&
+        (name === existingName ||
+          name.includes(existingName) ||
+          existingName.includes(name)),
       );
       return identity === existingIdentity && namesNested;
     });
@@ -15611,14 +16175,22 @@ function dedupeEquivalentSourceRowsV17_90L81<T extends Record<string, any>>(
       ...fallback,
       ...preferred,
       sourceText:
-        preferred.sourceText || fallback.sourceText || preferred.description || fallback.description,
+        preferred.sourceText ||
+        fallback.sourceText ||
+        preferred.description ||
+        fallback.description,
       evidence:
-        preferred.evidence || fallback.evidence || preferred.sourceText || fallback.sourceText,
+        preferred.evidence ||
+        fallback.evidence ||
+        preferred.sourceText ||
+        fallback.sourceText,
       description:
-        preferred.description || fallback.description || preferred.sourceText || fallback.sourceText,
+        preferred.description ||
+        fallback.description ||
+        preferred.sourceText ||
+        fallback.sourceText,
       needsReview: Boolean(preferred.needsReview && fallback.needsReview),
-      reviewReason:
-        preferred.reviewReason || fallback.reviewReason || null,
+      reviewReason: preferred.reviewReason || fallback.reviewReason || null,
     } as T;
   }
 
@@ -15737,9 +16309,7 @@ export async function processIncomingMessage(
     hasMedia: Boolean(savedMediaPath),
   });
   const intakeAppointmentReferenceV17_90L271 =
-    buildIntakeAppointmentReferenceV17_90L271(
-      new Date(_intakeStartTime),
-    );
+    buildIntakeAppointmentReferenceV17_90L271(new Date(_intakeStartTime));
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
@@ -15822,16 +16392,17 @@ export async function processIncomingMessage(
   // Ausführungsort oder Hinweis in die Haupt-KI laufen. Die Normalisierung
   // bleibt beweisführend getrennt: Originaltext für Zahlen/Preise,
   // Arbeitsfassung für professionelle deutsche Namen und Rollen.
-  const intakeNormalization = shouldSkipPaidNormalizationForCleanStandardGermanV17_90L99({
-    text: messageText,
-    targetLanguage: hauptsprache,
-  })
-    ? EMPTY_INTAKE_NORMALIZATION_V17_49
-    : await createStandardGermanValidationTranslation({
-        text: messageText,
-        targetLanguage: hauptsprache,
-        source,
-      });
+  const intakeNormalization =
+    shouldSkipPaidNormalizationForCleanStandardGermanV17_90L99({
+      text: messageText,
+      targetLanguage: hauptsprache,
+    })
+      ? EMPTY_INTAKE_NORMALIZATION_V17_49
+      : await createStandardGermanValidationTranslation({
+          text: messageText,
+          targetLanguage: hauptsprache,
+          source,
+        });
   const translationText = intakeNormalization.translationText;
   const showTranslationInCustomerMessage =
     intakeNormalization.showTranslationInCustomerMessage;
@@ -16234,7 +16805,7 @@ export async function processIncomingMessage(
   // the exact 03_llm_structured boundary. Downstream logic may work on mutable
   // copies, but these originals are the only authoritative sources for
   // customer, execution address, on-site contact and appointments.
-  const cloneFirstAiStructuredValueV17_90L225 = <T,>(value: T): T =>
+  const cloneFirstAiStructuredValueV17_90L225 = <T>(value: T): T =>
     JSON.parse(JSON.stringify(value ?? null)) as T;
   const firstAiCustomerSnapshotV17_90L225 = Object.freeze(
     cloneFirstAiStructuredValueV17_90L225(parsed.kunde || {}),
@@ -16251,9 +16822,7 @@ export async function processIncomingMessage(
       )
     : null;
   const normalizedFirstAiOnsiteContactV17_90L229 =
-    normalizeAiOnsiteContactValueV17_90L229(
-      parsed.auftrag?.kontakt_vor_ort,
-    );
+    normalizeAiOnsiteContactValueV17_90L229(parsed.auftrag?.kontakt_vor_ort);
   const firstAiOnsiteContactSnapshotV17_90L225 =
     normalizedFirstAiOnsiteContactV17_90L229
       ? Object.freeze(
@@ -16319,7 +16888,8 @@ export async function processIncomingMessage(
   // This is language-independent and intentionally contains no service/name
   // word lists.
   markIntakePerfV17_90L337("03c_work_coverage_start", {
-    workItemCount: (firstAiWorkItemsSnapshotV17_90L213 as readonly any[]).length,
+    workItemCount: (firstAiWorkItemsSnapshotV17_90L213 as readonly any[])
+      .length,
   });
   const workCoverageStartMsV17_90L337 = Date.now();
   const finalAiWorkCoverageV17_90L251 =
@@ -16357,9 +16927,7 @@ export async function processIncomingMessage(
                 item?.description,
             ),
             quantity: Number.isFinite(quantityValue) ? quantityValue : null,
-            unit: compactExactSourceTextV17_90L251(
-              item?.unit ?? item?.einheit,
-            ),
+            unit: compactExactSourceTextV17_90L251(item?.unit ?? item?.einheit),
             unitPrice: Number.isFinite(priceValue) ? priceValue : null,
           };
         },
@@ -16419,7 +16987,9 @@ export async function processIncomingMessage(
         ...firstAiAppointmentsSnapshotV17_90L225.map((appointment: any) => ({
           role: "appointment",
           text: compactExactSourceTextV17_90L251(
-            appointment?.evidence || appointment?.raw || JSON.stringify(appointment),
+            appointment?.evidence ||
+              appointment?.raw ||
+              JSON.stringify(appointment),
           ),
         })),
         {
@@ -16446,10 +17016,12 @@ export async function processIncomingMessage(
         quote: redactIntakeDiagnosticText(finding.quote, 420),
         reason: redactIntakeDiagnosticText(finding.reason, 220),
       })),
-      invalidItems: finalAiWorkCoverageV17_90L251.invalidItems.map((finding) => ({
-        itemIndex: finding.itemIndex,
-        reason: redactIntakeDiagnosticText(finding.reason, 220),
-      })),
+      invalidItems: finalAiWorkCoverageV17_90L251.invalidItems.map(
+        (finding) => ({
+          itemIndex: finding.itemIndex,
+          reason: redactIntakeDiagnosticText(finding.reason, 220),
+        }),
+      ),
     },
   );
 
@@ -16646,7 +17218,6 @@ export async function processIncomingMessage(
     }
   }
 
-
   // V17.90L88: A model-proposed customer id is never allowed to contradict
   // the structured customer name. Validate the pair before any reuse path.
   // If the message explicitly requests reuse and exactly one stored customer
@@ -16802,19 +17373,21 @@ export async function processIncomingMessage(
   // V17.90L195: Resolve the customer phone only inside the bounded billing
   // block. A verified named on-site phone is explicitly excluded. No fallback
   // from specialNotes, appointment text or the complete message is permitted.
-  const canonicalBillingPhoneV17_90L195 = extractCanonicalBillingPhoneV17_90L195({
-    rawText: messageText,
-    aiBillingPhone: billingEvidence.phone || kundeData.telefon || null,
-    onsitePhone: onsiteContactHint.phone,
-    onsiteContactName: onsiteContactHint.contactName,
-  });
+  const canonicalBillingPhoneV17_90L195 =
+    extractCanonicalBillingPhoneV17_90L195({
+      rawText: messageText,
+      aiBillingPhone: billingEvidence.phone || kundeData.telefon || null,
+      onsitePhone: onsiteContactHint.phone,
+      onsiteContactName: onsiteContactHint.contactName,
+    });
   kundeData.telefon = canonicalBillingPhoneV17_90L195;
   billingEvidence.phone = canonicalBillingPhoneV17_90L195;
 
-  const canonicalBillingEmailV17_90L196 = extractCanonicalBillingEmailV17_90L196({
-    rawText: messageText,
-    aiBillingEmail: billingEvidence.email || kundeData.email || null,
-  });
+  const canonicalBillingEmailV17_90L196 =
+    extractCanonicalBillingEmailV17_90L196({
+      rawText: messageText,
+      aiBillingEmail: billingEvidence.email || kundeData.email || null,
+    });
   kundeData.email = canonicalBillingEmailV17_90L196;
   billingEvidence.email = canonicalBillingEmailV17_90L196;
 
@@ -16947,9 +17520,9 @@ export async function processIncomingMessage(
 
   const hasCompletePreparedBillingV17_90L211 = Boolean(
     cleanAiStructuredBillingName(kundeData.name || null) &&
-      addr.street &&
-      addr.plz &&
-      addr.city,
+    addr.street &&
+    addr.plz &&
+    addr.city,
   );
 
   if (addressRoleSafetyV17_61.quarantine) {
@@ -16995,16 +17568,21 @@ export async function processIncomingMessage(
       .trim();
   const hasCompleteStrictBillingIdentityV17_90L281 = Boolean(
     canonicalBillingCustomerV2.name &&
-      canonicalBillingCustomerV2.street &&
-      canonicalBillingCustomerV2.plz &&
-      canonicalBillingCustomerV2.city,
+    canonicalBillingCustomerV2.street &&
+    canonicalBillingCustomerV2.plz &&
+    canonicalBillingCustomerV2.city,
   );
-  const strictCustomerIdentityMatchesV17_90L281 = (candidate: {
-    name?: string | null;
-    address?: string | null;
-    plz?: string | null;
-    city?: string | null;
-  } | null | undefined): boolean => {
+  const strictCustomerIdentityMatchesV17_90L281 = (
+    candidate:
+      | {
+          name?: string | null;
+          address?: string | null;
+          plz?: string | null;
+          city?: string | null;
+        }
+      | null
+      | undefined,
+  ): boolean => {
     if (!hasCompleteStrictBillingIdentityV17_90L281 || !candidate) return false;
     if (
       !candidate.name ||
@@ -17099,14 +17677,19 @@ export async function processIncomingMessage(
   if (customerId) {
     // Protected explicit reuse was already resolved above.
   } else if (abgleichStatus === "gleicher_kunde" && matchId) {
-    const matchResult = await verifyCustomerMatch(matchId, {
-      phone: kundeData.telefon || null,
-      email: kundeData.email || null,
-      street: addr.street,
-      plz: addr.plz,
-      city: addr.city,
-      name: kundeData.name,
-    }, userId, dataScope);
+    const matchResult = await verifyCustomerMatch(
+      matchId,
+      {
+        phone: kundeData.telefon || null,
+        email: kundeData.email || null,
+        street: addr.street,
+        plz: addr.plz,
+        city: addr.city,
+        name: kundeData.name,
+      },
+      userId,
+      dataScope,
+    );
 
     if (matchResult.verdict === "auto_assign") {
       // ✅ Strong unique signal verified (phone or email) → safe to auto-assign
@@ -17234,10 +17817,10 @@ export async function processIncomingMessage(
       );
       const billingPhoneIsOnsiteContact = Boolean(
         billingPhoneDigits &&
-          onsitePhoneDigits &&
-          (billingPhoneDigits === onsitePhoneDigits ||
-            billingPhoneDigits.endsWith(onsitePhoneDigits) ||
-            onsitePhoneDigits.endsWith(billingPhoneDigits)),
+        onsitePhoneDigits &&
+        (billingPhoneDigits === onsitePhoneDigits ||
+          billingPhoneDigits.endsWith(onsitePhoneDigits) ||
+          onsitePhoneDigits.endsWith(billingPhoneDigits)),
       );
       const noPhoneConflict =
         !billingEvidence.phone ||
@@ -17302,14 +17885,19 @@ export async function processIncomingMessage(
   }
 
   if (!customerId) {
-    const exact = await findExactDeterministicMatch(prisma, userId ?? null, {
-      name: kundeData.name || null,
-      street: canonicalBillingCustomerV2.street,
-      plz: canonicalBillingCustomerV2.plz,
-      city: canonicalBillingCustomerV2.city,
-      phone: canonicalBillingCustomerV2.phone,
-      email: canonicalBillingCustomerV2.email,
-    }, dataScope);
+    const exact = await findExactDeterministicMatch(
+      prisma,
+      userId ?? null,
+      {
+        name: kundeData.name || null,
+        street: canonicalBillingCustomerV2.street,
+        plz: canonicalBillingCustomerV2.plz,
+        city: canonicalBillingCustomerV2.city,
+        phone: canonicalBillingCustomerV2.phone,
+        email: canonicalBillingCustomerV2.email,
+      },
+      dataScope,
+    );
     if (exact.match) {
       customerId = exact.match.id;
       abgleichStatus = "gleicher_kunde";
@@ -17430,9 +18018,7 @@ export async function processIncomingMessage(
     // customer master data. This specifically protects messages like:
     // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
     // where the customer should remain empty + needsReview.
-    const hasPersistableCustomerName = Boolean(
-      canonicalBillingCustomerV2.name,
-    );
+    const hasPersistableCustomerName = Boolean(canonicalBillingCustomerV2.name);
 
     const namelessBillingEvidence =
       !hasPersistableCustomerName &&
@@ -17832,15 +18418,21 @@ export async function processIncomingMessage(
         item?.positionType ?? item?.position_type ?? item?.type,
       );
       if (["expense", "disposal", "flat_fee"].includes(rawType)) return true;
-      const source = String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "");
-      const name = String(item?.serviceName ?? item?.name ?? item?.service_name ?? "");
-      return normalizePositionType(
-        classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
-          raw: item,
-          serviceName: name,
-          sourceText: source,
-        }).positionType,
-      ) === "expense";
+      const source = String(
+        item?.sourceText ?? item?.source_text ?? item?.evidence ?? "",
+      );
+      const name = String(
+        item?.serviceName ?? item?.name ?? item?.service_name ?? "",
+      );
+      return (
+        normalizePositionType(
+          classifyPositionTypeBeforeCanonicalLockV17_90L371AM({
+            raw: item,
+            serviceName: name,
+            sourceText: source,
+          }).positionType,
+        ) === "expense"
+      );
     })
     .map((item: any) =>
       String(item?.sourceText ?? item?.source_text ?? item?.evidence ?? "")
@@ -17852,9 +18444,10 @@ export async function processIncomingMessage(
   if (expensePositionSourceLinesV17_90L371AP.length > 0) {
     hinweisItems = hinweisItems.filter(
       (line) =>
-        !expensePositionSourceLinesV17_90L371AP.some((sourceLine) =>
-          isSameLineLocalFactV17_90L371AP(line, sourceLine) ||
-          isSameBillableCostFactV17_90L371AR(line, sourceLine),
+        !expensePositionSourceLinesV17_90L371AP.some(
+          (sourceLine) =>
+            isSameLineLocalFactV17_90L371AP(line, sourceLine) ||
+            isSameBillableCostFactV17_90L371AR(line, sourceLine),
         ),
     );
   }
@@ -17865,7 +18458,8 @@ export async function processIncomingMessage(
   // with the same name.
   if (onsiteContactHint?.contactName || onsiteContactHint?.hint) {
     hinweisItems = hinweisItems.filter(
-      (line) => !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint),
+      (line) =>
+        !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint),
     );
   }
 
@@ -17983,7 +18577,6 @@ export async function processIncomingMessage(
       .replace(/\s+/g, " ")
       .trim();
 
-
   const getFirstAiItemSourceTextV17_90L371AO = (rawItem: any): string =>
     compactExactSourceTextV17_90L251(
       rawItem?.sourceText ??
@@ -18007,15 +18600,145 @@ export async function processIncomingMessage(
       rawItem?.positionType ?? rawItem?.position_type ?? rawItem?.type,
     );
 
-  const hasOwnLinePriceEvidenceV17_90L371AO = (sourceTextValue: unknown, priceValue: number): boolean => {
+  // SMARTFLOW_V17_90L371BL:
+  // Keep clearly priced sheet/covering material lines even when a later
+  // read-only item-audit flags the first-AI label as invalid or the first AI
+  // typed it as service. This is deliberately line-local and does not rescue
+  // vague text such as "Material mitnehmen" or "komisches Zeug prüfen".
+  const isPricedSheetMaterialFirstAiItemV17_90L371BL = (
+    rawItem: any,
+  ): boolean => {
+    const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
+    const name = getFirstAiItemNameV17_90L371AO(rawItem);
+    const combined = normalizeUnitText(
+      [name, sourceText].filter(Boolean).join(" "),
+    );
+    if (!sourceText || !combined) return false;
+    if (
+      !/(?:schutzfolie|abdeckfolie|baufolie|malerfolie|folie|folien|abdeckvlies|schutzvlies|vlies|abdeckmaterial|schutzmaterial)/.test(
+        combined,
+      )
+    ) {
+      return false;
+    }
+    const sourceKey = normalizeUnitText(sourceText);
+    if (
+      /(?:reinigen|putzen|waschen|entfernen|abziehen|entsorgen|montieren|installieren|kleben|anbringen|verlegen|reparieren)/.test(
+        sourceKey,
+      )
+    ) {
+      return false;
+    }
+    const quantityUnits = detectAllQuantityUnitsFromText(sourceText);
+    const hasMeterQuantity = quantityUnits.some(
+      (entry) => entry.unit === "meter",
+    );
+    if (
+      !hasMeterQuantity &&
+      getServiceUnitType(rawItem?.unit ?? rawItem?.einheit ?? null) !== "meter"
+    )
+      return false;
+    const rawPrice = Number(
+      rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
+    );
+    const sourcePrice = detectUnitPriceFromText(sourceText);
+    const hasPositivePrice =
+      (Number.isFinite(rawPrice) && rawPrice > 0) ||
+      (Number.isFinite(Number(sourcePrice)) && Number(sourcePrice) > 0);
+    if (!hasPositivePrice) return false;
+    return /(?:(?:chf|eur|euro|sfr|fr)\.?\s*[0-9]|[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?|(?:à|a|@|x|×)\s*(?:(?:chf|eur|euro|sfr|fr)\.?\s*)?[0-9])/iu.test(
+      sourceText,
+    );
+  };
+
+  const sanitizePricedSheetMaterialFirstAiItemV17_90L371BL = (
+    rawItem: AiWorkItem,
+  ): AiWorkItem => {
+    if (!isPricedSheetMaterialFirstAiItemV17_90L371BL(rawItem)) return rawItem;
+    const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
+    const quantityUnit = detectAllQuantityUnitsFromText(sourceText).find(
+      (entry) => entry.unit === "meter",
+    );
+    const sourcePrice = detectUnitPriceFromText(sourceText);
+    const currentQuantity = Number(
+      (rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0,
+    );
+    const currentPrice = Number(
+      (rawItem as any)?.unitPrice ??
+        (rawItem as any)?.unit_price ??
+        (rawItem as any)?.price ??
+        0,
+    );
+    const sourceKey = normalizeUnitText(sourceText);
+    const unitLabel = /(?:laufmeter|lfm)/.test(sourceKey)
+      ? "Laufmeter"
+      : "Meter";
+    const sourceName = extractLineLocalPositionNameFromSourceV17_90L371AO(
+      sourceText,
+      getFirstAiItemNameV17_90L371AO(rawItem),
+    );
+    const cleanedName =
+      compactExactSourceTextV17_90L251(sourceName) ||
+      getFirstAiItemNameV17_90L371AO(rawItem);
+    const next: AiWorkItem = {
+      ...rawItem,
+      positionType: "material",
+      position_type: "material",
+      type: "material",
+      serviceName: cleanedName,
+      name: cleanedName,
+      action_name: cleanedName,
+      service_name: cleanedName,
+      matched_service_name: cleanedName,
+      unit: unitLabel,
+      einheit: unitLabel,
+      quantity:
+        Number.isFinite(currentQuantity) && currentQuantity > 0
+          ? currentQuantity
+          : (quantityUnit?.value ?? 0),
+      menge:
+        Number.isFinite(currentQuantity) && currentQuantity > 0
+          ? currentQuantity
+          : (quantityUnit?.value ?? 0),
+      unitPrice:
+        Number.isFinite(currentPrice) && currentPrice > 0
+          ? currentPrice
+          : (sourcePrice ?? 0),
+      unit_price:
+        Number.isFinite(currentPrice) && currentPrice > 0
+          ? currentPrice
+          : (sourcePrice ?? 0),
+      price:
+        Number.isFinite(currentPrice) && currentPrice > 0
+          ? currentPrice
+          : (sourcePrice ?? 0),
+      needsReview: false,
+      needs_review: false,
+      reviewReason: "",
+      review_reason: "",
+    } as AiWorkItem;
+    return next;
+  };
+
+  const hasOwnLinePriceEvidenceV17_90L371AO = (
+    sourceTextValue: unknown,
+    priceValue: number,
+  ): boolean => {
     const source = compactExactSourceTextV17_90L251(sourceTextValue);
-    if (!source || !Number.isFinite(priceValue) || priceValue <= 0) return false;
+    if (!source || !Number.isFinite(priceValue) || priceValue <= 0)
+      return false;
     const amounts = Array.from(
       source.matchAll(
         /(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\b|\b([0-9][0-9'’]*(?:[.,][0-9]{1,2})?)\s*(?:chf|eur|euro|sfr|fr)\.?\b)/giu,
       ),
     )
-      .map((match) => Number(String(match[1] || match[2] || "").replace(/['’]/g, "").replace(",", ".")))
+      .map((match) =>
+        Number(
+          String(match[1] || match[2] || "")
+            .replace(/['’]/g, "")
+            .replace(",", "."),
+        ),
+      )
       .filter((value) => Number.isFinite(value) && value > 0);
     return amounts.some((amount) => Math.abs(amount - priceValue) < 0.01);
   };
@@ -18034,16 +18757,33 @@ export async function processIncomingMessage(
         "",
       ),
       source.replace(/\s+\b(?:chf|eur|euro|sfr|fr)\.?\s*\d.*$/iu, ""),
-      source.replace(/\s+\d+(?:[.,]\d+)?\s*\b(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu, ""),
+      source.replace(
+        /\s+\d+(?:[.,]\d+)?\s*\b(?:chf|eur|euro|sfr|fr)\.?\b.*$/iu,
+        "",
+      ),
     ];
 
     const normalizedFallback = normalizeUnitText(fallback);
     const best = candidates
-      .map((candidate) => candidate.replace(/[,:;–—.\s]+$/g, "").replace(/^[-–—,:;.\s]+/g, "").replace(/\s+/g, " ").trim())
+      .map((candidate) =>
+        candidate
+          .replace(/[,:;–—.\s]+$/g, "")
+          .replace(/^[-–—,:;.\s]+/g, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
       .filter((candidate) => candidate.length >= 3 && candidate.length <= 120)
       .find((candidate) => {
         const key = normalizeUnitText(candidate);
-        return Boolean(key && (!normalizedFallback || normalizedFallback.includes(key) || key.includes(normalizedFallback) || source.toLocaleLowerCase("de-CH").includes(candidate.toLocaleLowerCase("de-CH"))));
+        return Boolean(
+          key &&
+          (!normalizedFallback ||
+            normalizedFallback.includes(key) ||
+            key.includes(normalizedFallback) ||
+            source
+              .toLocaleLowerCase("de-CH")
+              .includes(candidate.toLocaleLowerCase("de-CH"))),
+        );
       });
 
     return best || fallback;
@@ -18054,8 +18794,12 @@ export async function processIncomingMessage(
     quantityValue: number,
   ): string | null => {
     const source = compactExactSourceTextV17_90L251(sourceTextValue);
-    if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0) return null;
-    const quantityPattern = String(quantityValue).replace(/\.0+$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\.", "[.,]");
+    if (!source || !Number.isFinite(quantityValue) || quantityValue <= 0)
+      return null;
+    const quantityPattern = String(quantityValue)
+      .replace(/\.0+$/, "")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace("\\.", "[.,]");
     const match = source.match(
       new RegExp(
         `\\b${quantityPattern}\\s+([\\p{L}][\\p{L}0-9%/²³._-]*(?:\\s+[\\p{L}][\\p{L}0-9%/²³._-]*){0,2})\\s*(?:à|@|\\b(?:je|pro|per|par|por|at|each)\\b|\\b(?:chf|eur|euro|sfr|fr)\\b)`,
@@ -18064,29 +18808,60 @@ export async function processIncomingMessage(
     );
     const label = cleanLineLocalUnitLabelV17_90L371AQ(match?.[1]);
     if (!label || /^\d/.test(label)) return null;
-    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label)) return null;
+    if (/^(?:chf|eur|euro|sfr|fr|preis|betrag|kosten|à|a)$/iu.test(label))
+      return null;
     return label;
   };
 
-  const sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO = (rawItem: AiWorkItem): AiWorkItem => {
+  const sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO = (
+    rawItem: AiWorkItem,
+  ): AiWorkItem => {
     const positionType = getFirstAiItemPositionTypeV17_90L371AO(rawItem);
-    if (!["material", "equipment", "expense", "disposal", "flat_fee", "other"].includes(positionType)) {
+    if (
+      ![
+        "material",
+        "equipment",
+        "expense",
+        "disposal",
+        "flat_fee",
+        "other",
+      ].includes(positionType)
+    ) {
       return rawItem;
     }
 
     const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
     const fallbackName = getFirstAiItemNameV17_90L371AO(rawItem);
-    const quantity = Number((rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0);
-    const unitPrice = Number((rawItem as any)?.unitPrice ?? (rawItem as any)?.unit_price ?? (rawItem as any)?.price ?? 0);
-    if (!sourceText || !fallbackName || !Number.isFinite(unitPrice) || unitPrice <= 0) return rawItem;
+    const quantity = Number(
+      (rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0,
+    );
+    const unitPrice = Number(
+      (rawItem as any)?.unitPrice ??
+        (rawItem as any)?.unit_price ??
+        (rawItem as any)?.price ??
+        0,
+    );
+    if (
+      !sourceText ||
+      !fallbackName ||
+      !Number.isFinite(unitPrice) ||
+      unitPrice <= 0
+    )
+      return rawItem;
 
-    const sourceName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, fallbackName);
+    const sourceName = extractLineLocalPositionNameFromSourceV17_90L371AO(
+      sourceText,
+      fallbackName,
+    );
     const cleanedName = cleanLineLocalCostPositionNameV17_90L371AP({
       positionType,
       sourceText,
       serviceName: sourceName,
     });
-    const sourceUnit = extractLineLocalUnitLabelFromSourceV17_90L371AO(sourceText, quantity);
+    const sourceUnit = extractLineLocalUnitLabelFromSourceV17_90L371AO(
+      sourceText,
+      quantity,
+    );
 
     const next: AiWorkItem = {
       ...rawItem,
@@ -18110,25 +18885,59 @@ export async function processIncomingMessage(
     reasonValue: unknown,
   ): boolean => {
     if (!rawItem) return false;
+    if (isPricedSheetMaterialFirstAiItemV17_90L371BL(rawItem)) return true;
     const positionType = getFirstAiItemPositionTypeV17_90L371AO(rawItem);
-    if (!["material", "equipment", "expense", "disposal", "flat_fee", "other"].includes(positionType)) return false;
+    if (
+      ![
+        "material",
+        "equipment",
+        "expense",
+        "disposal",
+        "flat_fee",
+        "other",
+      ].includes(positionType)
+    )
+      return false;
 
     const sourceText = getFirstAiItemSourceTextV17_90L371AO(rawItem);
     const serviceName = getFirstAiItemNameV17_90L371AO(rawItem);
-    const quantity = Number((rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0);
-    const unitPrice = Number((rawItem as any)?.unitPrice ?? (rawItem as any)?.unit_price ?? (rawItem as any)?.price ?? 0);
+    const quantity = Number(
+      (rawItem as any)?.quantity ?? (rawItem as any)?.menge ?? 0,
+    );
+    const unitPrice = Number(
+      (rawItem as any)?.unitPrice ??
+        (rawItem as any)?.unit_price ??
+        (rawItem as any)?.price ??
+        0,
+    );
     const reason = normalizeUnitText(reasonValue || "");
 
     if (!sourceText || !serviceName) return false;
     if (!Number.isFinite(quantity) || quantity <= 0) return false;
-    if (!hasOwnLinePriceEvidenceV17_90L371AO(sourceText, unitPrice)) return false;
-    if (!/(?:source text|sourcetext|evidence|belegt|beleg|quelle|quellzeile)/i.test(reason)) return false;
-    if (/(?:kunde|customer|adresse|address|ausfuehrungsadresse|rechnungsadresse|firma|company)/i.test(reason)) return false;
+    if (!hasOwnLinePriceEvidenceV17_90L371AO(sourceText, unitPrice))
+      return false;
+    if (
+      !/(?:source text|sourcetext|evidence|belegt|beleg|quelle|quellzeile)/i.test(
+        reason,
+      )
+    )
+      return false;
+    if (
+      /(?:kunde|customer|adresse|address|ausfuehrungsadresse|rechnungsadresse|firma|company)/i.test(
+        reason,
+      )
+    )
+      return false;
 
-    const cleanedName = extractLineLocalPositionNameFromSourceV17_90L371AO(sourceText, serviceName);
+    const cleanedName = extractLineLocalPositionNameFromSourceV17_90L371AO(
+      sourceText,
+      serviceName,
+    );
     const cleanedKey = normalizeUnitText(cleanedName);
     const sourceKey = normalizeUnitText(sourceText);
-    return Boolean(cleanedKey && cleanedKey.length >= 3 && sourceKey.includes(cleanedKey));
+    return Boolean(
+      cleanedKey && cleanedKey.length >= 3 && sourceKey.includes(cleanedKey),
+    );
   };
 
   const fullWorkText =
@@ -18148,7 +18957,8 @@ export async function processIncomingMessage(
         "",
       )
       .trim();
-    const candidate = withoutTrailingClarification || sourceTextCompact || fallbackCompact;
+    const candidate =
+      withoutTrailingClarification || sourceTextCompact || fallbackCompact;
     const normalized = candidate.replace(/\s+/g, " ").trim();
     if (normalized.length >= 4 && normalized.length <= 140) return normalized;
     if (normalized.length > 140) return normalized.slice(0, 140).trim();
@@ -18159,7 +18969,11 @@ export async function processIncomingMessage(
   // row, but it must never rename, replace or otherwise rewrite that row.
   const aiWorkItemsRaw: AiWorkItem[] = (
     firstAiWorkItemsSnapshotV17_90L213 as unknown as AiWorkItem[]
-  ).map((item) => sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO({ ...item }));
+  ).map((item) =>
+    sanitizePricedSheetMaterialFirstAiItemV17_90L371BL(
+      sanitizeNonServiceFirstAiItemFromOwnSourceV17_90L371AO({ ...item }),
+    ),
+  );
 
   const invalidFindingReasonByIndexV17_90L371AO = new Map(
     finalAiWorkCoverageV17_90L251.invalidItems.map((finding) => [
@@ -18176,14 +18990,15 @@ export async function processIncomingMessage(
   const invalidFirstAiItemIndexesV17_90L338 = new Set(
     finalAiWorkCoverageV17_90L251.invalidItems
       .map((finding) => Number(finding.itemIndex))
-      .filter((itemIndex) =>
-        Number.isInteger(itemIndex) &&
-        itemIndex >= 1 &&
-        itemIndex <= aiWorkItemsRaw.length &&
-        !canKeepNonServiceFirstAiItemDespiteInvalidReviewV17_90L371AO(
-          aiWorkItemsRaw[itemIndex - 1],
-          invalidFindingReasonByIndexV17_90L371AO.get(itemIndex),
-        ),
+      .filter(
+        (itemIndex) =>
+          Number.isInteger(itemIndex) &&
+          itemIndex >= 1 &&
+          itemIndex <= aiWorkItemsRaw.length &&
+          !canKeepNonServiceFirstAiItemDespiteInvalidReviewV17_90L371AO(
+            aiWorkItemsRaw[itemIndex - 1],
+            invalidFindingReasonByIndexV17_90L371AO.get(itemIndex),
+          ),
       ),
   );
 
@@ -18191,7 +19006,10 @@ export async function processIncomingMessage(
   // It is the same class of unresolved recognition as a missing-work finding:
   // keep the exact source text as a red "Leistung nicht erkannt" block, but
   // never persist placeholders such as "Leistung prüfen" as OrderItem rows.
-  const isFirstAiReviewOnlyPlaceholderItemV17_90L361 = (rawItem: any): boolean => {
+  const isFirstAiReviewOnlyPlaceholderItemV17_90L361 = (
+    rawItem: any,
+  ): boolean => {
+    if (isPricedSheetMaterialFirstAiItemV17_90L371BL(rawItem)) return false;
     const rawServiceName = compactExactSourceTextV17_90L251(
       rawItem?.serviceName ??
         rawItem?.name ??
@@ -18244,8 +19062,8 @@ export async function processIncomingMessage(
 
     return Boolean(
       sourceText &&
-        (explicitPlaceholderReason || placeholderName) &&
-        (placeholderName || valuesStillOpen),
+      (explicitPlaceholderReason || placeholderName) &&
+      (placeholderName || valuesStillOpen),
     );
   };
 
@@ -18306,63 +19124,64 @@ export async function processIncomingMessage(
     ]),
   );
 
-  const invalidFirstAiItemReviewReasonsV17_90L252 =
-    Array.from(unsupportedFirstAiItemIndexesV17_90L361)
-      .sort((left, right) => left - right)
-      .map((itemIndex) => {
-        const rawItem = aiWorkItemsRaw[itemIndex - 1] as any;
-        if (!rawItem) return null;
-        const rawSourceText = compactExactSourceTextV17_90L251(
-          rawItem?.sourceText ??
-            rawItem?.source_text ??
-            rawItem?.evidence ??
-            rawItem?.raw ??
-            rawItem?.description,
-        );
-        if (!rawSourceText) return null;
-        const fallbackServiceName = compactExactSourceTextV17_90L251(
-          rawItem?.serviceName ??
-            rawItem?.name ??
-            rawItem?.action_name ??
-            rawItem?.service_name ??
-            rawItem?.matched_service_name,
-        );
-        const serviceName = buildReviewServiceNameFromSourceV17_90L338(
-          rawSourceText,
-          fallbackServiceName,
-        );
-        const quantityValue = Number(rawItem?.quantity ?? rawItem?.menge ?? 0);
-        const unitPriceValue = Number(
-          rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
-        );
-        const wasInvalidItem = invalidFirstAiItemIndexesV17_90L338.has(itemIndex);
-        const payload = {
-          // Unsupported first-AI rows are presented as user-resolvable missing
-          // work because the real persisted item was deliberately removed above.
-          // The source quote stays exact; no invented service label is exposed
-          // or used as the accept target.
-          kind: "missing_work",
-          originalKind: wasInvalidItem ? "invalid_item" : "placeholder_item",
-          findingId: wasInvalidItem
-            ? `invalid_item_${itemIndex}`
-            : `placeholder_item_${itemIndex}`,
-          serviceName,
-          quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
-          unit: compactExactSourceTextV17_90L251(
-            rawItem?.unit ?? rawItem?.einheit,
-          ) || "Einheit prüfen",
-          unitPrice: Number.isFinite(unitPriceValue) ? unitPriceValue : 0,
-          sourceText: rawSourceText,
-          relatedRoleText: null,
-          reason:
-            invalidFindingReasonByIndexV17_90L361.get(itemIndex) ||
-            "First-AI-Platzhalter ist keine echte Leistung und wurde als Reviewblock gesichert.",
-        };
-        return `${RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252}${encodeURIComponent(
-          JSON.stringify(payload),
-        )}`;
-      })
-      .filter((reason): reason is string => Boolean(reason));
+  const invalidFirstAiItemReviewReasonsV17_90L252 = Array.from(
+    unsupportedFirstAiItemIndexesV17_90L361,
+  )
+    .sort((left, right) => left - right)
+    .map((itemIndex) => {
+      const rawItem = aiWorkItemsRaw[itemIndex - 1] as any;
+      if (!rawItem) return null;
+      const rawSourceText = compactExactSourceTextV17_90L251(
+        rawItem?.sourceText ??
+          rawItem?.source_text ??
+          rawItem?.evidence ??
+          rawItem?.raw ??
+          rawItem?.description,
+      );
+      if (!rawSourceText) return null;
+      const fallbackServiceName = compactExactSourceTextV17_90L251(
+        rawItem?.serviceName ??
+          rawItem?.name ??
+          rawItem?.action_name ??
+          rawItem?.service_name ??
+          rawItem?.matched_service_name,
+      );
+      const serviceName = buildReviewServiceNameFromSourceV17_90L338(
+        rawSourceText,
+        fallbackServiceName,
+      );
+      const quantityValue = Number(rawItem?.quantity ?? rawItem?.menge ?? 0);
+      const unitPriceValue = Number(
+        rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price ?? 0,
+      );
+      const wasInvalidItem = invalidFirstAiItemIndexesV17_90L338.has(itemIndex);
+      const payload = {
+        // Unsupported first-AI rows are presented as user-resolvable missing
+        // work because the real persisted item was deliberately removed above.
+        // The source quote stays exact; no invented service label is exposed
+        // or used as the accept target.
+        kind: "missing_work",
+        originalKind: wasInvalidItem ? "invalid_item" : "placeholder_item",
+        findingId: wasInvalidItem
+          ? `invalid_item_${itemIndex}`
+          : `placeholder_item_${itemIndex}`,
+        serviceName,
+        quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
+        unit:
+          compactExactSourceTextV17_90L251(rawItem?.unit ?? rawItem?.einheit) ||
+          "Einheit prüfen",
+        unitPrice: Number.isFinite(unitPriceValue) ? unitPriceValue : 0,
+        sourceText: rawSourceText,
+        relatedRoleText: null,
+        reason:
+          invalidFindingReasonByIndexV17_90L361.get(itemIndex) ||
+          "First-AI-Platzhalter ist keine echte Leistung und wurde als Reviewblock gesichert.",
+      };
+      return `${RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L252}${encodeURIComponent(
+        JSON.stringify(payload),
+      )}`;
+    })
+    .filter((reason): reason is string => Boolean(reason));
 
   const genericEmptyFirstAiReviewReasonV17_90L252 =
     aiWorkItemsRaw.length === 0 &&
@@ -18370,14 +19189,13 @@ export async function processIncomingMessage(
       ? ["intake_risk:priced_service_line_missing_or_mismatched"]
       : [];
 
-  let canonicalAiOrderItemsBaseV17_90L234 =
-    buildCanonicalAiOrderItemsV17_90L88(
-      aiWorkItems,
-      translationText,
-      [messageText, parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
-        .filter(Boolean)
-        .join("\n"),
-    );
+  let canonicalAiOrderItemsBaseV17_90L234 = buildCanonicalAiOrderItemsV17_90L88(
+    aiWorkItems,
+    translationText,
+    [messageText, parsed.auftrag?.beschreibung, parsed.auftrag?.titel]
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   if (canonicalAiOrderItemsBaseV17_90L234.length === 0) {
     const explicitExpenseFallbackRawItemsV17_90L371AR =
@@ -19101,9 +19919,7 @@ export async function processIncomingMessage(
       const cleanedDetectedName =
         structuredVisibleName !== "Unbekannte Leistung"
           ? structuredVisibleName
-          : formatWorkNameForDisplay(
-              detectedName || "Unbekannte Leistung",
-            );
+          : formatWorkNameForDisplay(detectedName || "Unbekannte Leistung");
 
       // V17.90L77: Do not reject a valid structured service name merely
       // because it contains more than six words. Longer room/context labels are
@@ -19249,9 +20065,9 @@ export async function processIncomingMessage(
             },
           ];
 
-  const structuredOrderItemSnapshotsV17_90L76 = finalOrderItems.map(
-    (item) => ({ ...item }),
-  );
+  const structuredOrderItemSnapshotsV17_90L76 = finalOrderItems.map((item) => ({
+    ...item,
+  }));
 
   // V17.90L60: Rebuild explicit priced service rows from their own source
   // lines before validation. This keeps every source line independent.
@@ -19300,7 +20116,10 @@ export async function processIncomingMessage(
     {
       finalCurrency: shadowIntakeValidationV17_90L105.finalCurrency,
       needsReview: shadowIntakeValidationV17_90L105.needsReview,
-      reviewReasons: shadowIntakeValidationV17_90L105.reviewReasons.slice(0, 40),
+      reviewReasons: shadowIntakeValidationV17_90L105.reviewReasons.slice(
+        0,
+        40,
+      ),
       items: summarizeIntakeDiagnosticItems(
         shadowIntakeValidationV17_90L105.items,
       ),
@@ -19320,7 +20139,9 @@ export async function processIncomingMessage(
   const normalizeAuthoritativeCurrencyV17_90L105 = (
     value: unknown,
   ): "CHF" | "EUR" | null => {
-    const normalized = String(value || "").trim().toUpperCase();
+    const normalized = String(value || "")
+      .trim()
+      .toUpperCase();
     return normalized === "CHF" || normalized === "EUR" ? normalized : null;
   };
 
@@ -19406,42 +20227,46 @@ export async function processIncomingMessage(
           );
           if (!candidateEvidenceKey) return true;
 
-          const coveredByCanonicalOpenPrice = canonicalAiOrderItemsV17_90L88.some(
-            (canonical) => {
+          const coveredByCanonicalOpenPrice =
+            canonicalAiOrderItemsV17_90L88.some((canonical) => {
               const canonicalEvidenceKey = canonicalEvidenceKeyV17_90L88(
-                canonical.sourceText || canonical.evidence || canonical.description,
+                canonical.sourceText ||
+                  canonical.evidence ||
+                  canonical.description,
               );
               const sameEvidence = Boolean(
                 canonicalEvidenceKey &&
-                  (canonicalEvidenceKey === candidateEvidenceKey ||
-                    (canonicalEvidenceKey.length >= 12 &&
-                      candidateEvidenceKey.length >= 12 &&
-                      (canonicalEvidenceKey.includes(candidateEvidenceKey) ||
-                        candidateEvidenceKey.includes(canonicalEvidenceKey)))),
+                (canonicalEvidenceKey === candidateEvidenceKey ||
+                  (canonicalEvidenceKey.length >= 12 &&
+                    candidateEvidenceKey.length >= 12 &&
+                    (canonicalEvidenceKey.includes(candidateEvidenceKey) ||
+                      candidateEvidenceKey.includes(canonicalEvidenceKey)))),
               );
               const canonicalPriceOpen = Boolean(
                 Number(canonical.unitPrice || 0) <= 0 &&
-                  String(canonical.reviewReason || "").startsWith(
-                    "price_unclear:",
-                  ) &&
-                  canonical.serviceName &&
-                  !isInternalReviewServiceNameV17_90L(canonical.serviceName),
+                String(canonical.reviewReason || "").startsWith(
+                  "price_unclear:",
+                ) &&
+                canonical.serviceName &&
+                !isInternalReviewServiceNameV17_90L(canonical.serviceName),
               );
               return sameEvidence && canonicalPriceOpen;
-            },
-          );
+            });
 
           return !coveredByCanonicalOpenPrice;
         })
-        .map((item) => [
-          [
-            normalizeUnitText(item.serviceName),
-            normalizeUnitText(
-              item.sourceText || item.evidence || item.description || "",
-            ),
-          ].join("|"),
-          { ...item },
-        ] as const),
+        .map(
+          (item) =>
+            [
+              [
+                normalizeUnitText(item.serviceName),
+                normalizeUnitText(
+                  item.sourceText || item.evidence || item.description || "",
+                ),
+              ].join("|"),
+              { ...item },
+            ] as const,
+        ),
     ).values(),
   );
 
@@ -19458,7 +20283,8 @@ export async function processIncomingMessage(
       .filter((candidate) => {
         const candidateKey = recognitionCandidateIdentityV17_90L101(candidate);
         const cameFromValidation = intakeValidation.items.some(
-          (item) => recognitionCandidateIdentityV17_90L101(item) === candidateKey,
+          (item) =>
+            recognitionCandidateIdentityV17_90L101(item) === candidateKey,
         );
         if (!cameFromValidation) return false;
 
@@ -19746,8 +20572,8 @@ export async function processIncomingMessage(
     const reason = String(item.reviewReason || "");
     return Boolean(
       (detected && detected !== finalCurrencyForDuplicateGuard) ||
-        reason.startsWith("item_currency_mismatch:") ||
-        reason.startsWith("currency_conflict_item:"),
+      reason.startsWith("item_currency_mismatch:") ||
+      reason.startsWith("currency_conflict_item:"),
     );
   });
 
@@ -19782,8 +20608,8 @@ export async function processIncomingMessage(
       const duplicatesForeignEvidence = foreignEvidence.some((foreign) =>
         Boolean(
           foreign &&
-            evidence &&
-            (evidence.includes(foreign) || foreign.includes(evidence)),
+          evidence &&
+          (evidence.includes(foreign) || foreign.includes(evidence)),
         ),
       );
 
@@ -19836,12 +20662,10 @@ export async function processIncomingMessage(
     finalOrderItems,
     intakeValidation.finalCurrency,
   );
-  finalOrderItems = cleanVisibleReviewInstructionSuffixV17_90L76(
-    finalOrderItems,
-  );
-  finalOrderItems = removeGeneratedReviewDuplicatesByEvidenceV17_90L77(
-    finalOrderItems,
-  );
+  finalOrderItems =
+    cleanVisibleReviewInstructionSuffixV17_90L76(finalOrderItems);
+  finalOrderItems =
+    removeGeneratedReviewDuplicatesByEvidenceV17_90L77(finalOrderItems);
   finalOrderItems = restoreExplicitSourceActionV17_90L81(finalOrderItems);
   finalOrderItems = dedupeEquivalentSourceRowsV17_90L81(finalOrderItems);
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
@@ -19857,7 +20681,6 @@ export async function processIncomingMessage(
     messageText,
     intakeValidation.finalCurrency,
   );
-
 
   // V17.90L88: Absolute persistence boundary. Restore the validated semantic
   // LLM rows after every legacy repair/validator pass. The later pipeline may
@@ -19934,8 +20757,8 @@ export async function processIncomingMessage(
       ...canonicalAiOrderItemsV17_90L88,
     ].sort((left, right) => left.canonicalOrder - right.canonicalOrder);
 
-    const canonicalMutationFindingsV17_90L235 =
-      orderedCanonicalItemsV17_90L235.map((canonical, index) => {
+    const canonicalMutationFindingsV17_90L235 = orderedCanonicalItemsV17_90L235
+      .map((canonical, index) => {
         const candidate = unsafePostLockItemsV17_90L235[index];
         const fields: string[] = [];
         if (!candidate) {
@@ -19947,9 +20770,7 @@ export async function processIncomingMessage(
             .trim()
             .toUpperCase();
           const actualCurrency = String(
-            candidate.detectedCurrency ||
-              intakeValidation.finalCurrency ||
-              "",
+            candidate.detectedCurrency || intakeValidation.finalCurrency || "",
           )
             .trim()
             .toUpperCase();
@@ -19980,8 +20801,7 @@ export async function processIncomingMessage(
           }
           if (
             Math.abs(
-              Number(candidate.quantity || 0) -
-                Number(canonical.quantity || 0),
+              Number(candidate.quantity || 0) - Number(canonical.quantity || 0),
             ) >= 0.0001
           ) {
             fields.push("quantity");
@@ -20017,11 +20837,12 @@ export async function processIncomingMessage(
               fields,
             }
           : null;
-      }).filter(Boolean) as Array<{
-        index: number;
-        serviceName: string;
-        fields: string[];
-      }>;
+      })
+      .filter(Boolean) as Array<{
+      index: number;
+      serviceName: string;
+      fields: string[];
+    }>;
 
     if (
       unsafePostLockItemsV17_90L235.length >
@@ -20088,10 +20909,7 @@ export async function processIncomingMessage(
         recovered: !canonicalPersistenceViolationV17_90L98,
         findings: canonicalMutationFindingsV17_90L235.map((finding) => ({
           itemIndex: finding.index + 1,
-          serviceName: redactIntakeDiagnosticText(
-            finding.serviceName,
-            180,
-          ),
+          serviceName: redactIntakeDiagnosticText(finding.serviceName, 180),
           fields: finding.fields,
         })),
         items: summarizeIntakeDiagnosticItems(finalOrderItems),
@@ -20102,8 +20920,7 @@ export async function processIncomingMessage(
       console.error(
         `[${source}] 🛟 Canonical mutation blocked and recovered as review order: ${canonicalMutationFindingsV17_90L235
           .map(
-            (finding) =>
-              `${finding.serviceName}[${finding.fields.join(",")}]`,
+            (finding) => `${finding.serviceName}[${finding.fields.join(",")}]`,
           )
           .join(" | ")}`,
       );
@@ -20112,11 +20929,11 @@ export async function processIncomingMessage(
 
   const canonicalPostLockActiveV17_90L209 = Boolean(
     !canonicalPersistenceViolationV17_90L98 &&
-      canonicalItemsStableAfterValidationV17_90L89(
-        canonicalAiOrderItemsV17_90L88,
-        finalOrderItems,
-        intakeValidation.finalCurrency,
-      ),
+    canonicalItemsStableAfterValidationV17_90L89(
+      canonicalAiOrderItemsV17_90L88,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+    ),
   );
 
   logIntakeDiagnosticTrace(
@@ -20126,8 +20943,7 @@ export async function processIncomingMessage(
     {
       canonicalCount: canonicalAiOrderItemsV17_90L88.length,
       stable: canonicalPostLockActiveV17_90L209,
-      recoveredAsReview:
-        canonicalMutationRecoveryReasonsV17_90L235.length > 0,
+      recoveredAsReview: canonicalMutationRecoveryReasonsV17_90L235.length > 0,
       items: summarizeIntakeDiagnosticItems(finalOrderItems),
     },
   );
@@ -20137,9 +20953,7 @@ export async function processIncomingMessage(
     );
   }
   if (!canonicalPostLockActiveV17_90L209) {
-    throw new Error(
-      "CANONICAL_FIRST_AI_MUTATION_BLOCK:service_items",
-    );
+    throw new Error("CANONICAL_FIRST_AI_MUTATION_BLOCK:service_items");
   }
 
   // V17.90L209: Freeze the stable item graph immediately after 05c. From this
@@ -20165,13 +20979,12 @@ export async function processIncomingMessage(
     executionAddressCustomerContext,
     validationSourceText,
   );
-  const explicitPartialExecutionAddressFallback =
-    legacyAddressFallbackEnabled
-      ? extractExecutionAddressFromText(
-          validationSourceText,
-          executionAddressCustomerContext,
-        )
-      : null;
+  const explicitPartialExecutionAddressFallback = legacyAddressFallbackEnabled
+    ? extractExecutionAddressFromText(
+        validationSourceText,
+        executionAddressCustomerContext,
+      )
+    : null;
   // V17.90L194: The first-AI execution-address object is the protected
   // source of truth. Whole-message address recreation is disabled by default;
   // it is available only behind the explicit legacy environment switch.
@@ -20250,15 +21063,15 @@ export async function processIncomingMessage(
     );
     const sameStreet = Boolean(
       extractedExecutionAddress.siteAddress &&
-        resolvedCustomerMaster.address &&
-        normalizeUnitText(extractedExecutionAddress.siteAddress) ===
-          normalizeUnitText(resolvedCustomerMaster.address),
+      resolvedCustomerMaster.address &&
+      normalizeUnitText(extractedExecutionAddress.siteAddress) ===
+        normalizeUnitText(resolvedCustomerMaster.address),
     );
     const cityCompatible = Boolean(
       !normalizedSiteCity ||
-        !resolvedCustomerMaster.city ||
-        normalizeUnitText(normalizedSiteCity) ===
-          normalizeUnitText(resolvedCustomerMaster.city),
+      !resolvedCustomerMaster.city ||
+      normalizeUnitText(normalizedSiteCity) ===
+        normalizeUnitText(resolvedCustomerMaster.city),
     );
 
     if (sameStreet && cityCompatible) {
@@ -20268,8 +21081,7 @@ export async function processIncomingMessage(
           extractedExecutionAddress.sitePlz ||
           resolvedCustomerMaster.plz ||
           null,
-        siteCity:
-          normalizedSiteCity || resolvedCustomerMaster.city || null,
+        siteCity: normalizedSiteCity || resolvedCustomerMaster.city || null,
       };
     }
   }
@@ -20321,9 +21133,8 @@ export async function processIncomingMessage(
         resolvedCustomerMaster?.name ||
         null,
     );
-    const explicitWorkAreaV17_90L230 = sameAddressWorkAreaDescriptorV17_66(
-      validationSourceText,
-    );
+    const explicitWorkAreaV17_90L230 =
+      sameAddressWorkAreaDescriptorV17_66(validationSourceText);
     const firstAiSiteKeyV17_90L230 = normalizeUnitText(
       firstAiSameAddressSiteNameV17_90L225 || "",
     );
@@ -20335,15 +21146,15 @@ export async function processIncomingMessage(
     );
     const siteNameIsBillingIdentityV17_90L230 = Boolean(
       firstAiSiteKeyV17_90L230 &&
-        billingNameKeyV17_90L230 &&
-        firstAiSiteKeyV17_90L230 === billingNameKeyV17_90L230,
+      billingNameKeyV17_90L230 &&
+      firstAiSiteKeyV17_90L230 === billingNameKeyV17_90L230,
     );
     const siteNameHasExplicitWorkAreaEvidenceV17_90L230 = Boolean(
       firstAiSiteKeyV17_90L230 &&
-        explicitWorkAreaKeyV17_90L230 &&
-        (firstAiSiteKeyV17_90L230 === explicitWorkAreaKeyV17_90L230 ||
-          firstAiSiteKeyV17_90L230.includes(explicitWorkAreaKeyV17_90L230) ||
-          explicitWorkAreaKeyV17_90L230.includes(firstAiSiteKeyV17_90L230)),
+      explicitWorkAreaKeyV17_90L230 &&
+      (firstAiSiteKeyV17_90L230 === explicitWorkAreaKeyV17_90L230 ||
+        firstAiSiteKeyV17_90L230.includes(explicitWorkAreaKeyV17_90L230) ||
+        explicitWorkAreaKeyV17_90L230.includes(firstAiSiteKeyV17_90L230)),
     );
     extractedExecutionAddress =
       firstAiSameAddressSiteNameV17_90L225 &&
@@ -20364,12 +21175,13 @@ export async function processIncomingMessage(
     legacyAddressFallbackEnabled &&
     !firstAiExecutionAddressSnapshotV17_90L225
   ) {
-    const enrichedSiteNameV17_90L203 = enrichExecutionSiteNameFromEvidenceV17_90L203({
-      currentName: extractedExecutionAddress.siteName,
-      siteAddress: extractedExecutionAddress.siteAddress,
-      originalText: messageText,
-      translatedText: translationText,
-    });
+    const enrichedSiteNameV17_90L203 =
+      enrichExecutionSiteNameFromEvidenceV17_90L203({
+        currentName: extractedExecutionAddress.siteName,
+        siteAddress: extractedExecutionAddress.siteAddress,
+        originalText: messageText,
+        translatedText: translationText,
+      });
     extractedExecutionAddress = {
       ...extractedExecutionAddress,
       siteName: trimDanglingExecutionSiteConnectorV17_90L208({
@@ -20402,7 +21214,7 @@ export async function processIncomingMessage(
   // the AI populated siteName with the customer name.
   const hasExplicitExecutionAddressMarkerV17_90L361 = Boolean(
     hasExecutionAddressDirectiveV17_61(validationSourceText) ||
-      hasSameAddressInstructionV17_90L28(validationSourceText),
+    hasSameAddressInstructionV17_90L28(validationSourceText),
   );
   if (
     extractedExecutionAddress &&
@@ -20673,28 +21485,30 @@ export async function processIncomingMessage(
     )
     .filter(Boolean);
 
-  let allReviewReasons: string[] = Array.from(new Set([
-    ...(additionalReviewReasons || []),
-    ...baseReviewReasons,
-    ...customerGuardReviewReasons,
-    ...quantityReviewReasons,
-    ...unitMismatchReasons,
-    ...filteredValidationReviewReasonsV17_90L89,
-    ...canonicalItemReviewReasonsV17_90L225,
-    ...priceContradictionReviewReasonsV17_90L269,
-    ...semanticRecognitionReviewReasonsV17_90L252,
-    ...invalidFirstAiItemReviewReasonsV17_90L252,
-    ...genericEmptyFirstAiReviewReasonV17_90L252,
-    ...canonicalMutationRecoveryReasonsV17_90L235,
-    ...(canonicalPostLockActiveV17_90L209
-      ? []
-      : unitlessQuantityGuardBeforePersist.reviewReasons),
-    ...structuralRiskReviewReasons,
-    ...(canonicalPersistenceViolationV17_90L98
-      ? ["canonical_persistence_violation"]
-      : []),
-    ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
-  ]));
+  let allReviewReasons: string[] = Array.from(
+    new Set([
+      ...(additionalReviewReasons || []),
+      ...baseReviewReasons,
+      ...customerGuardReviewReasons,
+      ...quantityReviewReasons,
+      ...unitMismatchReasons,
+      ...filteredValidationReviewReasonsV17_90L89,
+      ...canonicalItemReviewReasonsV17_90L225,
+      ...priceContradictionReviewReasonsV17_90L269,
+      ...semanticRecognitionReviewReasonsV17_90L252,
+      ...invalidFirstAiItemReviewReasonsV17_90L252,
+      ...genericEmptyFirstAiReviewReasonV17_90L252,
+      ...canonicalMutationRecoveryReasonsV17_90L235,
+      ...(canonicalPostLockActiveV17_90L209
+        ? []
+        : unitlessQuantityGuardBeforePersist.reviewReasons),
+      ...structuralRiskReviewReasons,
+      ...(canonicalPersistenceViolationV17_90L98
+        ? ["canonical_persistence_violation"]
+        : []),
+      ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
+    ]),
+  );
 
   if (autoReuseTags.length > 0) {
     for (const tag of autoReuseTags) {
@@ -20708,13 +21522,13 @@ export async function processIncomingMessage(
   // findings; genuine customer, execution-site and service reviews remain.
   const confirmedExistingCustomerSameAddressV17_90L216 = Boolean(
     customerId &&
-      !customerWasNewlyCreated &&
-      resolvedCustomerMaster?.address &&
-      resolvedCustomerMaster?.plz &&
-      resolvedCustomerMaster?.city &&
-      hasSameAddressInstructionV17_90L28(
-        [messageText, translationText].filter(Boolean).join("\n"),
-      ),
+    !customerWasNewlyCreated &&
+    resolvedCustomerMaster?.address &&
+    resolvedCustomerMaster?.plz &&
+    resolvedCustomerMaster?.city &&
+    hasSameAddressInstructionV17_90L28(
+      [messageText, translationText].filter(Boolean).join("\n"),
+    ),
   );
   if (confirmedExistingCustomerSameAddressV17_90L216) {
     const obsoleteSameAddressReasonsV17_90L216 = new Set([
@@ -20811,7 +21625,10 @@ export async function processIncomingMessage(
     preferCompleteTranslatedRoleVariantsV17_90L202(
       [
         ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.zugangshinweise, ...translatedAccessCandidatesV17_90L202],
+          [
+            parsed.auftrag?.zugangshinweise,
+            ...translatedAccessCandidatesV17_90L202,
+          ],
           "access",
         ),
         ...extractProtectedStructuredRoleValuesV17_90L103(
@@ -20825,7 +21642,10 @@ export async function processIncomingMessage(
     preferCompleteTranslatedRoleVariantsV17_90L202(
       [
         ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.parkhinweise, ...translatedParkingCandidatesV17_90L202],
+          [
+            parsed.auftrag?.parkhinweise,
+            ...translatedParkingCandidatesV17_90L202,
+          ],
           "parking",
         ),
         ...extractProtectedStructuredRoleValuesV17_90L103(
@@ -20839,7 +21659,10 @@ export async function processIncomingMessage(
     preferCompleteTranslatedRoleVariantsV17_90L202(
       [
         ...canonicalizeStructuredRoleLinesV17_90L195(
-          [parsed.auftrag?.sonstige_hinweise, ...translatedOtherCandidatesV17_90L202],
+          [
+            parsed.auftrag?.sonstige_hinweise,
+            ...translatedOtherCandidatesV17_90L202,
+          ],
           "other",
         ),
         ...extractProtectedStructuredRoleValuesV17_90L103(
@@ -20866,30 +21689,34 @@ export async function processIncomingMessage(
       ...accessFactCandidatesV17_90L203.map((text) => ({
         role: "access" as const,
         text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
+        evidenceSource:
+          translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+            ? ("normalized_translation" as const)
+            : ("ai_structured" as const),
       })),
       ...parkingFactCandidatesV17_90L203.map((text) => ({
         role: "parking" as const,
         text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
+        evidenceSource:
+          translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+            ? ("normalized_translation" as const)
+            : ("ai_structured" as const),
       })),
       ...otherFactCandidatesV17_90L203.map((text) => ({
         role: "other" as const,
         text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
+        evidenceSource:
+          translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+            ? ("normalized_translation" as const)
+            : ("ai_structured" as const),
       })),
       ...ordinaryFactCandidatesV17_90L203.map((text) => ({
         role: "ordinary" as const,
         text,
-        evidenceSource: translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
-          ? ("normalized_translation" as const)
-          : ("ai_structured" as const),
+        evidenceSource:
+          translatedRoleEvidenceScoreV17_90L201(text, translationText) > 0
+            ? ("normalized_translation" as const)
+            : ("ai_structured" as const),
       })),
     ],
     context: {
@@ -20970,17 +21797,26 @@ export async function processIncomingMessage(
 
   const sealedAiFactKeysV17_90L214 = new Set(
     [
-      ...finalAiRoleSnapshotV17_90L215.safety.map((text) => ["safety", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.access.map((text) => ["access", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.parking.map((text) => ["parking", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.other.map((text) => ["other", text] as const),
-      ...finalAiRoleSnapshotV17_90L215.ordinary.map((text) => ["ordinary", text] as const),
+      ...finalAiRoleSnapshotV17_90L215.safety.map(
+        (text) => ["safety", text] as const,
+      ),
+      ...finalAiRoleSnapshotV17_90L215.access.map(
+        (text) => ["access", text] as const,
+      ),
+      ...finalAiRoleSnapshotV17_90L215.parking.map(
+        (text) => ["parking", text] as const,
+      ),
+      ...finalAiRoleSnapshotV17_90L215.other.map(
+        (text) => ["other", text] as const,
+      ),
+      ...finalAiRoleSnapshotV17_90L215.ordinary.map(
+        (text) => ["ordinary", text] as const,
+      ),
       ...firstAiCanonicalCommunicationFactsV17_90L266.map(
         (text) => ["ordinary", text] as const,
       ),
     ].map(
-      ([role, text]) =>
-        `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
+      ([role, text]) => `${role}|${canonicalRoleVariantKeyV17_90L201(text)}`,
     ),
   );
   const nonAiCanonicalFactsV17_90L214 =
@@ -21001,8 +21837,7 @@ export async function processIncomingMessage(
 
   const canonicalFactKeySetV17_90L214 = new Set(
     canonicalFactAssemblyV17_90L204.facts.map(
-      (fact) =>
-        `${fact.role}|${canonicalRoleVariantKeyV17_90L201(fact.text)}`,
+      (fact) => `${fact.role}|${canonicalRoleVariantKeyV17_90L201(fact.text)}`,
     ),
   );
   const shadowOnlyFactsV17_90L214 =
@@ -21015,7 +21850,10 @@ export async function processIncomingMessage(
   if (shadowOnlyFactsV17_90L214.length > 0) {
     console.warn(
       `[${source}] 🔒 Post-AI fact candidates suppressed from persistence: ${shadowOnlyFactsV17_90L214
-        .map((fact) => `${fact.role}:${redactIntakeDiagnosticText(fact.text, 180)}`)
+        .map(
+          (fact) =>
+            `${fact.role}:${redactIntakeDiagnosticText(fact.text, 180)}`,
+        )
         .join(" | ")}`,
     );
   }
@@ -21044,10 +21882,7 @@ export async function processIncomingMessage(
             ? originalAppointmentReviewSentencesV17_90L271
             : translatedAppointmentReviewSentencesV17_90L271;
         const sourceIndex = sourceSentences.findIndex((sentence) =>
-          exactQuoteExistsInSourceV17_90L251(
-            sentence.text,
-            finding.quote,
-          ),
+          exactQuoteExistsInSourceV17_90L251(sentence.text, finding.quote),
         );
         const counterpart =
           sourceIndex >= 0 ? counterpartSentences[sourceIndex]?.text || "" : "";
@@ -21128,10 +21963,8 @@ export async function processIncomingMessage(
         resolvedCustomerMaster?.address || canonicalBillingCustomerV2.street,
       plz: resolvedCustomerMaster?.plz || canonicalBillingCustomerV2.plz,
       city: resolvedCustomerMaster?.city || canonicalBillingCustomerV2.city,
-      phone:
-        resolvedCustomerMaster?.phone || canonicalBillingCustomerV2.phone,
-      email:
-        resolvedCustomerMaster?.email || canonicalBillingCustomerV2.email,
+      phone: resolvedCustomerMaster?.phone || canonicalBillingCustomerV2.phone,
+      email: resolvedCustomerMaster?.email || canonicalBillingCustomerV2.email,
       evidenceSource: canonicalBillingCustomerV2.evidenceSource,
     },
     executionAddress: extractedExecutionAddress
@@ -21365,7 +22198,9 @@ export async function processIncomingMessage(
                 ).trim();
                 return {
                   serviceName: item.serviceName,
-                  positionType: normalizePositionType((item as any).positionType),
+                  positionType: normalizePositionType(
+                    (item as any).positionType,
+                  ),
                   description: sourceText || item.serviceName,
                   quantity: item.quantity,
                   unit: item.unit,
@@ -21407,7 +22242,9 @@ export async function processIncomingMessage(
   // customer remains review-required instead of being rescued by marker words.
 
   const canonicalScalarV17_90L194 = (value: unknown) =>
-    String(value ?? "").replace(/\s+/g, " ").trim();
+    String(value ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
   const canonicalNumberV17_90L213 = (value: unknown) => {
     const number = Number(value || 0);
     return Number.isFinite(number) ? Number(number.toFixed(6)) : 0;
@@ -21446,7 +22283,8 @@ export async function processIncomingMessage(
     .map((item: any) => canonicalItemPersistenceKeyV17_90L213(item))
     .sort();
   const persistedItemsStableV17_90L194 =
-    expectedItemStateV17_90L213.length === persistedItemStateV17_90L213.length &&
+    expectedItemStateV17_90L213.length ===
+      persistedItemStateV17_90L213.length &&
     expectedItemStateV17_90L213.every(
       (itemState, index) => itemState === persistedItemStateV17_90L213[index],
     );
@@ -21470,13 +22308,21 @@ export async function processIncomingMessage(
     canonicalScalarV17_90L194(order.customer?.email) !==
       canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.customer.email) ||
     canonicalScalarV17_90L194(order.siteName) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteName) ||
+      canonicalScalarV17_90L194(
+        canonicalIntakeSnapshotV2.executionAddress?.siteName,
+      ) ||
     canonicalScalarV17_90L194(order.siteAddress) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteAddress) ||
+      canonicalScalarV17_90L194(
+        canonicalIntakeSnapshotV2.executionAddress?.siteAddress,
+      ) ||
     canonicalScalarV17_90L194(order.sitePlz) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.sitePlz) ||
+      canonicalScalarV17_90L194(
+        canonicalIntakeSnapshotV2.executionAddress?.sitePlz,
+      ) ||
     canonicalScalarV17_90L194(order.siteCity) !==
-      canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.executionAddress?.siteCity) ||
+      canonicalScalarV17_90L194(
+        canonicalIntakeSnapshotV2.executionAddress?.siteCity,
+      ) ||
     canonicalScalarV17_90L194(order.specialNotes) !==
       canonicalScalarV17_90L194(canonicalIntakeSnapshotV2.specialNotes) ||
     canonicalScalarV17_90L194((order as any).serviceName) !==
@@ -21691,7 +22537,12 @@ export async function createFallbackOrderFromRawPayload(
   try {
     // Upsert per-user fallback customer (name-only; no guessed fields).
     let fallbackCustomer = await prisma.customer.findFirst({
-      where: { userId, dataScope, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
+      where: {
+        userId,
+        dataScope,
+        name: FALLBACK_CUSTOMER_NAME,
+        deletedAt: null,
+      },
       select: { id: true, name: true },
     });
     if (!fallbackCustomer) {
@@ -22018,7 +22869,12 @@ export async function createVoiceTooLongReviewOrder(
   try {
     // Upsert per-user fallback customer (same pattern as createFallbackOrderFromRawPayload)
     let fallbackCustomer = await prisma.customer.findFirst({
-      where: { userId, dataScope, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
+      where: {
+        userId,
+        dataScope,
+        name: FALLBACK_CUSTOMER_NAME,
+        deletedAt: null,
+      },
       select: { id: true, name: true },
     });
     if (!fallbackCustomer) {
