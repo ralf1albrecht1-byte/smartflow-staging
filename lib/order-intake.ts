@@ -3,6 +3,7 @@
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
+// SMARTFLOW_V17_90L371BK_MATERIAL_SURFACE_LINE_GUARD
 import { prisma } from "@/lib/prisma";
 import { ensureAddressSplit } from "@/lib/address-parser";
 import { logAuditAsync } from "@/lib/audit";
@@ -11390,10 +11391,63 @@ function classifyPositionTypeBeforeCanonicalLockV17_90L371AM(args: {
     /\b(?:geruest\s+(?:aufbau|standzeit|benutzung|miete)|(?:aufbau|standzeit|benutzung|miete)\s+geruest)\b/.test(text) ||
     /\b[\p{L}0-9_-]*(?:maschine|maschinen|geraet|gerät|geraete|geräte|werkzeug|werkzeuge|geruest|buehne|trockner)\b/iu.test(text);
   const clearMaterialSignal = /\b(?:material|materialien|verbrauchsmaterial|reinigungsmittel|reinigungsmaterial|reiniger|spezialreiniger|chemie|chemikalie|chemikalien|produkt|produkte|ersatzteil|ersatzteile|zement|kartusche|kartuschen|gebinde|filter|soap|detergent|cleaner|solvent|cement)\b/.test(text);
-  const localQuantityUnit = detectAllQuantityUnitsFromText(args.sourceText || "")[0]?.unit ||
+  const localQuantityUnitsV17_90L371BK = detectAllQuantityUnitsFromText(
+    args.sourceText || "",
+  );
+  const localQuantityUnit =
+    localQuantityUnitsV17_90L371BK[0]?.unit ||
     getServiceUnitType(args.raw?.unit ?? args.raw?.einheit ?? null);
-  const materialIncompatibleUnit = ["square_meter", "cubic_meter", "meter", "hour", "day"].includes(localQuantityUnit);
-  const hasMaterialSignal = clearMaterialSignal && !materialIncompatibleUnit;
+
+  // SMARTFLOW_V17_90L371BK:
+  // Narrow material rescue for explicitly priced sheet/covering material lines.
+  // This prevents "Schutzfolie 12 Laufmeter à CHF 3" from falling back to
+  // Dienstleistung, while still keeping vague text such as "Material mitnehmen"
+  // or "komisches Zeug prüfen" in the red review flow.
+  const hasPricedLineLocalSheetMaterialSignalV17_90L371BK = (() => {
+    const sourceLine = normalizeUnitText(args.sourceText || "");
+    const nameAndSource = normalizeUnitText(
+      [args.serviceName, args.sourceText].filter(Boolean).join(" "),
+    );
+    if (
+      !/\b(?:schutzfolie|abdeckfolie|baufolie|malerfolie|folie|folien|abdeckvlies|schutzvlies|vlies|abdeckmaterial|schutzmaterial)\b/.test(
+        nameAndSource,
+      )
+    ) {
+      return false;
+    }
+    if (
+      /\b(?:reinigen|putzen|waschen|entfernen|abziehen|entsorgen|montieren|installieren|kleben|anbringen|verlegen|reparieren)\b/.test(
+        sourceLine,
+      )
+    ) {
+      return false;
+    }
+    const hasLineLocalMeterQuantity = localQuantityUnitsV17_90L371BK.some(
+      (entry) => entry.unit === "meter",
+    );
+    const rawUnitType = getServiceUnitType(
+      args.raw?.unit ?? args.raw?.einheit ?? null,
+    );
+    if (!hasLineLocalMeterQuantity && rawUnitType !== "meter") return false;
+
+    const rawPrice = Number(
+      args.raw?.unitPrice ?? args.raw?.unit_price ?? args.raw?.price ?? 0,
+    );
+    const hasPositiveRawPrice = Number.isFinite(rawPrice) && rawPrice > 0;
+    const hasLineLocalPriceMarker =
+      /(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*[0-9]|[0-9][0-9'’]*(?:[.,][0-9]{1,2})?\s*(?:chf|eur|euro|sfr|fr)\.?\b|(?:à|a|@|x|×)\s*(?:\b(?:chf|eur|euro|sfr|fr)\.?\s*)?[0-9])/iu.test(
+        sourceLine,
+      );
+    return hasPositiveRawPrice && hasLineLocalPriceMarker;
+  })();
+
+  const materialIncompatibleUnit =
+    ["square_meter", "cubic_meter", "hour", "day"].includes(localQuantityUnit) ||
+    (localQuantityUnit === "meter" &&
+      !hasPricedLineLocalSheetMaterialSignalV17_90L371BK);
+  const hasMaterialSignal =
+    hasPricedLineLocalSheetMaterialSignalV17_90L371BK ||
+    (clearMaterialSignal && !materialIncompatibleUnit);
 
   if (hasExpenseSignal) {
     return { positionType: normalizePositionType("expense"), confidence: "clear" };
