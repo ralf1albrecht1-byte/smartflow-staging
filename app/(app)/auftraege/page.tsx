@@ -19305,6 +19305,101 @@ export default function AuftraegePage() {
     );
   };
 
+
+  // SMARTFLOW_V17_90L371BI_ORDER_CARD_PRICE_REVIEW_PREVIEW
+  // UI-only: the outside order card must not show CHF 0.00 for unresolved
+  // AI/review positions. This does not change saved items, totals, handoff,
+  // offer, invoice, PDF or intake logic.
+  const isOrderCardOpenReviewValueV17_90L371BI = (value?: string | null) => {
+    const key = normalizeForMatch(value || "");
+    if (!key) return true;
+    return (
+      key === "pruefen" ||
+      key === "prufen" ||
+      key === "leistung pruefen" ||
+      key === "leistung prufen" ||
+      key === "position pruefen" ||
+      key === "position prufen" ||
+      key === "einheit pruefen" ||
+      key === "einheit prufen" ||
+      key.includes("pruefen") ||
+      key.includes("prufen")
+    );
+  };
+
+  const getOrderCardItemReviewAmountLabelV17_90L371BI = (
+    item: OrderItem,
+    reviewReasons?: string[] | null,
+    isHardBlocked = false,
+  ): string => {
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    const reviewText = normalizeForMatch(
+      [
+        item.unit,
+        item.serviceName,
+        item.description,
+        (item as any).sourceText,
+        (item as any).evidence,
+        (item as any).reviewReason,
+        ...(reviewReasons || []),
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    const serviceOpen = isOrderCardOpenReviewValueV17_90L371BI(item.serviceName);
+    const unitOpen = isOrderCardOpenReviewValueV17_90L371BI(item.unit);
+    const hasCurrencyReview =
+      reviewText.includes("waehrung") ||
+      reviewText.includes("wahrung") ||
+      reviewText.includes("currency") ||
+      reviewText.includes("fremdwaehrung");
+    const hasPriceReview =
+      reviewText.includes("preis pruefen") ||
+      reviewText.includes("preis prufen") ||
+      reviewText.includes("preis fehlt") ||
+      reviewText.includes("preis unklar") ||
+      reviewText.includes("price unclear") ||
+      reviewText.includes("unitprice") ||
+      reviewText.includes("service action unclear") ||
+      reviewText.includes("service_action_unclear");
+    const hasQuantityReview =
+      reviewText.includes("menge pruefen") ||
+      reviewText.includes("menge prufen") ||
+      reviewText.includes("menge fehlt") ||
+      reviewText.includes("quantity missing") ||
+      reviewText.includes("quantity unclear");
+    const hasUnitReview =
+      reviewText.includes("einheit pruefen") ||
+      reviewText.includes("einheit prufen") ||
+      reviewText.includes("einheit fehlt") ||
+      reviewText.includes("einheit unklar") ||
+      reviewText.includes("unit missing") ||
+      reviewText.includes("unit unclear");
+
+    if (hasCurrencyMismatchReviewForService(reviewReasons, item.serviceName) || hasCurrencyReview) {
+      return "Währung prüfen";
+    }
+    if (serviceOpen) return "Position prüfen";
+    if (quantity <= 0 || hasQuantityReview) return "Menge prüfen";
+    if (unitOpen || hasUnitReview) return "Einheit prüfen";
+    if (unitPrice <= 0 || hasPriceReview || isHardBlocked) return "Preis prüfen";
+    return "";
+  };
+
+  const getOrderCardReviewTypeLabelV17_90L371BI = (
+    item: OrderItem,
+    isServiceActionReview: boolean,
+    hasReviewAmount: boolean,
+  ) => {
+    if (isServiceActionReview) return "Position prüfen";
+    const baseType = smartflowPositionTypeLabelV17_90L371K(item);
+    if (!hasReviewAmount) return baseType;
+    if (/prüfen|pruefen|prufen/i.test(baseType)) return baseType;
+    return `${baseType} prüfen`;
+  };
+
   const getSafeOrderNetTotal = (o: Order) => {
     // V17.90L11: Außenkarte und Innenansicht müssen dieselbe berechenbare
     // Positionslogik verwenden. Ein stale/API-Order.totalPrice von 0 darf
@@ -19928,20 +20023,29 @@ export default function AuftraegePage() {
               const isServiceActionReview = itemReviewReason.startsWith(
                 "service_action_unclear:",
               );
-              const isReviewPreviewRow = blocked || isServiceActionReview;
+              const reviewAmountLabel = getOrderCardItemReviewAmountLabelV17_90L371BI(
+                item,
+                o.reviewReasons,
+                blocked,
+              );
+              const isReviewPreviewRow = Boolean(
+                blocked || isServiceActionReview || reviewAmountLabel,
+              );
               mobileOrderServiceRows.push({
-                typeLabel: isServiceActionReview
-                  ? "Position prüfen"
-                  : smartflowPositionTypeLabelV17_90L371K(item),
+                typeLabel: getOrderCardReviewTypeLabelV17_90L371BI(
+                  item,
+                  isServiceActionReview,
+                  Boolean(reviewAmountLabel),
+                ),
                 name: isServiceActionReview
                   ? itemSourceText || name || "Position prüfen"
                   : name,
-                amountLabel: blocked
-                  ? "Preis prüfen"
-                  : formatCurrency(
-                      Number.isFinite(amount) ? amount : 0,
-                      currency,
-                    ),
+                amountLabel:
+                  reviewAmountLabel ||
+                  formatCurrency(
+                    Number.isFinite(amount) ? amount : 0,
+                    currency,
+                  ),
                 countAsPosition: true,
                 tone: isReviewPreviewRow ? "review" : "normal",
               });
