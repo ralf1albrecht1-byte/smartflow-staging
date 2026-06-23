@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BF_SERVICE_ACTION_REVIEW_COMPACT_DECISION
 // SMARTFLOW_V17_90L371BE_ORDER_SERVICE_ACTION_REVIEW_VISIBLE
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
@@ -5456,6 +5457,7 @@ type RecognitionReviewPayloadV17_90L69 = {
   sourceText?: string;
   relatedRoleText?: string | null;
   reason?: string | null;
+  formItemKey?: string | null;
 };
 
 const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69 =
@@ -5892,12 +5894,38 @@ const isPersistedServiceActionReviewDraftItemV17_90L371BE = (
       compactText(item.sourceDescription),
   );
 
+const persistedServiceActionReviewKeyV17_90L371BF = (item: {
+  serviceName?: string | null;
+  sourceDescription?: string | null;
+}) =>
+  [
+    "service_action_unclear_item",
+    normalizeForMatch(item.sourceDescription),
+    normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName || "")),
+  ].join("|");
+
+const persistedServiceActionReviewDetailMatchesItemV17_90L371BF = (
+  detail: RecognitionReviewPayloadV17_90L69 | null | undefined,
+  item: FormItem,
+) => {
+  if (detail?.kind !== "service_action_unclear_item") return false;
+  const detailSource = normalizeForMatch(detail.sourceText);
+  const itemSource = normalizeForMatch(item.sourceDescription);
+  return Boolean(
+    isPersistedServiceActionReviewDraftItemV17_90L371BE(item) &&
+      detailSource &&
+      itemSource &&
+      (detailSource === itemSource ||
+        detailSource.includes(itemSource) ||
+        itemSource.includes(detailSource)),
+  );
+};
+
 const isUnacceptedRecognitionReviewDraftItemV17_90L371AR = (
   item: FormItem,
 ): boolean => {
   if ((item as any)._manualUserAdded) return false;
   if (compactText(item.recognitionReviewKey)) return false;
-  if (isPersistedServiceActionReviewDraftItemV17_90L371BE(item)) return false;
 
   const name = compactText(item.serviceName);
   const quantity = Number(item.quantity || 0);
@@ -13507,7 +13535,8 @@ export default function AuftraegePage() {
             hasPendingManualReviewDecisionV17_90L247,
           pendingReviewSourceServiceName:
             hasPendingManualReviewDecisionV17_90L247
-              ? canonicalServiceNameForOrderItem(item.serviceName)
+              ? serviceActionUnclearSourceTextFromItemV17_90L371BE ||
+                canonicalServiceNameForOrderItem(item.serviceName)
               : "",
           persistedServiceActionReview: Boolean(
             serviceActionUnclearSourceTextFromItemV17_90L371BE,
@@ -14635,10 +14664,33 @@ export default function AuftraegePage() {
     effectiveOrderReviewReasonsV17_90L37(currentEditOrder);
   const allCurrentRecognitionReviewDetailsV17_90L69 =
     getRecognitionReviewDetailsV17_90L69(currentEditOrder);
-  const currentRecognitionReviewDetailsV17_90L69 =
-    allCurrentRecognitionReviewDetailsV17_90L69.filter((detail) => {
+  const persistedServiceActionReviewDetailsV17_90L371BF = formItems
+    .filter(isPersistedServiceActionReviewDraftItemV17_90L371BE)
+    .map((item): RecognitionReviewPayloadV17_90L69 => ({
+      kind: "service_action_unclear_item",
+      findingId: persistedServiceActionReviewKeyV17_90L371BF(item),
+      serviceName: item.serviceName || "Leistung prüfen",
+      quantity: Number(item.quantity || 0),
+      unit: item.unit || "Einheit prüfen",
+      unitPrice: Number(item.unitPrice || 0),
+      sourceText: item.sourceDescription,
+      relatedRoleText: null,
+      reason: "service_action_unclear",
+      formItemKey: item.key,
+    }))
+    .filter((detail) => {
       const key = recognitionReviewDetailKeyV17_90L70(detail);
+      return Boolean(key && !discardedRecognitionReviewKeys.includes(key));
+    });
+  const currentRecognitionReviewDetailsV17_90L69 = [
+    ...persistedServiceActionReviewDetailsV17_90L371BF,
+    ...allCurrentRecognitionReviewDetailsV17_90L69,
+  ].filter((detail, detailIndex, details) => {
+      const key = recognitionReviewDetailKeyV17_90L70(detail);
+      if (!key) return false;
+      if (details.findIndex((candidate) => recognitionReviewDetailKeyV17_90L70(candidate) === key) !== detailIndex) return false;
       if (discardedRecognitionReviewKeys.includes(key)) return false;
+      if (detail.kind === "service_action_unclear_item") return true;
       if (detail.kind && detail.kind !== "missing_work") return true;
       return !formItems.some(
         (item) =>
@@ -14684,6 +14736,33 @@ export default function AuftraegePage() {
     detail: RecognitionReviewPayloadV17_90L69,
   ) => {
     const recognitionReviewKey = recognitionReviewDetailKeyV17_90L70(detail);
+
+    if (detail.kind === "service_action_unclear_item") {
+      let expandedKey = "";
+      setFormItems((previous) =>
+        previous.map((item) => {
+          if (!persistedServiceActionReviewDetailMatchesItemV17_90L371BF(detail, item)) {
+            return item;
+          }
+          expandedKey = item.key;
+          return {
+            ...item,
+            persistedServiceActionReview: false,
+            recognitionReviewKey,
+            aiWarning: item.sourceDescription ? `Text: ${item.sourceDescription}` : item.aiWarning,
+          };
+        }),
+      );
+      setDiscardedRecognitionReviewKeys((previous) =>
+        previous.includes(recognitionReviewKey)
+          ? previous
+          : [...previous, recognitionReviewKey],
+      );
+      if (expandedKey) setExpandedServiceItemKeys([expandedKey]);
+      toast.success("Prüfposition übernommen. Bitte Position ausfüllen und speichern.");
+      return;
+    }
+
     const hasActionableRecognitionEvidenceV17_90L357D = Boolean(
       compactText(detail.relatedRoleText) || compactText(detail.sourceText),
     );
@@ -14815,6 +14894,17 @@ export default function AuftraegePage() {
     const key = detail
       ? recognitionReviewDetailKeyV17_90L70(detail)
       : RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69;
+
+    if (detail?.kind === "service_action_unclear_item") {
+      const itemIndex = formItems.findIndex((item) =>
+        persistedServiceActionReviewDetailMatchesItemV17_90L371BF(detail, item),
+      );
+      if (itemIndex >= 0) {
+        void discardCurrentItemReviewV17_90L241(itemIndex);
+        return;
+      }
+    }
+
     setDiscardedRecognitionReviewKeys((previous) =>
       previous.includes(key) ? previous : [...previous, key],
     );
