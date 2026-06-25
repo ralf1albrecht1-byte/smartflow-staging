@@ -10429,15 +10429,15 @@ export default function RechnungenPage() {
                                               {currentInvoiceSitesV17_90L320.map((siteOption, siteIndex) => {
                                                 const siteKey = invoiceGroupKeyForSite(siteOption);
                                                 const isCurrentSite = siteKey === currentInvoiceMoveSiteKeyV17_90L371BW;
+                                                if (isCurrentSite) return null;
                                                 return (
                                                   <button
                                                     key={`move_invoice_${idx}_${siteKey}_${siteIndex}`}
                                                     type="button"
-                                                    disabled={isCurrentSite}
-                                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 disabled:cursor-default disabled:bg-cyan-50 disabled:font-semibold disabled:text-cyan-800 dark:text-slate-100 dark:hover:bg-cyan-950/30 dark:disabled:bg-cyan-950/30 dark:disabled:text-cyan-200"
+                                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 dark:text-slate-100 dark:hover:bg-cyan-950/30"
                                                     onClick={(event) => {
                                                       event.stopPropagation();
-                                                      if (!isCurrentSite) assignInvoiceItemToSite(idx, siteKey);
+                                                      assignInvoiceItemToSite(idx, siteKey);
                                                     }}
                                                   >
                                                     <MapPin className="h-4 w-4" />
@@ -10455,7 +10455,7 @@ export default function RechnungenPage() {
                                                   }}
                                                 >
                                                   <MapPin className="h-4 w-4" />
-                                                  Ohne Ausführungsort
+                                                  Rechnungsadresse
                                                 </button>
                                               )}
                                             </div>

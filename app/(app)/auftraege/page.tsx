@@ -23882,18 +23882,16 @@ export default function AuftraegePage() {
                                                   </div>
                                                   {currentEditWorkSites.map((siteOption, moveSiteIndex) => {
                                                     const isCurrentSite = item.workSiteId === siteOption.id;
+                                                    if (isCurrentSite) return null;
                                                     return (
                                                       <button
                                                         key={`move_${item.key}_${siteOption.id}`}
                                                         type="button"
-                                                        disabled={isCurrentSite}
-                                                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 disabled:cursor-default disabled:bg-cyan-50 disabled:font-semibold disabled:text-cyan-800 dark:text-slate-100 dark:hover:bg-cyan-950/30 dark:disabled:bg-cyan-950/30 dark:disabled:text-cyan-200`}
+                                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 dark:text-slate-100 dark:hover:bg-cyan-950/30"
                                                         onClick={(event) => {
                                                           event.preventDefault();
                                                           event.stopPropagation();
-                                                          if (!isCurrentSite) {
-                                                            moveItemToWorkSiteV17_90L371BW(index, siteOption.id);
-                                                          }
+                                                          moveItemToWorkSiteV17_90L371BW(index, siteOption.id);
                                                         }}
                                                       >
                                                         <MapPin className="h-4 w-4" />
@@ -23912,7 +23910,7 @@ export default function AuftraegePage() {
                                                       }}
                                                     >
                                                       <MapPin className="h-4 w-4" />
-                                                      Ohne Ausführungsort
+                                                      Rechnungsadresse
                                                     </button>
                                                   )}
                                                 </div>
