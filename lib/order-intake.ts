@@ -16345,9 +16345,20 @@ function isMultiSiteOperationalOrWorkLineV17_90L371BT(line: string): boolean {
 }
 
 function cleanMultiSiteNameV17_90L371BT(value: unknown): string | null {
-  const text = compactMultiSiteTextV17_90L371BT(value)
+  const rawText = compactMultiSiteTextV17_90L371BT(value)
     .replace(/^\s*(?:nr\.?|nummer)\s*/i, '')
     .replace(/^[,;:\-–—\s]+|[,;:\-–—\s]+$/g, '')
+    .trim();
+  if (!rawText || /^\d+$/.test(rawText)) return null;
+
+  // SMARTFLOW_V17_90L371BU: Marker labels such as `Objekt A:` or
+  // `Ausführungsort 1:` are structural labels, not site names. If a real
+  // name follows on the next line, the extractor must use that real name.
+  if (/^[A-Za-zÄÖÜäöüß]$/.test(rawText)) return null;
+
+  const text = rawText
+    .replace(/^\s*\d+[.)]?\s+(?=[A-ZÄÖÜa-zäöüß])/, '')
+    .replace(/^\s*[A-Za-zÄÖÜäöüß][.)]\s+(?=[A-ZÄÖÜa-zäöüß])/, '')
     .trim();
   if (!text || /^\d+$/.test(text)) return null;
   const key = normalizeMultiSiteTextV17_90L371BT(text);
@@ -16433,6 +16444,91 @@ function extractMultiExecutionWorkSitesV17_90L371BT(
     if (sites.length >= 2 && uniqueKeys.size >= 2) return sites;
   }
   return [];
+}
+
+
+// SMARTFLOW_V17_90L371BU: The first AI may append a worksite name to a real
+// service label (for example `Boden reinigen Halle Nord`). The read-only work
+// coverage checker then rejects the row because the item's own source line says
+// only `Boden reinigen ...`. For deterministic multi-site texts, strip only an
+// exact known site name from the start/end of a service label, and only when
+// the remaining label is still present in the item's own source line.
+function escapeMultiSiteRegexV17_90L371BU(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function multiSiteAliasValuesV17_90L371BU(
+  sites: IntakeDetectedWorkSiteV17_90L371BT[],
+): string[] {
+  const aliases = new Set<string>();
+  for (const site of sites || []) {
+    const values = [site.siteName, site.siteAddress]
+      .map((value) => compactMultiSiteTextV17_90L371BT(value))
+      .filter((value) => value.length >= 4 && !parseMultiSiteStreetV17_90L371BT(value));
+    for (const value of values) aliases.add(value);
+  }
+  return Array.from(aliases).sort((left, right) => right.length - left.length);
+}
+
+function stripExactMultiSiteAliasFromServiceNameV17_90L371BU(
+  serviceName: unknown,
+  sourceText: unknown,
+  sites: IntakeDetectedWorkSiteV17_90L371BT[],
+): string | null {
+  const original = compactMultiSiteTextV17_90L371BT(serviceName);
+  const sourceKey = normalizeMultiSiteTextV17_90L371BT(sourceText);
+  if (!original || !sourceKey || !Array.isArray(sites) || sites.length < 2) return null;
+
+  for (const alias of multiSiteAliasValuesV17_90L371BU(sites)) {
+    const escaped = escapeMultiSiteRegexV17_90L371BU(alias);
+    const candidates = [
+      original.replace(new RegExp(`\\s*(?:[-–—,:/\\(]\\s*)?${escaped}\\s*[\\)]?\\s*$`, 'iu'), '').trim(),
+      original.replace(new RegExp(`^\\s*[\\(]?${escaped}\\s*(?:[-–—,:/]\\s*)?`, 'iu'), '').trim(),
+    ];
+
+    for (const candidate of candidates) {
+      const cleaned = candidate.replace(/\s+/g, ' ').trim();
+      const cleanedKey = normalizeMultiSiteTextV17_90L371BT(cleaned);
+      if (!cleaned || cleaned === original || cleaned.length < 3) continue;
+      if (!cleanedKey || !sourceKey.includes(cleanedKey)) continue;
+      return cleaned;
+    }
+  }
+
+  return null;
+}
+
+function sanitizeMultiSiteWorkItemServiceNameNoiseV17_90L371BU<T extends Record<string, any>>(
+  rawItems: readonly T[],
+  sites: IntakeDetectedWorkSiteV17_90L371BT[],
+): T[] {
+  if (!Array.isArray(rawItems) || rawItems.length === 0 || !Array.isArray(sites) || sites.length < 2) {
+    return [...(rawItems || [])] as T[];
+  }
+
+  return rawItems.map((item) => {
+    const sourceText = compactMultiSiteTextV17_90L371BT(
+      item?.sourceText ?? item?.source_text ?? item?.evidence ?? item?.raw ?? item?.description,
+    );
+    const currentName = compactMultiSiteTextV17_90L371BT(
+      item?.serviceName ?? item?.name ?? item?.action_name ?? item?.service_name ?? item?.matched_service_name,
+    );
+    const cleanedName = stripExactMultiSiteAliasFromServiceNameV17_90L371BU(
+      currentName,
+      sourceText,
+      sites,
+    );
+    if (!cleanedName) return { ...item } as T;
+
+    return {
+      ...item,
+      serviceName: cleanedName,
+      name: cleanedName,
+      action_name: cleanedName,
+      service_name: cleanedName,
+      matched_service_name: cleanedName,
+    } as T;
+  });
 }
 
 const MULTI_SITE_ITEM_STOPWORDS_V17_90L371BT = new Set([
@@ -17148,15 +17244,20 @@ export async function processIncomingMessage(
     ),
   );
 
+  const detectedMultiWorkSitesV17_90L371BU =
+    extractMultiExecutionWorkSitesV17_90L371BT(messageText, translationText);
+
   // V17.90L213: Capture the first structured AI service rows immediately.
   // Every later validator/repair path works on separate data; it can no longer
   // mutate the source that is used to build the canonical persistence rows.
   // JSON cloning is deliberate here because the LLM result is plain data and
   // undefined helper fields must not become part of the persisted contract.
   const firstAiWorkItemsSnapshotV17_90L213 = Object.freeze(
-    (Array.isArray(parsed.auftrag?.arbeitspositionen)
-      ? parsed.auftrag.arbeitspositionen
-      : []
+    sanitizeMultiSiteWorkItemServiceNameNoiseV17_90L371BU(
+      Array.isArray(parsed.auftrag?.arbeitspositionen)
+        ? parsed.auftrag.arbeitspositionen
+        : [],
+      detectedMultiWorkSitesV17_90L371BU,
     ).map((item: unknown) =>
       Object.freeze(JSON.parse(JSON.stringify(item ?? {}))),
     ),
@@ -22694,12 +22795,10 @@ export async function processIncomingMessage(
     );
   }
 
-  const detectedMultiWorkSitesV17_90L371BT =
-    extractMultiExecutionWorkSitesV17_90L371BT(messageText, translationText);
-  if (detectedMultiWorkSitesV17_90L371BT.length >= 2) {
+  if (detectedMultiWorkSitesV17_90L371BU.length >= 2) {
     order = await persistDetectedMultiExecutionWorkSitesV17_90L371BT({
       order,
-      sites: detectedMultiWorkSitesV17_90L371BT,
+      sites: detectedMultiWorkSitesV17_90L371BU,
       sourceLabel: source,
     });
   }
