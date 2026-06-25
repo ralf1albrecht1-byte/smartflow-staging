@@ -16238,6 +16238,316 @@ function restoreExplicitSourceActionV17_90L81<T extends Record<string, any>>(
   });
 }
 
+
+// SMARTFLOW_V17_90L371BT_MULTI_EXECUTION_SITE_INTAKE_GUARD
+// Deterministic, narrow parser for clearly marked multi-worksite WhatsApp texts.
+// It does not invent services, prices or contacts. It only persists workSite rows
+// and assigns already-canonical order items to the matching text block.
+type IntakeDetectedWorkSiteV17_90L371BT = {
+  key: string;
+  siteName: string | null;
+  siteAddress: string | null;
+  sitePlz: string | null;
+  siteCity: string | null;
+  siteNote: string | null;
+  sourceText: string;
+  sortOrder: number;
+};
+
+function compactMultiSiteTextV17_90L371BT(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeMultiSiteTextV17_90L371BT(value: unknown): string {
+  return compactMultiSiteTextV17_90L371BT(value)
+    .toLocaleLowerCase('de-CH')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9+@.,:;\-/\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitMultiSiteLinesV17_90L371BT(value: unknown): string[] {
+  return compactMultiSiteTextV17_90L371BT(value)
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseMultiSiteStreetV17_90L371BT(value: unknown): string | null {
+  const raw = compactMultiSiteTextV17_90L371BT(value)
+    .replace(/^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i, '')
+    .replace(/[,;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return null;
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+  const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
+  const suffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+  const patterns = [
+    new RegExp(`\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`, 'i'),
+    new RegExp(`\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`, 'i'),
+    new RegExp(`\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return match[1].replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
+function parseMultiSitePlzCityV17_90L371BT(value: unknown): { plz: string | null; city: string | null } {
+  const cleaned = compactMultiSiteTextV17_90L371BT(value)
+    .replace(/^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i, '')
+    .replace(/[,;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const match = cleaned.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}?)(?=\s*(?:$|[,;.]))/i);
+  if (!match) return { plz: null, city: null };
+  return {
+    plz: match[1] || null,
+    city: String(match[2] || '').replace(/[,;:.]+$/g, '').replace(/\s+/g, ' ').trim() || null,
+  };
+}
+
+function isMultiSiteStartLineV17_90L371BT(line: string): { token: string; label: string; inline: string } | null {
+  const match = compactMultiSiteTextV17_90L371BT(line).match(
+    /^\s*(ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objekt)\s*([A-Za-zÄÖÜäöüß0-9._-]+)?\s*:?\s*(.*)$/i,
+  );
+  if (!match) return null;
+  const token = String(match[1] || '').trim();
+  const label = String(match[2] || '').trim();
+  const inline = String(match[3] || '').trim();
+  const rest = [label, inline].filter(Boolean).join(' ').trim();
+  // Avoid interpreting a plain single-address marker like "Objekt:" as multi-site start unless
+  // another sibling marker exists later. The caller checks the count; here we only return shape.
+  return { token, label, inline: rest };
+}
+
+function isMultiSiteOperationalOrWorkLineV17_90L371BT(line: string): boolean {
+  const key = normalizeMultiSiteTextV17_90L371BT(line);
+  if (!key) return true;
+  if (/^(?:elektro|reinigung|sanitaer|sanitär|maler|arbeiten|leistungen?)\s*:?$/.test(key)) return true;
+  if (/^(?:kontakt|telefon|tel|whatsapp|sms|e ?mail|zugang|schluessel|schlussel|park|parkieren|achtung|vorsicht|termin)\b/.test(key)) return true;
+  if (/\b(?:chf|eur|franken|stutz|sfr)\b|€|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stk|stück|stueck|laufmeter|meter|m|tag|tage|pauschal|kanister|paket|set)\b|\b(?:à|a|je|pro|x)\s*\d/.test(key)) return true;
+  if (/\b(?:reinigen|reinigung|montieren|demontieren|ersetzen|entfernen|entsorgen|ausbessern|mieten|aufstellen|verlegen)\b/.test(key)) return true;
+  return false;
+}
+
+function cleanMultiSiteNameV17_90L371BT(value: unknown): string | null {
+  const text = compactMultiSiteTextV17_90L371BT(value)
+    .replace(/^\s*(?:nr\.?|nummer)\s*/i, '')
+    .replace(/^[,;:\-–—\s]+|[,;:\-–—\s]+$/g, '')
+    .trim();
+  if (!text || /^\d+$/.test(text)) return null;
+  const key = normalizeMultiSiteTextV17_90L371BT(text);
+  if (!key || /^(?:ausfuehrungsort|ausfuehrungsadresse|arbeitsort|arbeitsadresse|objekt|baustelle|einsatzort)$/.test(key)) return null;
+  if (parseMultiSiteStreetV17_90L371BT(text)) return null;
+  const place = parseMultiSitePlzCityV17_90L371BT(text);
+  if (place.plz && place.city) return null;
+  if (isMultiSiteOperationalOrWorkLineV17_90L371BT(text)) return null;
+  return text;
+}
+
+function extractMultiExecutionWorkSitesV17_90L371BT(
+  originalText: unknown,
+  translationText?: unknown,
+): IntakeDetectedWorkSiteV17_90L371BT[] {
+  const sources = [originalText, translationText].map(compactMultiSiteTextV17_90L371BT).filter(Boolean);
+  for (const sourceText of sources) {
+    const lines = splitMultiSiteLinesV17_90L371BT(sourceText);
+    const starts = lines
+      .map((line, index) => ({ index, marker: isMultiSiteStartLineV17_90L371BT(line) }))
+      .filter((entry): entry is { index: number; marker: { token: string; label: string; inline: string } } => Boolean(entry.marker));
+
+    const numberedStarts = starts.filter((entry) => /\d|[A-ZÄÖÜ]$/i.test(entry.marker.label || '') || /\d|[A-ZÄÖÜ]$/i.test(entry.marker.inline || ''));
+    if (starts.length < 2 && numberedStarts.length < 2) continue;
+
+    const sites = starts.map((entry, siteIndex) => {
+      const end = starts[siteIndex + 1]?.index ?? lines.length;
+      const blockLines = lines.slice(entry.index, end);
+      const bodyLines = lines.slice(entry.index + 1, end);
+      let siteName = cleanMultiSiteNameV17_90L371BT(entry.marker.inline);
+      let siteAddress: string | null = null;
+      let sitePlz: string | null = null;
+      let siteCity: string | null = null;
+      const notes: string[] = [];
+
+      for (const line of bodyLines) {
+        const street = parseMultiSiteStreetV17_90L371BT(line);
+        if (street && !siteAddress) {
+          siteAddress = street;
+          continue;
+        }
+        const place = parseMultiSitePlzCityV17_90L371BT(line);
+        if (place.plz && place.city && !sitePlz && !siteCity) {
+          sitePlz = place.plz;
+          siteCity = place.city;
+          continue;
+        }
+        if (!siteName) {
+          const candidate = cleanMultiSiteNameV17_90L371BT(line);
+          if (candidate) {
+            siteName = candidate;
+            continue;
+          }
+        }
+        if (/\b(?:zugang|torcode|türcode|tuercode|schlüssel|schluessel|parkieren|parken|kontakt\s+vor\s+ort|telefon|whatsapp|sms)\b/i.test(line)) {
+          notes.push(line);
+        }
+      }
+
+      const block = blockLines.join('\n');
+      if (!siteAddress) siteAddress = parseMultiSiteStreetV17_90L371BT(block);
+      if (!sitePlz || !siteCity) {
+        const place = parseMultiSitePlzCityV17_90L371BT(block);
+        sitePlz = sitePlz || place.plz;
+        siteCity = siteCity || place.city;
+      }
+
+      return {
+        key: `site_${siteIndex + 1}`,
+        siteName: siteName || null,
+        siteAddress: siteAddress || null,
+        sitePlz: sitePlz || null,
+        siteCity: siteCity || null,
+        siteNote: notes.length > 0 ? Array.from(new Set(notes)).join(' · ') : null,
+        sourceText: block,
+        sortOrder: siteIndex,
+      };
+    }).filter((site) => Boolean(site.siteAddress && site.sitePlz && site.siteCity));
+
+    const uniqueKeys = new Set(
+      sites.map((site) => [site.siteAddress, site.sitePlz, site.siteCity].map(normalizeMultiSiteTextV17_90L371BT).join('|')),
+    );
+    if (sites.length >= 2 && uniqueKeys.size >= 2) return sites;
+  }
+  return [];
+}
+
+const MULTI_SITE_ITEM_STOPWORDS_V17_90L371BT = new Set([
+  'reinigen', 'reinigung', 'machen', 'bitte', 'auftrag', 'leistung', 'leistungen',
+  'pauschal', 'chf', 'eur', 'und', 'oder', 'der', 'die', 'das', 'den', 'dem', 'des',
+]);
+
+function multiSiteItemTokensV17_90L371BT(item: any): string[] {
+  return Array.from(
+    new Set(
+      normalizeMultiSiteTextV17_90L371BT(item?.serviceName || item?.description || '')
+        .split(/\s+/g)
+        .map((token) => token.replace(/[^a-z0-9]/g, ''))
+        .filter((token) => token.length >= 4 && !MULTI_SITE_ITEM_STOPWORDS_V17_90L371BT.has(token)),
+    ),
+  );
+}
+
+function multiSiteBlockContainsNumberV17_90L371BT(blockKey: string, value: unknown): boolean {
+  const number = Number(String(value ?? '').replace("'", '').replace(',', '.'));
+  if (!Number.isFinite(number) || number <= 0) return false;
+  const label = Number.isInteger(number) ? String(number) : String(Number(number.toFixed(2))).replace('.', '[.,]');
+  return new RegExp(`(^|[^0-9])${label}([^0-9]|$)`).test(blockKey);
+}
+
+function resolveMultiSiteKeyForPersistedItemV17_90L371BT(
+  item: any,
+  sites: IntakeDetectedWorkSiteV17_90L371BT[],
+): string | null {
+  const sourceKey = normalizeMultiSiteTextV17_90L371BT(item?.sourceText || item?.description || '');
+  const tokens = multiSiteItemTokensV17_90L371BT(item);
+  let best: { key: string; score: number } | null = null;
+
+  for (const site of sites) {
+    const blockKey = normalizeMultiSiteTextV17_90L371BT(site.sourceText);
+    let score = 0;
+    if (sourceKey && sourceKey.length >= 8 && blockKey.includes(sourceKey)) score += 100;
+    const hits = tokens.filter((token) => blockKey.includes(token)).length;
+    score += hits * 8;
+    if (multiSiteBlockContainsNumberV17_90L371BT(blockKey, item?.quantity)) score += 5;
+    if (multiSiteBlockContainsNumberV17_90L371BT(blockKey, item?.unitPrice)) score += 4;
+    if (score > (best?.score || 0)) best = { key: site.key, score };
+  }
+
+  return best && best.score >= 12 ? best.key : null;
+}
+
+async function persistDetectedMultiExecutionWorkSitesV17_90L371BT(args: {
+  order: any;
+  sites: IntakeDetectedWorkSiteV17_90L371BT[];
+  sourceLabel: string;
+}) {
+  const { order, sites, sourceLabel } = args;
+  if (!order?.id || !Array.isArray(sites) || sites.length < 2) return order;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.orderWorkSite.deleteMany({ where: { orderId: order.id } });
+      const createdByKey = new Map<string, string>();
+      for (const site of sites) {
+        const created = await tx.orderWorkSite.create({
+          data: {
+            orderId: order.id,
+            siteName: site.siteName,
+            siteAddress: site.siteAddress,
+            sitePlz: site.sitePlz,
+            siteCity: site.siteCity,
+            siteNote: site.siteNote,
+            isPrimary: site.sortOrder === 0,
+            sortOrder: site.sortOrder,
+            sourceOrderId: order.id,
+          },
+        });
+        createdByKey.set(site.key, created.id);
+      }
+
+      const primary = sites[0];
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          siteAddressDifferent: true,
+          siteName: primary.siteName,
+          siteAddress: primary.siteAddress,
+          sitePlz: primary.sitePlz,
+          siteCity: primary.siteCity,
+          siteNote: primary.siteNote,
+        },
+      });
+
+      const persistedItems = await tx.orderItem.findMany({ where: { orderId: order.id } });
+      for (const item of persistedItems) {
+        const siteKey = resolveMultiSiteKeyForPersistedItemV17_90L371BT(item, sites);
+        const workSiteId = siteKey ? createdByKey.get(siteKey) || null : null;
+        if (!workSiteId) continue;
+        await tx.orderItem.update({ where: { id: item.id }, data: { workSiteId } });
+      }
+
+      return tx.order.findUnique({
+        where: { id: order.id },
+        include: { customer: true, items: { include: { workSite: true } }, workSites: true },
+      });
+    });
+
+    console.info(
+      `[${sourceLabel}] SMARTFLOW_V17_90L371BT multi execution sites persisted orderId=${order.id} siteCount=${sites.length}`,
+    );
+    return updated || order;
+  } catch (error: any) {
+    console.warn(
+      `[${sourceLabel}] SMARTFLOW_V17_90L371BT multi execution site persistence skipped orderId=${order?.id || '?'} error=${error?.message || error}`,
+    );
+    return order;
+  }
+}
+
 export async function processIncomingMessage(
   input: IntakeInput,
 ): Promise<IntakeResult | null> {
@@ -22382,6 +22692,16 @@ export async function processIncomingMessage(
     console.error(
       `[${source}] CANONICAL_INTAKE_V2_VIOLATION orderId=${order.id} reason=${violation}`,
     );
+  }
+
+  const detectedMultiWorkSitesV17_90L371BT =
+    extractMultiExecutionWorkSitesV17_90L371BT(messageText, translationText);
+  if (detectedMultiWorkSitesV17_90L371BT.length >= 2) {
+    order = await persistDetectedMultiExecutionWorkSitesV17_90L371BT({
+      order,
+      sites: detectedMultiWorkSitesV17_90L371BT,
+      sourceLabel: source,
+    });
   }
 
   const totalIntakeDurationMsV17_90L337 = Date.now() - _intakeStartTime;
