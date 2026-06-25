@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371BR_INVOICE_CLOSED_CARD_DELETE_MENU_RESTORE
+// SMARTFLOW_V17_90L371BS_INVOICE_CLOSED_CARD_ACTION_MENU_PORTAL
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
@@ -758,6 +758,177 @@ function InvoicePdfWhatsAppIcon() {
         <InvoiceWhatsAppIcon className="h-3 w-3" />
       </span>
     </span>
+  );
+}
+
+
+// SMARTFLOW_V17_90L371BS: Rechnungs-Aktionsmenü wird als Portal gerendert.
+// Dadurch bleibt Papierkorb auch bei geschlossener Karte klickbar und wird
+// nicht vom kompakten Kartenlayout überdeckt. Nur Rechnungen-Menü betroffen.
+function InvoiceCardActionMenuV17_90L371BS({
+  inv,
+  openEditInvoice,
+  updateStatus,
+  revertToOffer,
+  remove,
+}: {
+  inv: Invoice;
+  openEditInvoice: (invoice: Invoice, options?: any) => void;
+  updateStatus: (event: any, id: string, status: string) => void | Promise<void>;
+  revertToOffer: (invoice: Invoice) => void;
+  remove: (event: any, id: string) => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  const updateMenuPosition = () => {
+    if (typeof window === "undefined") return;
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const padding = 12;
+    const gap = 8;
+    const width = 220;
+    const estimatedHeight = 190;
+    const left = Math.min(
+      Math.max(padding, rect.left),
+      Math.max(padding, window.innerWidth - width - padding),
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - gap - padding;
+    const spaceAbove = rect.top - gap - padding;
+    const top =
+      spaceBelow < estimatedHeight && spaceAbove > spaceBelow
+        ? Math.max(padding, rect.top - estimatedHeight - gap)
+        : Math.min(window.innerHeight - padding - estimatedHeight, rect.bottom + gap);
+    setPosition({ left, top: Math.max(padding, top) });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && (buttonRef.current?.contains(target) || panelRef.current?.contains(target))) {
+        return;
+      }
+      setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("touchstart", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("touchstart", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const stop = (event: any) => {
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        data-card-toggle-ignore="true"
+        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="Aktionen"
+        aria-label="Aktionen"
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((current) => !current);
+          window.requestAnimationFrame(updateMenuPosition);
+        }}
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            data-card-toggle-ignore="true"
+            style={{
+              left: position?.left ?? -10000,
+              top: position?.top ?? 0,
+              width: 220,
+            }}
+            className="fixed z-[20000] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-2xl dark:border-slate-700 dark:bg-gray-900"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                openEditInvoice(inv);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <FileText className="h-4 w-4 text-primary" />
+              Bearbeiten
+            </button>
+            <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                void updateStatus(event, inv.id, "Erledigt");
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Archive className="h-4 w-4 text-amber-600" />
+              Archivieren
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                revertToOffer(inv);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Undo2 className="h-4 w-4 text-amber-600" />
+              {inv.sourceOfferId ? "Zurück zu Angebot" : "Zurück zu Auftrag"}
+            </button>
+            <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                remove(event, inv.id);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              Papierkorb
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -8421,142 +8592,13 @@ export default function RechnungenPage() {
                       >
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex items-start gap-2">
-                            <details
-                              data-invoice-action-menu
-                              data-card-toggle-ignore="true"
-                              className="relative z-[30] shrink-0 group open:z-[10000]"
-                              onToggle={(event) => {
-                                const wrapper = event.currentTarget.closest(
-                                  "[data-invoice-card-wrapper]",
-                                );
-                                if (wrapper instanceof HTMLElement) {
-                                  wrapper.style.zIndex = event.currentTarget.open
-                                    ? "10000"
-                                    : "";
-                                }
-                              }}
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onPointerUp={(event) => event.stopPropagation()}
-                              onMouseDown={(event) => event.stopPropagation()}
-                              onMouseUp={(event) => event.stopPropagation()}
-                              onTouchStart={(event) => event.stopPropagation()}
-                              onTouchEnd={(event) => event.stopPropagation()}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <summary
-                                data-card-toggle-ignore="true"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onPointerUp={(event) => event.stopPropagation()}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onMouseUp={(event) => event.stopPropagation()}
-                                onTouchStart={(event) => event.stopPropagation()}
-                                onTouchEnd={(event) => event.stopPropagation()}
-                                onClick={(event) => event.stopPropagation()}
-                                className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
-                                title="Aktionen"
-                                aria-label="Aktionen"
-                              >
-                                <MoreVertical className="w-4 h-4" />
-                              </summary>
-                              <div
-                                data-card-toggle-ignore="true"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onPointerUp={(event) => event.stopPropagation()}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onMouseUp={(event) => event.stopPropagation()}
-                                onTouchStart={(event) => event.stopPropagation()}
-                                onTouchEnd={(event) => event.stopPropagation()}
-                                onClick={(event) => event.stopPropagation()}
-                                className="pointer-events-auto absolute left-0 top-full z-[20000] mt-1 hidden min-w-[190px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl group-open:block dark:border-slate-700 dark:bg-gray-900"
-                              >
-                                <button
-                                  type="button"
-                                  data-card-toggle-ignore="true"
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onTouchStart={(event) => event.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    openEditInvoice(inv);
-                                  }}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                                >
-                                  <FileText className="h-4 w-4 text-primary" />
-                                  Bearbeiten
-                                </button>
-                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-                                <button
-                                  type="button"
-                                  data-card-toggle-ignore="true"
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onTouchStart={(event) => event.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    void updateStatus(e, inv.id, "Erledigt");
-                                  }}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                                >
-                                  <Archive className="h-4 w-4 text-amber-600" />
-                                  Archivieren
-                                </button>
-                                <button
-                                  type="button"
-                                  data-card-toggle-ignore="true"
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onTouchStart={(event) => event.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    revertToOffer(inv);
-                                  }}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                                >
-                                  <Undo2 className="h-4 w-4 text-amber-600" />
-                                  {inv.sourceOfferId
-                                    ? "Zurück zu Angebot"
-                                    : "Zurück zu Auftrag"}
-                                </button>
-                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-                                <button
-                                  type="button"
-                                  data-card-toggle-ignore="true"
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onPointerUp={(event) => event.stopPropagation()}
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onMouseUp={(event) => event.stopPropagation()}
-                                  onTouchStart={(event) => event.stopPropagation()}
-                                  onTouchEnd={(event) => event.stopPropagation()}
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    remove(event, inv.id);
-                                    const menu =
-                                      event.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                  }}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  Papierkorb
-                                </button>
-                              </div>
-                            </details>
+                            <InvoiceCardActionMenuV17_90L371BS
+                              inv={inv}
+                              openEditInvoice={openEditInvoice}
+                              updateStatus={updateStatus}
+                              revertToOffer={revertToOffer}
+                              remove={remove}
+                            />
 
                             {!invoiceCardExpanded && (
                               <div
