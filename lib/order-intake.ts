@@ -16321,17 +16321,42 @@ function parseMultiSitePlzCityV17_90L371BT(value: unknown): { plz: string | null
 }
 
 function isMultiSiteStartLineV17_90L371BT(line: string): { token: string; label: string; inline: string } | null {
-  const match = compactMultiSiteTextV17_90L371BT(line).match(
+  const compactLine = compactMultiSiteTextV17_90L371BT(line);
+  const explicitMatch = compactLine.match(
     /^\s*(ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objekt)\s*([A-Za-zÄÖÜäöüß0-9._-]+)?\s*:?\s*(.*)$/i,
   );
-  if (!match) return null;
-  const token = String(match[1] || '').trim();
-  const label = String(match[2] || '').trim();
-  const inline = String(match[3] || '').trim();
-  const rest = [label, inline].filter(Boolean).join(' ').trim();
-  // Avoid interpreting a plain single-address marker like "Objekt:" as multi-site start unless
-  // another sibling marker exists later. The caller checks the count; here we only return shape.
-  return { token, label, inline: rest };
+  if (explicitMatch) {
+    const token = String(explicitMatch[1] || '').trim();
+    const label = String(explicitMatch[2] || '').trim();
+    const inline = String(explicitMatch[3] || '').trim();
+    const rest = [label, inline].filter(Boolean).join(' ').trim();
+    // Avoid interpreting a plain single-address marker like "Objekt:" as multi-site start unless
+    // another sibling marker exists later. The caller checks the count; here we only return shape.
+    return { token, label, inline: rest };
+  }
+
+  // SMARTFLOW_V17_90L371BV: Free-form multi-site texts often do not say
+  // `Arbeitsort 1`, but still contain clear transition headers followed by a
+  // street line and a PLZ/city line, for example:
+  // `Zuerst müssen wir in der Werkstatt West arbeiten:` and
+  // `Danach kommt noch das Büro Ost:`. Treat ONLY such header-like lines as
+  // candidate starts; address validation below still decides whether this is
+  // a real worksite. This keeps chaotic inline address sentences fail-closed.
+  const firstSiteMatch = compactLine.match(
+    /^\s*(?:wir\s+m[üu]ssen\s+)?(?:zuerst|erst|als\s+erstes)\s+(?:m[üu]ssen\s+wir\s+)?(?:bei|beim|in|im|am|an|auf|zur|zum)\s+(?:der|dem|den|das|die)?\s*(.+?)\s+(?:arbeiten|reinigen|machen|erledigen|sein)\s*:?\s*$/i,
+  );
+  if (firstSiteMatch?.[1]) {
+    return { token: 'free_worksite', label: '', inline: firstSiteMatch[1].trim() };
+  }
+
+  const nextSiteMatch = compactLine.match(
+    /^\s*(?:danach|anschliessend|anschließend|anschl\.|dann)\s+(?:kommt\s+(?:noch\s+)?|geht\s+es\s+(?:noch\s+)?(?:zum|zur|ins|in|bei|beim)\s+|m[üu]ssen\s+wir\s+(?:noch\s+)?(?:zum|zur|ins|in|bei|beim)\s+)?(?:der|dem|den|das|die)?\s*(.+?)(?:\s+(?:arbeiten|reinigen|machen|erledigen|sein))?\s*:?\s*$/i,
+  );
+  if (nextSiteMatch?.[1]) {
+    return { token: 'free_worksite', label: '', inline: nextSiteMatch[1].trim() };
+  }
+
+  return null;
 }
 
 function isMultiSiteOperationalOrWorkLineV17_90L371BT(line: string): boolean {
@@ -16359,6 +16384,7 @@ function cleanMultiSiteNameV17_90L371BT(value: unknown): string | null {
   const text = rawText
     .replace(/^\s*\d+[.)]?\s+(?=[A-ZÄÖÜa-zäöüß])/, '')
     .replace(/^\s*[A-Za-zÄÖÜäöüß][.)]\s+(?=[A-ZÄÖÜa-zäöüß])/, '')
+    .replace(/^(?:der|die|das|dem|den)\s+/i, '')
     .trim();
   if (!text || /^\d+$/.test(text)) return null;
   const key = normalizeMultiSiteTextV17_90L371BT(text);
