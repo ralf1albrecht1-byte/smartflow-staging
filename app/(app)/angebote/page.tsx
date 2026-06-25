@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BM_OFFER_CONTACT_CHIP_GUARD
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
@@ -2029,13 +2030,65 @@ function resolveOfferAppointmentLabelV17_90L237(
   return formatOfferMergedAppointmentDisplayLabelV17_90L371R(orders, labels);
 }
 
+
+function hasConcreteOfferContactTargetV17_90L371BM(value?: string | null): boolean {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return (
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text) ||
+    /\+?\d[\d\s()./-]{6,}\d/.test(text)
+  );
+}
+
+function sanitizeOfferSyntheticContactChannelV17_90L371BM(
+  value?: string | null,
+  hasActionTarget = false,
+): string {
+  let text = compactOfferValue(value || "");
+  if (!text) return "";
+  if (hasActionTarget || hasConcreteOfferContactTargetV17_90L371BM(text)) return text;
+
+  // Wenn der Auftrag nur über WhatsApp eingegangen ist, darf daraus im Angebot
+  // kein "Kontakt vor Ort · nur WhatsApp" oder WhatsApp-Aktionschip entstehen.
+  // Echte Telefonnummern/E-Mails bleiben oben durch den Target-Guard erhalten.
+  text = text
+    .replace(/\s*(?:·|,|-)\s*(?:nur\s+)?(?:WhatsApp|SMS|E-?Mail|Mail)\s*$/i, "")
+    .replace(/\s*(?:·|,|-)\s*nicht\s+telefonisch\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text;
+}
+
+function isOfferReadOnlyOnSiteContactLineV17_90L371BM(value?: string | null): boolean {
+  const text = normalizeOfferHint(value || "");
+  if (!/^kontakt vor ort\b/.test(text)) return false;
+  if (hasConcreteOfferContactTargetV17_90L371BM(value)) return false;
+  return !/\b(?:whatsapp|sms|telefon|telefonisch|anrufen|rueckruf|ruckruf|e mail|email|mail)\b/.test(
+    text,
+  );
+}
+
+
 function compactOfferPrimaryInfoLinesV17_90L124(
   values: string[],
   appointmentLabel: string,
   contactAction?: OfferContactAction | null,
   exactCommunicationLines: string[] = [],
 ): string[] {
-  const retained = values.filter((line) => {
+  const actionTarget = contactAction
+    ? contactAction.channel === "mail"
+      ? contactAction.email
+      : contactAction.phone
+    : "";
+  const hasActionTarget = Boolean(actionTarget);
+  const normalizedValues = (values || [])
+    .map((line) =>
+      sanitizeOfferSyntheticContactChannelV17_90L371BM(line, hasActionTarget),
+    )
+    .filter(Boolean);
+
+  const retained = normalizedValues.filter((line) => {
     const text = normalizeOfferHint(line);
     if (!text) return false;
     const isAppointment =
@@ -2047,21 +2100,23 @@ function compactOfferPrimaryInfoLinesV17_90L124(
       /\b(?:kontakt vor ort|vor ort kontakt|kontaktperson|ansprechperson|whatsapp|sms|anrufen|telefonisch|rueckruf)\b/.test(
         text,
       );
-    return !isAppointment && !isContact;
+    if (isAppointment) return false;
+    if (isContact) return isOfferReadOnlyOnSiteContactLineV17_90L371BM(line);
+    return true;
   });
 
-  const actionTarget = contactAction
-    ? contactAction.channel === "mail"
-      ? contactAction.email
-      : contactAction.phone
-    : "";
   const exactLinesForDisplay =
     contactAction?.title && actionTarget
       ? exactCommunicationLines.filter(
           (line) => !isOfferCommunicationLikeLineV17_90L266(line),
         )
-      : exactCommunicationLines;
-  const contactTitle = contactAction?.title || "";
+      : exactCommunicationLines.map((line) =>
+          sanitizeOfferSyntheticContactChannelV17_90L371BM(line, false),
+        );
+  const contactTitle = sanitizeOfferSyntheticContactChannelV17_90L371BM(
+    contactAction?.title || "",
+    hasActionTarget,
+  );
   return uniqueOfferInfoLinesV17_66([
     ...retained,
     ...exactLinesForDisplay,
@@ -3188,6 +3243,25 @@ function buildOfferContactAction(
   const name = best?.name || explicitContact.name || "";
   const minutesBefore = best?.minutesBefore ?? explicitContact.minutesBefore;
   const notCall = Boolean(best?.notCall || explicitContact.notCall);
+  const actionTarget = channel === "mail" ? email : phone;
+  if (!actionTarget) return null;
+  const directTarget =
+    best?.phone ||
+    best?.email ||
+    explicitContact.phone ||
+    explicitContact.email ||
+    "";
+  const sourceTextForChannelGuard = normalizeOfferHint(best?.sourceText || explicitContact.title || "");
+  const looksLikeTransportChannelOnly =
+    /\bwhatsapp\b/.test(sourceTextForChannelGuard) &&
+    /\b(?:kundennachricht|neuer auftrag|auftrag)\b/.test(sourceTextForChannelGuard) &&
+    !directTarget;
+  if (
+    (channel === "whatsapp" || channel === "sms" || channel === "mail") &&
+    looksLikeTransportChannelOnly
+  ) {
+    return null;
+  }
   const phoneHref = normalizeOfferPhoneHref(phone);
   const channelLabel =
     channel === "whatsapp"
@@ -3212,6 +3286,10 @@ function buildOfferContactAction(
       ((channel === "mail" && explicitContact.email) ||
         (channel !== "mail" && explicitContact.phone)),
   );
+  const rawTitle =
+    (explicitHasMatchingTarget ? explicitContact.title : "") ||
+    generatedTitle ||
+    channelLabel;
 
   return {
     channel,
@@ -3221,10 +3299,7 @@ function buildOfferContactAction(
     email,
     minutesBefore,
     notCall,
-    title:
-      (explicitHasMatchingTarget ? explicitContact.title : "") ||
-      generatedTitle ||
-      channelLabel,
+    title: sanitizeOfferSyntheticContactChannelV17_90L371BM(rawTitle, true),
     sourceText: best?.sourceText || explicitContact.title,
   };
 }
