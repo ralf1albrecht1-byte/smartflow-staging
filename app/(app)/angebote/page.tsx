@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BP_OFFER_OUTER_SPECIAL_NOTES_CHIPS_MATCH_ORDER
 // SMARTFLOW_V17_90L371BO_OFFER_SPECIAL_NOTES_CONTACT_CHIP_DISPLAY_GUARD
 // SMARTFLOW_V17_90L371BN_OFFER_CONTACT_ACCESS_INFO_GUARD
 // SMARTFLOW_V17_90L371BM_OFFER_CONTACT_CHIP_GUARD
@@ -2897,12 +2898,11 @@ function renderOfferOperationalChipIcon(chip: OfferOperationalChip) {
 }
 
 
-const OUTER_OFFER_OPERATIONAL_CHIPS_HIDDEN_V17_90L370 = new Set([
-  // Nur diese Detailchips werden außen gebündelt im Info-/Besonderheitenchip.
-  // Gefahr-/Hund-Chips bleiben sichtbar wie beim Auftrag.
-  "parking",
-  "key",
-  "access",
+const OUTER_OFFER_OPERATIONAL_CHIPS_HIDDEN_V17_90L370 = new Set<string>([
+  // V17.90L371BP: Angebot außen wie Auftrag anzeigen.
+  // Operative Besonderheiten dürfen nicht verschwinden: Parken, Schlüssel,
+  // Zugang/Hauswart und Hund/Warnungen bleiben als Chips sichtbar und sind
+  // zusätzlich weiterhin im Info-/Besonderheiten-Popover enthalten.
 ]);
 
 type OfferMergedMediaSourcesV17_90L370 = {
