@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BR_INVOICE_CLOSED_CARD_DELETE_MENU_RESTORE
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
@@ -8423,7 +8424,7 @@ export default function RechnungenPage() {
                             <details
                               data-invoice-action-menu
                               data-card-toggle-ignore="true"
-                              className="relative shrink-0 group"
+                              className="relative z-[30] shrink-0 group open:z-[10000]"
                               onToggle={(event) => {
                                 const wrapper = event.currentTarget.closest(
                                   "[data-invoice-card-wrapper]",
@@ -8435,18 +8436,45 @@ export default function RechnungenPage() {
                                 }
                               }}
                               onPointerDown={(event) => event.stopPropagation()}
+                              onPointerUp={(event) => event.stopPropagation()}
+                              onMouseDown={(event) => event.stopPropagation()}
+                              onMouseUp={(event) => event.stopPropagation()}
                               onTouchStart={(event) => event.stopPropagation()}
+                              onTouchEnd={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
                             >
                               <summary
+                                data-card-toggle-ignore="true"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onPointerUp={(event) => event.stopPropagation()}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onMouseUp={(event) => event.stopPropagation()}
+                                onTouchStart={(event) => event.stopPropagation()}
+                                onTouchEnd={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
                                 className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
                                 title="Aktionen"
                                 aria-label="Aktionen"
                               >
                                 <MoreVertical className="w-4 h-4" />
                               </summary>
-                              <div className="absolute left-0 top-full z-50 mt-1 hidden min-w-[190px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl group-open:block dark:border-slate-700 dark:bg-gray-900">
+                              <div
+                                data-card-toggle-ignore="true"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onPointerUp={(event) => event.stopPropagation()}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onMouseUp={(event) => event.stopPropagation()}
+                                onTouchStart={(event) => event.stopPropagation()}
+                                onTouchEnd={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                                className="pointer-events-auto absolute left-0 top-full z-[20000] mt-1 hidden min-w-[190px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl group-open:block dark:border-slate-700 dark:bg-gray-900"
+                              >
                                 <button
+                                  type="button"
+                                  data-card-toggle-ignore="true"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onTouchStart={(event) => event.stopPropagation()}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     const menu =
@@ -8462,7 +8490,13 @@ export default function RechnungenPage() {
                                 </button>
                                 <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
+                                  type="button"
+                                  data-card-toggle-ignore="true"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onTouchStart={(event) => event.stopPropagation()}
                                   onClick={(e) => {
+                                    e.preventDefault();
                                     e.stopPropagation();
                                     const menu =
                                       e.currentTarget.closest("details");
@@ -8476,7 +8510,13 @@ export default function RechnungenPage() {
                                   Archivieren
                                 </button>
                                 <button
+                                  type="button"
+                                  data-card-toggle-ignore="true"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onTouchStart={(event) => event.stopPropagation()}
                                   onClick={(e) => {
+                                    e.preventDefault();
                                     e.stopPropagation();
                                     const menu =
                                       e.currentTarget.closest("details");
@@ -8496,16 +8536,19 @@ export default function RechnungenPage() {
                                   type="button"
                                   data-card-toggle-ignore="true"
                                   onPointerDown={(event) => event.stopPropagation()}
+                                  onPointerUp={(event) => event.stopPropagation()}
                                   onMouseDown={(event) => event.stopPropagation()}
+                                  onMouseUp={(event) => event.stopPropagation()}
                                   onTouchStart={(event) => event.stopPropagation()}
+                                  onTouchEnd={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
+                                    remove(event, inv.id);
                                     const menu =
                                       event.currentTarget.closest("details");
                                     if (menu instanceof HTMLDetailsElement)
                                       menu.open = false;
-                                    remove(event, inv.id);
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                                 >
