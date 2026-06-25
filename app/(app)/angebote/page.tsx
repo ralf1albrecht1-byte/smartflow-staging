@@ -1,4 +1,6 @@
 "use client";
+// SMARTFLOW_V17_90L371BO_OFFER_SPECIAL_NOTES_CONTACT_CHIP_DISPLAY_GUARD
+// SMARTFLOW_V17_90L371BN_OFFER_CONTACT_ACCESS_INFO_GUARD
 // SMARTFLOW_V17_90L371BM_OFFER_CONTACT_CHIP_GUARD
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
@@ -1612,6 +1614,28 @@ function uniqueOfferLines(values: Array<string | null | undefined>): string[] {
   return result;
 }
 
+function stripOfferOnsiteContactSyntheticChannelV17_90L371BO(
+  value?: string | null,
+): string {
+  const text = compactOfferValue(value || "");
+  if (!text) return "";
+  const normalized = normalizeOfferHint(text);
+  if (!/^kontakt\s+vor\s+ort\b/.test(normalized)) return text;
+  if (hasConcreteOfferContactTargetV17_90L371BM(text)) return text;
+
+  // Ein reiner Vor-Ort-Kontakt wie "Herr Keller" ist kein WhatsApp-/SMS-/Mail-Ziel.
+  // Deshalb darf ein aus dem Intake-Kanal stammender Zusatz nicht in Angebot-Chips
+  // oder im Angebotseditor stehen bleiben. Echte Nummern/E-Mails bleiben erhalten.
+  return text
+    .replace(
+      /\s*(?:·|,|-|–|—|\||\/)\s*(?:nur\s+)?(?:Whats\s*App|WhatsApp|SMS|E-?Mail|Mail)\s*$/i,
+      "",
+    )
+    .replace(/\s*(?:·|,|-|–|—|\||\/)\s*nicht\s+telefonisch\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // V17.90L66: Information can arrive from normalized specialNotes, technical
 // marker lines and the original WhatsApp text. Clean those transport markers
 // and deduplicate semantically before the same information is shown in blue,
@@ -1625,9 +1649,10 @@ function cleanOfferInfoLineV17_66(value?: string | null): string {
     .replace(/^\s*(?:wichtige informationen|ausgewählter hinweis|weitere besonderheiten|besonderheiten)\s*:?\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!line) return "";
-  if (/^(?:whatsapp|sms|telefon|e-?mail|kundennachricht)\s*:?$/i.test(line)) return "";
-  return line.charAt(0).toUpperCase() + line.slice(1);
+  const cleanedLine = stripOfferOnsiteContactSyntheticChannelV17_90L371BO(line);
+  if (!cleanedLine) return "";
+  if (/^(?:whatsapp|sms|telefon|e-?mail|kundennachricht)\s*:?$/i.test(cleanedLine)) return "";
+  return cleanedLine.charAt(0).toUpperCase() + cleanedLine.slice(1);
 }
 
 function offerInfoTokensV17_66(value: string): Set<string> {
@@ -1654,6 +1679,21 @@ function offerInfoLinesEquivalentV17_66(left: string, right: string): boolean {
   const longer = a.length > b.length ? a : b;
   if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.58) {
     return true;
+  }
+
+  // SMARTFLOW_V17_90L371BN: Ein reiner Vor-Ort-Kontakt darf eine operative
+  // Zugang-/Melden-Zeile nicht wegdeduplizieren. Beispiel:
+  // "Kontakt vor Ort: Herr Keller" und
+  // "Bei geschlossenem Eingang beim Hauswart Herr Keller melden."
+  // sind zwei unterschiedliche Rollen und müssen beide sichtbar bleiben.
+  const leftIsContactOnly = /^kontakt\s+vor\s+ort\b/i.test(left) &&
+    !isOfferAccessLineV17_90L337(left);
+  const rightIsContactOnly = /^kontakt\s+vor\s+ort\b/i.test(right) &&
+    !isOfferAccessLineV17_90L337(right);
+  const leftIsAccess = isOfferAccessLineV17_90L337(left);
+  const rightIsAccess = isOfferAccessLineV17_90L337(right);
+  if ((leftIsContactOnly && rightIsAccess) || (rightIsContactOnly && leftIsAccess)) {
+    return false;
   }
 
   const aTokens = offerInfoTokensV17_66(left);
@@ -2046,14 +2086,20 @@ function sanitizeOfferSyntheticContactChannelV17_90L371BM(
 ): string {
   let text = compactOfferValue(value || "");
   if (!text) return "";
+
+  // Vor-Ort-Kontakte werden zeilenbasiert bewertet. Ein globaler Kundenkontakt
+  // darf hier keinen synthetischen Kanalzusatz retten, wenn in dieser Zeile
+  // keine echte Nummer/E-Mail steht.
+  text = stripOfferOnsiteContactSyntheticChannelV17_90L371BO(text);
+  if (!text) return "";
   if (hasActionTarget || hasConcreteOfferContactTargetV17_90L371BM(text)) return text;
 
   // Wenn der Auftrag nur über WhatsApp eingegangen ist, darf daraus im Angebot
   // kein "Kontakt vor Ort · nur WhatsApp" oder WhatsApp-Aktionschip entstehen.
   // Echte Telefonnummern/E-Mails bleiben oben durch den Target-Guard erhalten.
   text = text
-    .replace(/\s*(?:·|,|-)\s*(?:nur\s+)?(?:WhatsApp|SMS|E-?Mail|Mail)\s*$/i, "")
-    .replace(/\s*(?:·|,|-)\s*nicht\s+telefonisch\s*$/i, "")
+    .replace(/\s*(?:·|,|-|–|—|\||\/)\s*(?:nur\s+)?(?:Whats\s*App|WhatsApp|SMS|E-?Mail|Mail)\s*$/i, "")
+    .replace(/\s*(?:·|,|-|–|—|\||\/)\s*nicht\s+telefonisch\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -2061,9 +2107,10 @@ function sanitizeOfferSyntheticContactChannelV17_90L371BM(
 }
 
 function isOfferReadOnlyOnSiteContactLineV17_90L371BM(value?: string | null): boolean {
-  const text = normalizeOfferHint(value || "");
+  const cleaned = stripOfferOnsiteContactSyntheticChannelV17_90L371BO(value);
+  const text = normalizeOfferHint(cleaned);
   if (!/^kontakt vor ort\b/.test(text)) return false;
-  if (hasConcreteOfferContactTargetV17_90L371BM(value)) return false;
+  if (hasConcreteOfferContactTargetV17_90L371BM(cleaned)) return false;
   return !/\b(?:whatsapp|sms|telefon|telefonisch|anrufen|rueckruf|ruckruf|e mail|email|mail)\b/.test(
     text,
   );
@@ -2264,7 +2311,7 @@ function cleanOfferPrimaryInfoLinesV17_90L351(lines: string[]): string[] {
   const seenNormal = new Set<string>();
 
   for (const line of lines || []) {
-    const raw = compactOfferValue(line);
+    const raw = sanitizeOfferSyntheticContactChannelV17_90L371BM(line, false);
     if (!raw) continue;
 
     const appointmentSignature = offerAppointmentDisplaySignatureV17_90L348(raw);
@@ -2342,7 +2389,7 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
   const seenAppointmentsV17_90L348 = new Set<string>();
 
   const add = (target: string[], raw: string) => {
-    const rawText = String(raw || "").replace(/\s+/g, " ").trim();
+    const rawText = sanitizeOfferSyntheticContactChannelV17_90L371BM(raw, false);
     if (!rawText || isOfferRawCustomerMessageDisplayLeakV17_90L346(rawText)) return;
     const appointmentSignature = offerAppointmentDisplaySignatureV17_90L348(rawText);
     if (appointmentSignature === "summary") return;
@@ -2388,7 +2435,9 @@ function buildOfferCanonicalWorkflowSummaryV17_90L274(
     if (
       explicitContacts.length > 0 &&
       !isAppointmentRecord &&
-      isOfferCommunicationLikeLineV17_90L266(record.text)
+      isOfferCommunicationLikeLineV17_90L266(record.text) &&
+      !isOfferAccessLineV17_90L337(record.text) &&
+      !isOfferCanonicalPrimaryLineV17_90L273(record.text)
     ) {
       continue;
     }
@@ -2849,6 +2898,8 @@ function renderOfferOperationalChipIcon(chip: OfferOperationalChip) {
 
 
 const OUTER_OFFER_OPERATIONAL_CHIPS_HIDDEN_V17_90L370 = new Set([
+  // Nur diese Detailchips werden außen gebündelt im Info-/Besonderheitenchip.
+  // Gefahr-/Hund-Chips bleiben sichtbar wie beim Auftrag.
   "parking",
   "key",
   "access",
