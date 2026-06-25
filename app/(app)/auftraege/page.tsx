@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371BG_CARD_REVIEW_PREVIEW_ROWS
 // SMARTFLOW_V17_90L371BF_SERVICE_ACTION_REVIEW_COMPACT_DECISION
@@ -14665,6 +14666,36 @@ export default function AuftraegePage() {
     setServiceActionMenuKey(null);
   };
 
+  const moveItemToWorkSiteV17_90L371BW = (
+    index: number,
+    nextWorkSiteId?: string | null,
+  ) => {
+    const movedItem = formItems[index];
+    if (!movedItem) return;
+
+    const normalizedWorkSiteId = String(nextWorkSiteId || "").trim();
+
+    setFormItems((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, workSiteId: normalizedWorkSiteId || null }
+          : item,
+      ),
+    );
+
+    setServiceActionMenuKey(null);
+    setMovingItemKey(null);
+    setActiveWorkSiteId(normalizedWorkSiteId || null);
+
+    const groupKey = normalizedWorkSiteId || "__unassigned__";
+    setExpandedWorkSiteIds((current) =>
+      current.includes(groupKey) ? current : [groupKey, ...current],
+    );
+    setExpandedServiceItemKeys((current) =>
+      current.includes(movedItem.key) ? current : [movedItem.key, ...current],
+    );
+  };
+
   const removeItem = (index: number) => {
     const removedItem = formItems[index];
     if (removedItem && isBlockingCurrencyReviewText(removedItem.aiWarning)) {
@@ -23819,7 +23850,7 @@ export default function AuftraegePage() {
 
                                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-180" />
 
-                                      {hasCatalogActionMenu ? (
+                                      {(hasCatalogActionMenu || hasMultipleEditWorkSites) ? (
                                         <div
                                           className="relative shrink-0"
                                           onClick={(event) => {
@@ -23843,7 +23874,49 @@ export default function AuftraegePage() {
                                             <MoreVertical className="h-4 w-4" />
                                           </button>
                                           {isMenuOpen && (
-                                            <div className="absolute right-0 top-full z-[80] mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                            <div className="absolute right-0 top-full z-[80] mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                              {hasMultipleEditWorkSites && (
+                                                <div className="border-b border-slate-200 py-1 dark:border-slate-800">
+                                                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                    Zu Ausführungsort verschieben
+                                                  </div>
+                                                  {currentEditWorkSites.map((siteOption, moveSiteIndex) => {
+                                                    const isCurrentSite = item.workSiteId === siteOption.id;
+                                                    return (
+                                                      <button
+                                                        key={`move_${item.key}_${siteOption.id}`}
+                                                        type="button"
+                                                        disabled={isCurrentSite}
+                                                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 disabled:cursor-default disabled:bg-cyan-50 disabled:font-semibold disabled:text-cyan-800 dark:text-slate-100 dark:hover:bg-cyan-950/30 dark:disabled:bg-cyan-950/30 dark:disabled:text-cyan-200`}
+                                                        onClick={(event) => {
+                                                          event.preventDefault();
+                                                          event.stopPropagation();
+                                                          if (!isCurrentSite) {
+                                                            moveItemToWorkSiteV17_90L371BW(index, siteOption.id);
+                                                          }
+                                                        }}
+                                                      >
+                                                        <MapPin className="h-4 w-4" />
+                                                        {moveSiteIndex + 1}. {formatWorkSiteTitle(siteOption)}
+                                                      </button>
+                                                    );
+                                                  })}
+                                                  {item.workSiteId && (
+                                                    <button
+                                                      type="button"
+                                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                                                      onClick={(event) => {
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        moveItemToWorkSiteV17_90L371BW(index, null);
+                                                      }}
+                                                    >
+                                                      <MapPin className="h-4 w-4" />
+                                                      Ohne Ausführungsort
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              )}
                                               <button
                                                 type="button"
                                                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
@@ -23857,18 +23930,20 @@ export default function AuftraegePage() {
                                                 <Trash2 className="h-4 w-4" />
                                                 Position löschen
                                               </button>
-                                              <button
-                                                type="button"
-                                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
-                                                onClick={(event) => {
-                                                  event.preventDefault();
-                                                  event.stopPropagation();
-                                                  void saveItemToServices(index);
-                                                }}
-                                              >
-                                                <Plus className="h-4 w-4" />
-                                                In Katalog übernehmen
-                                              </button>
+                                              {hasCatalogActionMenu && (
+                                                <button
+                                                  type="button"
+                                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
+                                                  onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    void saveItemToServices(index);
+                                                  }}
+                                                >
+                                                  <Plus className="h-4 w-4" />
+                                                  In Katalog übernehmen
+                                                </button>
+                                              )}
                                             </div>
                                           )}
                                         </div>

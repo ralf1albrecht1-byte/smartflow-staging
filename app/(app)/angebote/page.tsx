@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371BP_OFFER_OUTER_SPECIAL_NOTES_CHIPS_MATCH_ORDER
 // SMARTFLOW_V17_90L371BO_OFFER_SPECIAL_NOTES_CONTACT_CHIP_DISPLAY_GUARD
@@ -5619,6 +5620,27 @@ export default function AngebotePage() {
     }
   };
 
+  const clearOfferItemSiteAssignmentV17_90L371BW = (index: number) => {
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              siteName: null,
+              siteAddress: null,
+              sitePlz: null,
+              siteCity: null,
+              siteNote: null,
+              sourceOrderId: null,
+              _workSiteUiKey: null,
+            }
+          : item,
+      ),
+    );
+    setExpandedItemIndex(index);
+    setServiceActionMenuIndex(null);
+  };
+
   const addServiceItem = (svc: any) => {
     setItems((current) => [
       {
@@ -10833,6 +10855,14 @@ export default function AngebotePage() {
                         const isMenuOpen = serviceActionMenuIndex === idx;
                         const hasCatalogActionMenu =
                           itemNeedsReview && !hasCriticalReview;
+                        const currentOfferMoveSiteV17_90L371BW =
+                          executionSites.find(
+                            (site) => offerSiteKey(site) === offerSiteKey(item),
+                          ) || null;
+                        const currentOfferMoveSiteKeyV17_90L371BW = currentOfferMoveSiteV17_90L371BW
+                          ? offerGroupKeyForSite(currentOfferMoveSiteV17_90L371BW)
+                          : "";
+                        const canMoveOfferItemBetweenSitesV17_90L371BW = executionSites.length > 1;
 
                         // V17.90L320: Wie bei Aufträgen darf der Arbeitsort-Selector
                         // nur bei wirklich nicht zugeordneten Leistungszeilen erscheinen.
@@ -10975,7 +11005,7 @@ export default function AngebotePage() {
                                 />
                               </button>
 
-                              {hasCatalogActionMenu ? (
+                              {(hasCatalogActionMenu || canMoveOfferItemBetweenSitesV17_90L371BW) ? (
                                 <div
                                   className="relative shrink-0"
                                   onClick={(event) => event.stopPropagation()}
@@ -10995,7 +11025,46 @@ export default function AngebotePage() {
                                     <MoreVertical className="h-4 w-4" />
                                   </button>
                                   {isMenuOpen && (
-                                    <div className="absolute right-0 top-full z-[80] mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                    <div className="absolute right-0 top-full z-[80] mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                      {canMoveOfferItemBetweenSitesV17_90L371BW && (
+                                        <div className="border-b border-slate-200 py-1 dark:border-slate-800">
+                                          <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                            Zu Ausführungsort verschieben
+                                          </div>
+                                          {executionSites.map((siteOption, siteIndex) => {
+                                            const siteKey = offerGroupKeyForSite(siteOption);
+                                            const isCurrentSite = siteKey === currentOfferMoveSiteKeyV17_90L371BW;
+                                            return (
+                                              <button
+                                                key={`move_offer_${idx}_${siteKey}_${siteIndex}`}
+                                                type="button"
+                                                disabled={isCurrentSite}
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 disabled:cursor-default disabled:bg-cyan-50 disabled:font-semibold disabled:text-cyan-800 dark:text-slate-100 dark:hover:bg-cyan-950/30 dark:disabled:bg-cyan-950/30 dark:disabled:text-cyan-200"
+                                                onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  if (!isCurrentSite) assignOfferItemToSite(idx, siteKey);
+                                                }}
+                                              >
+                                                <MapPin className="h-4 w-4" />
+                                                {siteIndex + 1}. {siteOption.siteName || siteOption.siteAddress || "Neuer Arbeitsort"}
+                                              </button>
+                                            );
+                                          })}
+                                          {currentOfferMoveSiteKeyV17_90L371BW && (
+                                            <button
+                                              type="button"
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                clearOfferItemSiteAssignmentV17_90L371BW(idx);
+                                              }}
+                                            >
+                                              <MapPin className="h-4 w-4" />
+                                              Ohne Ausführungsort
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
                                       <button
                                         type="button"
                                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
@@ -11008,17 +11077,19 @@ export default function AngebotePage() {
                                         <Trash2 className="h-4 w-4" />
                                         Position löschen
                                       </button>
-                                      <button
-                                        type="button"
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          void saveOfferItemToServices(idx);
-                                        }}
-                                      >
-                                        <Plus className="h-4 w-4" />
-                                        In Katalog übernehmen
-                                      </button>
+                                      {hasCatalogActionMenu && (
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void saveOfferItemToServices(idx);
+                                          }}
+                                        >
+                                          <Plus className="h-4 w-4" />
+                                          In Katalog übernehmen
+                                        </button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
