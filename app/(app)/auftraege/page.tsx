@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371BG_CARD_REVIEW_PREVIEW_ROWS
 // SMARTFLOW_V17_90L371BF_SERVICE_ACTION_REVIEW_COMPACT_DECISION
 // SMARTFLOW_V17_90L371BE_ORDER_SERVICE_ACTION_REVIEW_VISIBLE
@@ -9989,20 +9990,27 @@ const applyOrderCommunicationActionGuardV17_90L352 = (
   if (action.channel === "whatsapp" && !action.phone) return empty;
 
   const context = buildOrderCommunicationChipContextV17_90L352(action);
-  const phone = action.channel === "mail" ? "" : action.phone;
-  const email = action.channel === "mail" ? action.email : "";
+  const actionPhone = action.channel === "mail" ? "" : action.phone;
+  const actionEmail = action.channel === "mail" ? action.email : "";
+  const storedCustomerPhone =
+    data.customer?.phone || order.customer?.phone || data.customerPhone || "";
+  const storedCustomerEmail =
+    data.customer?.email || order.customer?.email || data.email || "";
+  const sourceContext = [context, action.sourceText]
+    .filter(Boolean)
+    .join("\n");
   return {
     ...data,
-    phone,
-    customerPhone: phone,
-    contactPhone: phone,
-    email,
+    phone: storedCustomerPhone,
+    customerPhone: storedCustomerPhone,
+    contactPhone: actionPhone,
+    email: storedCustomerEmail || actionEmail,
     customer: data.customer
-      ? { ...data.customer, phone, email }
+      ? { ...data.customer, phone: storedCustomerPhone, email: storedCustomerEmail }
       : data.customer,
     specialNotes: "",
-    communicationContext: context,
-    notes: context,
+    communicationContext: sourceContext,
+    notes: sourceContext,
     audioTranscript: "",
   };
 };

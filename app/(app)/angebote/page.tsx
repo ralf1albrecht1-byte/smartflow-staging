@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371BP_OFFER_OUTER_SPECIAL_NOTES_CHIPS_MATCH_ORDER
 // SMARTFLOW_V17_90L371BO_OFFER_SPECIAL_NOTES_CONTACT_CHIP_DISPLAY_GUARD
 // SMARTFLOW_V17_90L371BN_OFFER_CONTACT_ACCESS_INFO_GUARD
@@ -3376,26 +3377,24 @@ function buildOfferContactChipData(
               action.minutesBefore ? ` ${action.minutesBefore} Minuten vorher.` : ""
             }`;
 
+  const sourceContext = [compactContext, action?.sourceText]
+    .filter(Boolean)
+    .join("\n");
   return {
     ...data,
-    customer: action
+    customer: customer
       ? {
-          name: action.name || customer?.name || null,
-          email: action.email || null,
-          phone: action.phone || null,
+          name: customer.name || null,
+          email: customer.email || null,
+          phone: customer.phone || null,
         }
-      : customer
-        ? {
-            name: customer.name || null,
-            email: customer.email || null,
-            phone: customer.phone || null,
-          }
-        : data.customer,
-    email: action?.email || null,
-    phone: action?.phone || null,
+      : data.customer,
+    email: customer?.email || action?.email || null,
+    phone: customer?.phone || null,
+    contactPhone: action?.phone || null,
     specialNotes: "",
-    communicationContext: compactContext,
-    notes: compactContext,
+    communicationContext: sourceContext,
+    notes: sourceContext,
     audioTranscript: "",
   };
 }

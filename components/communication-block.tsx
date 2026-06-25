@@ -1,4 +1,5 @@
 'use client';
+// SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Info, Phone } from 'lucide-react';
@@ -638,6 +639,15 @@ function useResolvedUrls(paths: string[]): string[] {
   }, [key]);
   return urls;
 }
+type StructuredContactTargetV17_90L371BQ = {
+  heading: string;
+  name: string;
+  value: string;
+  href?: string;
+  hint?: string;
+  timeHint?: string;
+};
+
 type CommunicationPreferenceChip = {
   key: string;
   label: string;
@@ -649,6 +659,7 @@ type CommunicationPreferenceChip = {
   contactValue?: string;
   contactHint?: string;
   contactTimeHint?: string;
+  contactTargets?: StructuredContactTargetV17_90L371BQ[];
 };
 
 function normalizeCommunicationPreferenceText(value: string | null | undefined): string {
@@ -1037,6 +1048,103 @@ function sanitizeContactDisplayName(value: string | null | undefined): string {
     /^[\p{Lu}][\p{L}'’.-]*$/u.test(part);
   if (!parts.every(isNameToken)) return '';
   return text;
+}
+
+function contactTargetValueKeyV17_90L371BQ(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.includes('@')) return normalizeCommunicationPreferenceText(raw);
+  return normalizePhoneForHref(raw).replace(/^\+/, '');
+}
+
+function contactTargetHrefV17_90L371BQ(
+  channel: 'mail' | 'whatsapp' | 'sms' | 'call',
+  value: string,
+): string | undefined {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  if (channel === 'mail' || raw.includes('@')) return `mailto:${raw}`;
+  const phone = normalizePhoneForHref(raw);
+  if (!phone) return undefined;
+  if (channel === 'whatsapp') return `https://wa.me/${phone.replace(/^\+/, '')}`;
+  if (channel === 'sms') return `sms:${phone}`;
+  return `tel:${phone}`;
+}
+
+function contactTargetActionHintV17_90L371BQ(
+  channel: 'mail' | 'whatsapp' | 'sms' | 'call',
+): string {
+  if (channel === 'mail') return 'Antippen oder anklicken, um eine E-Mail zu schreiben.';
+  if (channel === 'whatsapp') return 'Antippen oder anklicken, um WhatsApp zu öffnen.';
+  if (channel === 'sms') return 'Antippen oder anklicken, um eine SMS zu schreiben.';
+  return 'Antippen oder anklicken, um anzurufen.';
+}
+
+function buildCommunicationContactTargetsV17_90L371BQ(
+  data: CommunicationData,
+  sourceText: string,
+  channel: 'mail' | 'whatsapp' | 'sms' | 'call',
+  timeHint = '',
+): StructuredContactTargetV17_90L371BQ[] {
+  const operational = extractOperationalContactV17_90L85(sourceText);
+  const targets: StructuredContactTargetV17_90L371BQ[] = [];
+  const seen = new Set<string>();
+  const addTarget = (
+    heading: string,
+    rawName: unknown,
+    rawValue: unknown,
+  ) => {
+    const value =
+      channel === 'mail'
+        ? String(rawValue || '').trim()
+        : normalizePhoneForHref(String(rawValue || ''));
+    const key = contactTargetValueKeyV17_90L371BQ(value);
+    if (!value || !key || seen.has(key)) return;
+    seen.add(key);
+    targets.push({
+      heading,
+      name:
+        sanitizeContactDisplayName(String(rawName || '')) ||
+        (heading === 'Rechnungskunde' ? 'Kunde' : 'Kontakt vor Ort'),
+      value,
+      href: contactTargetHrefV17_90L371BQ(channel, value),
+      hint: contactTargetActionHintV17_90L371BQ(channel),
+      timeHint,
+    });
+  };
+
+  if (channel === 'mail') {
+    addTarget('Rechnungskunde', data.customer?.name, data.customer?.email || data.email);
+    addTarget('Kontakt vor Ort', operational.name, operational.email || '');
+  } else {
+    addTarget(
+      'Rechnungskunde',
+      data.customer?.name,
+      data.customer?.phone || data.customerPhone || data.phone,
+    );
+    addTarget(
+      'Kontakt vor Ort',
+      operational.name,
+      operational.phone || data.contactPhone,
+    );
+  }
+
+  return targets;
+}
+
+function firstContactTargetV17_90L371BQ(
+  targets: StructuredContactTargetV17_90L371BQ[],
+): StructuredContactTargetV17_90L371BQ | null {
+  return targets[0] || null;
+}
+
+function contactChipTitleV17_90L371BQ(
+  fallbackTitle: string,
+  targets: StructuredContactTargetV17_90L371BQ[],
+  timeHint = '',
+): string {
+  if (targets.length <= 1) return appendContactTime(fallbackTitle, timeHint);
+  return appendContactTime('Kontakte auswählen', timeHint);
 }
 
 function cleanCommunicationInfoLine(value: string): string {
@@ -1526,6 +1634,12 @@ function detectCommunicationPreferenceChips(
   const mailTime = getChannelContactTimeHint('mail', customerSource || rawSource);
   const whatsappTime = getChannelContactTimeHint('whatsapp', customerSource || rawSource);
   const smsTime = getChannelContactTimeHint('sms', customerSource || rawSource);
+  const mailTargets = buildCommunicationContactTargetsV17_90L371BQ(data, customerSource || rawSource, 'mail', mailTime);
+  const whatsappTargets = buildCommunicationContactTargetsV17_90L371BQ(data, customerSource || rawSource, 'whatsapp', whatsappTime);
+  const smsTargets = buildCommunicationContactTargetsV17_90L371BQ(data, customerSource || rawSource, 'sms', smsTime);
+  const primaryMailTarget = firstContactTargetV17_90L371BQ(mailTargets);
+  const primaryWhatsappTarget = firstContactTargetV17_90L371BQ(whatsappTargets);
+  const primarySmsTarget = firstContactTargetV17_90L371BQ(smsTargets);
   const explicitMailOnly = /\b(?:ausschliesslich|ausschließlich|exklusiv|nur|only|exclusively)\b.{0,32}\b(?:e\s*mail|e-mail|email|mail|courriel)\b|\b(?:e\s*mail|e-mail|email|mail|courriel)\b.{0,32}\b(?:ausschliesslich|ausschließlich|exklusiv|nur|only|exclusively)\b/i.test(
     customerSource || rawSource,
   );
@@ -1555,15 +1669,20 @@ function detectCommunicationPreferenceChips(
       key: 'mail',
       label: 'Mail',
       color: 'teal',
-      href: email ? `mailto:${email}` : undefined,
-      title: appendContactTime(email ? `${operational.name ? `${operational.name} · ` : ''}E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
+      href: mailTargets.length === 1 ? primaryMailTarget?.href : undefined,
+      title: contactChipTitleV17_90L371BQ(
+        email ? `${operational.name ? `${operational.name} · ` : ''}E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt',
+        mailTargets,
+        mailTime,
+      ),
       contactHeading: 'E-Mail-Kontakt',
-      contactName,
-      contactValue: email || 'Keine E-Mail hinterlegt',
+      contactName: primaryMailTarget?.name || contactName,
+      contactValue: primaryMailTarget?.value || email || 'Keine E-Mail hinterlegt',
       contactHint: email
         ? 'Antippen oder anklicken, um eine E-Mail zu schreiben.'
         : 'Keine E-Mail-Adresse hinterlegt.',
       contactTimeHint: mailTime,
+      contactTargets: mailTargets,
     });
   }
 
@@ -1572,15 +1691,20 @@ function detectCommunicationPreferenceChips(
       key: 'whatsapp',
       label: 'WhatsApp',
       color: 'green',
-      href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
-      title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
+      href: whatsappTargets.length === 1 ? primaryWhatsappTarget?.href : undefined,
+      title: contactChipTitleV17_90L371BQ(
+        phone ? `${operational.name ? `${operational.name} · ` : ''}WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden',
+        whatsappTargets,
+        whatsappTime,
+      ),
       contactHeading: 'WhatsApp-Kontakt',
-      contactName,
-      contactValue: phone || 'Keine Telefonnummer vorhanden',
+      contactName: primaryWhatsappTarget?.name || contactName,
+      contactValue: primaryWhatsappTarget?.value || phone || 'Keine Telefonnummer vorhanden',
       contactHint: phone
         ? 'Antippen oder anklicken, um WhatsApp zu öffnen.'
         : 'Keine Telefonnummer hinterlegt.',
       contactTimeHint: whatsappTime,
+      contactTargets: whatsappTargets,
     });
   }
 
@@ -1589,15 +1713,20 @@ function detectCommunicationPreferenceChips(
       key: 'sms',
       label: 'SMS',
       color: 'blue',
-      href: phone ? `sms:${phone}` : undefined,
-      title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
+      href: smsTargets.length === 1 ? primarySmsTarget?.href : undefined,
+      title: contactChipTitleV17_90L371BQ(
+        phone ? `${operational.name ? `${operational.name} · ` : ''}SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden',
+        smsTargets,
+        smsTime,
+      ),
       contactHeading: 'SMS-Kontakt',
-      contactName,
-      contactValue: phone || 'Keine Telefonnummer vorhanden',
+      contactName: primarySmsTarget?.name || contactName,
+      contactValue: primarySmsTarget?.value || phone || 'Keine Telefonnummer vorhanden',
       contactHint: phone
         ? 'Antippen oder anklicken, um eine SMS zu schreiben.'
         : 'Keine Telefonnummer hinterlegt.',
       contactTimeHint: smsTime,
+      contactTargets: smsTargets,
     });
   }
 
@@ -1619,6 +1748,7 @@ function Chip({
   contactValue,
   contactHint,
   contactTimeHint,
+  contactTargets,
 }: {
   icon?: any;
   label: string;
@@ -1631,6 +1761,7 @@ function Chip({
   contactValue?: string;
   contactHint?: string;
   contactTimeHint?: string;
+  contactTargets?: StructuredContactTargetV17_90L371BQ[];
 }) {
   const colors: Record<string, string> = {
     default: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
@@ -1650,8 +1781,21 @@ function Chip({
       ? `inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2 text-[11px] font-bold tracking-wide ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
       : `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
     : `inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
-  const isStructuredContactTooltip = Boolean(contactHeading && contactValue);
+  const structuredContactTargets = (contactTargets || [])
+    .map((target) => ({
+      ...target,
+      heading: String(target.heading || '').trim(),
+      name: sanitizeContactDisplayName(target.name) || String(target.name || '').replace(/\s+/g, ' ').trim() || 'Kontakt',
+      value: String(target.value || '').trim(),
+      href: target.href,
+      hint: String(target.hint || '').trim(),
+      timeHint: String(target.timeHint || '').trim(),
+    }))
+    .filter((target) => Boolean(target.value));
+  const isStructuredContactTooltip = Boolean((contactHeading && contactValue) || structuredContactTargets.length > 0);
   const safeContactName = sanitizeContactDisplayName(contactName) || 'Kunde';
+  const hasMultipleContactTargets = structuredContactTargets.length > 1;
+  const actionHref = hasMultipleContactTargets ? undefined : href;
   const hasTooltip = Boolean(title || isStructuredContactTooltip);
   const hoverIntent = useHoverIntentState();
 
@@ -1663,9 +1807,9 @@ function Chip({
     </>
   );
 
-  const trigger = href ? (
+  const trigger = actionHref ? (
     <a
-      href={href}
+      href={actionHref}
       className={triggerClassName}
       onClick={(event) => event.stopPropagation()}
       aria-label={title || label}
@@ -1714,35 +1858,76 @@ function Chip({
         >
           <span className="block">
             {isStructuredContactTooltip ? (
-              <>
-                <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
-                  {contactHeading}
+              structuredContactTargets.length > 0 ? (
+                <span className="block space-y-2">
+                  {structuredContactTargets.map((target, index) => (
+                    <span
+                      key={`${target.heading}-${target.value}-${index}`}
+                      className="block rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                      <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+                        {target.heading || contactHeading || 'Kontakt'}
+                      </span>
+                      <span className="mt-1 block break-words font-medium text-foreground">
+                        {target.name}
+                      </span>
+                      {target.href ? (
+                        <a
+                          href={target.href}
+                          onClick={(event) => event.stopPropagation()}
+                          className={`mt-1 block break-words text-sm text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}
+                        >
+                          {target.value}
+                        </a>
+                      ) : (
+                        <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
+                          {target.value}
+                        </span>
+                      )}
+                      {(target.hint || title) && (
+                        <span className="mt-2 block text-xs text-muted-foreground">
+                          {target.hint || title}
+                        </span>
+                      )}
+                      {target.timeHint && (
+                        <span className="mt-1 block text-xs font-medium text-blue-700 dark:text-blue-300">
+                          {target.timeHint}
+                        </span>
+                      )}
+                    </span>
+                  ))}
                 </span>
-                <span className="mt-1 block break-words font-medium text-foreground">
-                  {safeContactName}
-                </span>
-                {href ? (
-                  <a
-                    href={href}
-                    onClick={(event) => event.stopPropagation()}
-                    className={`mt-1 block break-words text-sm text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}
-                  >
-                    {contactValue}
-                  </a>
-                ) : (
-                  <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
-                    {contactValue}
+              ) : (
+                <>
+                  <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+                    {contactHeading}
                   </span>
-                )}
-                <span className="mt-2 block text-xs text-muted-foreground">
-                  {contactHint || title}
-                </span>
-                {contactTimeHint && (
-                  <span className="mt-1 block text-xs font-medium text-blue-700 dark:text-blue-300">
-                    {contactTimeHint}
+                  <span className="mt-1 block break-words font-medium text-foreground">
+                    {safeContactName}
                   </span>
-                )}
-              </>
+                  {actionHref ? (
+                    <a
+                      href={actionHref}
+                      onClick={(event) => event.stopPropagation()}
+                      className={`mt-1 block break-words text-sm text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}
+                    >
+                      {contactValue}
+                    </a>
+                  ) : (
+                    <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
+                      {contactValue}
+                    </span>
+                  )}
+                  <span className="mt-2 block text-xs text-muted-foreground">
+                    {contactHint || title}
+                  </span>
+                  {contactTimeHint && (
+                    <span className="mt-1 block text-xs font-medium text-blue-700 dark:text-blue-300">
+                      {contactTimeHint}
+                    </span>
+                  )}
+                </>
+              )
             ) : (
               <span className="whitespace-pre-wrap break-words text-[11px] font-medium leading-snug text-slate-800 dark:text-slate-100">
                 {title}
@@ -1767,6 +1952,7 @@ export function ContactActionChip({
   contactValue,
   contactHint,
   contactTimeHint,
+  contactTargets,
 }: {
   icon?: any;
   label: string;
@@ -1779,6 +1965,7 @@ export function ContactActionChip({
   contactValue?: string;
   contactHint?: string;
   contactTimeHint?: string;
+  contactTargets?: StructuredContactTargetV17_90L371BQ[];
 }) {
   return (
     <Chip
@@ -1793,6 +1980,7 @@ export function ContactActionChip({
       contactValue={contactValue}
       contactHint={contactHint}
       contactTimeHint={contactTimeHint}
+      contactTargets={contactTargets}
     />
   );
 }
@@ -2304,6 +2492,25 @@ export function CommunicationChips({
     sanitizeContactDisplayName(callbackContact.name) ||
     sanitizeContactDisplayName(data.customer?.name) ||
     'Kunde';
+  const callbackTargets = buildCommunicationContactTargetsV17_90L371BQ(
+    data,
+    [
+      data.communicationContext,
+      data.specialNotes,
+      data.notes,
+      parsed.translation,
+      parsed.originalMessage,
+      data.audioTranscript,
+      data.contactPhone,
+      data.customer?.phone,
+      data.customerPhone,
+      data.phone,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    'call',
+  );
+  const primaryCallbackTarget = firstContactTargetV17_90L371BQ(callbackTargets);
   const infoLines = useMemo(
     () => buildCommunicationInfoLines(jobHints, data.specialNotes),
     [jobHints, data.specialNotes],
@@ -2396,6 +2603,7 @@ export function CommunicationChips({
             contactValue={chip.contactValue}
             contactHint={chip.contactHint}
             contactTimeHint={chip.contactTimeHint}
+            contactTargets={chip.contactTargets}
           />
         </span>
       ))}
@@ -2437,21 +2645,24 @@ export function CommunicationChips({
             icon={Phone}
             label="Telefon"
             color="blue"
-            href={callbackPhone ? `tel:${callbackPhone}` : undefined}
+            href={callbackTargets.length === 1 ? primaryCallbackTarget?.href : undefined}
             title={
-              callbackPhone
-                ? `Anrufen: ${callbackPhone}`
-                : "Rückruf gewünscht · Nummer fehlt"
+              callbackTargets.length > 1
+                ? "Kontakte auswählen"
+                : callbackPhone
+                  ? `Anrufen: ${callbackPhone}`
+                  : "Rückruf gewünscht · Nummer fehlt"
             }
             compact={compact}
             contactHeading="Telefonkontakt"
-            contactName={callbackContactName}
-            contactValue={callbackPhone || "Keine Telefonnummer vorhanden"}
+            contactName={primaryCallbackTarget?.name || callbackContactName}
+            contactValue={primaryCallbackTarget?.value || callbackPhone || "Keine Telefonnummer vorhanden"}
             contactHint={
               callbackPhone
                 ? "Antippen oder anklicken, um anzurufen."
                 : "Keine Telefonnummer hinterlegt."
             }
+            contactTargets={callbackTargets}
           />
         </span>
       )}

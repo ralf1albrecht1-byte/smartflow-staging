@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
 // SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
 // SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
@@ -3336,19 +3337,27 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
   const context = buildInvoiceCommunicationChipContextV17_90L352(action);
   const targetPhone = action.channel === "mail" ? null : action.phone || null;
   const targetEmail = action.channel === "mail" ? action.email || null : null;
+  const storedCustomerPhone =
+    invoice.customer?.phone || resolved.customer?.phone || null;
+  const storedCustomerEmail =
+    invoice.customer?.email || resolved.customer?.email || null;
+  const sourceContext = [context, action.sourceText]
+    .filter(Boolean)
+    .join("\n");
   return {
     ...resolved,
     customer: {
       ...emptyCustomer,
-      phone: targetPhone,
-      email: targetEmail,
+      name: invoice.customer?.name || resolved.customer?.name || emptyCustomer.name,
+      phone: storedCustomerPhone,
+      email: storedCustomerEmail,
     },
-    phone: targetPhone,
+    phone: storedCustomerPhone,
     contactPhone: targetPhone,
-    email: targetEmail,
+    email: storedCustomerEmail || targetEmail,
     specialNotes: "",
-    communicationContext: context,
-    notes: context,
+    communicationContext: sourceContext,
+    notes: sourceContext,
     audioTranscript: "",
   };
 }
