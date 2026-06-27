@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BS_INVOICE_CLOSED_CARD_ACTION_MENU_PORTAL
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -2888,11 +2889,6 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
   }
 
   return sourceItems.map((item) => {
-    const sourceMatches = item.sourceOrderId
-      ? cleanSites.filter(
-          (candidate) => candidate.sourceOrderId === item.sourceOrderId,
-        )
-      : [];
     const site =
       cleanSites.find(
         (candidate) =>
@@ -2902,8 +2898,7 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
       cleanSites.find(
         (candidate) => invoiceSiteKey(candidate) === invoiceSiteKey(item),
       ) ||
-      (sourceMatches.length === 1 ? sourceMatches[0] : undefined) ||
-      (cleanSites.length === 1 ? cleanSites[0] : undefined);
+      undefined;
 
     if (!site) return item;
     return {
@@ -2947,10 +2942,7 @@ function groupInvoiceItemsByExecutionSite(
           site._workSiteUiKey === item._workSiteUiKey,
       ) ||
       sites.find((site) => invoiceSiteKey(site) === invoiceSiteKey(item)) ||
-      (item.sourceOrderId
-        ? sites.find((site) => site.sourceOrderId === item.sourceOrderId)
-        : undefined) ||
-      (sites.length === 1 ? sites[0] : null);
+      null;
     const hasCompleteItemSite = Boolean(
       compactInvoiceValue(item.siteAddress) &&
         compactInvoiceValue(item.sitePlz) &&
@@ -5991,6 +5983,10 @@ export default function RechnungenPage() {
 
   const assignInvoiceItemToSite = (index: number, siteKey: string) => {
     const sites = getCurrentInvoiceExecutionSitesV17_90L284();
+    if (!siteKey) {
+      clearInvoiceItemSiteAssignmentV17_90L371BW(index);
+      return;
+    }
     const site = sites.find(
       (candidate) => invoiceGroupKeyForSite(candidate) === siteKey,
     );
@@ -10116,7 +10112,7 @@ export default function RechnungenPage() {
                       {(() => {
                         const currentSites =
                           getCurrentInvoiceExecutionSitesV17_90L284();
-                        const multiSite = currentSites.length > 1;
+                        const multiSite = currentSites.length > 0;
                         return (
                           <>
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -10281,7 +10277,7 @@ export default function RechnungenPage() {
                             const currentInvoiceMoveSiteKeyV17_90L371BW = currentInvoiceMoveSiteV17_90L371BW
                               ? invoiceGroupKeyForSite(currentInvoiceMoveSiteV17_90L371BW)
                               : "";
-                            const canMoveInvoiceItemBetweenSitesV17_90L371BW = currentInvoiceSitesV17_90L320.length > 1;
+                            const canMoveInvoiceItemBetweenSitesV17_90L371BW = currentInvoiceSitesV17_90L320.length > 0;
                             const itemWorkSiteUiKeyV17_90L320 = compactInvoiceValue(
                               (item as any)._workSiteUiKey,
                             );
@@ -10307,8 +10303,7 @@ export default function RechnungenPage() {
                                       itemSourceOrderIdV17_90L320),
                               );
                             const shouldShowInvoiceWorkSiteSelectorV17_90L320 =
-                              currentInvoiceSitesV17_90L320.length > 1 &&
-                              !assignedInvoiceSiteV17_90L320;
+                              currentInvoiceSitesV17_90L320.length > 0;
 
                             return (
                               <div
@@ -10526,14 +10521,16 @@ export default function RechnungenPage() {
                                               : "";
                                           })()}
                                           onChange={(event) =>
-                                            assignInvoiceItemToSite(
-                                              idx,
-                                              event.target.value,
-                                            )
+                                            event.target.value
+                                              ? assignInvoiceItemToSite(
+                                                  idx,
+                                                  event.target.value,
+                                                )
+                                              : clearInvoiceItemSiteAssignmentV17_90L371BW(idx)
                                           }
                                         >
                                           <option value="">
-                                            Arbeitsort wählen…
+                                            Rechnungsadresse
                                           </option>
                                           {getCurrentInvoiceExecutionSitesV17_90L284().map((site, siteIndex) => {
                                             const key =
@@ -10714,9 +10711,44 @@ export default function RechnungenPage() {
 
                           if (!group.site) {
                             return (
-                              <div key={group.key} className="space-y-1.5">
-                                {renderEntries(group.entries)}
-                              </div>
+                              <details
+                                key={group.key}
+                                open={groupExpanded}
+                                onToggle={(event) => {
+                                  const open = event.currentTarget.open;
+                                  setExpandedInvoiceSiteKeys((current) => {
+                                    const next = new Set(current);
+                                    if (open) next.add(group.key);
+                                    else next.delete(group.key);
+                                    return next;
+                                  });
+                                }}
+                                className="overflow-visible space-y-1.5"
+                              >
+                                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl border-2 border-cyan-300 bg-cyan-50/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-100/80 [&::-webkit-details-marker]:hidden dark:border-cyan-800 dark:bg-cyan-950/20">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                      <span className="shrink-0 text-base leading-none">{groupExpanded ? "▾" : "▸"}</span>
+                                      <span>📍 Rechnungsadresse</span>
+                                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                        {group.entries.length} Position{group.entries.length === 1 ? "" : "en"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                      Positionen an der Rechnungsadresse
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <div className="text-[10px] text-muted-foreground">Zwischensumme</div>
+                                    <div className="font-mono text-sm font-semibold">{formatCurrency(group.subtotal, currency)}</div>
+                                  </div>
+                                </summary>
+                                {groupExpanded && (
+                                  <div className="space-y-2 rounded-b-xl border-x-2 border-b-2 border-cyan-300 bg-cyan-50/20 p-2 dark:border-cyan-800 dark:bg-cyan-950/10">
+                                    {renderEntries(group.entries)}
+                                  </div>
+                                )}
+                              </details>
                             );
                           }
 

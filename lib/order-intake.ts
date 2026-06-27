@@ -2,6 +2,7 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
+// SMARTFLOW_V17_90L371BY_MULTIROOT_ADDRESS_REPAIR
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 // SMARTFLOW_V17_90L371BL_MATERIAL_SURFACE_INVALID_KEEP_GUARD
 // SMARTFLOW_V17_90L371BK_MATERIAL_SURFACE_LINE_GUARD
@@ -16278,7 +16279,12 @@ function normalizeMultiSiteTextV17_90L371BT(value: unknown): string {
 }
 
 function splitMultiSiteLinesV17_90L371BT(value: unknown): string[] {
-  return compactMultiSiteTextV17_90L371BT(value)
+  const prepared = compactMultiSiteTextV17_90L371BT(value)
+    .replace(/\s+(?=(?:ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objekt)\s+[A-Za-zÄÖÜäöüß0-9._-]+\s*:)/gi, '\n')
+    .replace(/\s+(?=(?:zuerst|erst|als\s+erstes)\s+(?:m[üu]ssen\s+wir\s+)?(?:bei|beim|in|im|am|an|auf|zur|zum)\s+)/gi, '\n')
+    .replace(/\s+(?=(?:danach|anschliessend|anschließend|anschl\.|dann)\s+(?:kommt|geht|m[üu]ssen))/gi, '\n')
+    .replace(/\s+(?=(?:bei|an|auf|in)\s+(?:der\s+)?rechnungsadresse\b)/gi, '\n');
+  return prepared
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -16293,7 +16299,7 @@ function parseMultiSiteStreetV17_90L371BT(value: unknown): string | null {
   if (!raw) return null;
   const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
   const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
-  const suffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+  const suffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|park|quai|street|road|lane)";
   const patterns = [
     new RegExp(`\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`, 'i'),
     new RegExp(`\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`, 'i'),
@@ -16342,11 +16348,25 @@ function isMultiSiteStartLineV17_90L371BT(line: string): { token: string; label:
   // `Danach kommt noch das Büro Ost:`. Treat ONLY such header-like lines as
   // candidate starts; address validation below still decides whether this is
   // a real worksite. This keeps chaotic inline address sentences fail-closed.
+  const firstInlineSiteMatchV17_90L371BY = compactLine.match(
+    /^\s*(?:wir\s+m[üu]ssen\s+)?(?:zuerst|erst|als\s+erstes)\s+(?:m[üu]ssen\s+wir\s+)?(?:bei|beim|in|im|am|an|auf|zur|zum)\s+(?:der|dem|den|das|die)?\s*(.+?)\s+(?:arbeiten|reinigen|machen|erledigen|sein)\b[.:]?\s+.+$/i,
+  );
+  if (firstInlineSiteMatchV17_90L371BY?.[1]) {
+    return { token: 'free_worksite', label: '', inline: firstInlineSiteMatchV17_90L371BY[1].trim() };
+  }
+
   const firstSiteMatch = compactLine.match(
     /^\s*(?:wir\s+m[üu]ssen\s+)?(?:zuerst|erst|als\s+erstes)\s+(?:m[üu]ssen\s+wir\s+)?(?:bei|beim|in|im|am|an|auf|zur|zum)\s+(?:der|dem|den|das|die)?\s*(.+?)\s+(?:arbeiten|reinigen|machen|erledigen|sein)\s*:?\s*$/i,
   );
   if (firstSiteMatch?.[1]) {
     return { token: 'free_worksite', label: '', inline: firstSiteMatch[1].trim() };
+  }
+
+  const nextInlineSiteMatchV17_90L371BY = compactLine.match(
+    /^\s*(?:danach|anschliessend|anschließend|anschl\.|dann)\s+(?:kommt\s+(?:noch\s+)?|geht\s+es\s+(?:noch\s+)?(?:zum|zur|ins|in|bei|beim)\s+|m[üu]ssen\s+wir\s+(?:noch\s+)?(?:zum|zur|ins|in|bei|beim)\s+)?(?:der|dem|den|das|die)?\s*(.+?)[.:]\s+.+$/i,
+  );
+  if (nextInlineSiteMatchV17_90L371BY?.[1]) {
+    return { token: 'free_worksite', label: '', inline: nextInlineSiteMatchV17_90L371BY[1].trim() };
   }
 
   const nextSiteMatch = compactLine.match(
@@ -16367,6 +16387,11 @@ function isMultiSiteOperationalOrWorkLineV17_90L371BT(line: string): boolean {
   if (/\b(?:chf|eur|franken|stutz|sfr)\b|€|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stk|stück|stueck|laufmeter|meter|m|tag|tage|pauschal|kanister|paket|set)\b|\b(?:à|a|je|pro|x)\s*\d/.test(key)) return true;
   if (/\b(?:reinigen|reinigung|montieren|demontieren|ersetzen|entfernen|entsorgen|ausbessern|mieten|aufstellen|verlegen)\b/.test(key)) return true;
   return false;
+}
+
+function isMultiSiteBillingRootLineV17_90L371BY(line: string): boolean {
+  const key = normalizeMultiSiteTextV17_90L371BT(line);
+  return /\b(?:bei|an|auf|in)\s+(?:der\s+)?rechnungsadresse\b/.test(key) || /^rechnungsadresse\b/.test(key);
 }
 
 function cleanMultiSiteNameV17_90L371BT(value: unknown): string | null {
@@ -16412,8 +16437,9 @@ function extractMultiExecutionWorkSitesV17_90L371BT(
 
     const sites = starts.map((entry, siteIndex) => {
       const end = starts[siteIndex + 1]?.index ?? lines.length;
-      const blockLines = lines.slice(entry.index, end);
-      const bodyLines = lines.slice(entry.index + 1, end);
+      const rawBlockLines = lines.slice(entry.index, end);
+      const blockLines = rawBlockLines.filter((line, lineIndex) => lineIndex === 0 || !isMultiSiteBillingRootLineV17_90L371BY(line));
+      const bodyLines = rawBlockLines.slice(1).filter((line) => !isMultiSiteBillingRootLineV17_90L371BY(line));
       let siteName = cleanMultiSiteNameV17_90L371BT(entry.marker.inline);
       let siteAddress: string | null = null;
       let sitePlz: string | null = null;

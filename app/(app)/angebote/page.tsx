@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
 // SMARTFLOW_V17_90L371BP_OFFER_OUTER_SPECIAL_NOTES_CHIPS_MATCH_ORDER
@@ -921,10 +922,7 @@ function groupOfferItemsByExecutionSite(
           site._workSiteUiKey === item._workSiteUiKey,
       ) ||
       normalizedSites.find((site) => offerSiteKey(site) === offerSiteKey(item)) ||
-      (item.sourceOrderId
-        ? normalizedSites.find((site) => site.sourceOrderId === item.sourceOrderId)
-        : undefined) ||
-      (normalizedSites.length === 1 ? normalizedSites[0] : null);
+      null;
     const hasCompleteItemSite = Boolean(
       compactOfferValue(item.siteAddress) &&
         compactOfferValue(item.sitePlz) &&
@@ -1092,12 +1090,7 @@ function applyExecutionSitesToOfferItems(
           candidate._workSiteUiKey === item._workSiteUiKey,
       ) ||
       cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
-      (item.sourceOrderId
-        ? cleanSites.find(
-            (candidate) => candidate.sourceOrderId === item.sourceOrderId,
-          )
-        : undefined) ||
-      (cleanSites.length === 1 ? cleanSites[0] : undefined);
+      undefined;
 
     if (!site) return stripOfferWorkSiteUiStateV17_90L287(item);
     return stripOfferWorkSiteUiStateV17_90L287({
@@ -5576,6 +5569,10 @@ export default function AngebotePage() {
   };
 
   const assignOfferItemToSite = (index: number, siteKey: string) => {
+    if (!siteKey) {
+      clearOfferItemSiteAssignmentV17_90L371BW(index);
+      return;
+    }
     const site = executionSites.find(
       (candidate) => offerGroupKeyForSite(candidate) === siteKey,
     );
@@ -10713,12 +10710,12 @@ export default function AngebotePage() {
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <Label className="whitespace-nowrap text-base font-semibold">
-                          {executionSites.length > 1
+                          {executionSites.length > 0
                             ? "Arbeitsorte & Positionen"
                             : `Positionen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`}
                         </Label>
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          {executionSites.length > 1 && (
+                          {executionSites.length > 0 && (
                             <Button
                               type="button"
                               variant="outline"
@@ -10736,7 +10733,7 @@ export default function AngebotePage() {
                                 : "Alle öffnen"}
                             </Button>
                           )}
-                          {executionSites.length > 1 && (
+                          {executionSites.length > 0 && (
                             <Button
                               type="button"
                               size="sm"
@@ -10760,7 +10757,7 @@ export default function AngebotePage() {
                           </Button>
                         </div>
                       </div>
-                      {executionSites.length > 1 ? (
+                      {executionSites.length > 0 ? (
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span className="min-w-0 truncate">
                             {executionSites.length} Arbeitsorte · {items.filter((item: OfferItem) => String(item?.description || "").trim()).length} Positionen
@@ -10862,7 +10859,7 @@ export default function AngebotePage() {
                         const currentOfferMoveSiteKeyV17_90L371BW = currentOfferMoveSiteV17_90L371BW
                           ? offerGroupKeyForSite(currentOfferMoveSiteV17_90L371BW)
                           : "";
-                        const canMoveOfferItemBetweenSitesV17_90L371BW = executionSites.length > 1;
+                        const canMoveOfferItemBetweenSitesV17_90L371BW = executionSites.length > 0;
 
                         // V17.90L320: Wie bei Aufträgen darf der Arbeitsort-Selector
                         // nur bei wirklich nicht zugeordneten Leistungszeilen erscheinen.
@@ -10894,7 +10891,7 @@ export default function AngebotePage() {
                                 itemSourceOrderIdV17_90L320),
                         );
                         const shouldShowOfferWorkSiteSelectorV17_90L320 =
-                          executionSites.length > 1 && !assignedOfferSiteV17_90L320;
+                          executionSites.length > 0;
 
                         const isExpanded = expandedItemIndex === idx;
                         const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
@@ -11130,10 +11127,12 @@ export default function AngebotePage() {
                                           : ""
                                       }
                                       onChange={(event) =>
-                                        assignOfferItemToSite(idx, event.target.value)
+                                        event.target.value
+                                          ? assignOfferItemToSite(idx, event.target.value)
+                                          : clearOfferItemSiteAssignmentV17_90L371BW(idx)
                                       }
                                     >
-                                      <option value="">Arbeitsort wählen…</option>
+                                      <option value="">Rechnungsadresse</option>
                                       {executionSites.map((site, siteIndex) => {
                                         const key = offerGroupKeyForSite(site);
                                         return (
@@ -11297,6 +11296,7 @@ export default function AngebotePage() {
                                                 });
 
                         if (
+                          executionSites.length === 0 &&
                           groups.length <= 1 &&
                           (groups[0]?.entries.length || 0) > 0
                         ) {
@@ -11326,9 +11326,44 @@ export default function AngebotePage() {
 
                           if (!group.site) {
                             return (
-                              <div key={group.key} className="space-y-1.5">
-                                {renderEntries(group.entries)}
-                              </div>
+                              <details
+                                key={group.key}
+                                open={groupExpanded}
+                                onToggle={(event) => {
+                                  const open = event.currentTarget.open;
+                                  setExpandedOfferSiteKeys((current) => {
+                                    const next = new Set(current);
+                                    if (open) next.add(group.key);
+                                    else next.delete(group.key);
+                                    return next;
+                                  });
+                                }}
+                                className="overflow-visible space-y-1.5"
+                              >
+                                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl border-2 border-cyan-300 bg-cyan-50/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-100/80 [&::-webkit-details-marker]:hidden dark:border-cyan-800 dark:bg-cyan-950/20">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                      <span className="shrink-0 text-base leading-none">{groupExpanded ? "▾" : "▸"}</span>
+                                      <span>📍 Rechnungsadresse</span>
+                                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                        {group.entries.length} Position{group.entries.length === 1 ? "" : "en"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                      Positionen an der Rechnungsadresse
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <div className="text-[10px] text-muted-foreground">Zwischensumme</div>
+                                    <div className="font-mono text-sm font-semibold">{formatCurrency(group.subtotal, currency)}</div>
+                                  </div>
+                                </summary>
+                                {groupExpanded && (
+                                  <div className="space-y-2 rounded-b-xl border-x-2 border-b-2 border-cyan-300 bg-cyan-50/20 p-2 dark:border-cyan-800 dark:bg-cyan-950/10">
+                                    {renderEntries(group.entries)}
+                                  </div>
+                                )}
+                              </details>
                             );
                           }
 
