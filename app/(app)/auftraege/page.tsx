@@ -19149,9 +19149,10 @@ export default function AuftraegePage() {
     const invoiceItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 0),
-      unit: i.unit ?? "",
+      unit: cleanPositionFieldValueV17_90L371B(i.unit),
       unitPrice: String(i.unitPrice ?? 0),
-      // V17.90L371CA: Rechnungsadresse/root bleibt beim Handoff root.
+      positionType: inferPositionTypeFromItem(i),
+      // V17.90L371CB: Rechnungsadresse/root bleibt beim Handoff root.
       siteName: i.workSite ? i.workSite.siteName || null : null,
       siteAddress: i.workSite ? i.workSite.siteAddress || null : null,
       sitePlz: i.workSite ? i.workSite.sitePlz || null : null,

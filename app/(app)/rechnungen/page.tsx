@@ -2965,7 +2965,14 @@ function groupInvoiceItemsByExecutionSite(
     group.subtotal += Number.isFinite(lineTotal) ? lineTotal : 0;
     groups.set(key, group);
   });
-  return Array.from(groups.values());
+  return Array.from(groups.values()).sort((left, right) => {
+    if (!left.site && right.site) return -1;
+    if (left.site && !right.site) return 1;
+    const leftEmpty = left.entries.length === 0;
+    const rightEmpty = right.entries.length === 0;
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    return 0;
+  });
 }
 
 function buildInvoiceGroupReviewRows(

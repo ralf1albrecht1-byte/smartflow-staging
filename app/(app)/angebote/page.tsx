@@ -928,7 +928,14 @@ function groupOfferItemsByExecutionSite(
     group.subtotal += Number.isFinite(lineTotal) ? lineTotal : 0;
     groups.set(key, group);
   });
-  return Array.from(groups.values());
+  return Array.from(groups.values()).sort((left, right) => {
+    if (!left.site && right.site) return -1;
+    if (left.site && !right.site) return 1;
+    const leftEmpty = left.entries.length === 0;
+    const rightEmpty = right.entries.length === 0;
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    return 0;
+  });
 }
 
 function buildOfferGroupReviewRows(
@@ -7075,21 +7082,42 @@ export default function AngebotePage() {
       // Get items from saved response or current form
       const offerItems =
         saved.items && saved.items.length > 0
-          ? saved.items.map((i: any) => ({
-              description: i.description ?? "",
-              positionType: inferPositionTypeFromItem(i),
-              quantity: String(i.quantity ?? 0),
-              unit: i.unit ?? "",
-              unitPrice: String(i.unitPrice ?? 0),
-              siteName: i.siteName || null,
-              siteAddress: i.siteAddress || null,
-              sitePlz: i.sitePlz || null,
-              siteCity: i.siteCity || null,
-              siteNote: i.siteNote || null,
-              sourceOrderId:
-                i.siteAddress && i.sitePlz && i.siteCity ? i.sourceOrderId || null : null,
-            }))
-          : items;
+          ? saved.items.map((i: any) => {
+              const hasCompleteSiteV17_90L371CB = Boolean(
+                compactOfferValue(i.siteAddress) &&
+                  compactOfferValue(i.sitePlz) &&
+                  compactOfferValue(i.siteCity),
+              );
+              return {
+                description: i.description ?? "",
+                positionType: inferPositionTypeFromItem(i),
+                quantity: String(i.quantity ?? 0),
+                unit: i.unit ?? "",
+                unitPrice: String(i.unitPrice ?? 0),
+                siteName: hasCompleteSiteV17_90L371CB ? i.siteName || null : null,
+                siteAddress: hasCompleteSiteV17_90L371CB ? i.siteAddress || null : null,
+                sitePlz: hasCompleteSiteV17_90L371CB ? i.sitePlz || null : null,
+                siteCity: hasCompleteSiteV17_90L371CB ? i.siteCity || null : null,
+                siteNote: hasCompleteSiteV17_90L371CB ? i.siteNote || null : null,
+                sourceOrderId: hasCompleteSiteV17_90L371CB ? i.sourceOrderId || null : null,
+              };
+            })
+          : items.map((i: any) => {
+              const hasCompleteSiteV17_90L371CB = Boolean(
+                compactOfferValue(i.siteAddress) &&
+                  compactOfferValue(i.sitePlz) &&
+                  compactOfferValue(i.siteCity),
+              );
+              return {
+                ...i,
+                siteName: hasCompleteSiteV17_90L371CB ? i.siteName || null : null,
+                siteAddress: hasCompleteSiteV17_90L371CB ? i.siteAddress || null : null,
+                sitePlz: hasCompleteSiteV17_90L371CB ? i.sitePlz || null : null,
+                siteCity: hasCompleteSiteV17_90L371CB ? i.siteCity || null : null,
+                siteNote: hasCompleteSiteV17_90L371CB ? i.siteNote || null : null,
+                sourceOrderId: hasCompleteSiteV17_90L371CB ? i.sourceOrderId || null : null,
+              };
+            });
       const conversionBlockers = getOfferToInvoiceBlockersV17_90L174(offerItems);
       if (conversionBlockers.length > 0) {
         toast.error(`Rechnung nicht möglich: ${conversionBlockers.slice(0, 3).join(", ")}`);
@@ -7406,20 +7434,26 @@ export default function AngebotePage() {
   const createInvoiceDirectly = async (off: Offer) => {
     // Direkt Rechnung erstellen via API — kein Extra-Dialog
     const rawInvoiceItems =
-      off.items?.map((it: any) => ({
-        description: it.description ?? "",
-              positionType: inferPositionTypeFromItem(it),
-        quantity: String(it.quantity ?? 0),
-        unit: it.unit ?? "",
-        unitPrice: String(it.unitPrice ?? 0),
-        siteName: it.siteName || null,
-        siteAddress: it.siteAddress || null,
-        sitePlz: it.sitePlz || null,
-        siteCity: it.siteCity || null,
-        siteNote: it.siteNote || null,
-        sourceOrderId:
-          it.siteAddress && it.sitePlz && it.siteCity ? it.sourceOrderId || null : null,
-      })) ?? [];
+      off.items?.map((it: any) => {
+        const hasCompleteSiteV17_90L371CB = Boolean(
+          compactOfferValue(it.siteAddress) &&
+            compactOfferValue(it.sitePlz) &&
+            compactOfferValue(it.siteCity),
+        );
+        return {
+          description: it.description ?? "",
+          positionType: inferPositionTypeFromItem(it),
+          quantity: String(it.quantity ?? 0),
+          unit: it.unit ?? "",
+          unitPrice: String(it.unitPrice ?? 0),
+          siteName: hasCompleteSiteV17_90L371CB ? it.siteName || null : null,
+          siteAddress: hasCompleteSiteV17_90L371CB ? it.siteAddress || null : null,
+          sitePlz: hasCompleteSiteV17_90L371CB ? it.sitePlz || null : null,
+          siteCity: hasCompleteSiteV17_90L371CB ? it.siteCity || null : null,
+          siteNote: hasCompleteSiteV17_90L371CB ? it.siteNote || null : null,
+          sourceOrderId: hasCompleteSiteV17_90L371CB ? it.sourceOrderId || null : null,
+        };
+      }) ?? [];
     const invoiceItems = applyExecutionSitesToOfferItems(
       rawInvoiceItems,
       collectOfferExecutionSites(off),
