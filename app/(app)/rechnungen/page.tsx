@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BS_INVOICE_CLOSED_CARD_ACTION_MENU_PORTAL
@@ -5917,31 +5918,16 @@ export default function RechnungenPage() {
 
   const addItem = () => {
     const sites = getCurrentInvoiceExecutionSitesV17_90L284();
-    const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
-    // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
-    // innerhalb der neu geöffneten Leistungsposition ausgewählt. Dadurch ist
-    // kein dauerhaftes Arbeitsort-Dropdown in der Kopfzeile nötig.
-    const requestedKey =
-      sites.length > 1
-        ? null
-        : newInvoiceItemSiteKey ||
-          editingInvoiceSiteKey ||
-          Array.from(expandedInvoiceSiteKeys)[0] ||
-          groups[0]?.key ||
-          null;
-
-    const targetSite =
-      groups.find((group) => group.key === requestedKey)?.site ||
-      sites.find((site) => invoiceGroupKeyForSite(site) === requestedKey) ||
-      null;
+    // V17.90L371BZ: Der globale "+ Position"-Button erzeugt bei vorhandenen
+    // Ausführungsorten zuerst eine Root/Rechnungsadresse-Position. Gezieltes
+    // Hinzufügen zu einem Arbeitsort bleibt über "+ Position hier hinzufügen".
     setItems((current) => [
-      { ...getEmptyItem(), ...(targetSite || {}), _manualUserAdded: true },
+      { ...getEmptyItem(), _manualUserAdded: true },
       ...current,
     ]);
-    if (requestedKey)
-      setExpandedInvoiceSiteKeys(
-        (current) => new Set([...current, requestedKey]),
-      );
+    if (sites.length > 0) {
+      setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
+    }
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     requestAnimationFrame(() => {
@@ -7217,19 +7203,27 @@ export default function RechnungenPage() {
     const realItemsForCreateV17_90L292 = itemsForCreateWithUiState.filter(
       (item) => Boolean(compactInvoiceValue(item.description)),
     );
-    const unassignedExecutionSite = currentExecutionSites
-      .filter(
-        (site) =>
-          Boolean(compactInvoiceValue(site.siteAddress)) &&
-          Boolean(compactInvoiceValue(site.sitePlz)) &&
-          Boolean(compactInvoiceValue(site.siteCity)),
-      )
-      .find(
-        (site) =>
-          !realItemsForCreateV17_90L292.some(
-            (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
-          ),
-      );
+    const hasBillingAddressItemV17_90L371BZ = realItemsForCreateV17_90L292.some(
+      (item) =>
+        !compactInvoiceValue(item.siteAddress) &&
+        !compactInvoiceValue(item.sitePlz) &&
+        !compactInvoiceValue(item.siteCity),
+    );
+    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
+      ? null
+      : currentExecutionSites
+          .filter(
+            (site) =>
+              Boolean(compactInvoiceValue(site.siteAddress)) &&
+              Boolean(compactInvoiceValue(site.sitePlz)) &&
+              Boolean(compactInvoiceValue(site.siteCity)),
+          )
+          .find(
+            (site) =>
+              !realItemsForCreateV17_90L292.some(
+                (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
+              ),
+          );
     if (unassignedExecutionSite) {
       toast.error(
         "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
@@ -7354,19 +7348,27 @@ export default function RechnungenPage() {
     const realItemsForEditV17_90L292 = itemsForEditWithUiStateV17_90L292.filter(
       (item) => Boolean(compactInvoiceValue(item.description)),
     );
-    const unassignedExecutionSite = currentExecutionSitesV17_90L292
-      .filter(
-        (site) =>
-          Boolean(compactInvoiceValue(site.siteAddress)) &&
-          Boolean(compactInvoiceValue(site.sitePlz)) &&
-          Boolean(compactInvoiceValue(site.siteCity)),
-      )
-      .find(
-        (site) =>
-          !realItemsForEditV17_90L292.some(
-            (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
-          ),
-      );
+    const hasBillingAddressItemV17_90L371BZ = realItemsForEditV17_90L292.some(
+      (item) =>
+        !compactInvoiceValue(item.siteAddress) &&
+        !compactInvoiceValue(item.sitePlz) &&
+        !compactInvoiceValue(item.siteCity),
+    );
+    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
+      ? null
+      : currentExecutionSitesV17_90L292
+          .filter(
+            (site) =>
+              Boolean(compactInvoiceValue(site.siteAddress)) &&
+              Boolean(compactInvoiceValue(site.sitePlz)) &&
+              Boolean(compactInvoiceValue(site.siteCity)),
+          )
+          .find(
+            (site) =>
+              !realItemsForEditV17_90L292.some(
+                (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
+              ),
+          );
     if (unassignedExecutionSite) {
       toast.error(
         "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
@@ -7531,9 +7533,18 @@ export default function RechnungenPage() {
   // Save + Archive → set status Erledigt + back to list
   const saveAndArchive = async () => {
     if (!editingInvoice) return;
+    const currentSitesForArchiveV17_90L371BZ = getCurrentInvoiceExecutionSitesV17_90L284();
+    const hasBillingAddressItemForArchiveV17_90L371BZ = items.some(
+      (item) =>
+        compactInvoiceValue(item.description) &&
+        !compactInvoiceValue(item.siteAddress) &&
+        !compactInvoiceValue(item.sitePlz) &&
+        !compactInvoiceValue(item.siteCity),
+    );
     const unassignedExecutionSite =
-      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
-        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
+      currentSitesForArchiveV17_90L371BZ.length > 1 &&
+      !hasBillingAddressItemForArchiveV17_90L371BZ
+        ? currentSitesForArchiveV17_90L371BZ.find((site) => {
             const siteKey = invoiceGroupKeyForSite(site);
             return !items.some((item) => {
               const itemKey = invoiceGroupKeyForSite(

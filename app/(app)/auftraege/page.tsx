@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -13443,7 +13444,10 @@ export default function AuftraegePage() {
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
-    setNewItemWorkSiteId(nextWorkSites.length === 1 ? nextWorkSites[0]?.id || "" : "");
+    // V17.90L371BZ: Beim Öffnen keinen Einzel-Arbeitsort als Default für neue
+    // Positionen setzen. Rechnungsadresse/root muss auswählbar und speicherbar
+    // bleiben.
+    setNewItemWorkSiteId("");
     setExpandedWorkSiteIds([]);
     setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
@@ -14610,9 +14614,12 @@ export default function AuftraegePage() {
         .find((value) =>
           selectableSites.some((site) => site.id === value),
         ) || null;
-    const targetWorkSiteId =
-      preferredEditedWorkSiteIdV17_90L285 ||
-      (selectableSites.length === 1 ? selectableSites[0]?.id || null : null);
+    // V17.90L371BZ: Der globale "+ Position"-Button darf bei vorhandenen
+    // Ausführungsorten nicht mehr automatisch in den einzigen Arbeitsort
+    // schreiben. Root/null ist die fachliche Rechnungsadresse und bleibt ein
+    // gültiges Ziel. Standort-spezifisches Hinzufügen läuft weiter über
+    // "+ Position hier hinzufügen".
+    const targetWorkSiteId = preferredEditedWorkSiteIdV17_90L285 || null;
 
     const nextItem = {
       ...createEmptyItem(),
@@ -14634,7 +14641,7 @@ export default function AuftraegePage() {
       setExpandedWorkSiteIds((prev) =>
         prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
       );
-      setMovingItemKey(selectableSites.length > 1 ? nextItem.key : null);
+      setMovingItemKey(selectableSites.length > 0 ? nextItem.key : null);
     }
     setServiceActionMenuKey(null);
   };
@@ -16706,7 +16713,7 @@ export default function AuftraegePage() {
   };
 
   const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
-    if (!site) return "Ohne Arbeitsort";
+    if (!site) return "Rechnungsadresse";
     return formatWorkSiteTitle(site);
   };
 
@@ -16855,8 +16862,8 @@ export default function AuftraegePage() {
     ? [
         {
           key: "__unassigned__",
-          title: "Ohne Arbeitsort",
-          address: "Bitte zuordnen",
+          title: "Rechnungsadresse",
+          address: "Positionen an der Rechnungsadresse",
           rows: liveOverviewRows.filter((row) => !row.workSiteId),
         },
         ...currentEditWorkSites.map((site) => ({
@@ -17500,13 +17507,9 @@ export default function AuftraegePage() {
         ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(primaryWorkSiteForPayload)
         : false;
 
-    if (
-      cleanWorkSites.length > 1 &&
-      validItems.some((item) => !item.workSiteId)
-    ) {
-      toast.error("Bitte jeder Position einen Arbeitsort zuordnen.");
-      return null;
-    }
+    // V17.90L371BZ: Eine Position ohne workSiteId ist nicht unzugeordnet,
+    // sondern bewusst der Rechnungsadresse/root zugeordnet. Deshalb darf diese
+    // Prüfung nicht mehr blockieren, sobald Ausführungsorte existieren.
     const desc = form.description?.trim() || buildDescription();
     if (!desc) {
       toast.error("Beschreibung erforderlich");
@@ -23971,7 +23974,7 @@ export default function AuftraegePage() {
                                     </summary>
 
                                     <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                      {hasMultipleEditWorkSites && !item.workSiteId && (
+                                      {hasMultipleEditWorkSites && !isEmptySitePlaceholder && (
                                         <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                           <Label className="text-xs">Arbeitsort wählen</Label>
                                           <select

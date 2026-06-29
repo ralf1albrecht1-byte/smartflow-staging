@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -5529,33 +5530,16 @@ export default function AngebotePage() {
   };
 
   const addItem = () => {
-    const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
-    // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
-    // in der neu geöffneten Leistungsposition ausgewählt. Das permanente
-    // Dropdown in der Kopfzeile entfällt dadurch.
-    const requestedKey =
-      executionSites.length > 1
-        ? null
-        : newOfferItemSiteKey ||
-          editingOfferSiteKey ||
-          Array.from(expandedOfferSiteKeys)[0] ||
-          groups[0]?.key ||
-          null;
-
-    const targetSite =
-      groups.find((group) => group.key === requestedKey)?.site ||
-      executionSites.find(
-        (site) => offerGroupKeyForSite(site) === requestedKey,
-      ) ||
-      null;
+    // V17.90L371BZ: Der globale "+ Position"-Button erzeugt bei vorhandenen
+    // Ausführungsorten zuerst eine Root/Rechnungsadresse-Position. Gezieltes
+    // Hinzufügen zu einem Arbeitsort bleibt über "+ Position hier hinzufügen".
     setItems((current) => [
-      { ...getEmptyItem(), ...(targetSite || {}), _manualUserAdded: true },
+      { ...getEmptyItem(), _manualUserAdded: true },
       ...current,
     ]);
-    if (requestedKey)
-      setExpandedOfferSiteKeys((current) =>
-        new Set([...current, requestedKey]),
-      );
+    if (executionSites.length > 0) {
+      setExpandedOfferSiteKeys((current) => new Set([...current, "general"]));
+    }
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     focusNewestOfferItem();
@@ -6660,8 +6644,6 @@ export default function AngebotePage() {
       collectOfferExecutionSites(off),
       off.id || "offer",
     );
-    const singleExecutionSite =
-      offerExecutionSites.length === 1 ? offerExecutionSites[0] : null;
     setExecutionSites(offerExecutionSites);
     if (lo)
       setLinkedOrderData({
@@ -6711,8 +6693,7 @@ export default function AngebotePage() {
             offerExecutionSites.find((site) => offerSiteKey(site) === offerSiteKey(i)) ||
             (i.sourceOrderId
               ? offerExecutionSites.find((site) => site.sourceOrderId === i.sourceOrderId)
-              : undefined) ||
-            singleExecutionSite;
+              : undefined);
           return {
             description: i.description ?? "",
               positionType: inferPositionTypeFromItem(i),
@@ -6887,12 +6868,20 @@ export default function AngebotePage() {
     const realItemsForSaveV17_90L292 = itemsForSave.filter((item) =>
       Boolean(compactOfferValue(item.description)),
     );
-    const unassignedExecutionSite = completeExecutionSitesV17_90L292.find(
-      (site) =>
-        !realItemsForSaveV17_90L292.some(
-          (item) => offerSiteKey(item) === offerSiteKey(site),
-        ),
+    const hasBillingAddressItemV17_90L371BZ = realItemsForSaveV17_90L292.some(
+      (item) =>
+        !compactOfferValue(item.siteAddress) &&
+        !compactOfferValue(item.sitePlz) &&
+        !compactOfferValue(item.siteCity),
     );
+    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
+      ? null
+      : completeExecutionSitesV17_90L292.find(
+          (site) =>
+            !realItemsForSaveV17_90L292.some(
+              (item) => offerSiteKey(item) === offerSiteKey(site),
+            ),
+        );
     if (unassignedExecutionSite) {
       toast.error(
         "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
