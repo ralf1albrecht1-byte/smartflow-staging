@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
+// SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -5530,16 +5530,15 @@ export default function AngebotePage() {
   };
 
   const addItem = () => {
-    // V17.90L371BZ: Der globale "+ Position"-Button erzeugt bei vorhandenen
-    // Ausführungsorten zuerst eine Root/Rechnungsadresse-Position. Gezieltes
-    // Hinzufügen zu einem Arbeitsort bleibt über "+ Position hier hinzufügen".
+    // V17.90L371BZ: Der globale Button "+ Position" startet auf
+    // Rechnungsadresse/root. Auch bei genau einem Ausführungsort darf keine
+    // automatische Zwangszuordnung erfolgen; der Arbeitsort-Wähler im Formular
+    // bleibt die bewusste Auswahl.
     setItems((current) => [
       { ...getEmptyItem(), _manualUserAdded: true },
       ...current,
     ]);
-    if (executionSites.length > 0) {
-      setExpandedOfferSiteKeys((current) => new Set([...current, "general"]));
-    }
+    setExpandedOfferSiteKeys((current) => new Set([...current, "general"]));
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     focusNewestOfferItem();
@@ -6693,7 +6692,8 @@ export default function AngebotePage() {
             offerExecutionSites.find((site) => offerSiteKey(site) === offerSiteKey(i)) ||
             (i.sourceOrderId
               ? offerExecutionSites.find((site) => site.sourceOrderId === i.sourceOrderId)
-              : undefined);
+              : undefined) ||
+            null;
           return {
             description: i.description ?? "",
               positionType: inferPositionTypeFromItem(i),
@@ -6865,29 +6865,9 @@ export default function AngebotePage() {
         Boolean(compactOfferValue(site.sitePlz)) &&
         Boolean(compactOfferValue(site.siteCity)),
     );
-    const realItemsForSaveV17_90L292 = itemsForSave.filter((item) =>
-      Boolean(compactOfferValue(item.description)),
-    );
-    const hasBillingAddressItemV17_90L371BZ = realItemsForSaveV17_90L292.some(
-      (item) =>
-        !compactOfferValue(item.siteAddress) &&
-        !compactOfferValue(item.sitePlz) &&
-        !compactOfferValue(item.siteCity),
-    );
-    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
-      ? null
-      : completeExecutionSitesV17_90L292.find(
-          (site) =>
-            !realItemsForSaveV17_90L292.some(
-              (item) => offerSiteKey(item) === offerSiteKey(site),
-            ),
-        );
-    if (unassignedExecutionSite) {
-      toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
-      );
-      return null;
-    }
+    // V17.90L371BZ: Eine Angebotsposition darf bewusst auf der
+    // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
+    // Pflichtziel und dürfen den Save nicht blockieren.
 
     const primaryExecutionSiteForProfilePayloadV17_90L306 =
       completeExecutionSitesV17_90L292[0] || null;

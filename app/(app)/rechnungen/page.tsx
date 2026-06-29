@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
+// SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BS_INVOICE_CLOSED_CARD_ACTION_MENU_PORTAL
@@ -5917,17 +5917,15 @@ export default function RechnungenPage() {
   };
 
   const addItem = () => {
-    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
-    // V17.90L371BZ: Der globale "+ Position"-Button erzeugt bei vorhandenen
-    // Ausführungsorten zuerst eine Root/Rechnungsadresse-Position. Gezieltes
-    // Hinzufügen zu einem Arbeitsort bleibt über "+ Position hier hinzufügen".
+    // V17.90L371BZ: Der globale Button "+ Position" startet auf
+    // Rechnungsadresse/root. Auch bei genau einem Ausführungsort darf keine
+    // automatische Zwangszuordnung erfolgen; der Arbeitsort-Wähler im Formular
+    // bleibt die bewusste Auswahl.
     setItems((current) => [
       { ...getEmptyItem(), _manualUserAdded: true },
       ...current,
     ]);
-    if (sites.length > 0) {
-      setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
-    }
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     requestAnimationFrame(() => {
@@ -7200,36 +7198,9 @@ export default function RechnungenPage() {
         sourceItems,
         currentExecutionSites,
       );
-    const realItemsForCreateV17_90L292 = itemsForCreateWithUiState.filter(
-      (item) => Boolean(compactInvoiceValue(item.description)),
-    );
-    const hasBillingAddressItemV17_90L371BZ = realItemsForCreateV17_90L292.some(
-      (item) =>
-        !compactInvoiceValue(item.siteAddress) &&
-        !compactInvoiceValue(item.sitePlz) &&
-        !compactInvoiceValue(item.siteCity),
-    );
-    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
-      ? null
-      : currentExecutionSites
-          .filter(
-            (site) =>
-              Boolean(compactInvoiceValue(site.siteAddress)) &&
-              Boolean(compactInvoiceValue(site.sitePlz)) &&
-              Boolean(compactInvoiceValue(site.siteCity)),
-          )
-          .find(
-            (site) =>
-              !realItemsForCreateV17_90L292.some(
-                (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
-              ),
-          );
-    if (unassignedExecutionSite) {
-      toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
-      );
-      return false;
-    }
+    // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
+    // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
+    // Pflichtziel und dürfen den Save nicht blockieren.
     if (!form.invoiceDate || !form.dueDate) {
       toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
       return false;
@@ -7345,36 +7316,9 @@ export default function RechnungenPage() {
         sourceItems,
         currentExecutionSitesV17_90L292,
       );
-    const realItemsForEditV17_90L292 = itemsForEditWithUiStateV17_90L292.filter(
-      (item) => Boolean(compactInvoiceValue(item.description)),
-    );
-    const hasBillingAddressItemV17_90L371BZ = realItemsForEditV17_90L292.some(
-      (item) =>
-        !compactInvoiceValue(item.siteAddress) &&
-        !compactInvoiceValue(item.sitePlz) &&
-        !compactInvoiceValue(item.siteCity),
-    );
-    const unassignedExecutionSite = hasBillingAddressItemV17_90L371BZ
-      ? null
-      : currentExecutionSitesV17_90L292
-          .filter(
-            (site) =>
-              Boolean(compactInvoiceValue(site.siteAddress)) &&
-              Boolean(compactInvoiceValue(site.sitePlz)) &&
-              Boolean(compactInvoiceValue(site.siteCity)),
-          )
-          .find(
-            (site) =>
-              !realItemsForEditV17_90L292.some(
-                (item) => invoiceSiteKey(item) === invoiceSiteKey(site),
-              ),
-          );
-    if (unassignedExecutionSite) {
-      toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
-      );
-      return false;
-    }
+    // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
+    // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
+    // Pflichtziel und dürfen den Save nicht blockieren.
     if (!form.invoiceDate || !form.dueDate) {
       toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
       return false;
@@ -7533,18 +7477,9 @@ export default function RechnungenPage() {
   // Save + Archive → set status Erledigt + back to list
   const saveAndArchive = async () => {
     if (!editingInvoice) return;
-    const currentSitesForArchiveV17_90L371BZ = getCurrentInvoiceExecutionSitesV17_90L284();
-    const hasBillingAddressItemForArchiveV17_90L371BZ = items.some(
-      (item) =>
-        compactInvoiceValue(item.description) &&
-        !compactInvoiceValue(item.siteAddress) &&
-        !compactInvoiceValue(item.sitePlz) &&
-        !compactInvoiceValue(item.siteCity),
-    );
     const unassignedExecutionSite =
-      currentSitesForArchiveV17_90L371BZ.length > 1 &&
-      !hasBillingAddressItemForArchiveV17_90L371BZ
-        ? currentSitesForArchiveV17_90L371BZ.find((site) => {
+      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
+        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
             const siteKey = invoiceGroupKeyForSite(site);
             return !items.some((item) => {
               const itemKey = invoiceGroupKeyForSite(

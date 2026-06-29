@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371BZ_ROOT_POSITION_SAVE_SELECTOR_SAFE_ALL3
+// SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -13444,10 +13444,7 @@ export default function AuftraegePage() {
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
-    // V17.90L371BZ: Beim Öffnen keinen Einzel-Arbeitsort als Default für neue
-    // Positionen setzen. Rechnungsadresse/root muss auswählbar und speicherbar
-    // bleiben.
-    setNewItemWorkSiteId("");
+    setNewItemWorkSiteId(nextWorkSites.length === 1 ? nextWorkSites[0]?.id || "" : "");
     setExpandedWorkSiteIds([]);
     setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
@@ -14595,54 +14592,23 @@ export default function AuftraegePage() {
   };
 
   const addItem = () => {
-    const selectableSites = formWorkSites.filter((site) =>
-      Boolean(
-        compactText(site.siteName) ||
-          compactText(site.siteAddress) ||
-          compactText(site.sitePlz) ||
-          compactText(site.siteCity) ||
-          site.id === activeWorkSiteId ||
-          site.id === editingWorkSiteId,
-      ),
-    );
-    // V17.90L135J: Bei mehreren Arbeitsorten wird die Auswahl erst
-    // innerhalb der neu geöffneten Leistungsposition getroffen. Dadurch bleibt
-    // die Kopfzeile kompakt und es gibt dort kein dauerhaftes Dropdown mehr.
-    const preferredEditedWorkSiteIdV17_90L285 =
-      [editingWorkSiteId, newItemWorkSiteId]
-        .map((value) => String(value || "").trim())
-        .find((value) =>
-          selectableSites.some((site) => site.id === value),
-        ) || null;
-    // V17.90L371BZ: Der globale "+ Position"-Button darf bei vorhandenen
-    // Ausführungsorten nicht mehr automatisch in den einzigen Arbeitsort
-    // schreiben. Root/null ist die fachliche Rechnungsadresse und bleibt ein
-    // gültiges Ziel. Standort-spezifisches Hinzufügen läuft weiter über
-    // "+ Position hier hinzufügen".
-    const targetWorkSiteId = preferredEditedWorkSiteIdV17_90L285 || null;
-
+    // V17.90L371BZ: Der globale Button "+ Position" darf nie automatisch den
+    // einzigen vorhandenen Ausführungsort erzwingen. Eine neue globale Position
+    // startet bewusst auf root/Rechnungsadresse; der Arbeitsort-Wähler im
+    // geöffneten Formular erlaubt danach Rechnungsadresse oder Ausführungsort.
     const nextItem = {
       ...createEmptyItem(),
-      workSiteId: targetWorkSiteId,
+      workSiteId: null,
       _manualUserAdded: true,
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
     setExpandedServiceItemKeys([nextItem.key]);
-    if (targetWorkSiteId) {
-      setActiveWorkSiteId(targetWorkSiteId);
-      setExpandedWorkSiteIds((prev) =>
-        prev.includes(targetWorkSiteId)
-          ? prev
-          : [targetWorkSiteId, ...prev],
-      );
-      setMovingItemKey(null);
-    } else {
-      setExpandedWorkSiteIds((prev) =>
-        prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
-      );
-      setMovingItemKey(selectableSites.length > 0 ? nextItem.key : null);
-    }
+    setActiveWorkSiteId(null);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
+    );
+    setMovingItemKey(null);
     setServiceActionMenuKey(null);
   };
 
@@ -17453,39 +17419,10 @@ export default function AuftraegePage() {
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
 
-    // V17.90L292: Der sichtbare Arbeitsort muss vor dem Speichern verbindlich
-    // mit den gespeicherten Leistungszeilen verknüpft sein. Bei genau einem
-    // Arbeitsort werden noch unzugeordnete Leistungen diesem Ort zugewiesen.
-    // Bei mehreren Arbeitsorten bleibt die bewusste Zuordnung unverändert.
-    const canonicalPrimaryWorkSiteIdV17_90L292 =
-      cleanWorkSites.find((site) => Boolean(site.isPrimary))?.id ||
-      cleanWorkSites[0]?.id ||
-      null;
-    if (cleanWorkSites.length === 1 && canonicalPrimaryWorkSiteIdV17_90L292) {
-      const currentWorkSiteIdsV17_90L292 = new Set(
-        cleanWorkSites.map((site) => site.id),
-      );
-      validItems = validItems.map((item) =>
-        item.workSiteId && currentWorkSiteIdsV17_90L292.has(item.workSiteId)
-          ? item
-          : { ...item, workSiteId: canonicalPrimaryWorkSiteIdV17_90L292 },
-      );
-    }
-
-    const workSiteWithoutServiceV17_90L292 = cleanWorkSites.find(
-      (site) =>
-        !validItems.some(
-          (item) =>
-            item.workSiteId === site.id &&
-            Boolean(compactText(item.serviceName)),
-        ),
-    );
-    if (workSiteWithoutServiceV17_90L292) {
-      toast.error(
-        "Bitte für jeden Arbeitsort mindestens eine Position ausfüllen.",
-      );
-      return null;
-    }
+    // V17.90L371BZ: root/Rechnungsadresse ist eine gültige Zielgruppe.
+    // Deshalb werden leere workSiteId-Werte hier nicht mehr auf den einzigen
+    // Ausführungsort umgebogen und leere Ausführungsorte blockieren das
+    // Speichern nicht. Nur echte Positions-Pflichtfelder bleiben Blocker.
 
     const primaryWorkSiteForPayload =
       cleanWorkSites.find((site) => Boolean(site.isPrimary)) ||
@@ -17507,9 +17444,6 @@ export default function AuftraegePage() {
         ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(primaryWorkSiteForPayload)
         : false;
 
-    // V17.90L371BZ: Eine Position ohne workSiteId ist nicht unzugeordnet,
-    // sondern bewusst der Rechnungsadresse/root zugeordnet. Deshalb darf diese
-    // Prüfung nicht mehr blockieren, sobald Ausführungsorte existieren.
     const desc = form.description?.trim() || buildDescription();
     if (!desc) {
       toast.error("Beschreibung erforderlich");
@@ -23974,7 +23908,7 @@ export default function AuftraegePage() {
                                     </summary>
 
                                     <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                      {hasMultipleEditWorkSites && !isEmptySitePlaceholder && (
+                                      {hasMultipleEditWorkSites && (
                                         <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                           <Label className="text-xs">Arbeitsort wählen</Label>
                                           <select
