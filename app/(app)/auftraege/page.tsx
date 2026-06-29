@@ -1,5 +1,6 @@
 "use client";
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
+// SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -16693,8 +16694,7 @@ export default function AuftraegePage() {
 
   const isWorkSiteGroupExpanded = (site?: OrderWorkSite | null) =>
     !hasMultipleEditWorkSites ||
-    expandedWorkSiteIds.includes(getWorkSiteGroupKey(site)) ||
-    (!site && formItems.some((item) => !item.workSiteId));
+    expandedWorkSiteIds.includes(getWorkSiteGroupKey(site));
 
   const toggleWorkSiteGroup = (site?: OrderWorkSite | null) => {
     const key = getWorkSiteGroupKey(site);
@@ -21593,7 +21593,7 @@ export default function AuftraegePage() {
                               }}
                               title="Kunde bearbeiten"
                               aria-label="Kunde bearbeiten"
-                              className="rounded-lg border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-600 dark:bg-slate-900/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
+                              className="rounded-lg border-2 border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 dark:border-emerald-800 dark:bg-emerald-950/20 space-y-1.5 min-w-0 cursor-pointer hover:bg-emerald-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                             >
                               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
@@ -23372,7 +23372,7 @@ export default function AuftraegePage() {
                                   className={`cursor-pointer rounded-xl border-2 px-3 py-2 shadow-sm transition-colors ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
                                     site
                                       ? siteAccentClass
-                                      : "border-red-400 bg-red-100/70 text-red-900 hover:bg-red-200/60 dark:border-red-800/70 dark:bg-red-950/25 dark:text-red-100 dark:hover:bg-red-900/30"
+                                      : "border-emerald-400 bg-emerald-100/70 text-emerald-950 hover:bg-emerald-200/60 dark:border-emerald-800 dark:bg-emerald-950/25 dark:text-emerald-100 dark:hover:bg-emerald-900/30"
                                   } ${isActiveSite ? "ring-2 ring-offset-1 ring-cyan-300" : ""}`}
                                 >
                                   <div className="flex items-start justify-between gap-3">
@@ -23382,7 +23382,7 @@ export default function AuftraegePage() {
                                           {groupExpanded ? "▾" : "▸"}
                                         </span>
                                         <span>
-                                          📍{" "}
+                                          {site ? "📍" : "🧾"}{" "}
                                           {site
                                             ? `${siteIndex + 1}. ${formatWorkSiteTitle(site)}`
                                             : "Rechnungsadresse"}

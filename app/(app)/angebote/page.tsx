@@ -1,5 +1,6 @@
 "use client";
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
+// SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
 // SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
 // SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
@@ -10060,10 +10061,10 @@ export default function AngebotePage() {
                                 ? "Historischer Kundenstand"
                                 : "Kunde bearbeiten"
                             }
-                            className={`rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-700 dark:bg-slate-900/30 ${
+                            className={`rounded-xl border border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-emerald-800 dark:bg-emerald-950/20 ${
                               historicalOfferCustomerLocked
                                 ? "cursor-default"
-                                : "cursor-pointer hover:bg-slate-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
+                                : "cursor-pointer hover:bg-emerald-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                             }`}
                           >
                             {isFallbackCustomerName(cust.name) ? (
@@ -10195,7 +10196,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-700 dark:bg-slate-900/30">
+                              <div className="mt-2 rounded-xl border border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-emerald-800 dark:bg-emerald-950/20">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -11309,11 +11310,11 @@ export default function AngebotePage() {
                                 }}
                                 className="overflow-visible space-y-1.5"
                               >
-                                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl border-2 border-cyan-300 bg-cyan-50/70 px-3 py-2 shadow-sm transition-colors hover:bg-cyan-100/80 [&::-webkit-details-marker]:hidden dark:border-cyan-800 dark:bg-cyan-950/20">
+                                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl border-2 border-emerald-400 bg-emerald-100/70 px-3 py-2 text-emerald-950 shadow-sm transition-colors hover:bg-emerald-200/60 [&::-webkit-details-marker]:hidden dark:border-emerald-800 dark:bg-emerald-950/25 dark:text-emerald-100 dark:hover:bg-emerald-900/30">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
                                       <span className="shrink-0 text-base leading-none">{groupExpanded ? "▾" : "▸"}</span>
-                                      <span>📍 Rechnungsadresse</span>
+                                      <span>🧾 Rechnungsadresse</span>
                                       <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
                                         {group.entries.length} Position{group.entries.length === 1 ? "" : "en"}
                                       </span>
@@ -11328,7 +11329,7 @@ export default function AngebotePage() {
                                   </div>
                                 </summary>
                                 {groupExpanded && (
-                                  <div className="space-y-2 rounded-b-xl border-x-2 border-b-2 border-cyan-300 bg-cyan-50/20 p-2 dark:border-cyan-800 dark:bg-cyan-950/10">
+                                  <div className="space-y-2 rounded-b-xl border-x-2 border-b-2 border-emerald-400 bg-emerald-50/20 p-2 dark:border-emerald-800 dark:bg-emerald-950/10">
                                     {renderEntries(group.entries)}
                                   </div>
                                 )}
