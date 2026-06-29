@@ -21765,7 +21765,7 @@ export default function AuftraegePage() {
                               ? compactText(canonicalCustomerV2?.email)
                               : cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                             return (
-                              <div className="mt-2 rounded-lg border-2 border-slate-300 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-600 dark:bg-slate-900/30 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-lg border-2 border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 dark:border-emerald-800 dark:bg-emerald-950/20 space-y-1.5 min-w-0">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="min-w-0">
                                     {/* ISSUE 4 — Neutral display for fallback customers */}
