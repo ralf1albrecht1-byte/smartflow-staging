@@ -2799,29 +2799,11 @@ function collectInvoiceExecutionSites(source: {
       _workSiteUiKey: item?._workSiteUiKey,
     });
   });
-  sourceOrders.forEach((order) => {
-    if (!order?.siteAddressDifferent) return;
-    const workSites = Array.isArray(order?.workSites)
-      ? [...order.workSites].sort(
-          (a, b) =>
-            Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
-            Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
-        )
-      : [];
-    workSites.forEach((site) =>
-      add({ ...site, sourceOrderId: site.sourceOrderId || order.id }),
-    );
-    if (workSites.length === 0) {
-      add({
-        siteName: order?.siteName,
-        siteAddress: order?.siteAddress,
-        sitePlz: order?.sitePlz,
-        siteCity: order?.siteCity,
-        siteNote: order?.siteNote,
-        sourceOrderId: order?.id,
-      });
-    }
-  });
+  // V17.90L371CA: Keine leeren Ausführungsorte nur aus verknüpften
+  // Aufträgen/Angeboten wiederherstellen. Rechnungs-Arbeitsorte werden aus
+  // konkreten Positions-Site-Feldern gesammelt. Dadurch bleibt root/
+  // Rechnungsadresse root und ein gelöschter leerer Arbeitsort kommt nicht
+  // durch die Quellenverknüpfung zurück.
   return sites;
 }
 
@@ -2887,6 +2869,7 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
       sitePlz: null,
       siteCity: null,
       siteNote: null,
+      sourceOrderId: null,
     }));
   }
 
@@ -2902,7 +2885,17 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
       ) ||
       undefined;
 
-    if (!site) return item;
+    if (!site) {
+      const hasCompleteItemSiteV17_90L371CA = Boolean(
+        compactInvoiceValue(item.siteAddress) &&
+          compactInvoiceValue(item.sitePlz) &&
+          compactInvoiceValue(item.siteCity),
+      );
+      return {
+        ...item,
+        sourceOrderId: hasCompleteItemSiteV17_90L371CA ? item.sourceOrderId || null : null,
+      };
+    }
     return {
       ...item,
       siteName: compactInvoiceValue(site.siteName) || null,
@@ -6857,12 +6850,6 @@ export default function RechnungenPage() {
     const groups = groupInvoiceItemsByExecutionSite(items || [], currentSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
-    if (group.site.sourceOrderId) {
-      toast.error(
-        "Dieser Arbeitsort stammt aus dem Auftrag und kann hier nicht gelöscht werden.",
-      );
-      return;
-    }
     const hasRealItems = group.entries.some(({ item }) =>
       Boolean(
         compactInvoiceValue(item.description) ||
@@ -6884,6 +6871,7 @@ export default function RechnungenPage() {
       (item) => invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
     );
 
+    const shouldClearExecutionAddressV17_90L371CA = nextSites.length === 0;
     setInvoiceExecutionSiteDrafts((current) =>
       current.filter((site) => invoiceGroupKeyForSite(site) !== groupKey),
     );
@@ -6898,13 +6886,19 @@ export default function RechnungenPage() {
     });
     setEditingInvoiceSiteKey(null);
     setNewInvoiceItemSiteKey("");
+    if (shouldClearExecutionAddressV17_90L371CA) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+      setNewInvoiceExecutionSite(null);
+      setInvoiceExecutionSiteDrafts([]);
+    }
 
     if (!editingInvoice) return;
     const saved = await saveEdit(
       false,
       nextItems,
       nextSites,
-      nextSites.length === 0,
+      shouldClearExecutionAddressV17_90L371CA,
     );
     if (saved) toast.success("Arbeitsort gelöscht und gespeichert.");
   };

@@ -16037,6 +16037,17 @@ export default function AuftraegePage() {
 
     const nextItems = formItems.filter((item) => item.workSiteId !== siteId);
     const nextWorkSites = formWorkSites.filter((site) => site.id !== siteId);
+    const shouldClearExecutionAddressV17_90L371CA = nextWorkSites.length === 0;
+    const clearExecutionAddressPatchV17_90L371CA = shouldClearExecutionAddressV17_90L371CA
+      ? {
+          siteAddressDifferent: false,
+          siteName: "",
+          siteAddress: "",
+          sitePlz: "",
+          siteCity: "",
+          siteNote: "",
+        }
+      : undefined;
 
     setFormItems(nextItems);
     setFormWorkSites(nextWorkSites);
@@ -16044,17 +16055,25 @@ export default function AuftraegePage() {
     setActiveWorkSiteId((prev) => (prev === siteId ? null : prev));
     setNewItemWorkSiteId((prev) => (prev === siteId ? "" : prev));
     setExpandedWorkSiteIds((prev) => prev.filter((entry) => entry !== siteId));
+    if (shouldClearExecutionAddressV17_90L371CA) {
+      setExecutionAddressClearRequested(true);
+      setSiteAddressEditing(false);
+      setForm((prev) => ({
+        ...prev,
+        ...clearExecutionAddressPatchV17_90L371CA,
+      }));
+    }
 
     if (!editId) return;
     setSaving(true);
     try {
       const saved = await saveOrder(
-        undefined,
+        clearExecutionAddressPatchV17_90L371CA,
         nextItems,
         undefined,
         undefined,
         nextWorkSites,
-        nextWorkSites.length === 0,
+        shouldClearExecutionAddressV17_90L371CA,
       );
       if (!saved) return;
       setOrders((previous) =>
@@ -18340,13 +18359,17 @@ export default function AuftraegePage() {
         unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
         positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
-        siteName: i.workSite?.siteName || null,
-        siteAddress: i.workSite?.siteAddress || null,
-        sitePlz: i.workSite?.sitePlz || null,
-        siteCity: i.workSite?.siteCity || null,
-        siteNote: i.workSite?.siteNote || null,
-        sourceOrderId:
-          i.workSite?.sourceOrderId || i.sourceOrderId || saved.id || null,
+        // V17.90L371CA: Rechnungsadresse/root bleibt beim Handoff root.
+        // Ein leerer workSite-Bezug darf nicht über sourceOrderId wieder auf
+        // den ersten/einzigen Ausführungsort zurückfallen.
+        siteName: i.workSite ? i.workSite.siteName || null : null,
+        siteAddress: i.workSite ? i.workSite.siteAddress || null : null,
+        sitePlz: i.workSite ? i.workSite.sitePlz || null : null,
+        siteCity: i.workSite ? i.workSite.siteCity || null : null,
+        siteNote: i.workSite ? i.workSite.siteNote || null : null,
+        sourceOrderId: i.workSite
+          ? i.workSite.sourceOrderId || i.sourceOrderId || saved.id || null
+          : null,
       }));
 
       // Create offer via API — forward VAT from saved order
@@ -18412,13 +18435,17 @@ export default function AuftraegePage() {
         unit: cleanPositionFieldValueV17_90L371B(i.unit),
         unitPrice: String(i.unitPrice ?? 0),
         positionType: inferPositionTypeFromItem(i),
-        siteName: i.workSite?.siteName || null,
-        siteAddress: i.workSite?.siteAddress || null,
-        sitePlz: i.workSite?.sitePlz || null,
-        siteCity: i.workSite?.siteCity || null,
-        siteNote: i.workSite?.siteNote || null,
-        sourceOrderId:
-          i.workSite?.sourceOrderId || i.sourceOrderId || saved.id || null,
+        // V17.90L371CA: Rechnungsadresse/root bleibt beim Handoff root.
+        // Ein leerer workSite-Bezug darf nicht über sourceOrderId wieder auf
+        // den ersten/einzigen Ausführungsort zurückfallen.
+        siteName: i.workSite ? i.workSite.siteName || null : null,
+        siteAddress: i.workSite ? i.workSite.siteAddress || null : null,
+        sitePlz: i.workSite ? i.workSite.sitePlz || null : null,
+        siteCity: i.workSite ? i.workSite.siteCity || null : null,
+        siteNote: i.workSite ? i.workSite.siteNote || null : null,
+        sourceOrderId: i.workSite
+          ? i.workSite.sourceOrderId || i.sourceOrderId || saved.id || null
+          : null,
       }));
 
       // Forward VAT from saved order
@@ -19054,13 +19081,15 @@ export default function AuftraegePage() {
       unit: cleanPositionFieldValueV17_90L371B(i.unit),
       unitPrice: String(i.unitPrice ?? 0),
       positionType: resolveOrderPositionTypeForOfferHandoffV17_90L371F(i, orderItems, index),
-      siteName: i.workSite?.siteName || null,
-      siteAddress: i.workSite?.siteAddress || null,
-      sitePlz: i.workSite?.sitePlz || null,
-      siteCity: i.workSite?.siteCity || null,
-      siteNote: i.workSite?.siteNote || null,
-      sourceOrderId:
-        i.workSite?.sourceOrderId || i.sourceOrderId || sourceOrder.id || null,
+      // V17.90L371CA: Rechnungsadresse/root bleibt beim Handoff root.
+      siteName: i.workSite ? i.workSite.siteName || null : null,
+      siteAddress: i.workSite ? i.workSite.siteAddress || null : null,
+      sitePlz: i.workSite ? i.workSite.sitePlz || null : null,
+      siteCity: i.workSite ? i.workSite.siteCity || null : null,
+      siteNote: i.workSite ? i.workSite.siteNote || null : null,
+      sourceOrderId: i.workSite
+        ? i.workSite.sourceOrderId || i.sourceOrderId || sourceOrder.id || null
+        : null,
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
     const fwdVatRate =
@@ -19122,13 +19151,15 @@ export default function AuftraegePage() {
       quantity: String(i.quantity ?? 0),
       unit: i.unit ?? "",
       unitPrice: String(i.unitPrice ?? 0),
-      siteName: i.workSite?.siteName || null,
-      siteAddress: i.workSite?.siteAddress || null,
-      sitePlz: i.workSite?.sitePlz || null,
-      siteCity: i.workSite?.siteCity || null,
-      siteNote: i.workSite?.siteNote || null,
-      sourceOrderId:
-        i.workSite?.sourceOrderId || i.sourceOrderId || sourceOrder.id || null,
+      // V17.90L371CA: Rechnungsadresse/root bleibt beim Handoff root.
+      siteName: i.workSite ? i.workSite.siteName || null : null,
+      siteAddress: i.workSite ? i.workSite.siteAddress || null : null,
+      sitePlz: i.workSite ? i.workSite.sitePlz || null : null,
+      siteCity: i.workSite ? i.workSite.siteCity || null : null,
+      siteNote: i.workSite ? i.workSite.siteNote || null : null,
+      sourceOrderId: i.workSite
+        ? i.workSite.sourceOrderId || i.sourceOrderId || sourceOrder.id || null
+        : null,
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
     const fwdVatRate =

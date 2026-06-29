@@ -859,34 +859,10 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
     });
   });
 
-  sourceOrders.forEach((order) => {
-    // Die Rollenentscheidung des Auftrags ist verbindlich. Bei gleicher
-    // Rechnungs-/Ausführungsadresse werden alle Restwerte ignoriert.
-    if (!order.siteAddressDifferent) return;
-    const workSites = Array.isArray(order.workSites)
-      ? [...order.workSites].sort(
-          (a, b) =>
-            Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
-            Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
-        )
-      : [];
-    workSites.forEach((site) =>
-      addSite({
-        ...site,
-        sourceOrderId: site.sourceOrderId || order.id,
-      }),
-    );
-    if (workSites.length === 0) {
-      addSite({
-        siteName: order.siteName,
-        siteAddress: order.siteAddress,
-        sitePlz: order.sitePlz,
-        siteCity: order.siteCity,
-        siteNote: order.siteNote,
-        sourceOrderId: order.id,
-      });
-    }
-  });
+  // V17.90L371CA: Keine leeren Ausführungsorte nur aus verknüpften
+  // Aufträgen wiederherstellen. Angebot-Arbeitsorte werden über konkrete
+  // Positions-Site-Felder gesammelt. So bleibt eine Rechnungsadresse/root-
+  // Position root und ein gelöschter leerer Arbeitsort kommt nicht wieder.
 
   return sites;
 }
@@ -1078,7 +1054,7 @@ function applyExecutionSitesToOfferItems(
         sitePlz: null,
         siteCity: null,
         siteNote: null,
-        sourceOrderId: item.sourceOrderId || null,
+        sourceOrderId: null,
       }),
     );
   }
@@ -1094,7 +1070,17 @@ function applyExecutionSitesToOfferItems(
       cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
       undefined;
 
-    if (!site) return stripOfferWorkSiteUiStateV17_90L287(item);
+    if (!site) {
+      const hasCompleteItemSiteV17_90L371CA = Boolean(
+        compactOfferValue(item.siteAddress) &&
+          compactOfferValue(item.sitePlz) &&
+          compactOfferValue(item.siteCity),
+      );
+      return stripOfferWorkSiteUiStateV17_90L287({
+        ...item,
+        sourceOrderId: hasCompleteItemSiteV17_90L371CA ? item.sourceOrderId || null : null,
+      });
+    }
     return stripOfferWorkSiteUiStateV17_90L287({
       ...item,
       siteName: compactOfferValue(site.siteName) || null,
@@ -6426,6 +6412,7 @@ export default function AngebotePage() {
       (item) => offerGroupKeyForSite(item as OfferExecutionSite) !== groupKey,
     );
 
+    const shouldClearExecutionAddressV17_90L371CA = nextExecutionSites.length === 0;
     setExecutionSites(nextExecutionSites);
     setItems(nextItems);
     setExpandedOfferSiteKeys((current) => {
@@ -6435,6 +6422,10 @@ export default function AngebotePage() {
     });
     setEditingOfferSiteKey(null);
     setNewOfferItemSiteKey("");
+    if (shouldClearExecutionAddressV17_90L371CA) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+    }
 
     if (!editOfferId) return;
     setSaving(true);
@@ -6442,7 +6433,7 @@ export default function AngebotePage() {
       const saved = await saveOffer(
         nextItems,
         nextExecutionSites,
-        nextExecutionSites.length === 0,
+        shouldClearExecutionAddressV17_90L371CA,
       );
       if (!saved) return;
       await load();
@@ -6691,9 +6682,10 @@ export default function AngebotePage() {
               site._workSiteUiKey === i._workSiteUiKey,
             ) ||
             offerExecutionSites.find((site) => offerSiteKey(site) === offerSiteKey(i)) ||
-            (i.sourceOrderId
-              ? offerExecutionSites.find((site) => site.sourceOrderId === i.sourceOrderId)
-              : undefined) ||
+            // V17.90L371CA: Keine sourceOrderId-Fallback-Zuordnung für
+            // Rechnungsadresse/root. Root-Positionen haben bewusst keine
+            // vollständige Ausführungsadresse und dürfen nicht zurück auf den
+            // verknüpften Auftrag-Arbeitsort fallen.
             null;
           return {
             description: i.description ?? "",
@@ -7094,7 +7086,8 @@ export default function AngebotePage() {
               sitePlz: i.sitePlz || null,
               siteCity: i.siteCity || null,
               siteNote: i.siteNote || null,
-              sourceOrderId: i.sourceOrderId || null,
+              sourceOrderId:
+                i.siteAddress && i.sitePlz && i.siteCity ? i.sourceOrderId || null : null,
             }))
           : items;
       const conversionBlockers = getOfferToInvoiceBlockersV17_90L174(offerItems);
@@ -7424,7 +7417,8 @@ export default function AngebotePage() {
         sitePlz: it.sitePlz || null,
         siteCity: it.siteCity || null,
         siteNote: it.siteNote || null,
-        sourceOrderId: it.sourceOrderId || null,
+        sourceOrderId:
+          it.siteAddress && it.sitePlz && it.siteCity ? it.sourceOrderId || null : null,
       })) ?? [];
     const invoiceItems = applyExecutionSitesToOfferItems(
       rawInvoiceItems,
