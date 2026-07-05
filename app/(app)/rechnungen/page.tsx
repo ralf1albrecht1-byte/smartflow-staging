@@ -2894,6 +2894,11 @@ function applyInvoiceExecutionSitesToItemsV17_90L292(
       );
       return {
         ...item,
+        siteName: hasCompleteItemSiteV17_90L371CA ? item.siteName || null : null,
+        siteAddress: hasCompleteItemSiteV17_90L371CA ? item.siteAddress || null : null,
+        sitePlz: hasCompleteItemSiteV17_90L371CA ? item.sitePlz || null : null,
+        siteCity: hasCompleteItemSiteV17_90L371CA ? item.siteCity || null : null,
+        siteNote: hasCompleteItemSiteV17_90L371CA ? item.siteNote || null : null,
         sourceOrderId: hasCompleteItemSiteV17_90L371CA ? item.sourceOrderId || null : null,
       };
     }
@@ -5498,20 +5503,33 @@ export default function RechnungenPage() {
           const parsed = JSON.parse(itemsJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setItems(
-              parsed.map((item: any) => ({
-                positionType: inferPositionTypeFromItem(item),
-                description: item.serviceName || item.description || "",
-                quantity: String(item.quantity ?? 0),
-                unit: item.unit ?? "Stunde",
-                unitPrice: String(item.unitPrice ?? 0),
-                siteName: item.siteName || item.workSite?.siteName || null,
-                siteAddress:
-                  item.siteAddress || item.workSite?.siteAddress || null,
-                sitePlz: item.sitePlz || item.workSite?.sitePlz || null,
-                siteCity: item.siteCity || item.workSite?.siteCity || null,
-                siteNote: item.siteNote || item.workSite?.siteNote || null,
-                sourceOrderId: item.sourceOrderId || null,
-              })),
+              parsed.map((item: any) => {
+                const siteAddress = item.siteAddress || item.workSite?.siteAddress || null;
+                const sitePlz = item.sitePlz || item.workSite?.sitePlz || null;
+                const siteCity = item.siteCity || item.workSite?.siteCity || null;
+                const hasCompleteSiteV17_90L371CC = Boolean(
+                  compactInvoiceValue(siteAddress) &&
+                    compactInvoiceValue(sitePlz) &&
+                    compactInvoiceValue(siteCity),
+                );
+                return {
+                  positionType: inferPositionTypeFromItem(item),
+                  description: item.serviceName || item.description || "",
+                  quantity: String(item.quantity ?? 0),
+                  unit: item.unit ?? "Stunde",
+                  unitPrice: String(item.unitPrice ?? 0),
+                  siteName: hasCompleteSiteV17_90L371CC
+                    ? item.siteName || item.workSite?.siteName || null
+                    : null,
+                  siteAddress: hasCompleteSiteV17_90L371CC ? siteAddress : null,
+                  sitePlz: hasCompleteSiteV17_90L371CC ? sitePlz : null,
+                  siteCity: hasCompleteSiteV17_90L371CC ? siteCity : null,
+                  siteNote: hasCompleteSiteV17_90L371CC
+                    ? item.siteNote || item.workSite?.siteNote || null
+                    : null,
+                  sourceOrderId: hasCompleteSiteV17_90L371CC ? item.sourceOrderId || null : null,
+                };
+              }),
             );
           }
         } catch {}
@@ -7009,18 +7027,27 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     Number(entry.item?.unitPrice || 0),
                 0,
               );
-              const siteTitle =
-                group.site?.siteName ||
-                group.site?.siteAddress ||
-                `Ausführungsort ${groupIndex + 1}`;
-              const siteAddress = [
-                group.site?.siteName ? group.site?.siteAddress : null,
-                [group.site?.sitePlz, group.site?.siteCity]
-                  .filter(Boolean)
-                  .join(" "),
-              ]
-                .filter(Boolean)
-                .join(" · ");
+              const visibleWorkSiteNumber = overviewGroups
+                .slice(0, groupIndex + 1)
+                .filter((candidate) => Boolean(candidate.site)).length;
+              const siteTitle = group.site
+                ? `${visibleWorkSiteNumber}. ${
+                    group.site?.siteName ||
+                    group.site?.siteAddress ||
+                    "Ausführungsort"
+                  }`
+                : "Rechnungsadresse";
+              const siteAddress = group.site
+                ? [
+                    group.site?.siteName ? group.site?.siteAddress : null,
+                    [group.site?.sitePlz, group.site?.siteCity]
+                      .filter(Boolean)
+                      .join(" "),
+                    group.site?.siteNote,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "Positionen an der Rechnungsadresse";
 
               return (
                 <div
@@ -7030,7 +7057,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                   <div className="flex items-start justify-between gap-2 border-b-2 border-slate-200 bg-muted/40 px-2 py-1.5 dark:border-slate-700">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold leading-tight">
-                        📍 {groupIndex + 1}. {siteTitle}
+                        {group.site ? "📍" : "🧾"} {siteTitle}
                       </div>
                       {siteAddress && (
                         <div className="text-xs text-muted-foreground">
@@ -10645,6 +10672,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                         }
 
                         return groups.map((group, groupIndex) => {
+                          const visibleInvoiceWorkSiteNumberV17_90L371CC = groups
+                            .slice(0, groupIndex + 1)
+                            .filter((candidate) => Boolean(candidate.site)).length;
                           const siteHasRequiredInfo = Boolean(
                             group.site &&
                               (compactInvoiceValue(group.site.siteName) ||
@@ -10736,7 +10766,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     {groupExpanded ? "▾" : "▸"}
                                   </span>
                                   <span>
-                                    📍 {groupIndex + 1}.{" "}
+                                    📍 {visibleInvoiceWorkSiteNumberV17_90L371CC}.{" "}
                                     {group.site?.siteName ||
                                       group.site?.siteAddress ||
                                       "Ausführungsort"}
