@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
@@ -6394,7 +6395,7 @@ export default function AngebotePage() {
     setExpandedOfferSiteKeys((current) => new Set([...current, groupKey]));
   };
 
-  const removeOfferExecutionSite = async (groupKey: string) => {
+  const removeOfferExecutionSite = (groupKey: string) => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
@@ -6411,6 +6412,21 @@ export default function AngebotePage() {
       );
       return;
     }
+
+    const siteLabel =
+      compactOfferValue(group.site.siteName) ||
+      compactOfferValue(group.site.siteAddress) ||
+      "Ausführungsort";
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(
+        `Ausführungsort „${siteLabel}“ löschen?
+
+Dieser Arbeitsort enthält keine Positionen.
+
+Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
+      );
+    if (!confirmed) return;
 
     const nextExecutionSites = executionSites.filter(
       (site) => offerGroupKeyForSite(site) !== groupKey,
@@ -6433,23 +6449,7 @@ export default function AngebotePage() {
       setExecutionAddressClearRequested(true);
       setEditingExecutionAddress(false);
     }
-
-    if (!editOfferId) return;
-    setSaving(true);
-    try {
-      const saved = await saveOffer(
-        nextItems,
-        nextExecutionSites,
-        shouldClearExecutionAddressV17_90L371CA,
-      );
-      if (!saved) return;
-      await load();
-      toast.success("Arbeitsort gelöscht und gespeichert.");
-    } catch {
-      toast.error("Arbeitsort konnte nicht gelöscht gespeichert werden.");
-    } finally {
-      setSaving(false);
-    }
+    toast.success("Arbeitsort zum Löschen vorgemerkt. Mit Speichern dauerhaft übernehmen.");
   };
 
   const toggleAllOfferSites = () => {
@@ -11651,7 +11651,7 @@ export default function AngebotePage() {
                                   <div className="font-semibold">
                                     Noch keine Position für diesen Arbeitsort.
                                   </div>
-                                  <div className="mt-2">
+                                  <div className="mt-2 flex flex-wrap gap-2">
                                     <Button
                                       type="button"
                                       size="sm"
@@ -11665,6 +11665,18 @@ export default function AngebotePage() {
                                       <Plus className="mr-1 h-3.5 w-3.5" />
                                       Position hier hinzufügen
                                     </Button>
+                                    {group.site && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                        onClick={() => removeOfferExecutionSite(group.key)}
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Ausführungsort löschen
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               )}

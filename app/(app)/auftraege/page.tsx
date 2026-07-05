@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
@@ -16017,7 +16018,8 @@ export default function AuftraegePage() {
     });
   };
 
-  const removeFormWorkSite = async (siteId: string) => {
+  const removeFormWorkSite = (siteId: string) => {
+    const site = formWorkSites.find((entry) => entry.id === siteId);
     const assignedItems = formItems.filter(
       (item) => item.workSiteId === siteId,
     );
@@ -16035,8 +16037,20 @@ export default function AuftraegePage() {
       return;
     }
 
+    const siteLabel = formatWorkSiteTitle(site);
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(
+        `Ausführungsort „${siteLabel}“ löschen?
+
+Dieser Arbeitsort enthält keine Positionen.
+
+Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
+      );
+    if (!confirmed) return;
+
     const nextItems = formItems.filter((item) => item.workSiteId !== siteId);
-    const nextWorkSites = formWorkSites.filter((site) => site.id !== siteId);
+    const nextWorkSites = formWorkSites.filter((entry) => entry.id !== siteId);
     const shouldClearExecutionAddressV17_90L371CA = nextWorkSites.length === 0;
     const clearExecutionAddressPatchV17_90L371CA = shouldClearExecutionAddressV17_90L371CA
       ? {
@@ -16063,31 +16077,7 @@ export default function AuftraegePage() {
         ...clearExecutionAddressPatchV17_90L371CA,
       }));
     }
-
-    if (!editId) return;
-    setSaving(true);
-    try {
-      const saved = await saveOrder(
-        clearExecutionAddressPatchV17_90L371CA,
-        nextItems,
-        undefined,
-        undefined,
-        nextWorkSites,
-        shouldClearExecutionAddressV17_90L371CA,
-      );
-      if (!saved) return;
-      setOrders((previous) =>
-        previous.map((order) =>
-          order.id === saved.id ? { ...order, ...saved } : order,
-        ),
-      );
-      await load();
-      toast.success("Arbeitsort gelöscht und gespeichert.");
-    } catch {
-      toast.error("Arbeitsort konnte nicht gelöscht gespeichert werden.");
-    } finally {
-      setSaving(false);
-    }
+    toast.success("Arbeitsort zum Löschen vorgemerkt. Mit Speichern dauerhaft übernehmen.");
   };
 
   const getWorkSiteSelectLabel = (site: OrderWorkSite) => {
@@ -23730,6 +23720,18 @@ export default function AuftraegePage() {
                                         }
                                       >
                                         + Position hier hinzufügen
+                                      </Button>
+                                    )}
+                                    {site && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                        onClick={() => removeFormWorkSite(site.id)}
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Ausführungsort löschen
                                       </Button>
                                     )}
                                   </div>

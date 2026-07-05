@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
 // SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
@@ -6852,7 +6853,7 @@ export default function RechnungenPage() {
     setExpandedInvoiceSiteKeys((current) => new Set([...current, groupKey]));
   };
 
-  const removeInvoiceExecutionSite = async (groupKey: string) => {
+  const removeInvoiceExecutionSite = (groupKey: string) => {
     const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
     const groups = groupInvoiceItemsByExecutionSite(items || [], currentSites);
     const group = groups.find((entry) => entry.key === groupKey);
@@ -6870,6 +6871,21 @@ export default function RechnungenPage() {
       );
       return;
     }
+
+    const siteLabel =
+      compactInvoiceValue(group.site.siteName) ||
+      compactInvoiceValue(group.site.siteAddress) ||
+      "Ausführungsort";
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(
+        `Ausführungsort „${siteLabel}“ löschen?
+
+Dieser Arbeitsort enthält keine Positionen.
+
+Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
+      );
+    if (!confirmed) return;
 
     const nextSites = currentSites.filter(
       (site) => invoiceGroupKeyForSite(site) !== groupKey,
@@ -6899,15 +6915,7 @@ export default function RechnungenPage() {
       setNewInvoiceExecutionSite(null);
       setInvoiceExecutionSiteDrafts([]);
     }
-
-    if (!editingInvoice) return;
-    const saved = await saveEdit(
-      false,
-      nextItems,
-      nextSites,
-      shouldClearExecutionAddressV17_90L371CA,
-    );
-    if (saved) toast.success("Arbeitsort gelöscht und gespeichert.");
+    toast.success("Arbeitsort zum Löschen vorgemerkt. Mit Speichern dauerhaft übernehmen.");
   };
 
   const toggleAllInvoiceSites = () => {
@@ -11031,7 +11039,7 @@ export default function RechnungenPage() {
                                   <div className="font-semibold">
                                     Noch keine Position für diesen Arbeitsort.
                                   </div>
-                                  <div className="mt-2">
+                                  <div className="mt-2 flex flex-wrap gap-2">
                                     <Button
                                       type="button"
                                       size="sm"
@@ -11045,6 +11053,18 @@ export default function RechnungenPage() {
                                       <Plus className="mr-1 h-3.5 w-3.5" />
                                       Position hier hinzufügen
                                     </Button>
+                                    {group.site && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                        onClick={() => removeInvoiceExecutionSite(group.key)}
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Ausführungsort löschen
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               )}
