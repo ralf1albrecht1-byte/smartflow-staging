@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
 // SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
 // SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
@@ -11619,7 +11620,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                 data-offer-work-site-editor={group.key}
                                 className={`rounded-b-xl border-2 border-t-0 p-2 ${
                                   siteNeedsReview
-                                    ? "border-red-400 bg-red-100/70 dark:border-red-800/70 dark:bg-red-950/25"
+                                    ? "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
                                     : siteHasNoItems
                                       ? "border-amber-400 bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950/25"
                                       : "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
