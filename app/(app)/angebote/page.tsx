@@ -6870,6 +6870,26 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         Boolean(compactOfferValue(site.sitePlz)) &&
         Boolean(compactOfferValue(site.siteCity)),
     );
+    const emptyExecutionSiteForSaveV17_90L371CF = completeExecutionSitesV17_90L292.find(
+      (site) => {
+        const siteKey = offerGroupKeyForSite(site);
+        return !itemsForSave.some(
+          (item: OfferItem) =>
+            compactOfferValue(item?.description) &&
+            offerGroupKeyForSite(item as OfferExecutionSite) === siteKey,
+        );
+      },
+    );
+    if (emptyExecutionSiteForSaveV17_90L371CF) {
+      const siteLabel =
+        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.siteName) ||
+        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.siteAddress) ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return null;
+    }
     // V17.90L371BZ: Eine Angebotsposition darf bewusst auf der
     // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
     // Pflichtziel und dürfen den Save nicht blockieren.
@@ -11984,19 +12004,31 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                         </Button>
                       </div>
 
-                      {!serviceOverviewOpen && (
-                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                          <span>
-                            {items.filter((item: OfferItem) =>
-                              String(item?.description || "").trim(),
-                            ).length}{" "}
-                            Positionen
-                          </span>
-                          <span className="font-mono font-semibold text-foreground">
-                            {formatCurrency(subtotal, currency)}
-                          </span>
-                        </div>
-                      )}
+                      {!serviceOverviewOpen && (() => {
+                        const overviewItems = (items || []).filter((item: OfferItem) =>
+                          compactOfferValue(item?.description),
+                        );
+                        const overviewGroups = groupOfferItemsByExecutionSite(
+                          overviewItems,
+                          executionSites,
+                        ).filter((group) => group.entries.length > 0);
+                        const workSiteCount = overviewGroups.length;
+                        const positionCount = overviewItems.length;
+
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                            <span>
+                              {workSiteCount > 0
+                                ? `${workSiteCount} Arbeitsort${workSiteCount === 1 ? "" : "e"} · `
+                                : ""}
+                              {positionCount} Position{positionCount === 1 ? "" : "en"}
+                            </span>
+                            <span className="font-mono font-semibold text-foreground">
+                              {formatCurrency(subtotal, currency)}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       {serviceOverviewOpen && (() => {
                         const overviewItems = (items || []).filter((item: OfferItem) =>

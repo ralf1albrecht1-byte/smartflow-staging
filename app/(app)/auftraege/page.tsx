@@ -17428,10 +17428,24 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
 
+    const emptyWorkSiteForSaveV17_90L371CF = cleanWorkSites.find(
+      (site) => hasWorkSiteContent(site) && !assignedWorkSiteIds.has(site.id),
+    );
+    if (emptyWorkSiteForSaveV17_90L371CF) {
+      const siteLabel =
+        cleanWorkSiteDisplayName(emptyWorkSiteForSaveV17_90L371CF.siteName) ||
+        emptyWorkSiteForSaveV17_90L371CF.siteAddress?.trim() ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return null;
+    }
+
     // V17.90L371BZ: root/Rechnungsadresse ist eine gültige Zielgruppe.
     // Deshalb werden leere workSiteId-Werte hier nicht mehr auf den einzigen
-    // Ausführungsort umgebogen und leere Ausführungsorte blockieren das
-    // Speichern nicht. Nur echte Positions-Pflichtfelder bleiben Blocker.
+    // Ausführungsort umgebogen. Ab L371CF dürfen echte leere Ausführungsorte
+    // aber nicht mehr still gespeichert werden.
 
     const primaryWorkSiteForPayload =
       cleanWorkSites.find((site) => Boolean(site.isPrimary)) ||

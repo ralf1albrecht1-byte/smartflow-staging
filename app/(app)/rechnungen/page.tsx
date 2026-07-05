@@ -7348,6 +7348,32 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         sourceItems,
         currentExecutionSites,
       );
+    const emptyExecutionSiteForCreateV17_90L371CF = currentExecutionSites.find(
+      (site) => {
+        const hasCompleteSite = Boolean(
+          compactInvoiceValue(site.siteAddress) &&
+            compactInvoiceValue(site.sitePlz) &&
+            compactInvoiceValue(site.siteCity),
+        );
+        if (!hasCompleteSite) return false;
+        const siteKey = invoiceGroupKeyForSite(site);
+        return !itemsForCreateWithUiState.some(
+          (item: InvoiceItem) =>
+            compactInvoiceValue(item?.description) &&
+            invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
+        );
+      },
+    );
+    if (emptyExecutionSiteForCreateV17_90L371CF) {
+      const siteLabel =
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.siteAddress) ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return false;
+    }
     // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
     // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
     // Pflichtziel und dürfen den Save nicht blockieren.
@@ -7466,6 +7492,32 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         sourceItems,
         currentExecutionSitesV17_90L292,
       );
+    const emptyExecutionSiteForEditV17_90L371CF = currentExecutionSitesV17_90L292.find(
+      (site) => {
+        const hasCompleteSite = Boolean(
+          compactInvoiceValue(site.siteAddress) &&
+            compactInvoiceValue(site.sitePlz) &&
+            compactInvoiceValue(site.siteCity),
+        );
+        if (!hasCompleteSite) return false;
+        const siteKey = invoiceGroupKeyForSite(site);
+        return !itemsForEditWithUiStateV17_90L292.some(
+          (item: InvoiceItem) =>
+            compactInvoiceValue(item?.description) &&
+            invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
+        );
+      },
+    );
+    if (emptyExecutionSiteForEditV17_90L371CF) {
+      const siteLabel =
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.siteAddress) ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return false;
+    }
     // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
     // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
     // Pflichtziel und dürfen den Save nicht blockieren.
