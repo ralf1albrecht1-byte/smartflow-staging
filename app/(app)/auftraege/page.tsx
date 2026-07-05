@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
@@ -16784,6 +16785,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     return `${item.serviceName || "Position prüfen"} · ${smartflowPositionTypeLabelV17_90L371K(item)} · ${quantityLabel}${totalLabel}`;
   };
 
+  const shouldShowStandardBillingRootGroupV17_90L371CH =
+    !hasMultipleEditWorkSites && visibleFormItemsV17_90L359.length > 0;
+
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
         ...visibleFormItemsWithIndexesV17_90L359
@@ -16831,11 +16835,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     : visibleFormItemsWithIndexesV17_90L359
         .slice()
         .sort(smartflowComparePositionEntriesV17_90L371K)
-        .map(({ item, index }) => ({
+        .map(({ item, index }, siteItemIndex) => ({
         item,
         index,
         site: null as OrderWorkSite | null,
-        isFirstInSite: false,
+        isFirstInSite: siteItemIndex === 0,
         isEmptySitePlaceholder: false,
       }));
 
@@ -23415,6 +23419,13 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               ? "border-l-amber-400"
                               : "border-l-slate-300";
                           const groupExpanded = isWorkSiteGroupExpanded(site);
+                          const shouldRenderStandardBillingRootGroupV17_90L371CH =
+                            shouldShowStandardBillingRootGroupV17_90L371CH &&
+                            !site &&
+                            isFirstInSite;
+                          const shouldRenderWorkSiteGroupHeaderV17_90L371CH =
+                            (hasMultipleEditWorkSites || shouldRenderStandardBillingRootGroupV17_90L371CH) &&
+                            isFirstInSite;
                           const isEditingSite = Boolean(
                             site && editingWorkSiteId === site.id,
                           );
@@ -23431,10 +23442,10 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             <div
                               key={item.key}
                               className={
-                                hasMultipleEditWorkSites ? "space-y-1.5" : ""
+                                shouldRenderWorkSiteGroupHeaderV17_90L371CH ? "space-y-1.5" : ""
                               }
                             >
-                              {hasMultipleEditWorkSites && isFirstInSite && (
+                              {shouldRenderWorkSiteGroupHeaderV17_90L371CH && (
                                 <div
                                   role="button"
                                   tabIndex={0}
@@ -23549,7 +23560,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                         {site
                                           ? formatWorkSiteAddress(site) ||
                                             "Adresse prüfen"
-                                          : "Positionen an der Rechnungsadresse"}
+                                          : shouldRenderStandardBillingRootGroupV17_90L371CH
+                                            ? "Standard-Ausführungsort"
+                                            : "Positionen an der Rechnungsadresse"}
                                       </div>
                                     </div>
                                     <div className="shrink-0 text-right">

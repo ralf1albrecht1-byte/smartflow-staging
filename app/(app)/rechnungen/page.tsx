@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
 // SMARTFLOW_V17_90L371CD_INVOICE_BILLING_ROOT_FROM_OFFER_GUARD
@@ -9896,7 +9897,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
 
                   {!newInvoiceExecutionSite ? (
                     <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
-                      Die Rechnungsadresse gilt auch als Ausführungsadresse.
+                      Standard: Rechnungsadresse = Ausführungsort.
                     </div>
                   ) : (
                     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -10149,7 +10150,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
 
                       {!executionSite ? (
                         <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
-                          Die Rechnungsadresse gilt auch als Ausführungsadresse.
+                          Standard: Rechnungsadresse = Ausführungsort.
                         </div>
                       ) : (
                         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -10888,13 +10889,6 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             );
                           });
 
-                        if (
-                          groups.length <= 1 &&
-                          (groups[0]?.entries.length || 0) > 0
-                        ) {
-                          return renderEntries(groups[0]?.entries || []);
-                        }
-
                         return groups.map((group, groupIndex) => {
                           const visibleInvoiceWorkSiteNumberV17_90L371CC = groups
                             .slice(0, groupIndex + 1)
@@ -10914,7 +10908,13 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             : siteHasNoItems
                               ? "border-amber-400 bg-amber-100/70 text-amber-900 hover:bg-amber-200/60 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100 dark:hover:bg-amber-900/30"
                               : "border-cyan-400 bg-cyan-100/70 text-slate-900 hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:text-slate-50 dark:hover:bg-cyan-900/30";
-                          const groupExpanded = expandedInvoiceSiteKeys.has(group.key);
+                          const currentInvoiceSitesForGroupV17_90L371CH =
+                            getCurrentInvoiceExecutionSitesV17_90L284();
+                          const isStandardBillingRootGroupV17_90L371CH =
+                            currentInvoiceSitesForGroupV17_90L371CH.length === 0 && !group.site;
+                          const groupExpanded =
+                            isStandardBillingRootGroupV17_90L371CH ||
+                            expandedInvoiceSiteKeys.has(group.key);
                           const isEditingSite = editingInvoiceSiteKey === group.key;
                           const isActiveSite =
                             newInvoiceItemSiteKey === group.key || isEditingSite;
@@ -10925,6 +10925,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                 key={group.key}
                                 open={groupExpanded}
                                 onToggle={(event) => {
+                                  if (isStandardBillingRootGroupV17_90L371CH) return;
                                   const open = event.currentTarget.open;
                                   setExpandedInvoiceSiteKeys((current) => {
                                     const next = new Set(current);
@@ -10945,7 +10946,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                       </span>
                                     </div>
                                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                      Positionen an der Rechnungsadresse
+                                      {isStandardBillingRootGroupV17_90L371CH
+                                        ? "Standard-Ausführungsort"
+                                        : "Positionen an der Rechnungsadresse"}
                                     </div>
                                   </div>
                                   <div className="shrink-0 text-right">
