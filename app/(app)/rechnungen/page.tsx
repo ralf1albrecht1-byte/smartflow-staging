@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CD_INVOICE_BILLING_ROOT_FROM_OFFER_GUARD
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
@@ -2815,6 +2816,67 @@ type InvoiceItemGroup = {
   subtotal: number;
 };
 
+const hasCompleteInvoiceItemSiteV17_90L371CD = (item: {
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+}) =>
+  Boolean(
+    compactInvoiceValue(item.siteAddress) &&
+      compactInvoiceValue(item.sitePlz) &&
+      compactInvoiceValue(item.siteCity),
+  );
+
+const invoiceBillingRootItemFingerprintV17_90L371CD = (item: any) =>
+  [
+    compactInvoiceValue(item?.description || item?.serviceName).toLocaleLowerCase("de-CH"),
+    compactInvoiceValue(item?.quantity),
+    compactInvoiceValue(item?.unit).toLocaleLowerCase("de-CH"),
+    compactInvoiceValue(item?.unitPrice),
+  ].join("|");
+
+const collectSourceOfferBillingRootItemKeysV17_90L371CD = (offer: any): string[] => {
+  const keys = new Set<string>();
+  (Array.isArray(offer?.items) ? offer.items : []).forEach((item: any) => {
+    if (hasCompleteInvoiceItemSiteV17_90L371CD(item)) return;
+    const key = invoiceBillingRootItemFingerprintV17_90L371CD(item);
+    if (key.replace(/\|/g, "")) keys.add(key);
+  });
+  return Array.from(keys);
+};
+
+const clearInvoiceItemBillingRootSiteV17_90L371CD = (item: InvoiceItem): InvoiceItem => ({
+  ...item,
+  siteName: null,
+  siteAddress: null,
+  sitePlz: null,
+  siteCity: null,
+  siteNote: null,
+  sourceOrderId: null,
+  _workSiteUiKey: null,
+});
+
+const repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD = (
+  sourceItems: InvoiceItem[],
+  sourceOfferRootKeys?: string[],
+): InvoiceItem[] => {
+  if (!Array.isArray(sourceOfferRootKeys) || sourceOfferRootKeys.length === 0) {
+    return sourceItems;
+  }
+  const rootKeys = new Set(sourceOfferRootKeys);
+  let changed = false;
+  const next = sourceItems.map((item) => {
+    const key = invoiceBillingRootItemFingerprintV17_90L371CD(item);
+    if (!rootKeys.has(key)) return item;
+    if (!hasCompleteInvoiceItemSiteV17_90L371CD(item) && !compactInvoiceValue(item.sourceOrderId)) {
+      return item;
+    }
+    changed = true;
+    return clearInvoiceItemBillingRootSiteV17_90L371CD(item);
+  });
+  return changed ? next : sourceItems;
+};
+
 const invoiceSiteKey = (site: InvoiceExecutionSite) =>
   [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
     .map((value) => compactInvoiceValue(value).toLowerCase())
@@ -4959,6 +5021,8 @@ export default function RechnungenPage() {
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
   const [sourceOfferInternalNotesByIdV17_90L319, setSourceOfferInternalNotesByIdV17_90L319] =
     useState<Record<string, string>>({});
+  const [sourceOfferBillingRootItemKeysByIdV17_90L371CD, setSourceOfferBillingRootItemKeysByIdV17_90L371CD] =
+    useState<Record<string, string[]>>({});
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -5413,6 +5477,10 @@ export default function RechnungenPage() {
         !Object.prototype.hasOwnProperty.call(
           sourceOfferInternalNotesByIdV17_90L319,
           offerId,
+        ) ||
+        !Object.prototype.hasOwnProperty.call(
+          sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+          offerId,
         ),
     );
     if (sourceOfferIds.length === 0) return;
@@ -5424,14 +5492,15 @@ export default function RechnungenPage() {
           const response = await fetch(`/api/offers/${offerId}`, {
             cache: "no-store",
           });
-          if (!response.ok) return [offerId, ""] as const;
+          if (!response.ok) return [offerId, "", [] as string[]] as const;
           const offer = await response.json();
           return [
             offerId,
             decodeOfferInternalNotesForInvoiceV17_90L319(offer?.notes),
+            collectSourceOfferBillingRootItemKeysV17_90L371CD(offer),
           ] as const;
         } catch {
-          return [offerId, ""] as const;
+          return [offerId, "", [] as string[]] as const;
         }
       }),
     ).then((entries) => {
@@ -5441,12 +5510,38 @@ export default function RechnungenPage() {
         for (const [offerId, notes] of entries) next[offerId] = notes;
         return next;
       });
+      setSourceOfferBillingRootItemKeysByIdV17_90L371CD((current) => {
+        const next = { ...current };
+        for (const [offerId, _notes, rootKeys] of entries) next[offerId] = rootKeys;
+        return next;
+      });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [invoices, sourceOfferInternalNotesByIdV17_90L319]);
+  }, [
+    invoices,
+    sourceOfferInternalNotesByIdV17_90L319,
+    sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+  ]);
+
+  useEffect(() => {
+    if (!dialogOpen || !editingInvoice?.sourceOfferId) return;
+    const rootKeys =
+      sourceOfferBillingRootItemKeysByIdV17_90L371CD[
+        compactInvoiceValue(editingInvoice.sourceOfferId)
+      ];
+    if (!rootKeys || rootKeys.length === 0) return;
+    setItems((current) =>
+      repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD(current, rootKeys),
+    );
+  }, [
+    dialogOpen,
+    editingInvoice?.id,
+    editingInvoice?.sourceOfferId,
+    sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+  ]);
 
   useEffect(() => {
     const refreshVisibleList = () => {
@@ -5728,7 +5823,7 @@ export default function RechnungenPage() {
     setNewInvoiceItemSiteKey("");
     setNewInvoiceExecutionSite(null);
     setInvoiceExecutionSiteDrafts([]);
-    setItems(
+    const mappedInvoiceItemsV17_90L371CD =
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
             positionType: inferPositionTypeFromItem(it),
@@ -5743,7 +5838,14 @@ export default function RechnungenPage() {
             siteNote: it.siteNote || null,
             sourceOrderId: it.sourceOrderId || null,
           }))
-        : [getEmptyItem()],
+        : [getEmptyItem()];
+    setItems(
+      repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD(
+        mappedInvoiceItemsV17_90L371CD,
+        sourceOfferBillingRootItemKeysByIdV17_90L371CD[
+          compactInvoiceValue(inv.sourceOfferId)
+        ],
+      ),
     );
     if (opts?.openCustomerSection && inv.customerId) {
       // Stage E (deterministic flow): mark a pending request; the effect below
