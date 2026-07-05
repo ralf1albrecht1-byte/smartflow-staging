@@ -12043,13 +12043,24 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                       .filter(Boolean)
                                       .join(" · ")
                                   : "Positionen an der Rechnungsadresse";
+                                const isBillingOverviewGroup = !group.site;
 
                                 return (
                                   <div
                                     key={`offer-overview-site-${group.key}`}
-                                    className="overflow-hidden rounded-md border-2 border-slate-300 bg-background shadow-sm dark:border-slate-700"
+                                    className={`overflow-hidden rounded-md border-2 shadow-sm ${
+                                      isBillingOverviewGroup
+                                        ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20"
+                                        : "border-cyan-300 bg-cyan-50/30 dark:border-cyan-800 dark:bg-cyan-950/20"
+                                    }`}
                                   >
-                                    <div className="flex items-start justify-between gap-2 border-b-2 border-slate-200 bg-muted/40 px-2 py-1.5 dark:border-slate-700">
+                                    <div
+                                      className={`flex items-start justify-between gap-2 border-b-2 px-2 py-1.5 ${
+                                        isBillingOverviewGroup
+                                          ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/70 dark:bg-emerald-950/30"
+                                          : "border-cyan-200 bg-cyan-50 dark:border-cyan-900/70 dark:bg-cyan-950/30"
+                                      }`}
+                                    >
                                       <div className="min-w-0">
                                         <div className="text-sm font-semibold leading-tight">
                                           {group.site ? "📍" : "🧾"} {siteTitle}
