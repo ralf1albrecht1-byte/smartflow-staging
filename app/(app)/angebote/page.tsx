@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
@@ -10602,11 +10603,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       )}
                     </div>
 
-                    {executionSites.length === 0 ? (
-                      <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
-                        Standard: Rechnungsadresse = Ausführungsort.
-                      </div>
-                    ) : (
+                    {executionSites.length > 0 && (
                       <div className="mt-3 space-y-3">
                         {executionSites.map((site, index) => (
                           <div
