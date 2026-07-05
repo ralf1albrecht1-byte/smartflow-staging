@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CI_ORDER_STANDARD_ROOT_AND_POSITION_COLLAPSE
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
@@ -13125,7 +13126,7 @@ export default function AuftraegePage() {
       setManualResidualCurrencyAcknowledged(false);
       setDiscardedRecognitionReviewKeys([]);
       setFormWorkSites([]);
-      setExpandedWorkSiteIds([]);
+      setExpandedWorkSiteIds(["__unassigned__"]);
       setExpandedServiceItemKeys([]);
       setCustomerMessagesExpanded(false);
       setServiceOverviewExpanded(false);
@@ -13289,7 +13290,7 @@ export default function AuftraegePage() {
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
     setNewItemWorkSiteId("");
-    setExpandedWorkSiteIds([]);
+    setExpandedWorkSiteIds(["__unassigned__"]);
     setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(false);
     setServiceOverviewExpanded(false);
@@ -13473,7 +13474,7 @@ export default function AuftraegePage() {
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
     setNewItemWorkSiteId(nextWorkSites.length === 1 ? nextWorkSites[0]?.id || "" : "");
-    setExpandedWorkSiteIds([]);
+    setExpandedWorkSiteIds(nextWorkSites.length === 0 ? ["__unassigned__"] : []);
     setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
     setServiceOverviewExpanded(false);
@@ -15316,7 +15317,7 @@ export default function AuftraegePage() {
         })),
       );
       setActiveWorkSiteId(null);
-      setExpandedWorkSiteIds([]);
+      setExpandedWorkSiteIds(["__unassigned__"]);
     }
     setPendingBillingAddressRoleAutoSaveV17_64(true);
 
@@ -15519,7 +15520,7 @@ export default function AuftraegePage() {
     );
     setSiteAddressEditing(false);
     setActiveWorkSiteId(null);
-    setExpandedWorkSiteIds([]);
+    setExpandedWorkSiteIds(["__unassigned__"]);
 
     setSaving(true);
     try {
@@ -16036,7 +16037,7 @@ export default function AuftraegePage() {
       setEditingWorkSiteId(null);
       setActiveWorkSiteId(null);
       setNewItemWorkSiteId("");
-      setExpandedWorkSiteIds([]);
+      setExpandedWorkSiteIds(["__unassigned__"]);
       return;
     }
 
@@ -16750,9 +16751,20 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
       ? visibleFormItemsV17_90L359.filter((item) => item.workSiteId === site.id)
       : visibleFormItemsV17_90L359.filter((item) => !item.workSiteId);
 
-  const isWorkSiteGroupExpanded = (site?: OrderWorkSite | null) =>
-    !hasMultipleEditWorkSites ||
-    expandedWorkSiteIds.includes(getWorkSiteGroupKey(site));
+  const shouldShowStandardBillingRootGroupV17_90L371CH =
+    !hasMultipleEditWorkSites && visibleFormItemsV17_90L359.length > 0;
+
+  const isWorkSiteGroupExpanded = (site?: OrderWorkSite | null) => {
+    const key = getWorkSiteGroupKey(site);
+    // SMARTFLOW_V17_90L371CI: Der Standardfall ohne abweichenden Arbeitsort
+    // bekommt jetzt denselben grünen Rechnungsadresse-Kopf wie Angebot/Rechnung
+    // und muss deshalb auch einklappbar sein. Nur komplett ungruppierte
+    // Legacy-Darstellung bleibt immer offen.
+    if (hasMultipleEditWorkSites || shouldShowStandardBillingRootGroupV17_90L371CH) {
+      return expandedWorkSiteIds.includes(key);
+    }
+    return true;
+  };
 
   const toggleWorkSiteGroup = (site?: OrderWorkSite | null) => {
     const key = getWorkSiteGroupKey(site);
@@ -16784,9 +16796,6 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     const totalLabel = total > 0 ? ` · ${formatCurrency(total, currency)}` : "";
     return `${item.serviceName || "Position prüfen"} · ${smartflowPositionTypeLabelV17_90L371K(item)} · ${quantityLabel}${totalLabel}`;
   };
-
-  const shouldShowStandardBillingRootGroupV17_90L371CH =
-    !hasMultipleEditWorkSites && visibleFormItemsV17_90L359.length > 0;
 
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
@@ -23846,6 +23855,17 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     }
                                   >
                                     <summary
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        if (site) setActiveWorkSiteId(site.id);
+                                        setServiceActionMenuKey(null);
+                                        setExpandedServiceItemKeys((current) =>
+                                          current.includes(item.key)
+                                            ? current.filter((key) => key !== item.key)
+                                            : [item.key],
+                                        );
+                                      }}
                                       className={`grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl px-3 py-2.5 transition-colors [&::-webkit-details-marker]:hidden ${
                                         hasCriticalItemReview
                                           ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
