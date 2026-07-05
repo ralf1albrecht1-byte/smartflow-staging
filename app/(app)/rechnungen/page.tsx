@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CO_INVOICE_EMPTY_WORKSITE_DELETE_KEY_MATCH
 // SMARTFLOW_V17_90L371CN_INVOICE_LAST_ITEM_DELETE_DIRECT_MATCH_OFFER
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
@@ -6135,10 +6136,18 @@ export default function RechnungenPage() {
     // Position wird die Position sofort aus der UI entfernt. Der Arbeitsort
     // bleibt als leerer Draft sichtbar und zeigt den Empty-State.
     if (removedSiteCandidate && removedSiteKey) {
+      const visibleRemovedSiteCandidateV17_90L371CO: InvoiceExecutionSite = {
+        ...removedSiteCandidate,
+        // Der Empty-State-Arbeitsort muss denselben UI-Key behalten, den der
+        // sichtbare Button später wieder an removeInvoiceExecutionSite übergibt.
+        // Sonst erzeugt ensureInvoiceExecutionSiteUiKeys einen neuen invoice-site-*
+        // Key und der leere Rechnungs-Arbeitsort lässt sich nicht entfernen.
+        _workSiteUiKey: removedSiteKey,
+      };
       setInvoiceExecutionSiteDrafts((current) =>
         current.some((site) => invoiceGroupKeyForSite(site) === removedSiteKey)
           ? current
-          : [removedSiteCandidate, ...current],
+          : [visibleRemovedSiteCandidateV17_90L371CO, ...current],
       );
       setExpandedInvoiceSiteKeys((current) => new Set([...current, removedSiteKey]));
     }
@@ -7100,25 +7109,44 @@ export default function RechnungenPage() {
       window.confirm(
         `Ausführungsort „${siteLabel}“ löschen?
 
-Dieser Arbeitsort enthält keine Positionen.
-
-Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
+Dieser Arbeitsort enthält keine Positionen.`,
       );
     if (!confirmed) return;
 
+    const removedInvoiceSiteAddressKeyV17_90L371CO = invoiceSiteKey(group.site);
+    const removedInvoiceSiteSourceOrderIdV17_90L371CO = compactInvoiceValue(
+      group.site.sourceOrderId,
+    );
+    const matchesRemovedInvoiceSiteV17_90L371CO = (
+      site?: InvoiceExecutionSite | null,
+    ) => {
+      if (!site) return false;
+      if (invoiceGroupKeyForSite(site) === groupKey) return true;
+      if (compactInvoiceValue(site._workSiteUiKey) === groupKey) return true;
+      const sameAddress =
+        invoiceSiteKey(site) === removedInvoiceSiteAddressKeyV17_90L371CO;
+      if (!sameAddress) return false;
+      const sourceOrderId = compactInvoiceValue(site.sourceOrderId);
+      return (
+        sourceOrderId === removedInvoiceSiteSourceOrderIdV17_90L371CO ||
+        !sourceOrderId ||
+        !removedInvoiceSiteSourceOrderIdV17_90L371CO
+      );
+    };
+
     const nextSites = currentSites.filter(
-      (site) => invoiceGroupKeyForSite(site) !== groupKey,
+      (site) => !matchesRemovedInvoiceSiteV17_90L371CO(site),
     );
     const nextItems = items.filter(
-      (item) => invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
+      (item) => !matchesRemovedInvoiceSiteV17_90L371CO(item as InvoiceExecutionSite),
     );
 
     const shouldClearExecutionAddressV17_90L371CA = nextSites.length === 0;
     setInvoiceExecutionSiteDrafts((current) =>
-      current.filter((site) => invoiceGroupKeyForSite(site) !== groupKey),
+      current.filter((site) => !matchesRemovedInvoiceSiteV17_90L371CO(site)),
     );
     setNewInvoiceExecutionSite((current) =>
-      current && invoiceGroupKeyForSite(current) === groupKey ? null : current,
+      current && matchesRemovedInvoiceSiteV17_90L371CO(current) ? null : current,
     );
     setItems(nextItems);
     setExpandedInvoiceSiteKeys((current) => {
@@ -7134,7 +7162,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
       setNewInvoiceExecutionSite(null);
       setInvoiceExecutionSiteDrafts([]);
     }
-    toast.success("Arbeitsort zum Löschen vorgemerkt. Mit Speichern dauerhaft übernehmen.");
+    toast.success("Ausführungsort gelöscht.");
   };
 
   const toggleAllInvoiceSites = () => {
