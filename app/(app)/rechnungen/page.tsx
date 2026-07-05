@@ -7421,8 +7421,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     });
     if (emptyExecutionSiteForCreateV17_90L371CF) {
       const siteLabel =
-        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.siteName) ||
-        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.siteAddress) ||
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.site?.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.site?.siteAddress) ||
         "Ausführungsort";
       toast.error(
         `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
@@ -7563,8 +7563,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     });
     if (emptyExecutionSiteForEditV17_90L371CF) {
       const siteLabel =
-        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.siteName) ||
-        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.siteAddress) ||
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.site?.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.site?.siteAddress) ||
         "Ausführungsort";
       toast.error(
         `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,

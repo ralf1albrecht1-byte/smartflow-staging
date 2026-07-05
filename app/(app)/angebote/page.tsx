@@ -6945,8 +6945,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     });
     if (emptyExecutionSiteForSaveV17_90L371CF) {
       const siteLabel =
-        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.siteName) ||
-        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.siteAddress) ||
+        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.site?.siteName) ||
+        compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.site?.siteAddress) ||
         "Ausführungsort";
       toast.error(
         `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
