@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
@@ -12594,6 +12595,30 @@ export default function AuftraegePage() {
   const [newItemWorkSiteId, setNewItemWorkSiteId] = useState<string>("");
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
   const [expandedServiceItemKeys, setExpandedServiceItemKeys] = useState<string[]>([]);
+  const [recentlyMovedOrderItemKeyV17_90L371CF, setRecentlyMovedOrderItemKeyV17_90L371CF] = useState<string | null>(null);
+  const recentlyMovedOrderItemTimerRefV17_90L371CF = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markOrderItemMovedV17_90L371CF = (itemKey: string) => {
+    if (recentlyMovedOrderItemTimerRefV17_90L371CF.current) {
+      clearTimeout(recentlyMovedOrderItemTimerRefV17_90L371CF.current);
+      recentlyMovedOrderItemTimerRefV17_90L371CF.current = null;
+    }
+    setRecentlyMovedOrderItemKeyV17_90L371CF(itemKey);
+    if (typeof window !== "undefined") {
+      recentlyMovedOrderItemTimerRefV17_90L371CF.current = setTimeout(() => {
+        setRecentlyMovedOrderItemKeyV17_90L371CF((current) =>
+          current === itemKey ? null : current,
+        );
+        recentlyMovedOrderItemTimerRefV17_90L371CF.current = null;
+      }, 2800);
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (recentlyMovedOrderItemTimerRefV17_90L371CF.current) {
+        clearTimeout(recentlyMovedOrderItemTimerRefV17_90L371CF.current);
+      }
+    };
+  }, []);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
   const [serviceOverviewExpanded, setServiceOverviewExpanded] = useState(false);
@@ -14648,6 +14673,12 @@ export default function AuftraegePage() {
     if (!movedItem) return;
 
     const normalizedWorkSiteId = String(nextWorkSiteId || "").trim();
+    const shouldCloseAfterMove = Boolean(
+      movedItem.serviceName?.trim() ||
+        movedItem.unit?.trim() ||
+        Number(movedItem.quantity || 0) > 0 ||
+        Number(movedItem.unitPrice || 0) > 0,
+    );
 
     setFormItems((prev) =>
       prev.map((item, itemIndex) =>
@@ -14666,8 +14697,25 @@ export default function AuftraegePage() {
       current.includes(groupKey) ? current : [groupKey, ...current],
     );
     setExpandedServiceItemKeys((current) =>
-      current.includes(movedItem.key) ? current : [movedItem.key, ...current],
+      shouldCloseAfterMove
+        ? current.filter((key) => key !== movedItem.key)
+        : current.includes(movedItem.key)
+          ? current
+          : [movedItem.key, ...current],
     );
+
+    if (shouldCloseAfterMove) {
+      markOrderItemMovedV17_90L371CF(movedItem.key);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-service-item-key="${movedItem.key}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    }
   };
 
   const removeItem = (index: number) => {
@@ -23753,6 +23801,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               ) : (
                                 groupExpanded && (
                                   <details
+                                    data-service-item-key={item.key}
                                     open={expandedServiceItemKeys.includes(item.key)}
                                     onToggle={(event) => {
                                       const isOpen = event.currentTarget.open;
@@ -23764,7 +23813,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                           : current.filter((key) => key !== item.key),
                                       );
                                     }}
-                                    className={`group/service-item relative min-w-0 border-2 shadow-sm ${
+                                    className={`group/service-item relative min-w-0 border-2 shadow-sm transition-all ${
                                       hasMultipleEditWorkSites
                                         ? `${site ? "ml-2" : ""} rounded-xl border-l-4 ${itemAccentClass}`
                                         : "rounded-xl"
@@ -23774,6 +23823,10 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                         : hasAnyItemReview
                                           ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
                                           : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                    } ${
+                                      recentlyMovedOrderItemKeyV17_90L371CF === item.key
+                                        ? "ring-2 ring-cyan-400 ring-offset-2 shadow-lg shadow-cyan-100 dark:ring-cyan-500 dark:shadow-cyan-950/40"
+                                        : ""
                                     }`}
                                     onClick={() =>
                                       site && setActiveWorkSiteId(site.id)

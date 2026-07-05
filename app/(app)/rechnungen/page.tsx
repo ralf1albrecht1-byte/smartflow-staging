@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CD_INVOICE_BILLING_ROOT_FROM_OFFER_GUARD
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
@@ -4988,6 +4989,30 @@ export default function RechnungenPage() {
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(
     null,
   );
+  const [recentlyMovedInvoiceItemIndexV17_90L371CF, setRecentlyMovedInvoiceItemIndexV17_90L371CF] = useState<number | null>(null);
+  const recentlyMovedInvoiceItemTimerRefV17_90L371CF = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markInvoiceItemMovedV17_90L371CF = (index: number) => {
+    if (recentlyMovedInvoiceItemTimerRefV17_90L371CF.current) {
+      clearTimeout(recentlyMovedInvoiceItemTimerRefV17_90L371CF.current);
+      recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = null;
+    }
+    setRecentlyMovedInvoiceItemIndexV17_90L371CF(index);
+    if (typeof window !== "undefined") {
+      recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = setTimeout(() => {
+        setRecentlyMovedInvoiceItemIndexV17_90L371CF((current) =>
+          current === index ? null : current,
+        );
+        recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = null;
+      }, 2800);
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (recentlyMovedInvoiceItemTimerRefV17_90L371CF.current) {
+        clearTimeout(recentlyMovedInvoiceItemTimerRefV17_90L371CF.current);
+      }
+    };
+  }, []);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<
     number | null
   >(null);
@@ -6097,6 +6122,13 @@ export default function RechnungenPage() {
       (candidate) => invoiceGroupKeyForSite(candidate) === siteKey,
     );
     if (!site) return;
+    const itemBeforeMove = items[index];
+    const shouldCloseAfterMove = Boolean(
+      compactInvoiceValue(itemBeforeMove?.description) ||
+        compactInvoiceValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
     setItems((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
@@ -6113,31 +6145,34 @@ export default function RechnungenPage() {
           : item,
       ),
     );
-    const keepInvoiceItemOpenAfterSiteChange = () => {
-      setNewInvoiceItemSiteKey(siteKey);
-      setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
-      setExpandedItemIndex(index);
-      setServiceActionMenuIndex(null);
-    };
 
-    keepInvoiceItemOpenAfterSiteChange();
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
+    setNewInvoiceItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
+    setServiceActionMenuIndex(null);
+
+    if (shouldCloseAfterMove) {
+      markInvoiceItemMovedV17_90L371CF(index);
+    }
 
     if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
       window.setTimeout(() => {
-        keepInvoiceItemOpenAfterSiteChange();
         document
           .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
           ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        document
-          .querySelector<HTMLInputElement>(
-            `[data-service-item-index="${index}"] input`,
-          )
-          ?.focus();
       }, 0);
     }
   };
 
   const clearInvoiceItemSiteAssignmentV17_90L371BW = (index: number) => {
+    const itemBeforeMove = items[index];
+    const shouldCloseAfterMove = Boolean(
+      compactInvoiceValue(itemBeforeMove?.description) ||
+        compactInvoiceValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
     setItems((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
@@ -6154,8 +6189,23 @@ export default function RechnungenPage() {
           : item,
       ),
     );
-    setExpandedItemIndex(index);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
+    setNewInvoiceItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
     setServiceActionMenuIndex(null);
+
+    if (shouldCloseAfterMove) {
+      markInvoiceItemMovedV17_90L371CF(index);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    }
   };
 
   const onItemServiceSelect = (
@@ -10406,6 +10456,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                 services || [],
                               ) || (itemNeedsReview ? "Manuell prüfen" : "");
                             const isExpanded = expandedItemIndex === idx;
+                            const isRecentlyMovedInvoiceItemV17_90L371CF =
+                              recentlyMovedInvoiceItemIndexV17_90L371CF === idx;
                             const isMenuOpen = serviceActionMenuIndex === idx;
                             const hasCatalogActionMenu =
                               itemNeedsReview && !hasMissingValues;
@@ -10457,12 +10509,16 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               <div
                                 key={idx}
                                 data-service-item-index={idx}
-                                className={`relative overflow-visible rounded-xl border transition-colors ${
+                                className={`relative overflow-visible rounded-xl border transition-all ${
                                   hasMissingValues
                                     ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
                                     : itemNeedsReview
                                       ? "border-amber-300 bg-amber-50/30"
                                       : "border-slate-200 bg-background"
+                                } ${
+                                  isRecentlyMovedInvoiceItemV17_90L371CF
+                                    ? "ring-2 ring-cyan-400 ring-offset-2 shadow-lg shadow-cyan-100 dark:ring-cyan-500 dark:shadow-cyan-950/40"
+                                    : ""
                                 }`}
                               >
                                 <div

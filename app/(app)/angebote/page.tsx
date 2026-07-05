@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
@@ -4710,6 +4711,30 @@ export default function AngebotePage() {
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
+  const [recentlyMovedOfferItemIndexV17_90L371CF, setRecentlyMovedOfferItemIndexV17_90L371CF] = useState<number | null>(null);
+  const recentlyMovedOfferItemTimerRefV17_90L371CF = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markOfferItemMovedV17_90L371CF = (index: number) => {
+    if (recentlyMovedOfferItemTimerRefV17_90L371CF.current) {
+      clearTimeout(recentlyMovedOfferItemTimerRefV17_90L371CF.current);
+      recentlyMovedOfferItemTimerRefV17_90L371CF.current = null;
+    }
+    setRecentlyMovedOfferItemIndexV17_90L371CF(index);
+    if (typeof window !== "undefined") {
+      recentlyMovedOfferItemTimerRefV17_90L371CF.current = setTimeout(() => {
+        setRecentlyMovedOfferItemIndexV17_90L371CF((current) =>
+          current === index ? null : current,
+        );
+        recentlyMovedOfferItemTimerRefV17_90L371CF.current = null;
+      }, 2800);
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (recentlyMovedOfferItemTimerRefV17_90L371CF.current) {
+        clearTimeout(recentlyMovedOfferItemTimerRefV17_90L371CF.current);
+      }
+    };
+  }, []);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
   const offerMobileInfoAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearOfferMobileInfoAutoCloseV17_90L175 = () => {
@@ -5560,6 +5585,13 @@ export default function AngebotePage() {
       (candidate) => offerGroupKeyForSite(candidate) === siteKey,
     );
     if (!site) return;
+    const itemBeforeMove = items[index];
+    const shouldCloseAfterMove = Boolean(
+      compactOfferValue(itemBeforeMove?.description) ||
+        compactOfferValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
     setItems((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
@@ -5576,31 +5608,35 @@ export default function AngebotePage() {
           : item,
       ),
     );
-    const keepOfferItemOpenAfterSiteChange = () => {
-      setNewOfferItemSiteKey(siteKey);
-      setExpandedOfferSiteKeys((current) => new Set([...current, siteKey]));
-      setExpandedItemIndex(index);
-      setServiceActionMenuIndex(null);
-    };
 
-    keepOfferItemOpenAfterSiteChange();
+    setExpandedOfferSiteKeys((current) => new Set([...current, siteKey]));
+    setNewOfferItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
+    setServiceActionMenuIndex(null);
+    setActiveMobileTooltip(null);
+
+    if (shouldCloseAfterMove) {
+      markOfferItemMovedV17_90L371CF(index);
+    }
 
     if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
       window.setTimeout(() => {
-        keepOfferItemOpenAfterSiteChange();
         document
           .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
           ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        document
-          .querySelector<HTMLInputElement>(
-            `[data-service-item-index="${index}"] input`,
-          )
-          ?.focus();
       }, 0);
     }
   };
 
   const clearOfferItemSiteAssignmentV17_90L371BW = (index: number) => {
+    const itemBeforeMove = items[index];
+    const shouldCloseAfterMove = Boolean(
+      compactOfferValue(itemBeforeMove?.description) ||
+        compactOfferValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
     setItems((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
@@ -5617,8 +5653,24 @@ export default function AngebotePage() {
           : item,
       ),
     );
-    setExpandedItemIndex(index);
+    setExpandedOfferSiteKeys((current) => new Set([...current, "general"]));
+    setNewOfferItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
     setServiceActionMenuIndex(null);
+    setActiveMobileTooltip(null);
+
+    if (shouldCloseAfterMove) {
+      markOfferItemMovedV17_90L371CF(index);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    }
   };
 
   const addServiceItem = (svc: any) => {
@@ -10923,6 +10975,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                           executionSites.length > 0;
 
                         const isExpanded = expandedItemIndex === idx;
+                        const isRecentlyMovedOfferItemV17_90L371CF =
+                          recentlyMovedOfferItemIndexV17_90L371CF === idx;
                         const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
                         const currentOfferUnitValueV17_90L371N = compactOfferValue(item?.unit);
                         const offerUnitOptionsV17_90L371N = Array.from(
@@ -10940,12 +10994,16 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                           <div
                             key={idx}
                             data-service-item-index={idx}
-                            className={`relative overflow-visible rounded-xl border transition-colors ${
+                            className={`relative overflow-visible rounded-xl border transition-all ${
                               hasCriticalReview
                                 ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
                                 : itemNeedsReview
                                   ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
                                   : "border-slate-200 bg-background dark:border-slate-700"
+                            } ${
+                              isRecentlyMovedOfferItemV17_90L371CF
+                                ? "ring-2 ring-cyan-400 ring-offset-2 shadow-lg shadow-cyan-100 dark:ring-cyan-500 dark:shadow-cyan-950/40"
+                                : ""
                             }`}
                           >
                             <div
