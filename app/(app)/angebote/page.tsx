@@ -1,5 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371CK_WORKSITE_EDITOR_BLUE_DELETE_EXACT_OFFER_INVOICE
+// SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
 // SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
@@ -900,19 +900,24 @@ function groupOfferItemsByExecutionSite(
   });
 
   sourceItems.forEach((item, index) => {
-    const matchedSite =
-      normalizedSites.find(
-        (site) =>
-          Boolean(compactOfferValue(site._workSiteUiKey)) &&
-          site._workSiteUiKey === item._workSiteUiKey,
-      ) ||
-      normalizedSites.find((site) => offerSiteKey(site) === offerSiteKey(item)) ||
-      null;
     const hasCompleteItemSite = Boolean(
       compactOfferValue(item.siteAddress) &&
         compactOfferValue(item.sitePlz) &&
         compactOfferValue(item.siteCity),
     );
+    const itemUiKey = compactOfferValue((item as OfferExecutionSite)._workSiteUiKey);
+    const matchedSite =
+      normalizedSites.find(
+        (site) =>
+          Boolean(compactOfferValue(site._workSiteUiKey)) &&
+          compactOfferValue(site._workSiteUiKey) === itemUiKey,
+      ) ||
+      normalizedSites.find(
+        (site) =>
+          hasCompleteItemSite &&
+          offerSiteKey(site) === offerSiteKey(item),
+      ) ||
+      null;
     const site =
       matchedSite ||
       (hasCompleteItemSite
@@ -6463,20 +6468,13 @@ export default function AngebotePage() {
     if (!group?.site) return;
     const hasRealItems = group.entries.some(({ item }) => {
       const description = compactOfferValue(item.description);
-      const quantityNumber = Number(String(item.quantity || "").replace(",", "."));
-      const unitPriceNumber = Number(String(item.unitPrice || "").replace(",", "."));
-      const descriptionIsPlaceholderV17_90L371CK =
-        !description ||
-        /^(?:neue position|position auswählen|position auswaehlen|leistung auswählen|leistung auswaehlen|position prüfen|position pruefen|leistung prüfen|leistung pruefen)$/i.test(description);
-
-      // Wie Auftrag: Eine frisch erzeugte, noch nicht ausgefüllte Platzhalter-Position
-      // blockiert das Löschen des neuen Ausführungsorts nicht. Textwerte wie
-      // "Menge fehlt" oder "Preis prüfen" zählen nicht als echte Menge/Preis.
-      return Boolean(
-        !descriptionIsPlaceholderV17_90L371CK ||
-          (Number.isFinite(quantityNumber) && quantityNumber > 0) ||
-          (Number.isFinite(unitPriceNumber) && unitPriceNumber > 0),
-      );
+      const unit = compactOfferValue(item.unit);
+      const isOnlyUntouchedPlaceholderV17_90L371CJ =
+        (!description || /^(?:neue position|position auswählen|position auswaehlen|leistung auswählen|leistung auswaehlen|position prüfen|position pruefen|leistung prüfen|leistung pruefen)$/i.test(description)) &&
+        (!unit || /^(?:einheit prüfen|einheit pruefen|prüfen|pruefen)$/i.test(unit)) &&
+        Number(item.quantity || 0) <= 0 &&
+        Number(item.unitPrice || 0) <= 0;
+      return !isOnlyUntouchedPlaceholderV17_90L371CJ;
     });
     if (hasRealItems) {
       toast.error(
@@ -11619,7 +11617,13 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             {isEditingSite && group.site && (
                               <div
                                 data-offer-work-site-editor={group.key}
-                                className="rounded-b-xl border-2 border-t-0 border-cyan-300 bg-cyan-50/70 p-2 dark:border-cyan-800 dark:bg-cyan-950/20"
+                                className={`rounded-b-xl border-2 border-t-0 p-2 ${
+                                  siteNeedsReview
+                                    ? "border-red-400 bg-red-100/70 dark:border-red-800/70 dark:bg-red-950/25"
+                                    : siteHasNoItems
+                                      ? "border-amber-400 bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950/25"
+                                      : "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
+                                }`}
                               >
                                 <div className="rounded-md border bg-background/80 p-2 space-y-2">
                                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
