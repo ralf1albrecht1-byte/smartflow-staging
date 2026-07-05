@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
@@ -6459,13 +6460,16 @@ export default function AngebotePage() {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
-    const hasRealItems = group.entries.some(({ item }) =>
-      Boolean(
-        compactOfferValue(item.description) ||
-          Number(item.quantity || 0) > 0 ||
-          Number(item.unitPrice || 0) > 0,
-      ),
-    );
+    const hasRealItems = group.entries.some(({ item }) => {
+      const description = compactOfferValue(item.description);
+      const unit = compactOfferValue(item.unit);
+      const isOnlyUntouchedPlaceholderV17_90L371CJ =
+        (!description || /^(?:neue position|position auswählen|position auswaehlen|leistung auswählen|leistung auswaehlen|position prüfen|position pruefen|leistung prüfen|leistung pruefen)$/i.test(description)) &&
+        (!unit || /^(?:einheit prüfen|einheit pruefen|prüfen|pruefen)$/i.test(unit)) &&
+        Number(item.quantity || 0) <= 0 &&
+        Number(item.unitPrice || 0) <= 0;
+      return !isOnlyUntouchedPlaceholderV17_90L371CJ;
+    });
     if (hasRealItems) {
       toast.error(
         "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
@@ -11406,7 +11410,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                           const siteNeedsReview = !siteHasRequiredInfo;
                           const siteHasNoItems = group.entries.length === 0;
                           const siteAccentClass = siteNeedsReview
-                            ? "border-red-400 bg-red-100/70 text-red-900 hover:bg-red-200/60 dark:border-red-800/70 dark:bg-red-950/25 dark:text-red-100 dark:hover:bg-red-900/30"
+                            ? "border-cyan-300 bg-cyan-50/70 text-slate-900 hover:bg-cyan-100/80 dark:border-cyan-800 dark:bg-cyan-950/20 dark:text-slate-50 dark:hover:bg-cyan-900/30"
                             : siteHasNoItems
                               ? "border-amber-400 bg-amber-100/70 text-amber-900 hover:bg-amber-200/60 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100 dark:hover:bg-amber-900/30"
                               : "border-cyan-400 bg-cyan-100/70 text-slate-900 hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:text-slate-50 dark:hover:bg-cyan-900/30";
