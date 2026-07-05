@@ -1,6 +1,5 @@
 "use client";
-// SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
-// SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
+// SMARTFLOW_V17_90L371CI_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
 // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
@@ -6456,20 +6455,24 @@ export default function AngebotePage() {
     setExpandedOfferSiteKeys((current) => new Set([...current, groupKey]));
   };
 
+
+  const isEmptyOfferDraftPlaceholderV17_90L371CI = (item: OfferItem | any) => {
+    const name = compactOfferValue(item?.description);
+    const unit = compactOfferValue(item?.unit);
+    const quantity = Number(item?.quantity || 0);
+    const unitPrice = Number(item?.unitPrice || 0);
+    const placeholderName = /^(?:neue\s+position|position\s+auswählen|ausfuehrungsort\s+und\s+position\s+auswaehlen|ausführungsort\s+und\s+position\s+auswählen)$/i.test(name);
+    const placeholderUnit = !unit || /^(?:einheit\s*)?(?:prüfen|pruefen|prufen)$/i.test(unit);
+    return (!name || placeholderName) && placeholderUnit && quantity <= 0 && unitPrice <= 0;
+  };
+
   const removeOfferExecutionSite = (groupKey: string) => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
     const group = groups.find((entry) => entry.key === groupKey);
     if (!group?.site) return;
-    const hasRealItems = group.entries.some(({ item }) => {
-      const description = compactOfferValue(item.description);
-      const unit = compactOfferValue(item.unit);
-      const isOnlyUntouchedPlaceholderV17_90L371CJ =
-        (!description || /^(?:neue position|position auswählen|position auswaehlen|leistung auswählen|leistung auswaehlen|position prüfen|position pruefen|leistung prüfen|leistung pruefen)$/i.test(description)) &&
-        (!unit || /^(?:einheit prüfen|einheit pruefen|prüfen|pruefen)$/i.test(unit)) &&
-        Number(item.quantity || 0) <= 0 &&
-        Number(item.unitPrice || 0) <= 0;
-      return !isOnlyUntouchedPlaceholderV17_90L371CJ;
-    });
+    const hasRealItems = group.entries.some(
+      ({ item }) => !isEmptyOfferDraftPlaceholderV17_90L371CI(item),
+    );
     if (hasRealItems) {
       toast.error(
         "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
@@ -10607,7 +10610,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       )}
                     </div>
 
-                    {executionSites.length > 0 && (
+                    {executionSites.length === 0 ? (
+                      <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
+                        Standard: Rechnungsadresse = Ausführungsort.
+                      </div>
+                    ) : (
                       <div className="mt-3 space-y-3">
                         {executionSites.map((site, index) => (
                           <div
