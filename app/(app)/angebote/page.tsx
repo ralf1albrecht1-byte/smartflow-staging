@@ -1,5 +1,6 @@
 "use client";
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
+// SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
 // SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
@@ -6922,16 +6923,26 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         Boolean(compactOfferValue(site.sitePlz)) &&
         Boolean(compactOfferValue(site.siteCity)),
     );
-    const emptyExecutionSiteForSaveV17_90L371CF = completeExecutionSitesV17_90L292.find(
-      (site) => {
-        const siteKey = offerGroupKeyForSite(site);
-        return !itemsForSave.some(
-          (item: OfferItem) =>
-            compactOfferValue(item?.description) &&
-            offerGroupKeyForSite(item as OfferExecutionSite) === siteKey,
-        );
-      },
-    );
+    // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS:
+    // Der Guard muss dieselbe sichtbare Gruppierung prüfen wie die UI. Nach einem
+    // Verschieben kann die Position noch über _workSiteUiKey am Ziel-Arbeitsort
+    // hängen; itemsForSave ist dafür bereits bereinigt. Würde der Guard darauf
+    // prüfen, entstehen False-Positive-Meldungen wie „Büro Ost enthält keine
+    // Position“, obwohl dort sichtbar Positionen liegen.
+    const emptyExecutionSiteForSaveV17_90L371CF = groupOfferItemsByExecutionSite(
+      sourceItems,
+      sourceExecutionSites,
+    ).find((group) => {
+      const site = group.site;
+      if (!site) return false;
+      const hasCompleteSite = Boolean(
+        compactOfferValue(site.siteAddress) &&
+          compactOfferValue(site.sitePlz) &&
+          compactOfferValue(site.siteCity),
+      );
+      if (!hasCompleteSite) return false;
+      return !group.entries.some(({ item }) => compactOfferValue(item?.description));
+    });
     if (emptyExecutionSiteForSaveV17_90L371CF) {
       const siteLabel =
         compactOfferValue(emptyExecutionSiteForSaveV17_90L371CF.siteName) ||

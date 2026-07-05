@@ -1,5 +1,6 @@
 "use client";
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
+// SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
 // SMARTFLOW_V17_90L371CD_INVOICE_BILLING_ROOT_FROM_OFFER_GUARD
 // SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
 // SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
@@ -7398,22 +7399,26 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         sourceItems,
         currentExecutionSites,
       );
-    const emptyExecutionSiteForCreateV17_90L371CF = currentExecutionSites.find(
-      (site) => {
-        const hasCompleteSite = Boolean(
-          compactInvoiceValue(site.siteAddress) &&
-            compactInvoiceValue(site.sitePlz) &&
-            compactInvoiceValue(site.siteCity),
-        );
-        if (!hasCompleteSite) return false;
-        const siteKey = invoiceGroupKeyForSite(site);
-        return !itemsForCreateWithUiState.some(
-          (item: InvoiceItem) =>
-            compactInvoiceValue(item?.description) &&
-            invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
-        );
-      },
-    );
+    // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS:
+    // Der Guard muss dieselbe sichtbare Gruppierung prüfen wie die UI. Nach einem
+    // Verschieben kann die Position noch über _workSiteUiKey am Ziel-Arbeitsort
+    // hängen; itemsForCreateWithUiState wird danach für das Speichern bereinigt.
+    // Würde der Guard auf die bereinigten Keys prüfen, entstehen False-Positive-
+    // Meldungen, obwohl am Ziel-Arbeitsort sichtbar Positionen liegen.
+    const emptyExecutionSiteForCreateV17_90L371CF = groupInvoiceItemsByExecutionSite(
+      sourceItems,
+      currentExecutionSites,
+    ).find((group) => {
+      const site = group.site;
+      if (!site) return false;
+      const hasCompleteSite = Boolean(
+        compactInvoiceValue(site.siteAddress) &&
+          compactInvoiceValue(site.sitePlz) &&
+          compactInvoiceValue(site.siteCity),
+      );
+      if (!hasCompleteSite) return false;
+      return !group.entries.some(({ item }) => compactInvoiceValue(item?.description));
+    });
     if (emptyExecutionSiteForCreateV17_90L371CF) {
       const siteLabel =
         compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.siteName) ||
@@ -7542,22 +7547,20 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         sourceItems,
         currentExecutionSitesV17_90L292,
       );
-    const emptyExecutionSiteForEditV17_90L371CF = currentExecutionSitesV17_90L292.find(
-      (site) => {
-        const hasCompleteSite = Boolean(
-          compactInvoiceValue(site.siteAddress) &&
-            compactInvoiceValue(site.sitePlz) &&
-            compactInvoiceValue(site.siteCity),
-        );
-        if (!hasCompleteSite) return false;
-        const siteKey = invoiceGroupKeyForSite(site);
-        return !itemsForEditWithUiStateV17_90L292.some(
-          (item: InvoiceItem) =>
-            compactInvoiceValue(item?.description) &&
-            invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
-        );
-      },
-    );
+    const emptyExecutionSiteForEditV17_90L371CF = groupInvoiceItemsByExecutionSite(
+      sourceItems,
+      currentExecutionSitesV17_90L292,
+    ).find((group) => {
+      const site = group.site;
+      if (!site) return false;
+      const hasCompleteSite = Boolean(
+        compactInvoiceValue(site.siteAddress) &&
+          compactInvoiceValue(site.sitePlz) &&
+          compactInvoiceValue(site.siteCity),
+      );
+      if (!hasCompleteSite) return false;
+      return !group.entries.some(({ item }) => compactInvoiceValue(item?.description));
+    });
     if (emptyExecutionSiteForEditV17_90L371CF) {
       const siteLabel =
         compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.siteName) ||
