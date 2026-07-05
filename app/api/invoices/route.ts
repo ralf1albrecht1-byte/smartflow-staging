@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-// SMARTFLOW_V17_90L371CE_INVOICE_ROOT_ITEM_HANDOFF_GUARD
+// SMARTFLOW_V17_90L371CF_INVOICE_ROOT_ITEM_HARD_OVERRIDE
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
@@ -376,7 +376,7 @@ function enrichInvoiceItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
       ? findMatchingInvoiceSourceOrderItem(sourceOrder, item, index, items.length)
       : null;
 
-    // SMARTFLOW_V17_90L371CE_INVOICE_ROOT_ITEM_HANDOFF_GUARD:
+    // SMARTFLOW_V17_90L371CF_INVOICE_ROOT_ITEM_HARD_OVERRIDE:
     // Eine Angebot-/Auftragsposition ohne Arbeitsortdaten ist eine Root-/Rechnungsadresse-Position.
     // Wenn die passende Quellposition ebenfalls keine workSite hat, darf sie beim Erstellen der
     // Rechnung NICHT mit dem ersten/primären Ausführungsort aufgefüllt werden.
@@ -402,6 +402,22 @@ function enrichInvoiceItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
     const itemSitePlz = compactInvoiceRouteText(item?.sitePlz);
     const itemSiteCity = compactInvoiceRouteText(item?.siteCity);
     const itemSiteNote = compactInvoiceRouteText(item?.siteNote);
+
+    // SMARTFLOW_V17_90L371CF_INVOICE_ROOT_ITEM_HARD_OVERRIDE:
+    // Wenn die echte Quellposition Root/Rechnungsadresse ist, gewinnt diese Quelle
+    // gegen eventuell vom Frontend bereits falsch vorausgefüllte Arbeitsortdaten.
+    // Sonst bleibt eine Root-Position trotz API-Guard weiterhin bei Werkstatt West hängen.
+    if (sourceItemIsBillingRoot) {
+      return {
+        ...item,
+        siteName: null,
+        siteAddress: null,
+        sitePlz: null,
+        siteCity: null,
+        siteNote: null,
+        sourceOrderId: explicitOrderId || sourceOrder?.id || null,
+      };
+    }
 
     return {
       ...item,
