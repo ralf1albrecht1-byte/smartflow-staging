@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CN_INVOICE_LAST_ITEM_DELETE_DIRECT_MATCH_OFFER
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
 // SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
@@ -6126,11 +6127,14 @@ export default function RechnungenPage() {
       ? invoiceGroupKeyForSite(removedSiteCandidate)
       : "";
 
+    setItems((current) =>
+      current?.filter((_: any, idx: number) => idx !== i) ?? [],
+    );
+
+    // SMARTFLOW_V17_90L371CN: Rechnung wie Angebot: Beim Löschen der letzten
+    // Position wird die Position sofort aus der UI entfernt. Der Arbeitsort
+    // bleibt als leerer Draft sichtbar und zeigt den Empty-State.
     if (removedSiteCandidate && removedSiteKey) {
-      // SMARTFLOW_V17_90L371CM: Wird die letzte Position eines Arbeitsorts
-      // gelöscht, bleibt der Arbeitsort als Draft sichtbar. Dadurch erscheint
-      // derselbe Empty-State wie im Auftrag statt den Arbeitsort automatisch
-      // zu entfernen.
       setInvoiceExecutionSiteDrafts((current) =>
         current.some((site) => invoiceGroupKeyForSite(site) === removedSiteKey)
           ? current
@@ -6139,13 +6143,6 @@ export default function RechnungenPage() {
       setExpandedInvoiceSiteKeys((current) => new Set([...current, removedSiteKey]));
     }
 
-    if (items.length <= 1) {
-      setItems(removedSiteCandidate ? [] : [getEmptyItem()]);
-      setExpandedItemIndex(removedSiteCandidate ? null : 0);
-      setServiceActionMenuIndex(null);
-      return;
-    }
-    setItems(items.filter((_: any, idx: number) => idx !== i));
     setExpandedItemIndex((current) =>
       current === i
         ? null
