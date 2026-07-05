@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
 // SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
 // SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
@@ -5579,8 +5580,57 @@ export default function AngebotePage() {
     setServiceActionMenuIndex(null);
     focusNewestOfferItem();
   };
-  const removeItem = (i: number) =>
-    setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
+  const removeItem = (i: number) => {
+    const removedItem = items?.[i] || null;
+    const removedSiteCandidate = removedItem && (
+      compactOfferValue((removedItem as any)._workSiteUiKey) ||
+      compactOfferValue(removedItem.siteName) ||
+      compactOfferValue(removedItem.siteAddress) ||
+      compactOfferValue(removedItem.sitePlz) ||
+      compactOfferValue(removedItem.siteCity) ||
+      compactOfferValue(removedItem.siteNote) ||
+      compactOfferValue(removedItem.sourceOrderId)
+    )
+      ? ({
+          siteName: removedItem.siteName || null,
+          siteAddress: removedItem.siteAddress || null,
+          sitePlz: removedItem.sitePlz || null,
+          siteCity: removedItem.siteCity || null,
+          siteNote: removedItem.siteNote || null,
+          sourceOrderId: removedItem.sourceOrderId || null,
+          _workSiteUiKey: (removedItem as any)._workSiteUiKey || null,
+        } as OfferExecutionSite)
+      : null;
+    const removedSiteKey = removedSiteCandidate
+      ? offerGroupKeyForSite(removedSiteCandidate)
+      : "";
+
+    setItems((current) =>
+      current?.filter((_: any, idx: number) => idx !== i) ?? [],
+    );
+
+    // SMARTFLOW_V17_90L371CM: Wird die letzte Position eines Arbeitsorts
+    // gelöscht, darf der Arbeitsort nicht automatisch verschwinden. Die
+    // Gruppe bleibt wie beim Auftrag sichtbar und zeigt den Empty-State
+    // „+ Position hier hinzufügen / Ausführungsort löschen“.
+    if (removedSiteCandidate && removedSiteKey) {
+      setExecutionSites((current) =>
+        current.some((site) => offerGroupKeyForSite(site) === removedSiteKey)
+          ? current
+          : [removedSiteCandidate, ...current],
+      );
+      setExpandedOfferSiteKeys((current) => new Set([...current, removedSiteKey]));
+    }
+
+    setExpandedItemIndex((current) =>
+      current === i
+        ? null
+        : current != null && current > i
+          ? current - 1
+          : current,
+    );
+    setServiceActionMenuIndex(null);
+  };
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;

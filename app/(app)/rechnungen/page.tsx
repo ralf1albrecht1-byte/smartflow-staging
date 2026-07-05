@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
 // SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
 // SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
@@ -6101,9 +6102,46 @@ export default function RechnungenPage() {
     });
   };
   const removeItem = (i: number) => {
+    const removedItem = items?.[i] || null;
+    const removedSiteCandidate = removedItem && (
+      compactInvoiceValue((removedItem as any)._workSiteUiKey) ||
+      compactInvoiceValue(removedItem.siteName) ||
+      compactInvoiceValue(removedItem.siteAddress) ||
+      compactInvoiceValue(removedItem.sitePlz) ||
+      compactInvoiceValue(removedItem.siteCity) ||
+      compactInvoiceValue(removedItem.siteNote) ||
+      compactInvoiceValue(removedItem.sourceOrderId)
+    )
+      ? ({
+          siteName: removedItem.siteName || null,
+          siteAddress: removedItem.siteAddress || null,
+          sitePlz: removedItem.sitePlz || null,
+          siteCity: removedItem.siteCity || null,
+          siteNote: removedItem.siteNote || null,
+          sourceOrderId: removedItem.sourceOrderId || null,
+          _workSiteUiKey: (removedItem as any)._workSiteUiKey || null,
+        } as InvoiceExecutionSite)
+      : null;
+    const removedSiteKey = removedSiteCandidate
+      ? invoiceGroupKeyForSite(removedSiteCandidate)
+      : "";
+
+    if (removedSiteCandidate && removedSiteKey) {
+      // SMARTFLOW_V17_90L371CM: Wird die letzte Position eines Arbeitsorts
+      // gelöscht, bleibt der Arbeitsort als Draft sichtbar. Dadurch erscheint
+      // derselbe Empty-State wie im Auftrag statt den Arbeitsort automatisch
+      // zu entfernen.
+      setInvoiceExecutionSiteDrafts((current) =>
+        current.some((site) => invoiceGroupKeyForSite(site) === removedSiteKey)
+          ? current
+          : [removedSiteCandidate, ...current],
+      );
+      setExpandedInvoiceSiteKeys((current) => new Set([...current, removedSiteKey]));
+    }
+
     if (items.length <= 1) {
-      setItems([getEmptyItem()]);
-      setExpandedItemIndex(0);
+      setItems(removedSiteCandidate ? [] : [getEmptyItem()]);
+      setExpandedItemIndex(removedSiteCandidate ? null : 0);
       setServiceActionMenuIndex(null);
       return;
     }
