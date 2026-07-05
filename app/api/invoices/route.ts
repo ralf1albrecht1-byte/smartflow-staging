@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+// SMARTFLOW_V17_90L371CE_INVOICE_ROOT_ITEM_HANDOFF_GUARD
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { normalizePositionType, getPositionBlockingIssues } from "@/lib/position-types";
@@ -374,6 +375,13 @@ function enrichInvoiceItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
     const sourceItem = sourceOrder
       ? findMatchingInvoiceSourceOrderItem(sourceOrder, item, index, items.length)
       : null;
+
+    // SMARTFLOW_V17_90L371CE_INVOICE_ROOT_ITEM_HANDOFF_GUARD:
+    // Eine Angebot-/Auftragsposition ohne Arbeitsortdaten ist eine Root-/Rechnungsadresse-Position.
+    // Wenn die passende Quellposition ebenfalls keine workSite hat, darf sie beim Erstellen der
+    // Rechnung NICHT mit dem ersten/primären Ausführungsort aufgefüllt werden.
+    // Vorher landete z. B. "Briefkasten reinigen" aus der Rechnungsadresse falsch bei Werkstatt West.
+    const sourceItemIsBillingRoot = Boolean(sourceItem) && !sourceItem?.workSite;
     const sourceSite = sourceItem?.workSite
       ? {
           siteName: compactInvoiceRouteText(sourceItem.workSite.siteName) || null,
@@ -383,16 +391,25 @@ function enrichInvoiceItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
           siteNote: compactInvoiceRouteText(sourceItem.workSite.siteNote) || null,
           sourceOrderId: sourceItem.workSite.sourceOrderId || sourceOrder?.id || null,
         }
-      : sourceOrder
-        ? getPrimarySourceOrderSiteForInvoice(sourceOrder)
-        : null;
+      : sourceItemIsBillingRoot
+        ? null
+        : sourceOrder
+          ? getPrimarySourceOrderSiteForInvoice(sourceOrder)
+          : null;
+
+    const itemSiteName = compactInvoiceRouteText(item?.siteName);
+    const itemSiteAddress = compactInvoiceRouteText(item?.siteAddress);
+    const itemSitePlz = compactInvoiceRouteText(item?.sitePlz);
+    const itemSiteCity = compactInvoiceRouteText(item?.siteCity);
+    const itemSiteNote = compactInvoiceRouteText(item?.siteNote);
+
     return {
       ...item,
-      siteName: compactInvoiceRouteText(item?.siteName) || sourceSite?.siteName || null,
-      siteAddress: compactInvoiceRouteText(item?.siteAddress) || sourceSite?.siteAddress || null,
-      sitePlz: compactInvoiceRouteText(item?.sitePlz) || sourceSite?.sitePlz || null,
-      siteCity: compactInvoiceRouteText(item?.siteCity) || sourceSite?.siteCity || null,
-      siteNote: compactInvoiceRouteText(item?.siteNote) || sourceSite?.siteNote || null,
+      siteName: itemSiteName || sourceSite?.siteName || null,
+      siteAddress: itemSiteAddress || sourceSite?.siteAddress || null,
+      sitePlz: itemSitePlz || sourceSite?.sitePlz || null,
+      siteCity: itemSiteCity || sourceSite?.siteCity || null,
+      siteNote: itemSiteNote || sourceSite?.siteNote || null,
       sourceOrderId: explicitOrderId || sourceSite?.sourceOrderId || sourceOrder?.id || null,
     };
   });
