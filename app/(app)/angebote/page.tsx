@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
 // SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
@@ -5690,8 +5691,68 @@ export default function AngebotePage() {
     }
   };
 
+  const isRealOfferExecutionSiteItemV17_90L371CP = (
+    item?: OfferItem | null,
+  ) =>
+    Boolean(
+      compactOfferValue(item?.description) ||
+        compactOfferValue(item?.unit) ||
+        Number(item?.quantity || 0) > 0 ||
+        Number(item?.unitPrice || 0) > 0,
+    );
+
+  const cleanupOfferExecutionSiteAfterMoveToBillingV17_90L371CP = (
+    previousSiteKey?: string | null,
+    movedItemIndex?: number | null,
+  ) => {
+    const siteKey = compactOfferValue(previousSiteKey);
+    if (!siteKey || siteKey === "general") return;
+
+    const hasSiteInState = executionSites.some(
+      (site) => offerGroupKeyForSite(site) === siteKey,
+    );
+    if (!hasSiteInState) return;
+
+    const hasRemainingRealItems = items.some(
+      (item, itemIndex) =>
+        itemIndex !== movedItemIndex &&
+        offerGroupKeyForSite(item as OfferExecutionSite) === siteKey &&
+        isRealOfferExecutionSiteItemV17_90L371CP(item),
+    );
+    if (hasRemainingRealItems) return;
+
+    const nextExecutionSites = executionSites.filter(
+      (site) => offerGroupKeyForSite(site) !== siteKey,
+    );
+    setExecutionSites(nextExecutionSites);
+    setItems((current) =>
+      current.filter(
+        (item, itemIndex) =>
+          itemIndex === movedItemIndex ||
+          offerGroupKeyForSite(item as OfferExecutionSite) !== siteKey ||
+          isRealOfferExecutionSiteItemV17_90L371CP(item),
+      ),
+    );
+    setExpandedOfferSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(siteKey);
+      next.add("general");
+      return next;
+    });
+    setEditingOfferSiteKey((current) => (current === siteKey ? null : current));
+    setNewOfferItemSiteKey((current) => (current === siteKey ? "" : current));
+
+    if (nextExecutionSites.length === 0) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+    }
+  };
+
   const clearOfferItemSiteAssignmentV17_90L371BW = (index: number) => {
     const itemBeforeMove = items[index];
+    const previousSiteKeyV17_90L371CP = itemBeforeMove
+      ? offerGroupKeyForSite(itemBeforeMove as OfferExecutionSite)
+      : "";
     const shouldCloseAfterMove = Boolean(
       compactOfferValue(itemBeforeMove?.description) ||
         compactOfferValue(itemBeforeMove?.unit) ||
@@ -5713,6 +5774,10 @@ export default function AngebotePage() {
             }
           : item,
       ),
+    );
+    cleanupOfferExecutionSiteAfterMoveToBillingV17_90L371CP(
+      previousSiteKeyV17_90L371CP,
+      index,
     );
     setExpandedOfferSiteKeys((current) => new Set([...current, "general"]));
     setNewOfferItemSiteKey("");

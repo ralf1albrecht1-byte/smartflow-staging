@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CI_ORDER_STANDARD_ROOT_AND_POSITION_COLLAPSE
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
 // SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
@@ -14667,6 +14668,61 @@ export default function AuftraegePage() {
     setServiceActionMenuKey(null);
   };
 
+  const isRealOrderWorkSiteItemV17_90L371CP = (item?: FormItem | null) =>
+    Boolean(
+      compactText(item?.serviceName) ||
+        compactText(item?.unit) ||
+        Number(item?.quantity || 0) > 0 ||
+        Number(item?.unitPrice || 0) > 0,
+    );
+
+  const cleanupOrderWorkSiteAfterMoveToBillingV17_90L371CP = (
+    previousSiteId?: string | null,
+    movedItemKey?: string | null,
+  ) => {
+    const siteId = compactText(previousSiteId);
+    if (!siteId) return;
+
+    const hasRemainingRealItems = formItems.some(
+      (item) =>
+        item.workSiteId === siteId &&
+        item.key !== movedItemKey &&
+        isRealOrderWorkSiteItemV17_90L371CP(item),
+    );
+    if (hasRemainingRealItems) return;
+
+    const nextWorkSites = formWorkSites.filter((site) => site.id !== siteId);
+    setFormWorkSites(nextWorkSites);
+    setFormItems((current) =>
+      current.filter(
+        (item) =>
+          item.workSiteId !== siteId ||
+          item.key === movedItemKey ||
+          isRealOrderWorkSiteItemV17_90L371CP(item),
+      ),
+    );
+    setEditingWorkSiteId((current) => (current === siteId ? null : current));
+    setActiveWorkSiteId((current) => (current === siteId ? null : current));
+    setNewItemWorkSiteId((current) => (current === siteId ? "" : current));
+    setExpandedWorkSiteIds((current) =>
+      current.filter((entry) => entry !== siteId),
+    );
+
+    if (nextWorkSites.length === 0) {
+      setExecutionAddressClearRequested(true);
+      setSiteAddressEditing(false);
+      setForm((current) => ({
+        ...current,
+        siteAddressDifferent: false,
+        siteName: "",
+        siteAddress: "",
+        sitePlz: "",
+        siteCity: "",
+        siteNote: "",
+      }));
+    }
+  };
+
   const moveItemToWorkSiteV17_90L371BW = (
     index: number,
     nextWorkSiteId?: string | null,
@@ -14674,6 +14730,7 @@ export default function AuftraegePage() {
     const movedItem = formItems[index];
     if (!movedItem) return;
 
+    const previousWorkSiteIdV17_90L371CP = movedItem.workSiteId || null;
     const normalizedWorkSiteId = String(nextWorkSiteId || "").trim();
     const shouldCloseAfterMove = Boolean(
       movedItem.serviceName?.trim() ||
@@ -14689,6 +14746,13 @@ export default function AuftraegePage() {
           : item,
       ),
     );
+
+    if (!normalizedWorkSiteId) {
+      cleanupOrderWorkSiteAfterMoveToBillingV17_90L371CP(
+        previousWorkSiteIdV17_90L371CP,
+        movedItem.key,
+      );
+    }
 
     setServiceActionMenuKey(null);
     setMovingItemKey(null);

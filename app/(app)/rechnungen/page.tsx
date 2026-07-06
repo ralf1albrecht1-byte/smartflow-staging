@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CO_INVOICE_EMPTY_WORKSITE_DELETE_KEY_MATCH
 // SMARTFLOW_V17_90L371CN_INVOICE_LAST_ITEM_DELETE_DIRECT_MATCH_OFFER
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
@@ -6220,8 +6221,89 @@ export default function RechnungenPage() {
     }
   };
 
+  const isRealInvoiceExecutionSiteItemV17_90L371CP = (
+    item?: InvoiceItem | null,
+  ) =>
+    Boolean(
+      compactInvoiceValue(item?.description) ||
+        compactInvoiceValue(item?.unit) ||
+        Number(item?.quantity || 0) > 0 ||
+        Number(item?.unitPrice || 0) > 0,
+    );
+
+  const cleanupInvoiceExecutionSiteAfterMoveToBillingV17_90L371CP = (
+    previousSiteKey?: string | null,
+    movedItemIndex?: number | null,
+  ) => {
+    const siteKey = compactInvoiceValue(previousSiteKey);
+    if (!siteKey || siteKey === "general") return;
+
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const previousSite = currentSites.find(
+      (site) => invoiceGroupKeyForSite(site) === siteKey,
+    );
+    if (!previousSite) return;
+
+    const hasRemainingRealItems = items.some(
+      (item, itemIndex) =>
+        itemIndex !== movedItemIndex &&
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey &&
+        isRealInvoiceExecutionSiteItemV17_90L371CP(item),
+    );
+    if (hasRemainingRealItems) return;
+
+    const previousAddressKey = invoiceSiteKey(previousSite);
+    const previousSourceOrderId = compactInvoiceValue(previousSite.sourceOrderId);
+    const matchesPreviousSite = (site?: InvoiceExecutionSite | null) => {
+      if (!site) return false;
+      if (invoiceGroupKeyForSite(site) === siteKey) return true;
+      if (compactInvoiceValue(site._workSiteUiKey) === siteKey) return true;
+      if (invoiceSiteKey(site) !== previousAddressKey) return false;
+      const sourceOrderId = compactInvoiceValue(site.sourceOrderId);
+      return (
+        sourceOrderId === previousSourceOrderId ||
+        !sourceOrderId ||
+        !previousSourceOrderId
+      );
+    };
+
+    const nextSites = currentSites.filter((site) => !matchesPreviousSite(site));
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.filter((site) => !matchesPreviousSite(site)),
+    );
+    setNewInvoiceExecutionSite((current) =>
+      current && matchesPreviousSite(current) ? null : current,
+    );
+    setItems((current) =>
+      current.filter(
+        (item, itemIndex) =>
+          itemIndex === movedItemIndex ||
+          !matchesPreviousSite(item as InvoiceExecutionSite) ||
+          isRealInvoiceExecutionSiteItemV17_90L371CP(item),
+      ),
+    );
+    setExpandedInvoiceSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(siteKey);
+      next.add("general");
+      return next;
+    });
+    setEditingInvoiceSiteKey((current) => (current === siteKey ? null : current));
+    setNewInvoiceItemSiteKey((current) => (current === siteKey ? "" : current));
+
+    if (nextSites.length === 0) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+      setNewInvoiceExecutionSite(null);
+      setInvoiceExecutionSiteDrafts([]);
+    }
+  };
+
   const clearInvoiceItemSiteAssignmentV17_90L371BW = (index: number) => {
     const itemBeforeMove = items[index];
+    const previousSiteKeyV17_90L371CP = itemBeforeMove
+      ? invoiceGroupKeyForSite(itemBeforeMove as InvoiceExecutionSite)
+      : "";
     const shouldCloseAfterMove = Boolean(
       compactInvoiceValue(itemBeforeMove?.description) ||
         compactInvoiceValue(itemBeforeMove?.unit) ||
@@ -6243,6 +6325,10 @@ export default function RechnungenPage() {
             }
           : item,
       ),
+    );
+    cleanupInvoiceExecutionSiteAfterMoveToBillingV17_90L371CP(
+      previousSiteKeyV17_90L371CP,
+      index,
     );
     setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
     setNewInvoiceItemSiteKey("");
