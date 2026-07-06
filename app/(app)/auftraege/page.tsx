@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CI_ORDER_STANDARD_ROOT_AND_POSITION_COLLAPSE
 // SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
@@ -22975,8 +22976,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             isInternalReviewServiceName(item.serviceName);
                           const itemHasInternalReviewUnit =
                             isUnitMissingReviewText(item.unit);
+                          const itemUnitMissingOrReviewV17_90L371CQ =
+                            !cleanPositionFieldValueV17_90L371B(item.unit) ||
+                            itemHasInternalReviewUnit;
                           const unitInputCriticalV17_90L243 = Boolean(
-                            itemHasInternalReviewUnit ||
+                            itemUnitMissingOrReviewV17_90L371CQ ||
                               (unitMissingInTextReason && !manualUnitConfirmed),
                           );
                           const blockingReviewFieldsV17_90L243 = Array.from(
@@ -23105,7 +23109,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             hasPendingPriceUnclearReviewV17_90L245 ||
                             showPriceContradictionReviewV17_90L234 ||
                             (!unresolvedCurrencyItem &&
-                              (showUnitConflict ||
+                              (unitInputCriticalV17_90L243 ||
+                                showUnitConflict ||
                                 showPriceOverride ||
                                 showPriceReferenceReview ||
                                 showManualCurrencyConfirmedReview ||
@@ -23113,7 +23118,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                 quantityInputReview ||
                                 showManualServiceReview));
                           const hasMissingItemInput =
-                            priceInputReview || quantityInputReview;
+                            priceInputReview || quantityInputReview || unitInputCriticalV17_90L243;
                           const isBlockingItemReview =
                             unresolvedCurrencyItem ||
                             hasPersistedBlockingItemReviewV17_90L243 ||
@@ -24303,7 +24308,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                         <div className="mb-0.5 flex items-center gap-1 font-semibold">
                                           <AlertTriangle className="h-3 w-3 shrink-0" />
                                           {isBlockingItemReview
-                                            ? "Vor Angebot/Rechnung prüfen"
+                                            ? compactBlockingFieldListV17_90L242 === "Einheit"
+                                              ? "Einheit prüfen"
+                                              : "Vor Angebot/Rechnung prüfen"
                                             : "Manuell prüfen"}
                                         </div>
 

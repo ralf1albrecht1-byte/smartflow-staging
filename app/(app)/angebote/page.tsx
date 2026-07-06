@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
 // SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
@@ -11022,14 +11023,24 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                           !matchedService ||
                           !catalogUnit ||
                           String(item?.unit ?? "").trim() === catalogUnit;
+                        const offerUnitMissingOrReviewV17_90L371CQ =
+                          !String(item?.unit || "").trim() ||
+                          /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || ""));
+                        const offerQuantityMissingV17_90L371CQ = Number(item?.quantity ?? 0) <= 0;
+                        const offerPriceMissingV17_90L371CQ = Number(item?.unitPrice ?? 0) <= 0;
+                        const offerOnlyUnitMissingV17_90L371CQ = Boolean(
+                          offerUnitMissingOrReviewV17_90L371CQ &&
+                            !offerQuantityMissingV17_90L371CQ &&
+                            !offerPriceMissingV17_90L371CQ &&
+                            String(item?.description || "").trim(),
+                        );
                         const positionBlockingIssues = getPositionBlockingIssues(item);
                         const hasCriticalReview =
                           positionBlockingIssues.length > 0 ||
                           !String(item?.description || "").trim() ||
-                          Number(item?.unitPrice ?? 0) <= 0 ||
-                          Number(item?.quantity ?? 0) <= 0 ||
-                          !String(item?.unit || "").trim() ||
-                          /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || ""));
+                          offerPriceMissingV17_90L371CQ ||
+                          offerQuantityMissingV17_90L371CQ ||
+                          offerUnitMissingOrReviewV17_90L371CQ;
                         const itemNeedsReview =
                           hasCriticalReview ||
                           !matchedService ||
@@ -11406,7 +11417,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                   <div>
                                     <Label className="text-xs">Einheit</Label>
                                     <select
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                      className={`flex h-9 w-full rounded-md border bg-background px-2 text-sm ${
+                                        offerUnitMissingOrReviewV17_90L371CQ
+                                          ? "border-red-500 bg-red-50"
+                                          : "border-input"
+                                      }`}
                                       value={item?.unit ?? ""}
                                       onChange={(event) =>
                                         updateItem(
@@ -11487,11 +11502,17 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     }`}
                                   >
                                     <div className="font-semibold">
-                                      {hasCriticalReview
-                                        ? "Preis/Menge prüfen"
-                                        : "Manuell prüfen"}
+                                      {offerOnlyUnitMissingV17_90L371CQ
+                                        ? "Einheit prüfen"
+                                        : hasCriticalReview
+                                          ? "Preis/Menge prüfen"
+                                          : "Manuell prüfen"}
                                     </div>
-                                    {!matchedService ? (
+                                    {offerOnlyUnitMissingV17_90L371CQ ? (
+                                      <div className="mt-1">
+                                        Einheit fehlt. Bitte Einheit ausfüllen.
+                                      </div>
+                                    ) : !matchedService ? (
                                       <div className="mt-1">
                                         Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.
                                       </div>

@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CO_INVOICE_EMPTY_WORKSITE_DELETE_KEY_MATCH
 // SMARTFLOW_V17_90L371CN_INVOICE_LAST_ITEM_DELETE_DIRECT_MATCH_OFFER
@@ -10563,9 +10564,18 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                 normalizeInvoiceServiceName(service?.name) ===
                                 normalizeInvoiceServiceName(item?.description),
                             );
+                            const invoiceUnitMissingOrReviewV17_90L371CQ =
+                              !compactInvoiceValue(item?.unit) ||
+                              /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || ""));
+                            const invoiceOnlyUnitMissingV17_90L371CQ = Boolean(
+                              invoiceUnitMissingOrReviewV17_90L371CQ &&
+                                compactInvoiceValue(item?.description) &&
+                                quantity > 0 &&
+                                unitPrice > 0,
+                            );
                             const hasMissingValues =
                               !compactInvoiceValue(item?.description) ||
-                              !compactInvoiceValue(item?.unit) ||
+                              invoiceUnitMissingOrReviewV17_90L371CQ ||
                               quantity <= 0 ||
                               unitPrice <= 0;
                             const catalogMismatch = Boolean(
@@ -10952,7 +10962,7 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                         </Label>
                                         <Input
                                           list={`invoice-position-unit-options-${idx}`}
-                                          className={`h-9 ${!String(item?.unit || "").trim() || /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || "")) ? "border-red-500 bg-red-50" : ""}`}
+                                          className={`h-9 ${invoiceUnitMissingOrReviewV17_90L371CQ ? "border-red-500 bg-red-50" : ""}`}
                                           value={item?.unit ?? ""}
                                           placeholder="frei eingeben oder Vorschlag wählen"
                                           onChange={(event: any) =>
@@ -11023,16 +11033,20 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                         }`}
                                       >
                                         <div className="font-semibold">
-                                          {hasMissingValues
-                                            ? "Position prüfen"
-                                            : "Manuell prüfen"}
+                                          {invoiceOnlyUnitMissingV17_90L371CQ
+                                            ? "Einheit prüfen"
+                                            : hasMissingValues
+                                              ? "Position prüfen"
+                                              : "Manuell prüfen"}
                                         </div>
                                         <div className="mt-0.5">
-                                          {hasMissingValues
-                                            ? "Position, Einheit, Menge oder Preis vervollständigen."
-                                            : !matchedService
-                                              ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
-                                              : "Preis oder Einheit weicht vom Leistungskatalog ab."}
+                                          {invoiceOnlyUnitMissingV17_90L371CQ
+                                            ? "Einheit fehlt. Bitte Einheit ausfüllen."
+                                            : hasMissingValues
+                                              ? "Position, Einheit, Menge oder Preis vervollständigen."
+                                              : !matchedService
+                                                ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
+                                                : "Preis oder Einheit weicht vom Leistungskatalog ab."}
                                         </div>
                                       </div>
                                     )}
