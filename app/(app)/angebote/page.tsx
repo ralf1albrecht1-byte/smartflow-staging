@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
@@ -10655,7 +10656,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                 </div>
               ) : (
                 <>
-                  {executionSites.length <= 1 && (
+                  {executionSites.length === 0 && (
                   <div
                     ref={executionAddressRef}
                     className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"

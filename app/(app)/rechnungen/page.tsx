@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CO_INVOICE_EMPTY_WORKSITE_DELETE_KEY_MATCH
@@ -9977,7 +9978,7 @@ Dieser Arbeitsort enthält keine Positionen.`,
                   </div>
                 )}
               </div>
-              {!dupCheckOpen && !editingInvoice && (
+              {!dupCheckOpen && !editingInvoice && getCurrentInvoiceExecutionSitesV17_90L284().length === 0 && (
                 <div ref={invoiceExecutionSitesRef} className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                   <div
                     role={newInvoiceExecutionSite ? "button" : undefined}
@@ -10220,7 +10221,7 @@ Dieser Arbeitsort enthält keine Positionen.`,
 
               {!dupCheckOpen &&
                 editingInvoice &&
-                getCurrentInvoiceExecutionSitesV17_90L284().length <= 1 &&
+                getCurrentInvoiceExecutionSitesV17_90L284().length === 0 &&
                 (() => {
                   const executionSite =
                     getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;

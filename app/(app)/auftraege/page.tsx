@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
 // SMARTFLOW_V17_90L371CI_ORDER_STANDARD_ROOT_AND_POSITION_COLLAPSE
@@ -22290,7 +22291,8 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
               )}
 
               {/* Ausführungsadresse / Baustellenadresse.
-                  Bei mehreren Arbeitsorten ist der bearbeitbare Block darunter die einzige Wahrheit. */}
+                  V17.90L371CR: Sobald unten mindestens ein Arbeitsort sichtbar ist,
+                  ist der Bereich "Arbeitsorte & Positionen" die einzige Wahrheit. */}
               {!hasMultipleEditWorkSites && (
                 <div
                   ref={!shouldShowAddressRoleReviewBoxV17_62 ? executionAddressRef : undefined}
