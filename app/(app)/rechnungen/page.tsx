@@ -1309,6 +1309,80 @@ function splitInvoiceSourceLinesV17_90L237(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function escapeInvoiceWorkSiteContextRegExpV17_90L372(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isInvoiceAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+    normalizeInvoiceServiceName(value),
+  );
+}
+
+function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label: compactInvoiceValue(site?.siteName) || compactInvoiceValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress].map(compactInvoiceValue).filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+      .flatMap(splitInvoiceSourceLinesV17_90L237)
+      .map((line) =>
+        compactInvoiceValue(
+          line.replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, ""),
+        ),
+      )
+      .filter(Boolean);
+
+    for (const line of lines) {
+      for (const site of sites) {
+        for (const key of site.keys) {
+          const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(key);
+          const match = line.match(
+            new RegExp(
+              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
+              "i",
+            ),
+          );
+          const hint = compactInvoiceValue(match?.[1]).replace(/[.;,\s]+$/g, "");
+          if (!hint || !isInvoiceAccessOrKeyHintLineV17_90L372(hint)) continue;
+          const formatted = `${site.label}: ${hint}`;
+          const dedupeKey = normalizeInvoiceServiceName(formatted);
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          result.push(formatted);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+  lines: string[],
+  orders: any[],
+): string[] {
+  const scoped = collectInvoiceScopedAccessHintLinesV17_90L372(orders);
+  if (scoped.length === 0) return lines;
+  return uniqueInvoiceLines([
+    ...lines.filter((line) => {
+      if (!isInvoiceAccessOrKeyHintLineV17_90L372(line)) return true;
+      const clean = compactInvoiceValue(line);
+      return (
+        /^[^:]{2,120}:\s+/.test(clean) &&
+        !/^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:/i.test(clean)
+      );
+    }),
+    ...scoped,
+  ]);
+}
+
 function collectInvoiceServiceEvidenceLinesV17_90L237(invoice?: Invoice | null): Set<string> {
   const result = new Set<string>();
   for (const order of invoice?.orders || []) {
@@ -2227,7 +2301,10 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
 
   return {
     hazards: cleanHazardsV17_90L322,
-    primaryHints: cleanPrimaryHintsV17_90L371AN,
+    primaryHints: replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+      cleanPrimaryHintsV17_90L371AN,
+      sourceOrders,
+    ),
     otherHints,
   };
 }
@@ -3571,7 +3648,7 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
   // WhatsApp-Transport-Präfix darf keine grüne WhatsApp-Schaltfläche erzeugen.
   if (
     !action ||
-    ((action.channel === "whatsapp" || action.channel === "phone") &&
+    (action.channel === "whatsapp" &&
       !action.phone)
   ) {
     return {
@@ -8510,8 +8587,7 @@ Dieser Arbeitsort enthält keine Positionen.`,
                       resolveCommunicationData(null, inv.orders || []),
                     );
                   const shouldRenderInvoicePhoneChipV17_90L355 =
-                    invoicePhoneContactActionV17_90L355?.channel === "phone" &&
-                    Boolean(invoicePhoneContactActionV17_90L355.phone);
+                    invoicePhoneContactActionV17_90L355?.channel === "phone";
                   const invoiceSourceOfferInternalNotesV17_90L319 =
                     sourceOfferInternalNotesByIdV17_90L319[
                       compactInvoiceValue(inv.sourceOfferId)
@@ -8635,9 +8711,15 @@ Dieser Arbeitsort enthält keine Positionen.`,
                             icon={Phone}
                             label="Telefon"
                             color="blue"
-                            href={`tel:${invoicePhoneContactActionV17_90L355.phone}`}
+                            href={
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? `tel:${invoicePhoneContactActionV17_90L355.phone}`
+                                : undefined
+                            }
                             title={[
-                              `Anrufen: ${invoicePhoneContactActionV17_90L355.phone}`,
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? `Anrufen: ${invoicePhoneContactActionV17_90L355.phone}`
+                                : "Telefonisch melden",
                               invoicePhoneContactActionV17_90L355.sourceText,
                             ]
                               .filter(Boolean)
@@ -8645,8 +8727,15 @@ Dieser Arbeitsort enthält keine Positionen.`,
                             compact
                             contactHeading="Telefonkontakt"
                             contactName={inv.customer?.name || "Kunde"}
-                            contactValue={invoicePhoneContactActionV17_90L355.phone}
-                            contactHint="Antippen oder anklicken, um anzurufen."
+                            contactValue={
+                              invoicePhoneContactActionV17_90L355.phone ||
+                              "Keine Telefonnummer vorhanden"
+                            }
+                            contactHint={
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? "Antippen oder anklicken, um anzurufen."
+                                : "Keine Telefonnummer hinterlegt."
+                            }
                           />
                         )}
                       {hasInvoiceSpecialInfoV17_90L319 && (

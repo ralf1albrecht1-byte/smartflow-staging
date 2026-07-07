@@ -2282,6 +2282,101 @@ const formatWorkSiteLabelForHint = (site: {
   return [title, address].filter(Boolean).join(" · ");
 };
 
+const escapeWorkSiteContextRegExpV17_90L372 = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isAccessOrKeyHintLineV17_90L372 = (value?: string | null) =>
+  /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+    normalizeForMatch(value),
+  );
+
+const collectScopedAccessHintLinesV17_90L372 = (order: {
+  notes?: string | null;
+  specialNotes?: string | null;
+  audioTranscript?: string | null;
+  workSites?: Array<{
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  }> | null;
+}) => {
+  const sites = (order.workSites || [])
+    .map((site) => ({
+      label:
+        cleanWorkSiteDisplayName(site.siteName) ||
+        compactText(site.siteAddress),
+      keys: [
+        cleanWorkSiteDisplayName(site.siteName),
+        compactText(site.siteAddress),
+      ].filter(Boolean),
+    }))
+    .filter((site) => site.label && site.keys.length > 0);
+  if (sites.length === 0) return [];
+
+  const lines = [order.specialNotes, order.notes, order.audioTranscript]
+    .filter(Boolean)
+    .flatMap((source) =>
+      String(source || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+/g),
+    )
+    .map((line) =>
+      compactText(stripVisibleNoteMarkerV17_35(line).replace(/^[-•*]\s*/, "")),
+    )
+    .filter(Boolean);
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    for (const site of sites) {
+      for (const key of site.keys) {
+        const escaped = escapeWorkSiteContextRegExpV17_90L372(key);
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
+            "i",
+          ),
+        );
+        const hint = compactText(match?.[1]).replace(/[.;,\s]+$/g, "");
+        if (!hint || !isAccessOrKeyHintLineV17_90L372(hint)) continue;
+        const formatted = `${site.label}: ${hint}`;
+        const dedupeKey = normalizeForMatch(formatted);
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        result.push(formatted);
+      }
+    }
+  }
+  return result;
+};
+
+const replaceBareAccessHintsWithScopedContextV17_90L372 = (
+  lines: string[],
+  order: {
+    notes?: string | null;
+    specialNotes?: string | null;
+    audioTranscript?: string | null;
+    workSites?: Array<{
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    }> | null;
+  },
+) => {
+  const scoped = collectScopedAccessHintLinesV17_90L372(order);
+  if (scoped.length === 0) return lines;
+  return uniqueOrderInfoLinesV17_66([
+    ...lines.filter((line) => {
+      if (!isAccessOrKeyHintLineV17_90L372(line)) return true;
+      return Boolean(splitLocationPrefixedHint(line).location);
+    }),
+    ...scoped,
+  ]);
+};
+
 const looksLikeWorkSitePrefix = (value?: string | null) => {
   const text = compactText(value);
   if (!text) return false;
@@ -2413,6 +2508,11 @@ const formatOperationalHintTooltip = (
   fallbackLine: string,
   contextText: string,
 ) => {
+  if (kind === "key" || kind === "access") {
+    const scopedAccessLines = collectScopedAccessHintLinesV17_90L372(order);
+    if (scopedAccessLines.length > 0) return scopedAccessLines.join("\n\n");
+  }
+
   const entries = [
     ...structuredSpecialNoteHints(order),
     ...parsedNotes.jobHints.map((line) => splitLocationPrefixedHint(line)),
@@ -2446,9 +2546,8 @@ const formatOperationalHintTooltip = (
     seen.add(key);
     seenHint.add(hintKey);
 
-    const showLocation = kind !== "key" && kind !== "access";
     formatted.push(
-      showLocation && entry.location
+      entry.location
         ? `${entry.location}:\n${entry.hint}`
         : entry.hint,
     );
@@ -4365,6 +4464,12 @@ function canonicalOrderInfoForOrderV17_90L252(
     notes?: string | null;
     specialNotes?: string | null;
     audioTranscript?: string | null;
+    workSites?: Array<{
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    }> | null;
   },
   snapshot: NonNullable<ReturnType<typeof getCanonicalIntakeV2>>,
 ): OrderInfoSummaryV17_65 {
@@ -4408,8 +4513,14 @@ function canonicalOrderInfoForOrderV17_90L252(
     ...info,
     primary:
       suppressed.length === 0
-        ? enrichedPrimary
-        : enrichedPrimary.filter(keep),
+        ? replaceBareAccessHintsWithScopedContextV17_90L372(
+            enrichedPrimary,
+            order,
+          )
+        : replaceBareAccessHintsWithScopedContextV17_90L372(
+            enrichedPrimary.filter(keep),
+            order,
+          ),
     additional:
       suppressed.length === 0
         ? info.additional

@@ -1819,6 +1819,76 @@ function splitOfferSourceLinesV17_90L237(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function escapeOfferWorkSiteContextRegExpV17_90L372(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isOfferAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+    normalizeOfferHint(value),
+  );
+}
+
+function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label: compactOfferValue(site?.siteName) || compactOfferValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress].map(compactOfferValue).filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+      .flatMap(splitOfferSourceLinesV17_90L237)
+      .map(cleanOfferInfoLineV17_66)
+      .filter(Boolean);
+
+    for (const line of lines) {
+      for (const site of sites) {
+        for (const key of site.keys) {
+          const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(key);
+          const match = line.match(
+            new RegExp(
+              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
+              "i",
+            ),
+          );
+          const hint = compactOfferValue(match?.[1]).replace(/[.;,\s]+$/g, "");
+          if (!hint || !isOfferAccessOrKeyHintLineV17_90L372(hint)) continue;
+          const formatted = `${site.label}: ${hint}`;
+          const dedupeKey = normalizeOfferHint(formatted);
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          result.push(formatted);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+  lines: string[],
+  orders: any[],
+): string[] {
+  const scoped = collectOfferScopedAccessHintLinesV17_90L372(orders);
+  if (scoped.length === 0) return lines;
+  return uniqueOfferInfoLinesV17_66([
+    ...lines.filter((line) => {
+      if (!isOfferAccessOrKeyHintLineV17_90L372(line)) return true;
+      const clean = compactOfferValue(line);
+      return (
+        /^[^:]{2,120}:\s+/.test(clean) &&
+        !/^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:/i.test(clean)
+      );
+    }),
+    ...scoped,
+  ]);
+}
+
 function collectOfferServiceEvidenceLinesV17_90L237(orders: any[]): Set<string> {
   const result = new Set<string>();
   for (const order of orders || []) {
@@ -1885,6 +1955,12 @@ function extractOfferAccessLinesV17_90L237(
 
   const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|tuercode|türcode|code|pin|zugang|zutritt|seiteneingang|seitentuer|seitentür|seitentur|seitenzugang|hintereingang|eingang|tuer|tür|tur|eingangscode|key|keybox|key\s+box|door\s*code|side\s*door|back\s*door|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
   for (const order of orders || []) {
+    const scopedAccessLinesV17_90L372 =
+      collectOfferScopedAccessHintLinesV17_90L372([order]);
+    if (scopedAccessLinesV17_90L372.length > 0) {
+      scopedAccessLinesV17_90L372.forEach(add);
+      continue;
+    }
     // V17.90L264: first-AI canonical role text is the authoritative display
     // source. Raw/original text is fallback-only, preventing the same access
     // instruction from appearing in two languages.
@@ -2549,10 +2625,13 @@ function buildOfferInfoSummary(
         ...manualSafety,
       ]),
       primary: cleanOfferPrimaryInfoLinesV17_90L351(
-        uniqueOfferInfoLinesV17_66([
-          ...canonicalWorkflowSummaryV17_90L274.primary,
-          ...manualPrimary,
-        ]),
+        replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+          uniqueOfferInfoLinesV17_66([
+            ...canonicalWorkflowSummaryV17_90L274.primary,
+            ...manualPrimary,
+          ]),
+          sourceOrders,
+        ),
       ),
       additional: uniqueOfferInfoLinesV17_66([
         ...canonicalWorkflowSummaryV17_90L274.additional,
@@ -2646,7 +2725,12 @@ function buildOfferInfoSummary(
   );
   return {
     safety,
-    primary: cleanOfferPrimaryInfoLinesV17_90L351(compactPrimary),
+    primary: cleanOfferPrimaryInfoLinesV17_90L351(
+      replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+        compactPrimary,
+        sourceOrders,
+      ),
+    ),
     additional,
   };
 }
@@ -3307,7 +3391,7 @@ function buildOfferContactAction(
   const minutesBefore = best?.minutesBefore ?? explicitContact.minutesBefore;
   const notCall = Boolean(best?.notCall || explicitContact.notCall);
   const actionTarget = channel === "mail" ? email : phone;
-  if (!actionTarget) return null;
+  if (!actionTarget && channel !== "phone") return null;
   const directTarget =
     best?.phone ||
     best?.email ||
