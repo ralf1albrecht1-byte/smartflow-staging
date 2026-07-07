@@ -15908,6 +15908,19 @@ export default function AuftraegePage() {
       .join(" · ");
   };
 
+  const formatWorkSiteAddressOnly = (site?: OrderWorkSite | null) => {
+    if (!site) return "";
+    const titleKey = normalizeWorkSiteText(site.siteName);
+    const address = compactText(site.siteAddress);
+    const addressKey = normalizeWorkSiteText(site.siteAddress);
+    return [
+      address && addressKey !== titleKey ? address : "",
+      [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
   const getWorkSiteItems = (siteId?: string | null) =>
     formItems.filter((item) => item.workSiteId && item.workSiteId === siteId);
 
@@ -16198,7 +16211,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
 
   const getWorkSiteSelectLabel = (site: OrderWorkSite) => {
     const title = formatWorkSiteTitle(site);
-    const address = formatWorkSiteAddress(site);
+    const address = formatWorkSiteAddressOnly(site);
     return [title, address].filter(Boolean).join(" · ") || "Arbeitsort prüfen";
   };
 
@@ -16971,7 +16984,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         ...currentEditWorkSites.map((site) => ({
           key: site.id,
           title: formatWorkSiteTitle(site),
-          address: formatWorkSiteAddress(site),
+          address: formatWorkSiteAddressOnly(site),
           rows: liveOverviewRows.filter((row) => row.workSiteId === site.id),
         })),
       ].filter((group) => group.rows.length > 0)
@@ -23638,7 +23651,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                       )}
                                       <div className="mt-0.5 text-xs text-muted-foreground">
                                         {site
-                                          ? formatWorkSiteAddress(site) ||
+                                          ? formatWorkSiteAddressOnly(site) ||
                                             "Adresse prüfen"
                                           : shouldRenderStandardBillingRootGroupV17_90L371CH
                                             ? "Standard-Ausführungsort"

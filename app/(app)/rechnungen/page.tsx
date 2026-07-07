@@ -7360,7 +7360,6 @@ Dieser Arbeitsort enthält keine Positionen.`,
                     [group.site?.sitePlz, group.site?.siteCity]
                       .filter(Boolean)
                       .join(" "),
-                    group.site?.siteNote,
                   ]
                     .filter(Boolean)
                     .join(" · ")
@@ -11273,7 +11272,6 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     [group.site?.sitePlz, group.site?.siteCity]
                                       .filter(Boolean)
                                       .join(" "),
-                                    group.site?.siteNote,
                                   ]
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse prüfen"}

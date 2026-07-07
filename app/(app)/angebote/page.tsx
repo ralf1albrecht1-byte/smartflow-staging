@@ -11723,7 +11723,6 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     [group.site?.sitePlz, group.site?.siteCity]
                                       .filter(Boolean)
                                       .join(" "),
-                                    group.site?.siteNote,
                                   ]
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse prüfen"}
@@ -12284,7 +12283,6 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                       [group.site?.sitePlz, group.site?.siteCity]
                                         .filter(Boolean)
                                         .join(" "),
-                                      group.site?.siteNote,
                                     ]
                                       .filter(Boolean)
                                       .join(" · ")
@@ -12748,4 +12746,3 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
     </div>
   );
 }
-
