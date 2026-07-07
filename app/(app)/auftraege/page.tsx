@@ -102,10 +102,12 @@ import {
   CommunicationBlock,
   CommunicationChips,
   ContactActionChip,
-  buildMergedContactReviewEntries,
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
-import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  MergedContactReviewChip,
+  hasMergedContactReviewEntries,
+} from "@/components/merged-contact-review-chip";
 import {
   collectMergedAppointmentEntries,
   formatMergedAppointmentChipLabel,
@@ -20372,16 +20374,12 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
             );
             const operationalBadges = getOperationalBadges(cardOrderForChips, parsedCardNotes);
             const bottomBadges = getBottomBadges(cardOrderForChips, parsedCardNotes);
-            const hasMultipleMergedData = hasMergedMultipleContactData(
-              cardOrderForChips,
-              parsedCardNotes,
-            );
             const mergedContactReviewRecordsV17_90L371V =
               order_sanitizeMergedContactReviewRecordsV17_90L371Q([cardOrderForChips as any]) as any;
             const showMergedContactReviewChipV17_90L371V =
-              buildMergedContactReviewEntries(
+              hasMergedContactReviewEntries(
                 mergedContactReviewRecordsV17_90L371V,
-              ).length > 1;
+              );
             const hiddenMergedDataBadgeKeys = [
               "appointment",
               "appointments_multiple",
@@ -20396,19 +20394,19 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
               badge.key === "appointment" ||
               badge.key === "appointments_multiple",
             );
-            const callbackBadges = hasMultipleMergedData
+            const callbackBadges = showMergedContactReviewChipV17_90L371V
               ? []
               : bottomBadges.filter(
                   (badge) => badge.key === "callback_request",
                 );
-            const messageBadges = hasMultipleMergedData
+            const messageBadges = showMergedContactReviewChipV17_90L371V
               ? []
               : bottomBadges.filter((badge) => badge.key === "sms_request");
             const mergedContactBadges = bottomBadges.filter(
               (badge) => badge.key === "merged_data_review",
             );
             const otherFooterBadges = bottomBadges.filter((badge) =>
-              hasMultipleMergedData
+              showMergedContactReviewChipV17_90L371V
                 ? !hiddenMergedDataBadgeKeys.includes(badge.key) &&
                   badge.key !== "merged_data_review"
                 : ![
@@ -20416,7 +20414,6 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     "appointments_multiple",
                     "callback_request",
                     "sms_request",
-                    "merged_data_review",
                   ].includes(badge.key),
             );
             const rightSideBadges = amountReviewBadges;
@@ -21134,7 +21131,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     </option>
                                   ))}
                                 </select>
-                                {!hasMultipleMergedData && (
+                                {!showMergedContactReviewChipV17_90L371V && (
                                   <div
                                     className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -21360,7 +21357,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             ))}
                           </select>
 
-                          {!hasMultipleMergedData && (
+                          {!showMergedContactReviewChipV17_90L371V && (
                             <div
                               className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                               onPointerDown={(event) => event.stopPropagation()}
@@ -21576,7 +21573,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               ))}
                             </select>
 
-                            {!hasMultipleMergedData && (
+                            {!showMergedContactReviewChipV17_90L371V && (
                               <div
                                 className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                 onPointerDown={(event) =>

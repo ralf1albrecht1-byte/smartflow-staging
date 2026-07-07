@@ -83,12 +83,14 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
   CommunicationChips,
-  buildMergedContactReviewEntries,
   resolveCommunicationData,
   stripForwardedMessage,
   type CommunicationData,
 } from "@/components/communication-block";
-import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  MergedContactReviewChip,
+  hasMergedContactReviewEntries,
+} from "@/components/merged-contact-review-chip";
 import { collectMergedAppointmentEntries } from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
@@ -996,7 +998,7 @@ function getOfferMergedCount(offer: Offer): number {
   );
   const hasMergeReason = (offer.orders || []).some((order) =>
     (order.reviewReasons || []).some((reason) =>
-      ['manual_order_merge', 'double_merge'].includes(String(reason || '')),
+      ["manual_order_merge", "double_merge"].includes(String(reason || "")),
     ),
   );
   return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
@@ -8515,11 +8517,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                   const mergedCount = getOfferMergedCount(off);
                   const mergedContactReviewRecordsV17_90L371Q =
                     offer_sanitizeMergedContactReviewRecordsV17_90L371Q((off.orders || []) as any);
-                  const mergedContactEntries = buildMergedContactReviewEntries(
+                  const hasMergedContactReview = hasMergedContactReviewEntries(
                     mergedContactReviewRecordsV17_90L371Q as any,
                   );
-                  const hasMergedContactReview =
-                    mergedCount > 1 && mergedContactEntries.length > 1;
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );

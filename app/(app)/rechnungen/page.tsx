@@ -100,11 +100,13 @@ import {
   CommunicationBlock,
   CommunicationChips,
   ContactActionChip,
-  buildMergedContactReviewEntries,
   resolveCommunicationData,
   stripForwardedMessage,
 } from "@/components/communication-block";
-import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  MergedContactReviewChip,
+  hasMergedContactReviewEntries,
+} from "@/components/merged-contact-review-chip";
 import {
   collectMergedAppointmentEntries,
   formatMergedAppointmentTooltip,
@@ -8633,11 +8635,9 @@ Dieser Arbeitsort enthält keine Positionen.`,
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactReviewRecordsV17_90L371Q =
                     invoice_sanitizeMergedContactReviewRecordsV17_90L371Q((inv.orders || []) as any);
-                  const mergedContactEntries = buildMergedContactReviewEntries(
+                  const hasMergedContactReview = hasMergedContactReviewEntries(
                     mergedContactReviewRecordsV17_90L371Q as any,
                   );
-                  const hasMergedContactReview =
-                    mergedCount > 1 && mergedContactEntries.length > 1;
                   const invoiceCurrencyReviewDetails =
                     collectInvoiceCurrencyReviewDetailsV17_90L227(inv);
                   const invoiceCurrencyReviewCount =

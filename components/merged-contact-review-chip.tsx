@@ -410,6 +410,13 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
   });
 }
 
+export function hasMergedContactReviewEntries(
+  records: CommunicationData[] | null | undefined,
+): boolean {
+  const fallback = buildMergedContactReviewEntries(records);
+  return sanitizeMergedContactReviewEntriesV17_90L175(records, fallback).length > 1;
+}
+
 type ContactEntryGroupV17_90L177 = {
   key: string;
   title: string;
