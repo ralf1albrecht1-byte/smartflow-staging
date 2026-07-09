@@ -220,14 +220,33 @@ function isMergedBillingContactEntryV17_90L371CY(
 function dedupeMergedContactEntriesV17_90L371CY(
   entries: MergedContactReviewEntry[],
 ): MergedContactReviewEntry[] {
+  const globalValueKeys = new Set(
+    entries
+      .filter(
+        (entry) =>
+          normalizeContactTextV17_90L175(entry.siteLabel) === "auftrag allgemein",
+      )
+      .map((entry) =>
+        [
+          mergedContactEntryValueKeyV17_90L371CY(entry.contactValue),
+          normalizeContactTextV17_90L175(entry.channelLabel),
+        ].join("|"),
+      )
+      .filter(Boolean),
+  );
   const seen = new Set<string>();
   return entries.filter((entry) => {
     const valueKey = mergedContactEntryValueKeyV17_90L371CY(entry.contactValue);
     if (!valueKey) return false;
+    const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
+    const isGlobal = normalizeContactTextV17_90L175(entry.siteLabel) === "auftrag allgemein";
+    if (!isGlobal && globalValueKeys.has([valueKey, channelKey].join("|"))) {
+      return false;
+    }
     const key = [
       normalizeContactTextV17_90L175(entry.siteLabel),
       valueKey,
-      normalizeContactTextV17_90L175(entry.channelLabel),
+      channelKey,
     ].join("|");
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -459,7 +478,7 @@ function explicitMergedContactsV17_90L175(
         // instruction such as SMS, WhatsApp, call-back or contact on site.
         if (!channel) continue;
         const hasOperationalContactSignal =
-          /\b(?:vorher|nur\s+sms|sms\s+an|whatsapp|anrufen|anruf|rueckruf|rückruf|kontakt\s+vor\s+ort|vor\s+arbeitsbeginn|vor\s+ausfuehrung|vor\s+ausführung|erreichbar|melden)\b/i.test(
+          /\b(?:vorher|nur\s+sms|sms\s+an|whatsapp|anrufen|anruf|rueckruf|rückruf|kontakt\s+vor\s+ort|vor\s+arbeitsbeginn|vor\s+ausfuehrung|vor\s+ausführung|erreichbar|melden|foto|fotos|abschluss|nach\s+abschluss|e\s*mail|email|mail|senden)\b/i.test(
             line,
           );
         if (!hasOperationalContactSignal) continue;

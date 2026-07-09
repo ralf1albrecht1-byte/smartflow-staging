@@ -1827,7 +1827,7 @@ function escapeOfferWorkSiteContextRegExpV17_90L372(value: string): string {
 }
 
 function isOfferAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
-  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeOfferHint(value),
   );
 }
@@ -1844,7 +1844,12 @@ function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
       .filter((site: any) => site.label && site.keys.length > 0);
     if (sites.length === 0) continue;
 
-    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+    const rawSourceParts = [order?.notes, order?.audioTranscript]
+      .filter((source: any) => compactOfferValue(source));
+    const sourceParts = rawSourceParts.length > 0
+      ? rawSourceParts
+      : [order?.specialNotes].filter((source: any) => compactOfferValue(source));
+    const lines = sourceParts
       .flatMap(splitOfferSourceLinesV17_90L237)
       .map(cleanOfferInfoLineV17_66)
       .filter(Boolean);
@@ -1907,14 +1912,7 @@ function replaceOfferBareAccessHintsWithScopedContextV17_90L372(
   const scoped = collectOfferScopedAccessHintLinesV17_90L372(orders);
   if (scoped.length === 0) return lines;
   return uniqueOfferInfoLinesV17_66([
-    ...lines.filter((line) => {
-      if (!isOfferAccessOrKeyHintLineV17_90L372(line)) return true;
-      const clean = compactOfferValue(line);
-      return (
-        /^[^:]{2,120}:\s+/.test(clean) &&
-        !/^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:/i.test(clean)
-      );
-    }),
+    ...lines.filter((line) => !isOfferAccessOrKeyHintLineV17_90L372(line)),
     ...scoped,
   ]);
 }
@@ -1936,7 +1934,12 @@ function collectOfferScopedOperationalHintLinesV17_90L373(
       .filter((site: any) => site.label && site.keys.length > 0);
     if (sites.length === 0) continue;
 
-    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+    const rawSourceParts = [order?.notes, order?.audioTranscript]
+      .filter((source: any) => compactOfferValue(source));
+    const sourceParts = rawSourceParts.length > 0
+      ? rawSourceParts
+      : [order?.specialNotes].filter((source: any) => compactOfferValue(source));
+    const lines = sourceParts
       .flatMap(splitOfferSourceLinesV17_90L237)
       .map(cleanOfferInfoLineV17_66)
       .filter(Boolean);

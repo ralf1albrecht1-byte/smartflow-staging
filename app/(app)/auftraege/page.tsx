@@ -2290,7 +2290,7 @@ const escapeWorkSiteContextRegExpV17_90L372 = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const isAccessOrKeyHintLineV17_90L372 = (value?: string | null) =>
-  /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeForMatch(value),
   );
 
@@ -2318,8 +2318,12 @@ const collectScopedAccessHintLinesV17_90L372 = (order: {
     .filter((site) => site.label && site.keys.length > 0);
   if (sites.length === 0) return [];
 
-  const lines = [order.specialNotes, order.notes, order.audioTranscript]
-    .filter(Boolean)
+  const rawSourceParts = [order.notes, order.audioTranscript]
+    .filter((source) => compactText(source));
+  const sourceParts = rawSourceParts.length > 0
+    ? rawSourceParts
+    : [order.specialNotes].filter((source) => compactText(source));
+  const lines = sourceParts
     .flatMap((source) =>
       String(source || "")
         .replace(/\r\n/g, "\n")
@@ -2411,8 +2415,12 @@ const collectScopedOperationalHintLinesV17_90L373 = (
     .filter((site) => site.label && site.keys.length > 0);
   if (sites.length === 0) return [];
 
-  const lines = [order.specialNotes, order.notes, order.audioTranscript]
-    .filter(Boolean)
+  const rawSourceParts = [order.notes, order.audioTranscript]
+    .filter((source) => compactText(source));
+  const sourceParts = rawSourceParts.length > 0
+    ? rawSourceParts
+    : [order.specialNotes].filter((source) => compactText(source));
+  const lines = sourceParts
     .flatMap((source) =>
       String(source || "")
         .replace(/\r\n/g, "\n")
@@ -2492,10 +2500,7 @@ const replaceBareAccessHintsWithScopedContextV17_90L372 = (
   const scoped = collectScopedAccessHintLinesV17_90L372(order);
   if (scoped.length === 0) return lines;
   return uniqueOrderInfoLinesV17_66([
-    ...lines.filter((line) => {
-      if (!isAccessOrKeyHintLineV17_90L372(line)) return true;
-      return Boolean(splitLocationPrefixedHint(line).location);
-    }),
+    ...lines.filter((line) => !isAccessOrKeyHintLineV17_90L372(line)),
     ...scoped,
   ]);
 };

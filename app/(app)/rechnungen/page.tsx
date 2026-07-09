@@ -1316,7 +1316,7 @@ function escapeInvoiceWorkSiteContextRegExpV17_90L372(value: string): string {
 }
 
 function isInvoiceAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
-  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeInvoiceServiceName(value),
   );
 }
@@ -1333,7 +1333,12 @@ function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] 
       .filter((site: any) => site.label && site.keys.length > 0);
     if (sites.length === 0) continue;
 
-    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+    const rawSourceParts = [order?.notes, order?.audioTranscript]
+      .filter((source: any) => compactInvoiceValue(source));
+    const sourceParts = rawSourceParts.length > 0
+      ? rawSourceParts
+      : [order?.specialNotes].filter((source: any) => compactInvoiceValue(source));
+    const lines = sourceParts
       .flatMap(splitInvoiceSourceLinesV17_90L237)
       .map((line) =>
         compactInvoiceValue(
@@ -1400,17 +1405,11 @@ function replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
   const scoped = collectInvoiceScopedAccessHintLinesV17_90L372(orders);
   if (scoped.length === 0) return lines;
   return uniqueInvoiceLines([
-    ...lines.filter((line) => {
-      if (!isInvoiceAccessOrKeyHintLineV17_90L372(line)) return true;
-      const clean = compactInvoiceValue(line);
-      return (
-        /^[^:]{2,120}:\s+/.test(clean) &&
-        !/^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:/i.test(clean)
-      );
-    }),
+    ...lines.filter((line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line)),
     ...scoped,
   ]);
 }
+
 
 function collectInvoiceServiceEvidenceLinesV17_90L237(invoice?: Invoice | null): Set<string> {
   const result = new Set<string>();
@@ -2328,13 +2327,16 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       invoiceAppointmentAnnouncementV17_90L371AN,
     );
 
+  const scopedInvoicePrimaryHintsV17_90L375 = replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+    cleanPrimaryHintsV17_90L371AN,
+    sourceOrders,
+  );
   return {
     hazards: cleanHazardsV17_90L322,
-    primaryHints: replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
-      cleanPrimaryHintsV17_90L371AN,
-      sourceOrders,
+    primaryHints: scopedInvoicePrimaryHintsV17_90L375,
+    otherHints: otherHints.filter(
+      (line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line),
     ),
-    otherHints,
   };
 }
 
