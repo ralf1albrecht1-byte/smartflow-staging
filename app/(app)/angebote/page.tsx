@@ -1827,7 +1827,7 @@ function escapeOfferWorkSiteContextRegExpV17_90L372(value: string): string {
 }
 
 function isOfferAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
-  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|rolltor|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeOfferHint(value),
   );
 }
@@ -2015,6 +2015,46 @@ function replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
     }),
     ...scoped,
   ]);
+}
+
+function cleanOfferOperationalChipCandidatesV17_90L376(
+  lines: string[],
+  infoSummary: OfferInfoSummary,
+  hasMergedContactReview: boolean,
+): string[] {
+  const hasScopedAccess = [...infoSummary.primary, ...infoSummary.additional].some(
+    (line) => /^[^:]{2,120}:\s+/.test(compactOfferValue(line)) && isOfferAccessOrKeyHintLineV17_90L372(line),
+  );
+  return uniqueOfferInfoLinesV17_66(lines).filter((line) => {
+    const clean = compactOfferValue(line);
+    if (!clean) return false;
+    if (hasScopedAccess && isOfferAccessOrKeyHintLineV17_90L372(clean) && !/^[^:]{2,120}:\s+/.test(clean)) return false;
+    if (
+      hasMergedContactReview &&
+      isOfferCommunicationLikeLineV17_90L266(clean) &&
+      /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s()./-]{6,}\d)/i.test(clean) &&
+      !isOfferAppointmentCommunicationLineV17_90L266(clean)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function cleanOfferPrimaryInfoLinesForContactChipV17_90L376(
+  lines: string[],
+  hasMergedContactReview: boolean,
+): string[] {
+  if (!hasMergedContactReview) return lines;
+  return lines.filter((line) => {
+    const clean = compactOfferValue(line);
+    if (!clean) return false;
+    if (isOfferAppointmentCommunicationLineV17_90L266(clean)) return true;
+    return !(
+      isOfferCommunicationLikeLineV17_90L266(clean) &&
+      /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s()./-]{6,}\d)/i.test(clean)
+    );
+  });
 }
 
 function isOfferDangerOrDogHintLineV17_90L373(value?: string | null): boolean {
@@ -8711,7 +8751,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     orderCtx,
                     cardCustomer,
                   );
-                  const infoSummary = buildOfferInfoSummary(
+                  let infoSummary = buildOfferInfoSummary(
                     orderCtx,
                     parsedOfferNotes,
                     appointmentLabel,
@@ -8719,6 +8759,15 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     (off.orders || []) as any[],
                     (off.items || []).map((item: any) => String(item?.description || "")),
                   );
+                  if (hasMergedContactReview) {
+                    infoSummary = {
+                      ...infoSummary,
+                      primary: cleanOfferPrimaryInfoLinesForContactChipV17_90L376(
+                        infoSummary.primary,
+                        hasMergedContactReview,
+                      ),
+                    };
+                  }
                   const contactChipData = buildOfferContactChipData(
                     orderCtx,
                     cardCustomer,
@@ -8727,11 +8776,15 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                   const callbackChip = buildOfferCallbackChip(contactAction);
                   const operationalChips = buildOfferOperationalChips(
                     infoSummary.safety,
-                    uniqueOfferInfoLinesV17_66([
-                      ...parsedOfferNotes.jobHints,
-                      ...infoSummary.primary,
-                      ...infoSummary.additional,
-                    ]),
+                    cleanOfferOperationalChipCandidatesV17_90L376(
+                      [
+                        ...parsedOfferNotes.jobHints,
+                        ...infoSummary.primary,
+                        ...infoSummary.additional,
+                      ],
+                      infoSummary,
+                      hasMergedContactReview,
+                    ),
                   );
                   const dangerChips = operationalChips.filter(
                     (chip) => chip.tone === "danger",
