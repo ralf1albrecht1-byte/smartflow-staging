@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
@@ -1848,23 +1849,40 @@ function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
       .map(cleanOfferInfoLineV17_66)
       .filter(Boolean);
 
+    const pushScoped = (siteLabel: string, rawHint: unknown) => {
+      const hint = compactOfferValue(rawHint).replace(/[.;,\s]+$/g, "");
+      if (!hint || !isOfferAccessOrKeyHintLineV17_90L372(hint)) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const dedupeKey = normalizeOfferHint(formatted);
+      if (!dedupeKey || seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      result.push(formatted);
+    };
+
     for (const line of lines) {
+      const lineKey = normalizeOfferHint(line);
       for (const site of sites) {
         for (const key of site.keys) {
           const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(key);
-          const match = line.match(
+          const explicitAccessMatch = line.match(
             new RegExp(
               `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
               "i",
             ),
           );
-          const hint = compactOfferValue(match?.[1]).replace(/[.;,\s]+$/g, "");
-          if (!hint || !isOfferAccessOrKeyHintLineV17_90L372(hint)) continue;
-          const formatted = `${site.label}: ${hint}`;
-          const dedupeKey = normalizeOfferHint(formatted);
-          if (seen.has(dedupeKey)) continue;
-          seen.add(dedupeKey);
-          result.push(formatted);
+          if (explicitAccessMatch?.[1]) {
+            pushScoped(site.label, explicitAccessMatch[1]);
+            continue;
+          }
+          const siteKey = normalizeOfferHint(key);
+          if (!siteKey || !lineKey.includes(siteKey)) continue;
+          const looseAccessMatch = line.match(
+            new RegExp(
+              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*${escaped}\\s*:?\\s*(.+)$`,
+              "i",
+            ),
+          );
+          pushScoped(site.label, looseAccessMatch?.[1] || line);
         }
       }
     }
@@ -1889,6 +1907,95 @@ function replaceOfferBareAccessHintsWithScopedContextV17_90L372(
     }),
     ...scoped,
   ]);
+}
+
+
+function collectOfferScopedOperationalHintLinesV17_90L373(
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label: compactOfferValue(site?.siteName) || compactOfferValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress].map(compactOfferValue).filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const lines = [order?.specialNotes, order?.notes, order?.audioTranscript]
+      .flatMap(splitOfferSourceLinesV17_90L237)
+      .map(cleanOfferInfoLineV17_66)
+      .filter(Boolean);
+
+    const pushScoped = (siteLabel: string, rawHint: unknown, rawLine: string) => {
+      const hint = compactOfferValue(rawHint).replace(/[.;,\s]+$/g, "");
+      if (!hint) return;
+      if (!matchesHint(hint) && !matchesHint(rawLine)) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const key = normalizeOfferHint(formatted);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      result.push(formatted);
+    };
+
+    for (const line of lines) {
+      const lineKey = normalizeOfferHint(line);
+      if (!lineKey) continue;
+      for (const site of sites) {
+        for (const siteKeyRaw of site.keys) {
+          const siteKey = normalizeOfferHint(siteKeyRaw);
+          if (!siteKey || !lineKey.includes(siteKey)) continue;
+          const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(siteKeyRaw);
+          const match = line.match(
+            new RegExp(
+              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.+)$`,
+              "i",
+            ),
+          );
+          pushScoped(site.label, match?.[1] || line, line);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+function replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
+  lines: string[],
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const scoped = collectOfferScopedOperationalHintLinesV17_90L373(
+    orders,
+    matchesHint,
+  );
+  if (scoped.length === 0) return lines;
+  return uniqueOfferInfoLinesV17_66([
+    ...lines.filter((line) => {
+      if (!matchesHint(line)) return true;
+      const clean = compactOfferValue(line);
+      return (
+        /^[^:]{2,120}:\s+/.test(clean) &&
+        !/^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)\s*:/i.test(clean)
+      );
+    }),
+    ...scoped,
+  ]);
+}
+
+function isOfferDangerOrDogHintLineV17_90L373(value?: string | null): boolean {
+  const raw = String(value || "");
+  const text = normalizeOfferHint(raw);
+  if (!text) return false;
+  return (
+    isOfferDogHint(raw) ||
+    /\b(?:achtung|vorsicht|gefahr|warnung|danger|warning|risiko|rutschig|strom|kabel|nass|oel|öl|glas|scherbe|schacht|loch)\b/.test(text)
+  );
 }
 
 function collectOfferServiceEvidenceLinesV17_90L237(orders: any[]): Set<string> {
@@ -2622,10 +2729,14 @@ function buildOfferInfoSummary(
         !manualPrimary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
     );
     return {
-      safety: uniqueOfferInfoLinesV17_66([
-        ...canonicalWorkflowSummaryV17_90L274.safety,
-        ...manualSafety,
-      ]),
+      safety: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
+        uniqueOfferInfoLinesV17_66([
+          ...canonicalWorkflowSummaryV17_90L274.safety,
+          ...manualSafety,
+        ]),
+        sourceOrders,
+        isOfferDangerOrDogHintLineV17_90L373,
+      ),
       primary: cleanOfferPrimaryInfoLinesV17_90L351(
         replaceOfferBareAccessHintsWithScopedContextV17_90L372(
           uniqueOfferInfoLinesV17_66([
@@ -2726,14 +2837,21 @@ function buildOfferInfoSummary(
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
   return {
-    safety,
+    safety: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
+      safety,
+      sourceOrders,
+      isOfferDangerOrDogHintLineV17_90L373,
+    ),
     primary: cleanOfferPrimaryInfoLinesV17_90L351(
       replaceOfferBareAccessHintsWithScopedContextV17_90L372(
         compactPrimary,
         sourceOrders,
       ),
     ),
-    additional,
+    additional: replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+      additional,
+      sourceOrders,
+    ),
   };
 }
 

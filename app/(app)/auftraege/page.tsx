@@ -1,4 +1,6 @@
 "use client";
+// SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
+// SMARTFLOW_V17_90L371CZ_WORKSITE_CONTEXT_IN_ACCESS_INFO_CHIPS_ORDER
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
@@ -2322,7 +2324,7 @@ const collectScopedAccessHintLinesV17_90L372 = (order: {
       String(source || "")
         .replace(/\r\n/g, "\n")
         .replace(/\r/g, "\n")
-        .split(/\n+/g),
+        .split(/\n+|(?<=[.!?])\s+/g),
     )
     .map((line) =>
       compactText(stripVisibleNoteMarkerV17_35(line).replace(/^[-•*]\s*/, "")),
@@ -2331,26 +2333,123 @@ const collectScopedAccessHintLinesV17_90L372 = (order: {
 
   const result: string[] = [];
   const seen = new Set<string>();
+  const pushScoped = (siteLabel: string, rawHint: string) => {
+    const hint = compactText(rawHint).replace(/[.;,\s]+$/g, "");
+    if (!hint || !isAccessOrKeyHintLineV17_90L372(hint)) return;
+    const formatted = `${siteLabel}: ${hint}`;
+    const dedupeKey = normalizeForMatch(formatted);
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    result.push(formatted);
+  };
+
   for (const line of lines) {
     for (const site of sites) {
       for (const key of site.keys) {
         const escaped = escapeWorkSiteContextRegExpV17_90L372(key);
-        const match = line.match(
+        const explicitAccessMatch = line.match(
           new RegExp(
             `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
             "i",
           ),
         );
-        const hint = compactText(match?.[1]).replace(/[.;,\s]+$/g, "");
-        if (!hint || !isAccessOrKeyHintLineV17_90L372(hint)) continue;
-        const formatted = `${site.label}: ${hint}`;
-        const dedupeKey = normalizeForMatch(formatted);
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
-        result.push(formatted);
+        if (explicitAccessMatch?.[1]) {
+          pushScoped(site.label, explicitAccessMatch[1]);
+          continue;
+        }
+
+        // V17.90L371CZ: Also handle compact source lines such as
+        // "Zugang Halle A: Rolltor rechts, Code 5533." and normalized
+        // canonical fragments like "Code 5533" / "Badge bei Rezeption".
+        const lineKey = normalizeForMatch(line);
+        const siteKey = normalizeForMatch(key);
+        if (!siteKey || !lineKey.includes(siteKey)) continue;
+        const looseAccessMatch = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*${escaped}\\s*:?\\s*(.+)$`,
+            "i",
+          ),
+        );
+        pushScoped(site.label, looseAccessMatch?.[1] || line);
       }
     }
   }
+  return result;
+};
+
+
+const collectScopedOperationalHintLinesV17_90L373 = (
+  order: {
+    notes?: string | null;
+    specialNotes?: string | null;
+    audioTranscript?: string | null;
+    workSites?: Array<{
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    }> | null;
+  },
+  matchesHint: (line: string) => boolean,
+): string[] => {
+  const sites = (order.workSites || [])
+    .map((site) => ({
+      label:
+        cleanWorkSiteDisplayName(site.siteName) ||
+        compactText(site.siteAddress),
+      keys: [
+        cleanWorkSiteDisplayName(site.siteName),
+        compactText(site.siteAddress),
+      ].filter(Boolean),
+    }))
+    .filter((site) => site.label && site.keys.length > 0);
+  if (sites.length === 0) return [];
+
+  const lines = [order.specialNotes, order.notes, order.audioTranscript]
+    .filter(Boolean)
+    .flatMap((source) =>
+      String(source || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+|(?<=[.!?])\s+/g),
+    )
+    .map((line) =>
+      compactText(stripVisibleNoteMarkerV17_35(line).replace(/^[-•*]\s*/, "")),
+    )
+    .filter(Boolean);
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const pushScoped = (siteLabel: string, rawHint: string, rawLine: string) => {
+    const hint = compactText(rawHint).replace(/[.;,\s]+$/g, "");
+    if (!hint) return;
+    if (!matchesHint(hint) && !matchesHint(rawLine)) return;
+    const formatted = `${siteLabel}: ${hint}`;
+    const dedupeKey = normalizeForMatch(formatted);
+    if (!dedupeKey || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    result.push(formatted);
+  };
+
+  for (const line of lines) {
+    const lineKey = normalizeForMatch(line);
+    if (!lineKey) continue;
+    for (const site of sites) {
+      for (const key of site.keys) {
+        const siteKey = normalizeForMatch(key);
+        if (!siteKey || !lineKey.includes(siteKey)) continue;
+        const escaped = escapeWorkSiteContextRegExpV17_90L372(key);
+        const scopedMatch = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.+)$`,
+            "i",
+          ),
+        );
+        pushScoped(site.label, scopedMatch?.[1] || line, line);
+      }
+    }
+  }
+
   return result;
 };
 
@@ -2513,6 +2612,14 @@ const formatOperationalHintTooltip = (
   if (kind === "key" || kind === "access") {
     const scopedAccessLines = collectScopedAccessHintLinesV17_90L372(order);
     if (scopedAccessLines.length > 0) return scopedAccessLines.join("\n\n");
+  }
+
+  const scopedOperationalLines = collectScopedOperationalHintLinesV17_90L373(
+    order,
+    (line) => operationalHintMatchesKind(kind, line, contextText),
+  );
+  if (scopedOperationalLines.length > 0) {
+    return scopedOperationalLines.join("\n\n");
   }
 
   const entries = [
@@ -5220,10 +5327,32 @@ const getOperationalBadges = (
           orderInfoLinesEquivalentV17_66(hint, line),
         ),
     );
+    const scopedSummaryPrimaryLinesV17_90L371CZ = replaceBareAccessHintsWithScopedContextV17_90L372(
+      summaryPrimaryLinesV17_90L329,
+      order,
+    );
+    const scopedSummaryAdditionalLinesV17_90L371CZ = replaceBareAccessHintsWithScopedContextV17_90L372(
+      summaryAdditionalLinesV17_90L329,
+      order,
+    );
+    const scopedSummarySafetyLinesV17_90L371DA = uniqueOrderInfoLinesV17_66([
+      ...summarySafetyLinesV17_90L329.filter((line) =>
+        Boolean(splitLocationPrefixedHint(line).location),
+      ),
+      ...collectScopedOperationalHintLinesV17_90L373(
+        order,
+        (line) => {
+          const kind = getSemanticBadgeKind(line);
+          return kind === "dog" || kind === "warning";
+        },
+      ),
+    ]);
     const summaryTooltip = [
-      summarySafetyLinesV17_90L329.length ? ["Gefahr / Achtung", ...summarySafetyLinesV17_90L329].join("\n") : "",
-      summaryPrimaryLinesV17_90L329.length ? ["Wichtige Informationen", ...summaryPrimaryLinesV17_90L329].join("\n") : "",
-      summaryAdditionalLinesV17_90L329.length ? ["Weitere Besonderheiten", ...summaryAdditionalLinesV17_90L329].join("\n") : "",
+      (scopedSummarySafetyLinesV17_90L371DA.length || summarySafetyLinesV17_90L329.length)
+        ? ["Gefahr / Achtung", ...(scopedSummarySafetyLinesV17_90L371DA.length ? scopedSummarySafetyLinesV17_90L371DA : summarySafetyLinesV17_90L329)].join("\n")
+        : "",
+      scopedSummaryPrimaryLinesV17_90L371CZ.length ? ["Wichtige Informationen", ...scopedSummaryPrimaryLinesV17_90L371CZ].join("\n") : "",
+      scopedSummaryAdditionalLinesV17_90L371CZ.length ? ["Weitere Besonderheiten", ...scopedSummaryAdditionalLinesV17_90L371CZ].join("\n") : "",
     ].filter(Boolean).join("\n---\n");
     if (summaryTooltip) {
       pushUniqueBadge(badges, {
@@ -5250,7 +5379,13 @@ const getOperationalBadges = (
         label: dog ? "Hund" : "Achtung",
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
-        tooltip: line,
+        tooltip: formatOperationalHintTooltip(
+          order,
+          dog ? "dog" : "warning",
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
         focusTarget: "specialNotes",
       });
     });
@@ -5262,8 +5397,13 @@ const getOperationalBadges = (
       canonicalSnapshotV2.roles.access,
     );
     if (canonicalAccessLinesV17_90L215.length > 0) {
+      const scopedAccessLinesV17_90L371CZ = collectScopedAccessHintLinesV17_90L372(order);
+      const canonicalAccessTooltipLinesV17_90L371CZ =
+        scopedAccessLinesV17_90L371CZ.length > 0
+          ? scopedAccessLinesV17_90L371CZ
+          : canonicalAccessLinesV17_90L215;
       const hasExplicitAccessCredentialV17_90L215 =
-        canonicalAccessLinesV17_90L215.some((line) =>
+        canonicalAccessTooltipLinesV17_90L371CZ.some((line) =>
           /\b(?:zugang|zutritt|code|pin|badge|tor|tür|tuer|schlüsselbox|schluesselbox|briefkasten)\b/i.test(
             line,
           ),
@@ -5273,7 +5413,7 @@ const getOperationalBadges = (
         label: hasExplicitAccessCredentialV17_90L215 ? "Zugang" : "Schlüssel",
         className:
           "bg-amber-100 text-amber-700 border border-amber-300",
-        tooltip: canonicalAccessLinesV17_90L215.join("\n"),
+        tooltip: canonicalAccessTooltipLinesV17_90L371CZ.join("\n"),
         focusTarget: "specialNotes",
       });
     }
@@ -5299,7 +5439,13 @@ const getOperationalBadges = (
         className: isPositiveSemanticHint(line)
           ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
           : "bg-amber-100 text-amber-700 border border-amber-300",
-        tooltip: line,
+        tooltip: formatOperationalHintTooltip(
+          order,
+          kind,
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
         focusTarget: "specialNotes",
       });
     });
@@ -5316,7 +5462,13 @@ const getOperationalBadges = (
           label: dangerLabel === "Hund" ? "Hund" : "Achtung",
           className: "bg-red-100 text-red-700 border border-red-300",
           icon: true,
-          tooltip: dangerLabel === "Hund" ? sanitizeDogOnlyTooltipV17_90L175(line) : line,
+          tooltip: formatOperationalHintTooltip(
+            order,
+            dangerLabel === "Hund" ? "dog" : "warning",
+            parsedNotes,
+            line,
+            orderBadgeContext,
+          ),
           focusTarget: "specialNotes",
         });
         return;
@@ -5330,7 +5482,13 @@ const getOperationalBadges = (
           : kind === "parking"
             ? "bg-blue-50 text-blue-700 border border-blue-300"
             : "bg-amber-100 text-amber-700 border border-amber-300",
-        tooltip: line,
+        tooltip: formatOperationalHintTooltip(
+          order,
+          kind,
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
         focusTarget: "specialNotes",
       });
     });
@@ -5424,7 +5582,17 @@ const getOperationalBadges = (
     }
 
     const label = dangerBadgeLabel(line);
-    addDanger(`danger_${normalizeForMatch(label)}`, label, line);
+    addDanger(
+      `danger_${normalizeForMatch(label)}`,
+      label,
+      formatOperationalHintTooltip(
+        order,
+        label === "Hund" ? "dog" : "warning",
+        parsedNotes,
+        line,
+        orderBadgeContext,
+      ),
+    );
   });
 
 
