@@ -2290,7 +2290,7 @@ const escapeWorkSiteContextRegExpV17_90L372 = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const isAccessOrKeyHintLineV17_90L372 = (value?: string | null) =>
-  /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|rolltor|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeForMatch(value),
   );
 
@@ -15184,10 +15184,6 @@ export default function AuftraegePage() {
       if (!key) return false;
       if (details.findIndex((candidate) => recognitionReviewDetailKeyV17_90L70(candidate) === key) !== detailIndex) return false;
       if (discardedRecognitionReviewKeys.includes(key)) return false;
-      // SMARTFLOW_V17_90L376: Reine Kommunikations-/Abschlussfoto-Hinweise
-      // sind keine Prüfpositionen. Sie bleiben in Kontakt-/Infochips sichtbar,
-      // dürfen aber den Editor nicht als rote "Leistung nicht erkannt" blockieren.
-      if (isOperationalOnlyRecognitionReviewDetailV17_90L374(detail)) return false;
       if (detail.kind === "service_action_unclear_item") return true;
       if (detail.kind && detail.kind !== "missing_work") return true;
       return !formItems.some(

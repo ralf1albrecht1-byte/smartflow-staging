@@ -1316,7 +1316,7 @@ function escapeInvoiceWorkSiteContextRegExpV17_90L372(value: string): string {
 }
 
 function isInvoiceAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
-  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|rolltor|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
+  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
     normalizeInvoiceServiceName(value),
   );
 }
@@ -2331,17 +2331,12 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
     cleanPrimaryHintsV17_90L371AN,
     sourceOrders,
   );
-  const hasScopedInvoiceAccessV17_90L376 = scopedInvoicePrimaryHintsV17_90L375.some(
-    (line) => /^[^:]{2,120}:\s+/.test(compactInvoiceValue(line)) && isInvoiceAccessOrKeyHintLineV17_90L372(line),
-  );
   return {
     hazards: cleanHazardsV17_90L322,
     primaryHints: scopedInvoicePrimaryHintsV17_90L375,
-    otherHints: otherHints.filter((line) => {
-      if (isInvoiceAccessOrKeyHintLineV17_90L372(line)) return false;
-      if (hasScopedInvoiceAccessV17_90L376 && /\b(?:rolltor|tuer|tur|tür|eingang|empfang|badge|code|schluessel|schlussel|schlüssel)\b/i.test(normalizeInvoiceServiceName(line))) return false;
-      return true;
-    }),
+    otherHints: otherHints.filter(
+      (line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line),
+    ),
   };
 }
 
