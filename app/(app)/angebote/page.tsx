@@ -1850,7 +1850,10 @@ function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
       .filter(Boolean);
 
     const pushScoped = (siteLabel: string, rawHint: unknown) => {
-      const hint = compactOfferValue(rawHint).replace(/[.;,\s]+$/g, "");
+      const hint = compactOfferValue(rawHint)
+        .replace(/^\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:?\s*/i, "")
+        .replace(/[.;,\s]+$/g, "")
+        .replace(/\s*,\s*/g, " · ");
       if (!hint || !isOfferAccessOrKeyHintLineV17_90L372(hint)) return;
       const formatted = `${siteLabel}: ${hint}`;
       const dedupeKey = normalizeOfferHint(formatted);
@@ -1859,31 +1862,38 @@ function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
       result.push(formatted);
     };
 
-    for (const line of lines) {
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
       const lineKey = normalizeOfferHint(line);
+      if (!lineKey) return null;
       for (const site of sites) {
         for (const key of site.keys) {
-          const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(key);
-          const explicitAccessMatch = line.match(
-            new RegExp(
-              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
-              "i",
-            ),
-          );
-          if (explicitAccessMatch?.[1]) {
-            pushScoped(site.label, explicitAccessMatch[1]);
-            continue;
-          }
           const siteKey = normalizeOfferHint(key);
-          if (!siteKey || !lineKey.includes(siteKey)) continue;
-          const looseAccessMatch = line.match(
-            new RegExp(
-              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*${escaped}\\s*:?\\s*(.+)$`,
-              "i",
-            ),
-          );
-          pushScoped(site.label, looseAccessMatch?.[1] || line);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
         }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(resolved.key);
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactOfferValue(match?.[1] || "");
+        if (rawHint) pushScoped(resolved.site.label, rawHint);
+        continue;
+      }
+
+      if (activeSiteLabel && isOfferAccessOrKeyHintLineV17_90L372(line)) {
+        pushScoped(activeSiteLabel, line);
       }
     }
   }
@@ -1942,22 +1952,38 @@ function collectOfferScopedOperationalHintLinesV17_90L373(
       result.push(formatted);
     };
 
-    for (const line of lines) {
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
       const lineKey = normalizeOfferHint(line);
-      if (!lineKey) continue;
+      if (!lineKey) return null;
       for (const site of sites) {
-        for (const siteKeyRaw of site.keys) {
-          const siteKey = normalizeOfferHint(siteKeyRaw);
-          if (!siteKey || !lineKey.includes(siteKey)) continue;
-          const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(siteKeyRaw);
-          const match = line.match(
-            new RegExp(
-              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.+)$`,
-              "i",
-            ),
-          );
-          pushScoped(site.label, match?.[1] || line, line);
+        for (const key of site.keys) {
+          const siteKey = normalizeOfferHint(key);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
         }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeOfferWorkSiteContextRegExpV17_90L372(resolved.key);
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactOfferValue(match?.[1] || "");
+        if (rawHint) pushScoped(resolved.site.label, rawHint, line);
+        continue;
+      }
+
+      if (activeSiteLabel && matchesHint(line)) {
+        pushScoped(activeSiteLabel, line, line);
       }
     }
   }
@@ -2728,6 +2754,15 @@ function buildOfferInfoSummary(
         !manualSafety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
         !manualPrimary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
     );
+    const scopedOfferAccessLinesV17_90L374 = collectOfferScopedAccessHintLinesV17_90L372(sourceOrders);
+    const rawOfferPrimaryLinesV17_90L374 = uniqueOfferInfoLinesV17_66([
+      ...canonicalWorkflowSummaryV17_90L274.primary,
+      ...manualPrimary,
+    ]);
+    const rawOfferAdditionalLinesV17_90L374 = uniqueOfferInfoLinesV17_66([
+      ...canonicalWorkflowSummaryV17_90L274.additional,
+      ...manualAdditional,
+    ]);
     return {
       safety: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
         uniqueOfferInfoLinesV17_66([
@@ -2738,18 +2773,26 @@ function buildOfferInfoSummary(
         isOfferDangerOrDogHintLineV17_90L373,
       ),
       primary: cleanOfferPrimaryInfoLinesV17_90L351(
-        replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-          uniqueOfferInfoLinesV17_66([
-            ...canonicalWorkflowSummaryV17_90L274.primary,
-            ...manualPrimary,
-          ]),
-          sourceOrders,
-        ),
+        scopedOfferAccessLinesV17_90L374.length > 0
+          ? rawOfferPrimaryLinesV17_90L374.filter(
+              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+            )
+          : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+              rawOfferPrimaryLinesV17_90L374,
+              sourceOrders,
+            ),
       ),
-      additional: uniqueOfferInfoLinesV17_66([
-        ...canonicalWorkflowSummaryV17_90L274.additional,
-        ...manualAdditional,
-      ]),
+      additional: scopedOfferAccessLinesV17_90L374.length > 0
+        ? uniqueOfferInfoLinesV17_66([
+            ...rawOfferAdditionalLinesV17_90L374.filter(
+              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+            ),
+            ...scopedOfferAccessLinesV17_90L374,
+          ])
+        : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+            rawOfferAdditionalLinesV17_90L374,
+            sourceOrders,
+          ),
       hasCanonicalMarkers: true,
     } as OfferCanonicalWorkflowSummaryV17_90L273;
   }
@@ -2836,6 +2879,7 @@ function buildOfferInfoSummary(
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
+  const scopedOfferAccessLinesV17_90L374 = collectOfferScopedAccessHintLinesV17_90L372(sourceOrders);
   return {
     safety: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
       safety,
@@ -2843,15 +2887,26 @@ function buildOfferInfoSummary(
       isOfferDangerOrDogHintLineV17_90L373,
     ),
     primary: cleanOfferPrimaryInfoLinesV17_90L351(
-      replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-        compactPrimary,
-        sourceOrders,
-      ),
+      scopedOfferAccessLinesV17_90L374.length > 0
+        ? compactPrimary.filter(
+            (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+          )
+        : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+            compactPrimary,
+            sourceOrders,
+          ),
     ),
-    additional: replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-      additional,
-      sourceOrders,
-    ),
+    additional: scopedOfferAccessLinesV17_90L374.length > 0
+      ? uniqueOfferInfoLinesV17_66([
+          ...additional.filter(
+            (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+          ),
+          ...scopedOfferAccessLinesV17_90L374,
+        ])
+      : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+          additional,
+          sourceOrders,
+        ),
   };
 }
 

@@ -1342,24 +1342,51 @@ function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] 
       )
       .filter(Boolean);
 
-    for (const line of lines) {
+    const pushScoped = (siteLabel: string, rawHint: unknown) => {
+      const hint = compactInvoiceValue(rawHint)
+        .replace(/^\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:?\s*/i, "")
+        .replace(/[.;,\s]+$/g, "")
+        .replace(/\s*,\s*/g, " · ");
+      if (!hint || !isInvoiceAccessOrKeyHintLineV17_90L372(hint)) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const dedupeKey = normalizeInvoiceServiceName(formatted);
+      if (!dedupeKey || seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      result.push(formatted);
+    };
+
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
+      const lineKey = normalizeInvoiceServiceName(line);
+      if (!lineKey) return null;
       for (const site of sites) {
         for (const key of site.keys) {
-          const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(key);
-          const match = line.match(
-            new RegExp(
-              `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
-              "i",
-            ),
-          );
-          const hint = compactInvoiceValue(match?.[1]).replace(/[.;,\s]+$/g, "");
-          if (!hint || !isInvoiceAccessOrKeyHintLineV17_90L372(hint)) continue;
-          const formatted = `${site.label}: ${hint}`;
-          const dedupeKey = normalizeInvoiceServiceName(formatted);
-          if (seen.has(dedupeKey)) continue;
-          seen.add(dedupeKey);
-          result.push(formatted);
+          const siteKey = normalizeInvoiceServiceName(key);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
         }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(resolved.key);
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactInvoiceValue(match?.[1] || "");
+        if (rawHint) pushScoped(resolved.site.label, rawHint);
+        continue;
+      }
+
+      if (activeSiteLabel && isInvoiceAccessOrKeyHintLineV17_90L372(line)) {
+        pushScoped(activeSiteLabel, line);
       }
     }
   }

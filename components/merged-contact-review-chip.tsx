@@ -519,7 +519,9 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
       ) || fallbackEntries[index] || ({} as MergedContactReviewEntry);
     return {
       ...template,
-      siteLabel: entry.siteLabel,
+      siteLabel: isGlobalMergedContactInstructionV17_90L371CZ(entry as any)
+        ? "Auftrag allgemein"
+        : entry.siteLabel,
       contactName: entry.contactName,
       contactValue: entry.contactValue,
       channelLabel: entry.channelLabel,

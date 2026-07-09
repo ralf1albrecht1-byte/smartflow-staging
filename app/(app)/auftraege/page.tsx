@@ -2334,49 +2334,55 @@ const collectScopedAccessHintLinesV17_90L372 = (order: {
   const result: string[] = [];
   const seen = new Set<string>();
   const pushScoped = (siteLabel: string, rawHint: string) => {
-    const hint = compactText(rawHint).replace(/[.;,\s]+$/g, "");
+    const hint = compactText(rawHint)
+      .replace(/^\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:?\s*/i, "")
+      .replace(/[.;,\s]+$/g, "")
+      .replace(/\s*,\s*/g, " · ");
     if (!hint || !isAccessOrKeyHintLineV17_90L372(hint)) return;
     const formatted = `${siteLabel}: ${hint}`;
     const dedupeKey = normalizeForMatch(formatted);
-    if (seen.has(dedupeKey)) return;
+    if (!dedupeKey || seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     result.push(formatted);
   };
 
-  for (const line of lines) {
+  let activeSiteLabel = "";
+  const resolveSiteFromLine = (line: string) => {
+    const lineKey = normalizeForMatch(line);
+    if (!lineKey) return null;
     for (const site of sites) {
       for (const key of site.keys) {
-        const escaped = escapeWorkSiteContextRegExpV17_90L372(key);
-        const explicitAccessMatch = line.match(
-          new RegExp(
-            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\\s+${escaped}\\s*:?\\s*(.+)$`,
-            "i",
-          ),
-        );
-        if (explicitAccessMatch?.[1]) {
-          pushScoped(site.label, explicitAccessMatch[1]);
-          continue;
-        }
-
-        // V17.90L371CZ: Also handle compact source lines such as
-        // "Zugang Halle A: Rolltor rechts, Code 5533." and normalized
-        // canonical fragments like "Code 5533" / "Badge bei Rezeption".
-        const lineKey = normalizeForMatch(line);
         const siteKey = normalizeForMatch(key);
-        if (!siteKey || !lineKey.includes(siteKey)) continue;
-        const looseAccessMatch = line.match(
-          new RegExp(
-            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*${escaped}\\s*:?\\s*(.+)$`,
-            "i",
-          ),
-        );
-        pushScoped(site.label, looseAccessMatch?.[1] || line);
+        if (siteKey && lineKey.includes(siteKey)) return { site, key };
       }
     }
+    return null;
+  };
+
+  for (const line of lines) {
+    const resolved = resolveSiteFromLine(line);
+    if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+    if (resolved) {
+      const escaped = escapeWorkSiteContextRegExpV17_90L372(resolved.key);
+      const match = line.match(
+        new RegExp(
+          `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+          "i",
+        ),
+      );
+      const rawHint = compactText(match?.[1] || "");
+      if (rawHint) pushScoped(resolved.site.label, rawHint);
+      continue;
+    }
+
+    if (activeSiteLabel && isAccessOrKeyHintLineV17_90L372(line)) {
+      pushScoped(activeSiteLabel, line);
+    }
   }
+
   return result;
 };
-
 
 const collectScopedOperationalHintLinesV17_90L373 = (
   order: {
@@ -2431,22 +2437,38 @@ const collectScopedOperationalHintLinesV17_90L373 = (
     result.push(formatted);
   };
 
-  for (const line of lines) {
+  let activeSiteLabel = "";
+  const resolveSiteFromLine = (line: string) => {
     const lineKey = normalizeForMatch(line);
-    if (!lineKey) continue;
+    if (!lineKey) return null;
     for (const site of sites) {
       for (const key of site.keys) {
         const siteKey = normalizeForMatch(key);
-        if (!siteKey || !lineKey.includes(siteKey)) continue;
-        const escaped = escapeWorkSiteContextRegExpV17_90L372(key);
-        const scopedMatch = line.match(
-          new RegExp(
-            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.+)$`,
-            "i",
-          ),
-        );
-        pushScoped(site.label, scopedMatch?.[1] || line, line);
+        if (siteKey && lineKey.includes(siteKey)) return { site, key };
       }
+    }
+    return null;
+  };
+
+  for (const line of lines) {
+    const resolved = resolveSiteFromLine(line);
+    if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+    if (resolved) {
+      const escaped = escapeWorkSiteContextRegExpV17_90L372(resolved.key);
+      const scopedMatch = line.match(
+        new RegExp(
+          `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+          "i",
+        ),
+      );
+      const rawHint = compactText(scopedMatch?.[1] || "");
+      if (rawHint) pushScoped(resolved.site.label, rawHint, line);
+      continue;
+    }
+
+    if (activeSiteLabel && matchesHint(line)) {
+      pushScoped(activeSiteLabel, line, line);
     }
   }
 
@@ -5327,14 +5349,28 @@ const getOperationalBadges = (
           orderInfoLinesEquivalentV17_66(hint, line),
         ),
     );
-    const scopedSummaryPrimaryLinesV17_90L371CZ = replaceBareAccessHintsWithScopedContextV17_90L372(
-      summaryPrimaryLinesV17_90L329,
-      order,
-    );
-    const scopedSummaryAdditionalLinesV17_90L371CZ = replaceBareAccessHintsWithScopedContextV17_90L372(
-      summaryAdditionalLinesV17_90L329,
-      order,
-    );
+    const scopedAccessLinesV17_90L371DB = collectScopedAccessHintLinesV17_90L372(order);
+    const scopedSummaryPrimaryLinesV17_90L371CZ = scopedAccessLinesV17_90L371DB.length > 0
+      ? uniqueOrderInfoLinesV17_66(
+          summaryPrimaryLinesV17_90L329.filter(
+            (line) => !isAccessOrKeyHintLineV17_90L372(line),
+          ),
+        )
+      : replaceBareAccessHintsWithScopedContextV17_90L372(
+          summaryPrimaryLinesV17_90L329,
+          order,
+        );
+    const scopedSummaryAdditionalLinesV17_90L371CZ = scopedAccessLinesV17_90L371DB.length > 0
+      ? uniqueOrderInfoLinesV17_66([
+          ...summaryAdditionalLinesV17_90L329.filter(
+            (line) => !isAccessOrKeyHintLineV17_90L372(line),
+          ),
+          ...scopedAccessLinesV17_90L371DB,
+        ])
+      : replaceBareAccessHintsWithScopedContextV17_90L372(
+          summaryAdditionalLinesV17_90L329,
+          order,
+        );
     const scopedSummarySafetyLinesV17_90L371DA = uniqueOrderInfoLinesV17_66([
       ...summarySafetyLinesV17_90L329.filter((line) =>
         Boolean(splitLocationPrefixedHint(line).location),
@@ -5963,6 +5999,27 @@ const recognitionReviewDetailMatchesItemV17_90L69 = (
   );
 };
 
+
+const isOperationalOnlyRecognitionReviewDetailV17_90L374 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) => {
+  const source = compactText(
+    [detail?.sourceText, detail?.relatedRoleText, detail?.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const key = normalizeForMatch(source);
+  if (!key) return false;
+  const hasClearNonServiceCommunication =
+    /\b(?:foto|fotos|bild|bilder|photo|photos|abschluss|nach\s+abschluss|email|e\s*mail|mail|whatsapp|sms|kontakt|rueckfrage|ruckfrage|nachricht)\b/.test(key);
+  const hasBillableEvidence =
+    /\b(?:chf|eur|usd|gbp|à|a\s+chf|pro\s+|je\s+|m2|m²|qm|quadratmeter|stueck|stk|meter|laufmeter|stunden?|tage?)\b/.test(key) ||
+    /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stueck|stk|meter|laufmeter|stunden?|tage?)\b/.test(key);
+  const hasServiceVerb =
+    /\b(?:reinigen|putzen|montieren|demontieren|reparieren|ersetzen|installieren|streichen|schleifen|entsorgen|liefern|verlegen|abdichten|bauen|bohren|malen|saugen)\b/.test(key);
+  return hasClearNonServiceCommunication && !hasBillableEvidence && !hasServiceVerb;
+};
+
 const getActiveRecognitionReviewDetailsV17_90L80 = (
   order?: Pick<
     Order,
@@ -5970,6 +6027,7 @@ const getActiveRecognitionReviewDetailsV17_90L80 = (
   > | null,
 ) =>
   getRecognitionReviewDetailsV17_90L69(order).filter((detail) => {
+    if (isOperationalOnlyRecognitionReviewDetailV17_90L374(detail)) return false;
     // V17.90L252: A finding about an existing first-AI row is a separate
     // control record. The row itself must never auto-resolve that finding.
     if (detail.kind && detail.kind !== "missing_work") return true;
