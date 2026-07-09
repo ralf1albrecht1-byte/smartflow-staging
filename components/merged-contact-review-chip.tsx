@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L371CY_MERGED_CONTACT_CHIP_OPERATIONAL_ONLY
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
 
 import { createPortal } from "react-dom";
@@ -174,6 +175,65 @@ type ExplicitMergedContactV17_90L175 = {
   detail: string;
 };
 
+function mergedContactEntryValueKeyV17_90L371CY(value: unknown): string {
+  const raw = String(value || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  if (raw.includes("@")) return `mail:${normalizeContactTextV17_90L175(raw)}`;
+  const phone = normalizePhoneForAction(raw).replace(/^\+/, "");
+  return phone ? `phone:${phone}` : "";
+}
+
+function mergedContactMasterValueKeysV17_90L371CY(
+  records: CommunicationData[] | null | undefined,
+): Set<string> {
+  const keys = new Set<string>();
+  (Array.isArray(records) ? records : []).forEach((record: any) => {
+    [
+      record?.customer?.phone,
+      record?.customer?.email,
+      record?.customerPhone,
+      record?.phone,
+      record?.email,
+    ].forEach((value) => {
+      const key = mergedContactEntryValueKeyV17_90L371CY(value);
+      if (key) keys.add(key);
+    });
+  });
+  return keys;
+}
+
+function isMergedBillingContactEntryV17_90L371CY(
+  entry: MergedContactReviewEntry,
+): boolean {
+  const joined = normalizeContactTextV17_90L175(
+    `${entry.siteLabel || ""} ${entry.contactName || ""} ${entry.detail || ""}`,
+  );
+  return (
+    joined.includes("firmenkontakt") ||
+    joined.includes("rechnungskontakt") ||
+    joined.includes("rechnungsadresse") ||
+    joined.includes("firma rechnungsadresse")
+  );
+}
+
+function dedupeMergedContactEntriesV17_90L371CY(
+  entries: MergedContactReviewEntry[],
+): MergedContactReviewEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const valueKey = mergedContactEntryValueKeyV17_90L371CY(entry.contactValue);
+    if (!valueKey) return false;
+    const key = [
+      normalizeContactTextV17_90L175(entry.siteLabel),
+      valueKey,
+      normalizeContactTextV17_90L175(entry.channelLabel),
+    ].join("|");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function matchMergedContactWorkSiteV17_90L178(
   sectionText: string,
   workSites: any[],
@@ -207,29 +267,6 @@ function explicitMergedContactsV17_90L175(
 ): ExplicitMergedContactV17_90L175[] {
   const result: ExplicitMergedContactV17_90L175[] = [];
   (Array.isArray(records) ? records : []).forEach((record: any, recordIndex) => {
-    const companyLabel = String(record?.customer?.name || "Firma / Rechnungsadresse")
-      .replace(/\s+/g, " ")
-      .trim();
-    const companyPhone = String(record?.customer?.phone || "").trim();
-    const companyEmail = String(record?.customer?.email || "").trim();
-    if (companyPhone && normalizePhoneForAction(companyPhone)) {
-      result.push({
-        siteLabel: companyLabel,
-        contactName: "Firmenkontakt",
-        contactValue: companyPhone,
-        channelLabel: "Telefon",
-        detail: "Telefon der Rechnungsadresse",
-      });
-    }
-    if (companyEmail) {
-      result.push({
-        siteLabel: companyLabel,
-        contactName: "Firmenkontakt",
-        contactValue: companyEmail,
-        channelLabel: "E-Mail",
-        detail: "E-Mail der Rechnungsadresse",
-      });
-    }
     const workSites = Array.isArray(record?.workSites) ? record.workSites : [];
     const fullText = communicationRecordTextV17_90L175(record)
       .replace(/\r\n/g, "\n")
@@ -368,48 +405,46 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
   records: CommunicationData[] | null | undefined,
   fallbackEntries: MergedContactReviewEntry[],
 ): MergedContactReviewEntry[] {
-  const explicit = explicitMergedContactsV17_90L175(records);
-  if (explicit.length > 0) {
-    return explicit.map((entry, index) => {
-      const template =
-        fallbackEntries.find(
-          (candidate) =>
-            normalizeContactTextV17_90L175(candidate.siteLabel) ===
-            normalizeContactTextV17_90L175(entry.siteLabel),
-        ) || fallbackEntries[index] || ({} as MergedContactReviewEntry);
-      return {
-        ...template,
-        siteLabel: entry.siteLabel,
-        contactName: entry.contactName,
-        contactValue: entry.contactValue,
-        channelLabel: entry.channelLabel,
-        detail: entry.detail,
-        href: undefined,
-      } as MergedContactReviewEntry;
-    });
-  }
+  const masterValueKeys = mergedContactMasterValueKeysV17_90L371CY(records);
+  const explicitEntries = explicitMergedContactsV17_90L175(records).map((entry, index) => {
+    const template =
+      fallbackEntries.find(
+        (candidate) =>
+          normalizeContactTextV17_90L175(candidate.siteLabel) ===
+          normalizeContactTextV17_90L175(entry.siteLabel),
+      ) || fallbackEntries[index] || ({} as MergedContactReviewEntry);
+    return {
+      ...template,
+      siteLabel: entry.siteLabel,
+      contactName: entry.contactName,
+      contactValue: entry.contactValue,
+      channelLabel: entry.channelLabel,
+      detail: entry.detail,
+      href: undefined,
+    } as MergedContactReviewEntry;
+  });
 
-  // Fail closed for old/partial data: remove dog rows and exact duplicate
-  // fallback contacts rather than assigning a company master number to every
-  // worksite.
-  return fallbackEntries.filter((entry, index, all) => {
+  const fallbackOperationalEntries = fallbackEntries.filter((entry) => {
     const joined = `${entry.contactName || ""} ${entry.detail || ""}`;
     if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(joined)) return false;
-    if (!String(entry.contactValue || "").includes("@") && !normalizePhoneForAction(entry.contactValue)) return false;
-    const siteKey = normalizeContactTextV17_90L175(entry.siteLabel);
-    const valueKey = normalizePhoneForAction(entry.contactValue);
-    const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
-    return (
-      all.findIndex(
-        (candidate) =>
-          normalizeContactTextV17_90L175(candidate.siteLabel) === siteKey &&
-          normalizePhoneForAction(candidate.contactValue) === valueKey &&
-          normalizeContactTextV17_90L175(candidate.channelLabel) === channelKey,
-      ) === index
-    );
-  });
-}
+    if (isMergedBillingContactEntryV17_90L371CY(entry)) return false;
+    const valueKey = mergedContactEntryValueKeyV17_90L371CY(entry.contactValue);
+    if (!valueKey) return false;
 
+    // Master-data contacts stay in the normal communication chips. The merged
+    // review chip may only show operational contacts that came from the merged
+    // source text itself. This prevents the company phone/e-mail from being
+    // assigned to every worksite after a merge.
+    if (masterValueKeys.has(valueKey)) return false;
+
+    return true;
+  });
+
+  return dedupeMergedContactEntriesV17_90L371CY([
+    ...explicitEntries,
+    ...fallbackOperationalEntries,
+  ]);
+}
 export function hasMergedContactReviewEntries(
   records: CommunicationData[] | null | undefined,
 ): boolean {
