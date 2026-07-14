@@ -3744,8 +3744,11 @@ function buildOfferContactAction(
   const name = best?.name || explicitContact.name || "";
   const minutesBefore = best?.minutesBefore ?? explicitContact.minutesBefore;
   const notCall = Boolean(best?.notCall || explicitContact.notCall);
-  const actionTarget = channel === "mail" ? email : phone;
-  if (!actionTarget && channel !== "phone") return null;
+  // SMARTFLOW_V17_90L380: Eine ausdrückliche Kommunikationsanweisung bleibt
+  // auch ohne bereits hinterlegte Nummer/E-Mail als sichtbarer Kontaktchip
+  // erhalten. CommunicationChips zeigt dann den vorhandenen Kanal mit dem
+  // Hinweis, dass die Kontaktdaten fehlen. Reine WhatsApp-Transportpräfixe
+  // werden weiterhin durch den nachfolgenden Channel-Guard unterdrückt.
   const directTarget =
     best?.phone ||
     best?.email ||

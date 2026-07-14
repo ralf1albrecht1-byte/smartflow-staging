@@ -3680,13 +3680,12 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
     email: null,
   };
 
-  // Kein Kontakt-Aktionschip ohne ausdrückliche Kundenanweisung. Ein
-  // WhatsApp-Transport-Präfix darf keine grüne WhatsApp-Schaltfläche erzeugen.
-  if (
-    !action ||
-    (action.channel === "whatsapp" &&
-      !action.phone)
-  ) {
+  // SMARTFLOW_V17_90L380: Kein Kontaktchip ohne ausdrückliche
+  // Kundenanweisung. Eine erkannte WhatsApp-/SMS-/E-Mail-Anweisung bleibt aber
+  // auch ohne bereits hinterlegte Nummer/E-Mail sichtbar; CommunicationChips
+  // kennzeichnet dann die fehlenden Kontaktdaten. Reine Transportpräfixe werden
+  // bereits beim Ermitteln der Kommunikationsaktion ausgeschlossen.
+  if (!action) {
     return {
       ...resolved,
       customer: emptyCustomer,
