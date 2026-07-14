@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L377_OFFER_ACCESS_CHIP_WORKSITE_CONTEXT_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
@@ -1796,7 +1797,7 @@ function isOfferParkingLineV17_90L101(value?: string | null): boolean {
 function isOfferAccessLineV17_90L337(value?: string | null): boolean {
   const text = normalizeOfferHint(value || "");
   if (!text) return false;
-  return /\b(?:schluessel|schlussel|schluesselbox|schlusselbox|schluesselkasten|schlusselkasten|key|keybox|code|tuercode|turcode|tuerkode|turkode|tuercode|eingangscode|pin|zugang|zutritt|eingang|hintereingang|seiteneingang|seitentuer|seitentur|seitentüre|seitentur|seitentuer|seitenzugang|tuer|tur|door|access|entrance|side\s*door|back\s*door|cle|cles|boite\s+a\s+cles|acces|entree|chiave|codice|ingresso|llave|codigo|acceso)\b/.test(text);
+  return /\b(?:schluessel|schlussel|schluesselbox|schlusselbox|schluesselkasten|schlusselkasten|schluesselkarte|schlusselkarte|key|keybox|keycard|badge|code|tuercode|turcode|tuerkode|turkode|torcode|torkode|eingangscode|zugangscode|pin|zugang|zutritt|empfang|rezeption|reception|eingang|hintereingang|seiteneingang|seitentor|rolltor|tor|seitentuer|seitentur|seitentüre|seitenzugang|tuer|tur|door|access|entrance|side\s*door|back\s*door|cle|cles|boite\s+a\s+cles|acces|entree|chiave|codice|ingresso|llave|codigo|acceso)\b/.test(text);
 }
 
 function isOfferOperationalHintLineV17_90L337(value?: string | null): boolean {
@@ -1923,6 +1924,138 @@ function replaceOfferBareAccessHintsWithScopedContextV17_90L372(
     ...lines.filter((line) => !isOfferAccessOrKeyHintLineV17_90L372(line)),
     ...scoped,
   ]);
+}
+
+// V17.90L377: Ausschliesslich für den äusseren Zugangschip der Angebotskarte.
+// Die Arbeitsorte stammen aus den tatsächlich vorhandenen Angebotspositionen,
+// damit der Chip auch dann korrekt zugeordnet bleibt, wenn die verknüpfte
+// Auftragsrelation keine vollständige workSites-Liste enthält. Gespeicherte
+// Auftrags-, Angebots-, Arbeitsort- und Positionsdaten werden nicht verändert.
+function collectOfferCardAccessChipLinesV17_90L377(
+  jobHints: string[],
+  orders: any[],
+  executionSites: OfferExecutionSite[],
+): string[] {
+  const sites = (executionSites || [])
+    .map((site) => ({
+      ...site,
+      displayLabel:
+        compactOfferValue(site?.siteName) || compactOfferValue(site?.siteAddress),
+    }))
+    .filter((site) => Boolean(site.displayLabel));
+
+  const sourceOrders = orders || [];
+  const ordersWithCardSites = sourceOrders.map((order) => {
+    const orderId = compactOfferValue(order?.id);
+    const matchingSites = sites.filter(
+      (site) =>
+        Boolean(orderId) &&
+        compactOfferValue(site?.sourceOrderId) === orderId,
+    );
+    const fallbackSites =
+      matchingSites.length > 0
+        ? matchingSites
+        : sourceOrders.length === 1
+          ? sites
+          : Array.isArray(order?.workSites)
+            ? order.workSites
+            : [];
+    return { ...order, workSites: fallbackSites };
+  });
+
+  const rawScopedLines = collectOfferScopedAccessHintLinesV17_90L372(
+    ordersWithCardSites,
+  );
+  const accessCandidates = uniqueOfferLines(jobHints).filter(
+    isOfferAccessLineV17_90L337,
+  );
+
+  const resolveSite = (line: string) => {
+    const lineKey = normalizeOfferHint(line);
+    if (!lineKey) return null;
+    return (
+      sites.find((site) =>
+        [site.siteName, site.siteAddress]
+          .map((value) => normalizeOfferHint(value || ""))
+          .filter(Boolean)
+          .some(
+            (siteKey) =>
+              lineKey === siteKey || lineKey.startsWith(`${siteKey} `),
+          ),
+      ) || null
+    );
+  };
+
+  const sortByExecutionSite = (lines: string[]) =>
+    lines
+      .map((line, originalIndex) => {
+        const site = resolveSite(line);
+        return {
+          line,
+          originalIndex,
+          siteIndex: site ? sites.indexOf(site) : sites.length,
+          hasSite: Boolean(site),
+        };
+      })
+      .sort((left, right) => {
+        if (left.hasSite !== right.hasSite) return left.hasSite ? -1 : 1;
+        if (left.hasSite && right.hasSite && left.siteIndex !== right.siteIndex) {
+          return left.siteIndex - right.siteIndex;
+        }
+        return left.originalIndex - right.originalIndex;
+      })
+      .map((entry) => entry.line);
+
+  const rawRepresentedKeys = new Set(
+    rawScopedLines
+      .map(resolveSite)
+      .filter(Boolean)
+      .map((site) => normalizeOfferHint(site!.displayLabel)),
+  );
+  if (sites.length > 0 && rawRepresentedKeys.size >= sites.length) {
+    return sortByExecutionSite(uniqueOfferInfoLinesV17_66(rawScopedLines));
+  }
+
+  const alreadyScopedCandidates = accessCandidates.filter((line) =>
+    Boolean(resolveSite(line)),
+  );
+  const scopedBase = uniqueOfferInfoLinesV17_66([
+    ...rawScopedLines,
+    ...alreadyScopedCandidates,
+  ]);
+  const representedKeys = new Set(
+    scopedBase
+      .map(resolveSite)
+      .filter(Boolean)
+      .map((site) => normalizeOfferHint(site!.displayLabel)),
+  );
+  const missingSites = sites.filter(
+    (site) => !representedKeys.has(normalizeOfferHint(site.displayLabel)),
+  );
+  const unscopedCandidates = accessCandidates.filter(
+    (line) => !resolveSite(line),
+  );
+
+  // Nur bei genau einem noch fehlenden Arbeitsort ist die Zuordnung eindeutig.
+  // Dadurch werden z. B. "Rolltor rechts" und "Code 5533" Halle A zugeordnet,
+  // wenn Bürotrakt B bereits explizit im Text steht. Bei mehreren fehlenden
+  // Orten bleibt die Zeile bewusst allgemein, statt eine Zuordnung zu erfinden.
+  if (missingSites.length === 1 && unscopedCandidates.length > 0) {
+    const missingLabel = missingSites[0].displayLabel;
+    return sortByExecutionSite(
+      uniqueOfferInfoLinesV17_66([
+        ...scopedBase,
+        ...unscopedCandidates.map((line) => `${missingLabel}: ${line}`),
+      ]),
+    );
+  }
+
+  return sortByExecutionSite(
+    uniqueOfferInfoLinesV17_66([
+      ...scopedBase,
+      ...unscopedCandidates,
+    ]),
+  );
 }
 
 
@@ -3112,6 +3245,7 @@ function dedupeOfferDogLinesV17_90L177(values: string[]): string[] {
 function buildOfferOperationalChips(
   safetyWarnings: string[],
   jobHints: string[],
+  accessChipLinesV17_90L377: string[] = [],
 ): OfferOperationalChip[] {
   const result: OfferOperationalChip[] = [];
   const pushOrMerge = (chip: OfferOperationalChip) => {
@@ -3161,7 +3295,9 @@ function buildOfferOperationalChips(
   // werden zu genau einem Chip zusammengeführt. Eine Zugangsinformation mit
   // Code/Schlüssel/Badge erzwingt den Schlüsselchip für den gesamten Auftrag.
   const accessDisplayV17_90L376 = buildWorksiteAccessChipDisplayV17_90L376(
-    uniqueOfferLines(jobHints).filter(isOfferAccessLineV17_90L337),
+    accessChipLinesV17_90L377.length > 0
+      ? accessChipLinesV17_90L377
+      : uniqueOfferLines(jobHints).filter(isOfferAccessLineV17_90L337),
   );
   if (accessDisplayV17_90L376) {
     pushOrMerge({
@@ -8832,13 +8968,22 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     contactAction,
                   );
                   const callbackChip = buildOfferCallbackChip(contactAction);
-                  const operationalChips = buildOfferOperationalChips(
-                    infoSummary.safety,
+                  const operationalHintLinesV17_90L377 =
                     uniqueOfferInfoLinesV17_66([
                       ...parsedOfferNotes.jobHints,
                       ...infoSummary.primary,
                       ...infoSummary.additional,
-                    ]),
+                    ]);
+                  const offerCardAccessChipLinesV17_90L377 =
+                    collectOfferCardAccessChipLinesV17_90L377(
+                      operationalHintLinesV17_90L377,
+                      (off.orders || []) as any[],
+                      offerExecutionSites,
+                    );
+                  const operationalChips = buildOfferOperationalChips(
+                    infoSummary.safety,
+                    operationalHintLinesV17_90L377,
+                    offerCardAccessChipLinesV17_90L377,
                   );
                   const dangerChips = operationalChips.filter(
                     (chip) => chip.tone === "danger",
