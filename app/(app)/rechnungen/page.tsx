@@ -123,7 +123,10 @@ import {
   buildDocumentSiteOperationalContexts,
   documentSiteAddressKey,
 } from "@/lib/document-site-context";
-import { groupWorksiteDisplayLinesV17_90L376 } from "@/lib/worksite-chip-display";
+import {
+  buildUnifiedWorksiteInfoDisplayV17_90L378,
+  groupWorksiteDisplayLinesV17_90L376,
+} from "@/lib/worksite-chip-display";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8677,10 +8680,16 @@ Dieser Arbeitsort enthält keine Positionen.`,
                       inv,
                       invoiceSpecialNotesSourceV17_90L319,
                     );
-                  const invoiceSpecialInfoLinesV17_90L319 =
-                    flattenInvoiceSpecialInfoLinesV17_90L319(
-                      invoiceSpecialSummaryV17_90L319,
+                  const unifiedInvoiceInfoDisplayV17_90L378 =
+                    buildUnifiedWorksiteInfoDisplayV17_90L378(
+                      invoiceSpecialSummaryV17_90L319.primaryHints,
+                      invoiceSpecialSummaryV17_90L319.otherHints,
                     );
+                  const invoiceSpecialInfoLinesV17_90L319 = [
+                    ...invoiceSpecialSummaryV17_90L319.hazards,
+                    ...unifiedInvoiceInfoDisplayV17_90L378.primary,
+                    ...unifiedInvoiceInfoDisplayV17_90L378.additional,
+                  ];
                   const hasInvoiceSpecialInfoV17_90L319 =
                     invoiceSpecialInfoLinesV17_90L319.length > 0;
                   const invoiceSpecialAppointmentDisplayLabelV17_90L323 =
@@ -8844,13 +8853,13 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                 Besonderheiten
                               </span>
                               <span className="block space-y-2 text-[12px] leading-snug">
-                                {invoiceSpecialSummaryV17_90L319.primaryHints.length > 0 && (
+                                {unifiedInvoiceInfoDisplayV17_90L378.primary.length > 0 && (
                                   <span className="block rounded-xl border border-blue-300 bg-blue-50 p-2.5 text-blue-950 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
                                     <span className="block font-semibold">
                                       Wichtige Informationen
                                     </span>
                                     {renderInvoiceGroupedWorksiteLinesV17_90L376(
-                                      invoiceSpecialSummaryV17_90L319.primaryHints,
+                                      unifiedInvoiceInfoDisplayV17_90L378.primary,
                                       `invoice-info-primary-${inv.id}`,
                                       { bullet: true, compact: true },
                                     )}
@@ -8868,13 +8877,13 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     )}
                                   </span>
                                 )}
-                                {invoiceSpecialSummaryV17_90L319.otherHints.length > 0 && (
+                                {unifiedInvoiceInfoDisplayV17_90L378.additional.length > 0 && (
                                   <span className="block rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
                                     <span className="block font-semibold">
                                       Weitere Besonderheiten
                                     </span>
                                     {renderInvoiceGroupedWorksiteLinesV17_90L376(
-                                      invoiceSpecialSummaryV17_90L319.otherHints,
+                                      unifiedInvoiceInfoDisplayV17_90L378.additional,
                                       `invoice-info-other-${inv.id}`,
                                       { bullet: true, compact: true },
                                     )}
@@ -11942,11 +11951,23 @@ Dieser Arbeitsort enthält keine Positionen.`,
                             editOrderCtx.specialNotes,
                           form.specialNotes,
                         );
-                      const { hazards, primaryHints, otherHints } =
-                        buildInvoiceCanonicalWorkflowSummaryV17_90L274(
-                          editingInvoice,
-                          editingInvoiceSpecialNotesSourceV17_90L319,
+                      const {
+                        hazards,
+                        primaryHints: rawPrimaryHintsV17_90L378,
+                        otherHints: rawOtherHintsV17_90L378,
+                      } = buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+                        editingInvoice,
+                        editingInvoiceSpecialNotesSourceV17_90L319,
+                      );
+                      const unifiedInvoiceEditorInfoV17_90L378 =
+                        buildUnifiedWorksiteInfoDisplayV17_90L378(
+                          rawPrimaryHintsV17_90L378,
+                          rawOtherHintsV17_90L378,
                         );
+                      const primaryHints =
+                        unifiedInvoiceEditorInfoV17_90L378.primary;
+                      const otherHints =
+                        unifiedInvoiceEditorInfoV17_90L378.additional;
                       const customerMessageBlocks = (
                         editingInvoice?.orders || []
                       )

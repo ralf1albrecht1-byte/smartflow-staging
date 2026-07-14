@@ -144,6 +144,7 @@ import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 import {
+  buildUnifiedWorksiteInfoDisplayV17_90L378,
   buildWorksiteAccessChipDisplayV17_90L376,
   groupWorksiteDisplayLinesV17_90L376,
 } from "@/lib/worksite-chip-display";
@@ -6489,14 +6490,30 @@ export default function AngebotePage() {
     true,
   );
   const linkedSafetyWarnings = linkedInfoSummary.safety;
-  const linkedPrimaryHints = linkedInfoSummary.primary;
-  const linkedJobHints = uniqueOfferInfoLinesV17_66([
+  const rawLinkedJobHintsV17_90L378 = uniqueOfferInfoLinesV17_66([
     ...linkedInfoSummary.additional,
     ...((linkedInfoSummary as OfferCanonicalWorkflowSummaryV17_90L273)
       .hasCanonicalMarkers
       ? []
       : extractOfferParkingLinesV17_90L264(linkedEditorOrdersV17_90L237)),
   ]);
+  const linkedEditorAccessLinesV17_90L378 =
+    collectOfferCardAccessChipLinesV17_90L377(
+      uniqueOfferInfoLinesV17_66([
+        ...linkedInfoSummary.primary,
+        ...rawLinkedJobHintsV17_90L378,
+      ]),
+      linkedEditorOrdersV17_90L237,
+      executionSites,
+    );
+  const linkedUnifiedInfoDisplayV17_90L378 =
+    buildUnifiedWorksiteInfoDisplayV17_90L378(
+      linkedInfoSummary.primary,
+      rawLinkedJobHintsV17_90L378,
+      linkedEditorAccessLinesV17_90L378,
+    );
+  const linkedPrimaryHints = linkedUnifiedInfoDisplayV17_90L378.primary;
+  const linkedJobHints = linkedUnifiedInfoDisplayV17_90L378.additional;
 
   const updateExecutionSite = (
     index: number,
@@ -8980,6 +8997,17 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       (off.orders || []) as any[],
                       offerExecutionSites,
                     );
+                  const unifiedOfferInfoDisplayV17_90L378 =
+                    buildUnifiedWorksiteInfoDisplayV17_90L378(
+                      infoSummary.primary,
+                      infoSummary.additional,
+                      offerCardAccessChipLinesV17_90L377,
+                    );
+                  const infoDisplaySummaryV17_90L378: OfferInfoSummary = {
+                    ...infoSummary,
+                    primary: unifiedOfferInfoDisplayV17_90L378.primary,
+                    additional: unifiedOfferInfoDisplayV17_90L378.additional,
+                  };
                   const operationalChips = buildOfferOperationalChips(
                     infoSummary.safety,
                     operationalHintLinesV17_90L377,
@@ -9002,9 +9030,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       ),
                   );
                   const hasInfoTooltip =
-                    infoSummary.safety.length > 0 ||
-                    infoSummary.primary.length > 0 ||
-                    infoSummary.additional.length > 0;
+                    infoDisplaySummaryV17_90L378.safety.length > 0 ||
+                    infoDisplaySummaryV17_90L378.primary.length > 0 ||
+                    infoDisplaySummaryV17_90L378.additional.length > 0;
                   const offerCurrency =
                     off.currency === "EUR" ? "EUR" : "CHF";
                   const serviceReview = buildOfferServiceReviewSummary(
@@ -9278,9 +9306,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               ? toggleOfferMobileTooltip(
                                   {
                                     key: `${off.id}:compact-info`,
-                                    safetyWarnings: infoSummary.safety,
-                                    primaryHints: infoSummary.primary,
-                                    jobHints: infoSummary.additional,
+                                    safetyWarnings: infoDisplaySummaryV17_90L378.safety,
+                                    primaryHints: infoDisplaySummaryV17_90L378.primary,
+                                    jobHints: infoDisplaySummaryV17_90L378.additional,
                                   },
                                   event,
                                 )
@@ -9295,7 +9323,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                         >
                           <Info className="h-4 w-4" />
                           {!useTouchChipPopovers && (
-                            <OfferInfoTooltip summary={infoSummary} />
+                            <OfferInfoTooltip summary={infoDisplaySummaryV17_90L378} />
                           )}
                         </button>
                       )}
@@ -10093,9 +10121,9 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                           ? toggleOfferMobileTooltip(
                                               {
                                                 key: `${off.id}:info`,
-                                                safetyWarnings: infoSummary.safety,
-                                                primaryHints: infoSummary.primary,
-                                                jobHints: infoSummary.additional,
+                                                safetyWarnings: infoDisplaySummaryV17_90L378.safety,
+                                                primaryHints: infoDisplaySummaryV17_90L378.primary,
+                                                jobHints: infoDisplaySummaryV17_90L378.additional,
                                               },
                                               event,
                                             )
@@ -10110,7 +10138,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                     >
                                       <Info className="h-4 w-4" />
                                       {!useTouchChipPopovers && (
-                                        <OfferInfoTooltip summary={infoSummary} />
+                                        <OfferInfoTooltip summary={infoDisplaySummaryV17_90L378} />
                                       )}
                                     </button>
                                   )}
@@ -10560,7 +10588,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                                         aria-label="Besonderheiten anzeigen"
                                       >
                                         <Info className="h-4 w-4" />
-                                        <OfferInfoTooltip summary={infoSummary} />
+                                        <OfferInfoTooltip summary={infoDisplaySummaryV17_90L378} />
                                       </button>
                                     )}
 
@@ -12670,11 +12698,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     {linkedPrimaryHints.length > 0 && (
                       <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
                         <div className="mb-1 flex items-center gap-2 font-semibold"><Info className="h-4 w-4" /> Wichtige Informationen</div>
-                        <div className="space-y-1">
-                          {linkedPrimaryHints.map((line, index) => (
-                            <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
-                          ))}
-                        </div>
+                        {renderOfferGroupedWorksiteLinesV17_90L376(
+                          linkedPrimaryHints,
+                          "offer_edit_info_v17_90l378",
+                          { bullet: true, compact: true },
+                        )}
                       </div>
                     )}
 

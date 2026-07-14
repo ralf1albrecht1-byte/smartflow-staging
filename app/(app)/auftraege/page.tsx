@@ -171,6 +171,7 @@ import {
 } from "@/lib/intake-v2/view";
 import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
 import {
+  buildUnifiedWorksiteInfoDisplayV17_90L378,
   buildWorksiteAccessChipDisplayV17_90L376,
   groupWorksiteDisplayLinesV17_90L376,
 } from "@/lib/worksite-chip-display";
@@ -5241,6 +5242,16 @@ const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
     if (section === "primary") result.primary.push(line);
     if (section === "hints") result.hints.push(line);
   });
+
+  // V17.90L378: Der Infochip zeigt allgemeine und arbeitsortbezogene
+  // Hinweise in einer identischen, vollständigen Gruppe. Das verändert nur
+  // die Anzeige; gespeicherte Besonderheiten bleiben unangetastet.
+  const unified = buildUnifiedWorksiteInfoDisplayV17_90L378(
+    result.primary,
+    result.hints,
+  );
+  result.primary = unified.primary;
+  result.hints = unified.additional;
 
   return result;
 };
@@ -17673,6 +17684,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
         orderInfoLinesEquivalentV17_66(hint, line),
       ),
   );
+  const unifiedOrderEditorInfoDisplayV17_90L378 =
+    buildUnifiedWorksiteInfoDisplayV17_90L378(
+      displayPrimaryInfoLinesV17_90L328,
+      displayAdditionalInfoLinesV17_90L328,
+    );
 
   const mergeOrderSpecialNotesEditorTextV17_90L327 = (manualValue: string) => {
     // V17.90L332: Nicht trimmen. Sonst verschwindet ein gerade eingegebenes
@@ -25165,21 +25181,14 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       </div>
                     </div>
 
-                    {displayPrimaryInfoLinesV17_90L328.length > 0 && (
+                    {unifiedOrderEditorInfoDisplayV17_90L378.primary.length > 0 && (
                       <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
                         <div className="mb-1 flex items-center gap-2 font-semibold"><Info className="h-4 w-4" /> Wichtige Informationen</div>
-                        <div className="space-y-1">
-                          {displayPrimaryInfoLinesV17_90L328.map((line, index) => {
-                            const [label, ...valueParts] = line.split(/:\s+/);
-                            const value = valueParts.join(": ").trim();
-                            return (
-                              <div key={`${line}-${index}`} className="grid grid-cols-[auto_1fr] gap-x-2 break-words">
-                                <span className="font-semibold">{value ? `${label}:` : "•"}</span>
-                                <span className="whitespace-pre-wrap break-words">{value || line}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        {renderGroupedWorksiteInfoLinesV17_90L376(
+                          unifiedOrderEditorInfoDisplayV17_90L378.primary,
+                          "order_edit_info_v17_90l378",
+                          { bullet: true, compact: true },
+                        )}
                       </div>
                     )}
 
@@ -25197,11 +25206,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       </div>
                     )}
 
-                    {displayAdditionalInfoLinesV17_90L328.length > 0 && (
+                    {unifiedOrderEditorInfoDisplayV17_90L378.additional.length > 0 && (
                       <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                         <div className="font-semibold">Weitere Besonderheiten</div>
                         <div className="space-y-1">
-                          {displayAdditionalInfoLinesV17_90L328.map((line, index) => (
+                          {unifiedOrderEditorInfoDisplayV17_90L378.additional.map((line, index) => (
                             <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
                           ))}
                         </div>

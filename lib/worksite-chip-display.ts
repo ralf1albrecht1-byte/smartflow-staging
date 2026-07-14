@@ -63,11 +63,22 @@ const normalizeCredentialDisplayLineV17_90L376 = (value: unknown): string => {
   return `${label}: ${compactWorksiteDisplayTextV17_90L376(match[2])}`;
 };
 
-const splitWorksiteDisplayDetailV17_90L376 = (value: unknown): string[] =>
-  compactWorksiteDisplayTextV17_90L376(value)
+const splitWorksiteDisplayDetailV17_90L376 = (value: unknown): string[] => {
+  const line = compactWorksiteDisplayTextV17_90L376(value);
+  if (!line) return [];
+
+  // V17.90L378: Datum und Uhrzeit eines Termins bleiben eine einzige
+  // Anzeigezeile. Der mittlere Punkt ist hier ein Trenner innerhalb des
+  // Termins und darf nicht wie eine Liste aufgespalten werden.
+  if (/^(?:Termin|Datum|Zeit|Uhrzeit)\s*:/i.test(line)) {
+    return [line];
+  }
+
+  return line
     .split(/\s+(?:·|\||•)\s+/g)
     .map(normalizeCredentialDisplayLineV17_90L376)
     .filter(Boolean);
+};
 
 const splitWorksiteDisplayPrefixV17_90L376 = (
   value: unknown,
@@ -189,4 +200,80 @@ export const buildWorksiteAccessChipDisplayV17_90L376 = (
     groups,
     tooltip: tooltipLines.join("\n"),
   };
+};
+
+
+export type UnifiedWorksiteInfoDisplayV17_90L378 = {
+  primary: string[];
+  additional: string[];
+};
+
+const displayLineCoveredV17_90L378 = (
+  candidate: string,
+  scopedLines: string[],
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(candidate);
+  if (!key) return false;
+  return scopedLines.some((line) => {
+    const scopedKey = normalizeWorksiteDisplayKeyV17_90L376(line);
+    if (!scopedKey) return false;
+    if (scopedKey === key) return true;
+    return (
+      key.length >= 8 &&
+      scopedKey.length >= 8 &&
+      (scopedKey.includes(key) || key.includes(scopedKey))
+    );
+  });
+};
+
+/**
+ * V17.90L378: Vereinheitlicht ausschließlich die sichtbare Info-Darstellung.
+ * Gefahrzeilen werden weiterhin separat behandelt. Primäre und zusätzliche
+ * Hinweise werden für den Infochip zu einer vollständigen, arbeitsortbezogenen
+ * Liste zusammengeführt. Gespeicherte Aufträge, Angebote, Rechnungen,
+ * Arbeitsorte und Positionen werden nicht verändert.
+ */
+export const buildUnifiedWorksiteInfoDisplayV17_90L378 = (
+  primaryValues: Array<string | null | undefined>,
+  additionalValues: Array<string | null | undefined> = [],
+  accessValues: Array<string | null | undefined> = [],
+): UnifiedWorksiteInfoDisplayV17_90L378 => {
+  const groups = groupWorksiteDisplayLinesV17_90L376([
+    // Access-Zeilen tragen bei Multi-Ort-Dokumenten die verlässliche
+    // Ausführungsort-Reihenfolge (1, 2, ...). Allgemeine Hinweise werden von
+    // der Gruppierung trotzdem vor den Arbeitsorten ausgegeben.
+    ...accessValues,
+    ...primaryValues,
+    ...additionalValues,
+  ]);
+
+  const scopedGroups = groups.filter(
+    (group): group is WorksiteDisplayGroupV17_90L376 & { siteLabel: string } =>
+      Boolean(group.siteLabel),
+  );
+  const scopedLines = scopedGroups.flatMap((group) => group.lines);
+  const generalLines = groups
+    .filter((group) => !group.siteLabel)
+    .flatMap((group) => group.lines)
+    .filter((line) => !displayLineCoveredV17_90L378(line, scopedLines));
+
+  const primary: string[] = [];
+  generalLines.forEach((line) => pushUniqueDisplayLineV17_90L376(primary, line));
+  scopedGroups.forEach((group) => {
+    group.lines.forEach((line) => {
+      const scopedLine = `${group.siteLabel}: ${line}`;
+      const key = normalizeWorksiteDisplayKeyV17_90L376(scopedLine);
+      if (!key) return;
+      if (
+        primary.some(
+          (existing) => normalizeWorksiteDisplayKeyV17_90L376(existing) === key,
+        )
+      ) {
+        return;
+      }
+      primary.push(scopedLine);
+    });
+  });
+
+  return { primary, additional: [] };
 };
