@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
 // SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
@@ -122,6 +123,7 @@ import {
   buildDocumentSiteOperationalContexts,
   documentSiteAddressKey,
 } from "@/lib/document-site-context";
+import { groupWorksiteDisplayLinesV17_90L376 } from "@/lib/worksite-chip-display";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -4365,6 +4367,48 @@ function InvoiceViewportTooltip({
           document.body,
         )}
     </>
+  );
+}
+
+function renderInvoiceGroupedWorksiteLinesV17_90L376(
+  values: string[],
+  keyPrefix: string,
+  options: { bullet?: boolean; compact?: boolean } = {},
+) {
+  const groups = groupWorksiteDisplayLinesV17_90L376(values);
+  const hasScopedGroups = groups.some((group) => Boolean(group.siteLabel));
+  return (
+    <span className={`block ${options.compact ? "space-y-1.5" : "space-y-2"}`}>
+      {groups.map((group, groupIndex) => {
+        const heading =
+          group.siteLabel || (hasScopedGroups ? "Allgemein" : "");
+        return (
+          <span
+            key={`${keyPrefix}_group_${groupIndex}`}
+            className={`block ${
+              heading
+                ? "rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/30"
+                : ""
+            }`}
+          >
+            {heading && (
+              <span className="mb-1 block font-extrabold text-slate-950 dark:text-slate-50">
+                {heading}
+              </span>
+            )}
+            {group.lines.map((line, lineIndex) => (
+              <span
+                key={`${keyPrefix}_group_${groupIndex}_line_${lineIndex}`}
+                className="block whitespace-pre-wrap break-words leading-relaxed"
+              >
+                {options.bullet ? "• " : ""}
+                {line}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -8805,14 +8849,11 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <span className="block font-semibold">
                                       Wichtige Informationen
                                     </span>
-                                    {invoiceSpecialSummaryV17_90L319.primaryHints.map((line, index) => (
-                                      <span
-                                        key={`invoice-info-primary-${inv.id}-${index}`}
-                                        className="mt-1 block whitespace-pre-wrap break-words"
-                                      >
-                                        • {line}
-                                      </span>
-                                    ))}
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      invoiceSpecialSummaryV17_90L319.primaryHints,
+                                      `invoice-info-primary-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
                                   </span>
                                 )}
                                 {invoiceSpecialSummaryV17_90L319.hazards.length > 0 && (
@@ -8820,14 +8861,11 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <span className="block font-semibold">
                                       Gefahr / Achtung
                                     </span>
-                                    {invoiceSpecialSummaryV17_90L319.hazards.map((line, index) => (
-                                      <span
-                                        key={`invoice-info-hazard-${inv.id}-${index}`}
-                                        className="mt-1 block whitespace-pre-wrap break-words"
-                                      >
-                                        • {line}
-                                      </span>
-                                    ))}
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      invoiceSpecialSummaryV17_90L319.hazards,
+                                      `invoice-info-hazard-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
                                   </span>
                                 )}
                                 {invoiceSpecialSummaryV17_90L319.otherHints.length > 0 && (
@@ -8835,14 +8873,11 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <span className="block font-semibold">
                                       Weitere Besonderheiten
                                     </span>
-                                    {invoiceSpecialSummaryV17_90L319.otherHints.map((line, index) => (
-                                      <span
-                                        key={`invoice-info-other-${inv.id}-${index}`}
-                                        className="mt-1 block whitespace-pre-wrap break-words"
-                                      >
-                                        • {line}
-                                      </span>
-                                    ))}
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      invoiceSpecialSummaryV17_90L319.otherHints,
+                                      `invoice-info-other-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
                                   </span>
                                 )}
                               </span>
@@ -12009,13 +12044,13 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <div className="font-semibold">
                                       Wichtige Informationen
                                     </div>
-                                    <ul className="mt-1.5 space-y-1 text-sm">
-                                      {primaryHints.map((line, index) => (
-                                        <li key={`invoice-primary-${index}`}>
-                                          • {line}
-                                        </li>
-                                      ))}
-                                    </ul>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        primaryHints,
+                                        "invoice-edit-primary",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                                 {hazards.length > 0 && (
@@ -12023,13 +12058,13 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <div className="font-semibold">
                                       Wichtige Gefahren / Warnhinweise
                                     </div>
-                                    <ul className="mt-1.5 space-y-1 text-sm">
-                                      {hazards.map((line, index) => (
-                                        <li key={`invoice-hazard-${index}`}>
-                                          • {line}
-                                        </li>
-                                      ))}
-                                    </ul>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        hazards,
+                                        "invoice-edit-hazard",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                                 {otherHints.length > 0 && (
@@ -12037,13 +12072,13 @@ Dieser Arbeitsort enthält keine Positionen.`,
                                     <div className="font-semibold">
                                       Weitere Besonderheiten
                                     </div>
-                                    <ul className="mt-1.5 space-y-1 text-sm">
-                                      {otherHints.map((line, index) => (
-                                        <li key={`invoice-hint-${index}`}>
-                                          • {line}
-                                        </li>
-                                      ))}
-                                    </ul>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        otherHints,
+                                        "invoice-edit-hint",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                               </div>

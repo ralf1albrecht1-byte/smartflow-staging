@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
@@ -77,6 +78,8 @@ import {
   Info,
   Pencil,
   Phone,
+  KeyRound,
+  DoorOpen,
   X,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
@@ -139,6 +142,10 @@ import {
 import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
+import {
+  buildWorksiteAccessChipDisplayV17_90L376,
+  groupWorksiteDisplayLinesV17_90L376,
+} from "@/lib/worksite-chip-display";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
 
@@ -1478,6 +1485,7 @@ type OfferOperationalChip = {
   title: string;
   icon: string;
   tone: "danger" | "warning";
+  worksiteCount?: number;
 };
 
 function decodeOfferPdfMeta(value?: string | null): OfferPdfMeta {
@@ -3113,6 +3121,10 @@ function buildOfferOperationalChips(
       return;
     }
     existing.title = uniqueOfferLines([existing.title, chip.title]).join("\n");
+    existing.worksiteCount = Math.max(
+      Number(existing.worksiteCount || 0),
+      Number(chip.worksiteCount || 0),
+    ) || undefined;
   };
 
   // Show a parking chip only when the source actually contains parking information.
@@ -3145,30 +3157,57 @@ function buildOfferOperationalChips(
     pushOrMerge({ key: "danger", title: line, icon: "⚠️", tone: "danger" });
   });
 
+  // V17.90L376: Alle Code-/Schlüssel-/Badge- und reinen Eingangsangaben
+  // werden zu genau einem Chip zusammengeführt. Eine Zugangsinformation mit
+  // Code/Schlüssel/Badge erzwingt den Schlüsselchip für den gesamten Auftrag.
+  const accessDisplayV17_90L376 = buildWorksiteAccessChipDisplayV17_90L376(
+    uniqueOfferLines(jobHints).filter(isOfferAccessLineV17_90L337),
+  );
+  if (accessDisplayV17_90L376) {
+    pushOrMerge({
+      key: "access_unified",
+      title: accessDisplayV17_90L376.tooltip,
+      icon: accessDisplayV17_90L376.kind === "key" ? "🔑" : "🚪",
+      tone: "warning",
+      worksiteCount: accessDisplayV17_90L376.worksiteCount,
+    });
+  }
+
   uniqueOfferLines(jobHints).forEach((line) => {
     const text = normalizeOfferHint(line);
     if (!text || isOfferDogHint(line)) return;
     if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/.test(text)) return;
+    if (isOfferAccessLineV17_90L337(line)) return;
     if (/\b(?:leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
       pushOrMerge({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
-      return;
-    }
-    if (/\b(?:schluessel|schlussel|key|cle|chiave|llave|code|pin|tuercode|turcode|tuercode|tuerkode|turkode|eingangscode|schluesselbox|schlusselbox)\b/.test(text)) {
-      pushOrMerge({ key: "key", title: line, icon: "🔑", tone: "warning" });
-      return;
-    }
-    if (/\b(?:zugang|zutritt|eingang|hintereingang|seiteneingang|seitentuer|seitentur|seitenzugang|tuer|tur|tor|door|side\s*door|back\s*door|access|entree|porta|puerta)\b/.test(text)) {
-      pushOrMerge({ key: "access", title: line, icon: "🚪", tone: "warning" });
     }
   });
   return result;
 }
 
 function renderOfferOperationalChipIcon(chip: OfferOperationalChip) {
-  if (chip.key === "dog") {
-    return <OfferDangerousDogIcon className="h-5 w-5" />;
-  }
-  return chip.icon;
+  const icon = chip.key === "dog" ? (
+    <OfferDangerousDogIcon className="h-5 w-5" />
+  ) : chip.key === "access_unified" ? (
+    chip.icon === "🔑" ? (
+      <KeyRound className="h-5 w-5" />
+    ) : (
+      <DoorOpen className="h-5 w-5" />
+    )
+  ) : (
+    chip.icon
+  );
+
+  return (
+    <>
+      {icon}
+      {Number(chip.worksiteCount || 0) > 1 && (
+        <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[9px] font-extrabold leading-none text-white shadow-sm dark:border-slate-900 dark:bg-white dark:text-slate-950">
+          {chip.worksiteCount}
+        </span>
+      )}
+    </>
+  );
 }
 
 
@@ -4029,22 +4068,74 @@ function OfferAppointmentTooltipV17_90L169({
   );
 }
 
+function renderOfferGroupedWorksiteLinesV17_90L376(
+  values: string[],
+  keyPrefix: string,
+  options: { bullet?: boolean; compact?: boolean } = {},
+) {
+  const groups = groupWorksiteDisplayLinesV17_90L376(values);
+  const hasScopedGroups = groups.some((group) => Boolean(group.siteLabel));
+  return (
+    <span className={`block ${options.compact ? "space-y-1.5" : "space-y-2"}`}>
+      {groups.map((group, groupIndex) => {
+        const heading =
+          group.siteLabel || (hasScopedGroups ? "Allgemein" : "");
+        return (
+          <span
+            key={`${keyPrefix}_group_${groupIndex}`}
+            className={`block ${
+              heading
+                ? "rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/30"
+                : ""
+            }`}
+          >
+            {heading && (
+              <span className="mb-1 block font-extrabold text-slate-950 dark:text-slate-50">
+                {heading}
+              </span>
+            )}
+            {group.lines.map((line, lineIndex) => (
+              <span
+                key={`${keyPrefix}_group_${groupIndex}_line_${lineIndex}`}
+                className="block whitespace-pre-wrap break-words leading-relaxed"
+              >
+                {options.bullet ? "• " : ""}
+                {line}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 function OfferOperationalTooltipContentV17_90L169({
   chip,
 }: {
   chip: OfferOperationalChip;
 }) {
   const isDanger = chip.tone === "danger";
+  const isAccessChipV17_90L376 = chip.key === "access_unified";
   const rawLines = String(chip.title || "").split(/\n+/g);
   const lines =
     chip.key === "dog"
       ? dedupeOfferDogLinesV17_90L177(rawLines)
       : uniqueOfferLines(rawLines);
-  const heading = isDanger
-    ? chip.key === "dog"
-      ? "Vorsicht: Hund"
-      : "Vorsicht"
-    : "Besonderheiten";
+  const accessDisplayV17_90L376 = isAccessChipV17_90L376
+    ? buildWorksiteAccessChipDisplayV17_90L376(lines)
+    : null;
+  const isKeyAccessV17_90L376 =
+    accessDisplayV17_90L376?.kind === "key" || chip.icon === "🔑";
+  const heading = isAccessChipV17_90L376
+    ? isKeyAccessV17_90L376
+      ? "Schlüssel / Zugang"
+      : "Zugang"
+    : isDanger
+      ? chip.key === "dog"
+        ? "Vorsicht: Hund"
+        : "Vorsicht"
+      : "Besonderheiten";
   return (
     <span
       className={`block rounded-xl border-2 p-3 text-slate-950 dark:text-slate-50 ${
@@ -4054,29 +4145,45 @@ function OfferOperationalTooltipContentV17_90L169({
       }`}
     >
       <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
-        <AlertTriangle
-          className={`h-4 w-4 shrink-0 ${
-            isDanger
-              ? "text-red-700 dark:text-red-300"
-              : "text-amber-700 dark:text-amber-300"
-          }`}
-        />
+        {isAccessChipV17_90L376 ? (
+          isKeyAccessV17_90L376 ? (
+            <KeyRound className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          ) : (
+            <DoorOpen className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          )
+        ) : (
+          <AlertTriangle
+            className={`h-4 w-4 shrink-0 ${
+              isDanger
+                ? "text-red-700 dark:text-red-300"
+                : "text-amber-700 dark:text-amber-300"
+            }`}
+          />
+        )}
         {heading}
       </span>
-      <span className="block space-y-1.5">
-        {lines.map((line, index) => (
-          <span
-            key={`offer_operational_${chip.key}_${index}`}
-            className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
-              isDanger
-                ? "border-red-200 dark:border-red-900/70"
-                : "border-amber-200 dark:border-amber-900/70"
-            }`}
-          >
-            {line}
-          </span>
-        ))}
-      </span>
+      {isAccessChipV17_90L376 ? (
+        renderOfferGroupedWorksiteLinesV17_90L376(
+          lines,
+          "offer_operational_access",
+          { compact: true },
+        )
+      ) : (
+        <span className="block space-y-1.5">
+          {lines.map((line, index) => (
+            <span
+              key={`offer_operational_${chip.key}_${index}`}
+              className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
+                isDanger
+                  ? "border-red-200 dark:border-red-900/70"
+                  : "border-amber-200 dark:border-amber-900/70"
+              }`}
+            >
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
@@ -4219,11 +4326,11 @@ function OfferInfoTooltip({ summary }: { summary: OfferInfoSummary }) {
             <span className="mb-1 flex items-center gap-1 font-bold">
               <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
             </span>
-            {safety.map((line, index) => (
-              <span key={`offer_info_safety_${index}`} className="block break-words">
-                • {line}
-              </span>
-            ))}
+            {renderOfferGroupedWorksiteLinesV17_90L376(
+              safety,
+              "offer_info_safety",
+              { bullet: true, compact: true },
+            )}
           </span>
         )}
         {primary.length > 0 && (
@@ -4231,21 +4338,21 @@ function OfferInfoTooltip({ summary }: { summary: OfferInfoSummary }) {
             <span className="mb-1 flex items-center gap-1 font-bold">
               <Info className="h-3.5 w-3.5" /> Wichtige Informationen
             </span>
-            {primary.map((line, index) => (
-              <span key={`offer_info_primary_${index}`} className="block break-words">
-                {line}
-              </span>
-            ))}
+            {renderOfferGroupedWorksiteLinesV17_90L376(
+              primary,
+              "offer_info_primary",
+              { compact: true },
+            )}
           </span>
         )}
         {additional.length > 0 && (
           <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900">
             <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
-            {additional.map((line, index) => (
-              <span key={`offer_info_hint_${index}`} className="block break-words">
-                {line}
-              </span>
-            ))}
+            {renderOfferGroupedWorksiteLinesV17_90L376(
+              additional,
+              "offer_info_hint",
+              { compact: true },
+            )}
           </span>
         )}
       </span>
@@ -8082,9 +8189,13 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
       /(?:^|[-_])appointments?(?:[-_]|$)/i.test(mobileTooltipKeyTail) ||
       mobileTooltipKeyTail === "appointment";
     const isOperationalDanger = ["dog", "danger"].includes(mobileTooltipKeyTail);
-    const isOperationalWarning = ["parking", "ladder", "key", "access"].includes(
-      mobileTooltipKeyTail,
-    );
+    const isOperationalWarning = [
+      "parking",
+      "ladder",
+      "key",
+      "access",
+      "access_unified",
+    ].includes(mobileTooltipKeyTail);
     const isServiceReview =
       activeMobileTooltip.kind === "service_review" ||
       Boolean(
@@ -8230,35 +8341,31 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     <div className="mb-1 flex items-center gap-1 font-bold">
                       <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
                     </div>
-                    {safety.map((line, index) => (
-                      <div
-                        key={`offer_mobile_compact_safety_${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        • {line}
-                      </div>
-                    ))}
+                    {renderOfferGroupedWorksiteLinesV17_90L376(
+                      safety,
+                      "offer_mobile_compact_safety",
+                      { bullet: true, compact: true },
+                    )}
                   </div>
                 )}
                 {primary.length > 0 && (
                   <div className="mb-2 rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
                     <div className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</div>
-                    {primary.map((line, index) => (
-                      <div key={`offer_mobile_compact_primary_${index}`} className="whitespace-pre-wrap break-words">{line}</div>
-                    ))}
+                    {renderOfferGroupedWorksiteLinesV17_90L376(
+                      primary,
+                      "offer_mobile_compact_primary",
+                      { compact: true },
+                    )}
                   </div>
                 )}
                 {hints.length > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
                     <div className="mb-1 font-bold">Weitere Besonderheiten</div>
-                    {hints.map((line, index) => (
-                      <div
-                        key={`offer_mobile_compact_hint_${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        {line}
-                      </div>
-                    ))}
+                    {renderOfferGroupedWorksiteLinesV17_90L376(
+                      hints,
+                      "offer_mobile_compact_hint",
+                      { compact: true },
+                    )}
                   </div>
                 )}
                 {textValue && safety.length === 0 && primary.length === 0 && hints.length === 0 && (

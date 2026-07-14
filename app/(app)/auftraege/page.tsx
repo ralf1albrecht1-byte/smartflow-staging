@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
 // SMARTFLOW_V17_90L371CZ_WORKSITE_CONTEXT_IN_ACCESS_INFO_CHIPS_ORDER
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
@@ -169,6 +170,10 @@ import {
   isIntakeV2Order,
 } from "@/lib/intake-v2/view";
 import { canonicalLinesV2 } from "@/lib/intake-v2/schema";
+import {
+  buildWorksiteAccessChipDisplayV17_90L376,
+  groupWorksiteDisplayLinesV17_90L376,
+} from "@/lib/worksite-chip-display";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 =
   "smartflow:close-card-popovers-v17-90l227";
@@ -830,6 +835,7 @@ type ReviewBadge = {
   tooltip?: string;
   focusTarget?: "specialNotes" | "items" | "customer" | "executionAddress";
   serviceReviewGroups?: OrderServiceReviewGroup[];
+  worksiteCount?: number;
 };
 
 const compactText = (value?: string | null) =>
@@ -1253,6 +1259,48 @@ const renderOrderAppointmentTooltipContentV17_90L169 = (
   );
 };
 
+const renderGroupedWorksiteInfoLinesV17_90L376 = (
+  values: string[],
+  keyPrefix: string,
+  options: { bullet?: boolean; compact?: boolean } = {},
+) => {
+  const groups = groupWorksiteDisplayLinesV17_90L376(values);
+  const hasScopedGroups = groups.some((group) => Boolean(group.siteLabel));
+  return (
+    <span className={`block ${options.compact ? "space-y-1.5" : "space-y-2"}`}>
+      {groups.map((group, groupIndex) => {
+        const heading =
+          group.siteLabel || (hasScopedGroups ? "Allgemein" : "");
+        return (
+          <span
+            key={`${keyPrefix}_group_${groupIndex}`}
+            className={`block ${
+              heading
+                ? "rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/30"
+                : ""
+            }`}
+          >
+            {heading && (
+              <span className="mb-1 block font-extrabold text-slate-950 dark:text-slate-50">
+                {heading}
+              </span>
+            )}
+            {group.lines.map((line, lineIndex) => (
+              <span
+                key={`${keyPrefix}_group_${groupIndex}_line_${lineIndex}`}
+                className="block whitespace-pre-wrap break-words leading-relaxed"
+              >
+                {options.bullet ? "• " : ""}
+                {line}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
 const renderOrderOperationalTooltipContentV17_90L169 = (
   badge: ReviewBadge,
   tooltip: string,
@@ -1269,13 +1317,22 @@ const renderOrderOperationalTooltipContentV17_90L169 = (
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
-  const heading = isDanger
-    ? normalizedLabel === "hund"
-      ? "Vorsicht: Hund"
-      : normalizedLabel && normalizedLabel !== "achtung"
-        ? `Vorsicht: ${badge.label}`
-        : "Vorsicht"
-    : "Besonderheiten";
+  const isAccessChipV17_90L376 =
+    badge.key.includes("access") ||
+    normalizedLabel === "schluessel" ||
+    normalizedLabel === "schlussel" ||
+    normalizedLabel === "zugang";
+  const heading = isAccessChipV17_90L376
+    ? normalizedLabel === "zugang"
+      ? "Zugang"
+      : "Schlüssel / Zugang"
+    : isDanger
+      ? normalizedLabel === "hund"
+        ? "Vorsicht: Hund"
+        : normalizedLabel && normalizedLabel !== "achtung"
+          ? `Vorsicht: ${badge.label}`
+          : "Vorsicht"
+      : "Besonderheiten";
 
   return (
     <span
@@ -1286,29 +1343,45 @@ const renderOrderOperationalTooltipContentV17_90L169 = (
       }`}
     >
       <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
-        <AlertTriangle
-          className={`h-4 w-4 shrink-0 ${
-            isDanger
-              ? "text-red-700 dark:text-red-300"
-              : "text-amber-700 dark:text-amber-300"
-          }`}
-        />
+        {isAccessChipV17_90L376 ? (
+          normalizedLabel === "zugang" ? (
+            <DoorOpen className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          ) : (
+            <KeyRound className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          )
+        ) : (
+          <AlertTriangle
+            className={`h-4 w-4 shrink-0 ${
+              isDanger
+                ? "text-red-700 dark:text-red-300"
+                : "text-amber-700 dark:text-amber-300"
+            }`}
+          />
+        )}
         {heading}
       </span>
-      <span className="block space-y-1.5">
-        {lines.map((line, index) => (
-          <span
-            key={`operational_${badge.key}_${index}`}
-            className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
-              isDanger
-                ? "border-red-200 dark:border-red-900/70"
-                : "border-amber-200 dark:border-amber-900/70"
-            }`}
-          >
-            {line}
-          </span>
-        ))}
-      </span>
+      {isAccessChipV17_90L376 ? (
+        renderGroupedWorksiteInfoLinesV17_90L376(
+          lines,
+          `operational_access_${badge.key}`,
+          { compact: true },
+        )
+      ) : (
+        <span className="block space-y-1.5">
+          {lines.map((line, index) => (
+            <span
+              key={`operational_${badge.key}_${index}`}
+              className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
+                isDanger
+                  ? "border-red-200 dark:border-red-900/70"
+                  : "border-amber-200 dark:border-amber-900/70"
+              }`}
+            >
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
     </span>
   );
 };
@@ -5430,32 +5503,45 @@ const getOperationalBadges = (
         focusTarget: "specialNotes",
       });
     });
-    // V17.90L215: Alle versiegelten Zugangsangaben bilden genau einen
-    // Zugang-/Schlüsselchip. Dadurch stehen Schlüssel, Tor-/Türcode, PIN und
-    // Badge gemeinsam im Hover/Popover statt als getrennte oder allgemeine
-    // Hinweise aufzutauchen.
-    const canonicalAccessLinesV17_90L215 = canonicalLinesV2(
-      canonicalSnapshotV2.roles.access,
-    );
-    if (canonicalAccessLinesV17_90L215.length > 0) {
-      const scopedAccessLinesV17_90L371CZ = collectScopedAccessHintLinesV17_90L372(order);
-      const canonicalAccessTooltipLinesV17_90L371CZ =
-        scopedAccessLinesV17_90L371CZ.length > 0
-          ? scopedAccessLinesV17_90L371CZ
-          : canonicalAccessLinesV17_90L215;
-      const hasExplicitAccessCredentialV17_90L215 =
-        canonicalAccessTooltipLinesV17_90L371CZ.some((line) =>
-          /\b(?:zugang|zutritt|code|pin|badge|tor|tür|tuer|schlüsselbox|schluesselbox|briefkasten)\b/i.test(
-            line,
-          ),
-        );
+    // V17.90L376: Genau ein gemeinsamer Zugangschip. Sobald irgendeine
+    // Zugangszeile Code/Schlüssel/Badge enthält, hat das Schlüssel-Icon
+    // Vorrang. Reine Eingangs-/Türangaben verwenden das Tür-Icon.
+    const canonicalAccessLinesV17_90L376 = canonicalLinesV2([
+      ...canonicalSnapshotV2.roles.access,
+      ...canonicalSnapshotV2.roles.other,
+      ...canonicalSnapshotV2.roles.ordinary,
+    ]).filter((line) => {
+      const kind = getSemanticBadgeKind(line);
+      return kind === "key" || kind === "access";
+    });
+    const scopedAccessLinesV17_90L376 =
+      collectScopedAccessHintLinesV17_90L372(order);
+    const canonicalAccessTooltipLinesV17_90L376 =
+      scopedAccessLinesV17_90L376.length > 0
+        ? scopedAccessLinesV17_90L376
+        : uniqueOrderInfoLinesV17_66([
+            ...canonicalAccessLinesV17_90L376,
+            ...manualSpecialNoteLinesV17_90L329.filter((line) => {
+              const kind = getSemanticBadgeKind(line);
+              return kind === "key" || kind === "access";
+            }),
+          ]);
+    const canonicalAccessDisplayV17_90L376 =
+      buildWorksiteAccessChipDisplayV17_90L376(
+        canonicalAccessTooltipLinesV17_90L376,
+      );
+    if (canonicalAccessDisplayV17_90L376) {
       pushUniqueBadge(badges, {
         key: "canonical_access",
-        label: hasExplicitAccessCredentialV17_90L215 ? "Zugang" : "Schlüssel",
+        label:
+          canonicalAccessDisplayV17_90L376.kind === "key"
+            ? "Schlüssel"
+            : "Zugang",
         className:
           "bg-amber-100 text-amber-700 border border-amber-300",
-        tooltip: canonicalAccessTooltipLinesV17_90L371CZ.join("\n"),
+        tooltip: canonicalAccessDisplayV17_90L376.tooltip,
         focusTarget: "specialNotes",
+        worksiteCount: canonicalAccessDisplayV17_90L376.worksiteCount,
       });
     }
     const suppressedReviewDisplayTextsV17_90L280 =
@@ -5473,7 +5559,15 @@ const getOperationalBadges = (
       .forEach((line) => {
       const kind = getSemanticBadgeKind(line);
       const label = kind ? badgeLabelByKind[kind] : "";
-      if (!kind || !label || kind === "warning" || kind === "appointment" || kind === "parking") return;
+      if (
+        !kind ||
+        !label ||
+        kind === "warning" ||
+        kind === "appointment" ||
+        kind === "parking" ||
+        kind === "key" ||
+        kind === "access"
+      ) return;
       pushUniqueBadge(badges, {
         key: `canonical_${kind}`,
         label,
@@ -5494,7 +5588,13 @@ const getOperationalBadges = (
       if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
       const kind = getSemanticBadgeKind(line);
       const label = kind ? badgeLabelByKind[kind] : "";
-      if (!kind || !label || kind === "appointment") return;
+      if (
+        !kind ||
+        !label ||
+        kind === "appointment" ||
+        kind === "key" ||
+        kind === "access"
+      ) return;
 
       if (kind === "warning" || kind === "dog") {
         const dangerLabel = dangerBadgeLabel(line);
@@ -5637,11 +5737,44 @@ const getOperationalBadges = (
   });
 
 
+  const legacyScopedAccessLinesV17_90L376 =
+    collectScopedAccessHintLinesV17_90L372(order);
+  const legacyAccessLinesV17_90L376 =
+    legacyScopedAccessLinesV17_90L376.length > 0
+      ? legacyScopedAccessLinesV17_90L376
+      : parsedNotes.jobHints.filter((line) => {
+          const kind = getSemanticBadgeKind(line);
+          return kind === "key" || kind === "access";
+        });
+  const legacyAccessDisplayV17_90L376 =
+    buildWorksiteAccessChipDisplayV17_90L376(legacyAccessLinesV17_90L376);
+  if (legacyAccessDisplayV17_90L376) {
+    addHint(
+      "hint_access_unified",
+      legacyAccessDisplayV17_90L376.kind === "key" ? "Schlüssel" : "Zugang",
+      amberHintClass,
+      legacyAccessDisplayV17_90L376.tooltip,
+    );
+    const legacyAccessBadgeV17_90L376 = badges.find(
+      (badge) => badge.key === "hint_access_unified",
+    );
+    if (legacyAccessBadgeV17_90L376) {
+      legacyAccessBadgeV17_90L376.worksiteCount =
+        legacyAccessDisplayV17_90L376.worksiteCount;
+    }
+  }
+
   parsedNotes.jobHints.forEach((line) => {
     if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
 
     const kind = getSemanticBadgeKind(line);
-    if (!kind || kind === "warning" || kind === "appointment") return;
+    if (
+      !kind ||
+      kind === "warning" ||
+      kind === "appointment" ||
+      kind === "key" ||
+      kind === "access"
+    ) return;
 
     if (kind === "parking" || getParkingSignal(line).hasParking) return;
 
@@ -10529,6 +10662,13 @@ const compactSymbolForBadge = (badge: ReviewBadge): string | null => {
   return null;
 };
 
+const renderOrderWorksiteCountV17_90L376 = (badge: ReviewBadge) =>
+  Number(badge.worksiteCount || 0) > 1 ? (
+    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[9px] font-extrabold leading-none text-white shadow-sm dark:border-slate-900 dark:bg-white dark:text-slate-950">
+      {badge.worksiteCount}
+    </span>
+  ) : null;
+
 
 const renderSpecialNotesSummaryTooltipV17_91 = (
   badge: ReviewBadge,
@@ -10554,31 +10694,33 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
           <span className="mb-1 flex items-center gap-1 font-bold">
             <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
           </span>
-          {sections.safety.map((line, index) => (
-            <span key={`summary_safety_${index}`} className="block whitespace-pre-wrap break-words">
-              • {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.safety,
+            "summary_safety",
+            { bullet: true, compact: true },
+          )}
         </span>
       )}
 
       {hasPrimary && (
         <span className="mb-2 block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
           <span className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</span>
-          {sections.primary.map((line, index) => (
-            <span key={`summary_primary_${index}`} className="block whitespace-pre-wrap break-words">{line}</span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.primary,
+            "summary_primary",
+            { compact: true },
+          )}
         </span>
       )}
 
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
-          {sections.hints.map((line, index) => (
-            <span key={`summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
-              {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.hints,
+            "summary_hint",
+            { compact: true },
+          )}
         </span>
       )}
     </span>
@@ -10739,14 +10881,11 @@ const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
           <span className="mb-1 flex items-center gap-1 font-bold">
             <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
           </span>
-          {sections.safety.map((line, index) => (
-            <span
-              key={`viewport_summary_safety_${index}`}
-              className="block whitespace-pre-wrap break-words"
-            >
-              • {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.safety,
+            "viewport_summary_safety",
+            { bullet: true, compact: true },
+          )}
         </span>
       )}
       {sections.primary.length > 0 && (
@@ -10754,27 +10893,21 @@ const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
           <span className="mb-1 flex items-center gap-1 font-bold">
             <Info className="h-3.5 w-3.5" /> Wichtige Informationen
           </span>
-          {sections.primary.map((line, index) => (
-            <span
-              key={`viewport_summary_primary_${index}`}
-              className="block whitespace-pre-wrap break-words"
-            >
-              {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.primary,
+            "viewport_summary_primary",
+            { compact: true },
+          )}
         </span>
       )}
       {sections.hints.length > 0 && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
-          {sections.hints.map((line, index) => (
-            <span
-              key={`viewport_summary_hint_${index}`}
-              className="block whitespace-pre-wrap break-words"
-            >
-              {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.hints,
+            "viewport_summary_hint",
+            { compact: true },
+          )}
         </span>
       )}
     </span>
@@ -11847,29 +11980,31 @@ const renderMobileSpecialNotesSummaryTooltipV17_91 = (
           <span className="mb-1 flex items-center gap-1 font-bold">
             <AlertTriangle className="h-4 w-4" /> Gefahr / Achtung
           </span>
-          {sections.safety.map((line, index) => (
-            <span key={`mobile_summary_safety_${index}`} className="block whitespace-pre-wrap break-words">
-              • {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.safety,
+            "mobile_summary_safety",
+            { bullet: true, compact: true },
+          )}
         </span>
       )}
       {hasPrimary && (
         <span className="mb-2 block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
           <span className="mb-1 flex items-center gap-1 font-bold"><Info className="h-4 w-4" /> Wichtige Informationen</span>
-          {sections.primary.map((line, index) => (
-            <span key={`mobile_summary_primary_${index}`} className="block whitespace-pre-wrap break-words">{line}</span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.primary,
+            "mobile_summary_primary",
+            { compact: true },
+          )}
         </span>
       )}
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
-          {sections.hints.map((line, index) => (
-            <span key={`mobile_summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
-              {line}
-            </span>
-          ))}
+          {renderGroupedWorksiteInfoLinesV17_90L376(
+            sections.hints,
+            "mobile_summary_hint",
+            { compact: true },
+          )}
         </span>
       )}
     </span>
@@ -12018,6 +12153,7 @@ const renderReviewBadge = (
           <span className="min-w-0 truncate">{badge.label}</span>
         </>
       )}
+      {renderOrderWorksiteCountV17_90L376(badge)}
       {renderBadgeTooltip(badge, options.tooltipAlign || "left")}
     </span>
   );
@@ -12107,6 +12243,7 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       ) : (
         badge.label.slice(0, 1)
       )}
+      {renderOrderWorksiteCountV17_90L376(badge)}
       {renderMobileSafeBadgeTooltip(badge)}
     </button>
   );
@@ -20091,35 +20228,31 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     <div className="mb-1 flex items-center gap-1 font-bold">
                       <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
                     </div>
-                    {specialSummarySections.safety.map((line, index) => (
-                      <div
-                        key={`active_mobile_compact_summary_safety_${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        • {line}
-                      </div>
-                    ))}
+                    {renderGroupedWorksiteInfoLinesV17_90L376(
+                      specialSummarySections.safety,
+                      "active_mobile_compact_summary_safety",
+                      { bullet: true, compact: true },
+                    )}
                   </div>
                 )}
                 {specialSummarySections.primary.length > 0 && (
                   <div className="rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
                     <div className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</div>
-                    {specialSummarySections.primary.map((line, index) => (
-                      <div key={`active_mobile_compact_summary_primary_${index}`} className="whitespace-pre-wrap break-words">{line}</div>
-                    ))}
+                    {renderGroupedWorksiteInfoLinesV17_90L376(
+                      specialSummarySections.primary,
+                      "active_mobile_compact_summary_primary",
+                      { compact: true },
+                    )}
                   </div>
                 )}
                 {specialSummarySections.hints.length > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
                     <div className="mb-1 font-bold">Weitere Besonderheiten</div>
-                    {specialSummarySections.hints.map((line, index) => (
-                      <div
-                        key={`active_mobile_compact_summary_hint_${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        {line}
-                      </div>
-                    ))}
+                    {renderGroupedWorksiteInfoLinesV17_90L376(
+                      specialSummarySections.hints,
+                      "active_mobile_compact_summary_hint",
+                      { compact: true },
+                    )}
                   </div>
                 )}
               </div>
@@ -20966,6 +21099,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       {badge.label}
                     </>
                   )}
+                  {renderOrderWorksiteCountV17_90L376(badge)}
                   {renderBadgeTooltip(badge, tooltipAlign)}
                 </button>
               );
@@ -21013,6 +21147,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     }
                     strokeWidth={2.2}
                   />
+                  {renderOrderWorksiteCountV17_90L376(badge)}
                   {renderMobileChipTooltip(badge, tooltipSlot, "left")}
                 </button>
               );
