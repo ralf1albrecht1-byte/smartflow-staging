@@ -208,6 +208,15 @@ export type UnifiedWorksiteInfoDisplayV17_90L378 = {
   additional: string[];
 };
 
+type UnifiedInfoSourceV17_90L379 = "primary" | "additional" | "access";
+
+type UnifiedInfoEntryV17_90L379 = {
+  siteLabel: string | null;
+  line: string;
+  source: UnifiedInfoSourceV17_90L379;
+  order: number;
+};
+
 const displayLineCoveredV17_90L378 = (
   candidate: string,
   scopedLines: string[],
@@ -226,54 +235,199 @@ const displayLineCoveredV17_90L378 = (
   });
 };
 
+const isNeutralUnifiedInfoLineV17_90L379 = (value: unknown): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+
+  // Neutrale Organisationsangaben bleiben blau, auch wenn sie ursprünglich
+  // unter "Weitere Besonderheiten" gespeichert wurden.
+  return (
+    /^(?:termin|datum|zeit|uhrzeit)\b/.test(key) ||
+    /\b(?:abschlussfoto|abschlussfotos|foto|fotos|fotodokumentation|bericht|rapport|protokoll|dokumentation)\b/.test(
+      key,
+    ) ||
+    /\b(?:nach abschluss|nach erledigung|nach ausfuehrung|nach ausfuhrung)\b/.test(
+      key,
+    ) ||
+    /\b(?:per e mail|per email|per mail|per whatsapp|per sms)\b.*\b(?:senden|schicken|bestaetigen|bestatigen|melden|uebermitteln|ubermitteln)\b/.test(
+      key,
+    )
+  );
+};
+
+const isActionableUnifiedInfoLineV17_90L379 = (value: unknown): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+
+  if (isWorksiteCredentialLineV17_90L376(value)) return true;
+
+  return (
+    // Zugang, Eingang, Türen, Tore und Zutrittsorganisation.
+    /\b(?:zugang|zutritt|eingang|hintereingang|seiteneingang|nebeneingang|tuer|tur|tor|rolltor|seitentor|garagentor|pforte|empfang|rezeption|hauswart|porte|entree|accesso|ingresso)\b/.test(
+      key,
+    ) ||
+    // Mitbringen, bereitstellen, Schutz- und Arbeitsmittel.
+    /\b(?:leiter|stehleiter|teleskopleiter|geruest|gerust|hubsteiger|hebebuehne|hebebuhne|maschine|geraet|gerat|werkzeug|material|reinigungsmittel|schutzkleidung|schutzbrille|handschuhe|helm|maske|abdeckvlies|folie)\b/.test(
+      key,
+    ) ||
+    /\b(?:mitbringen|mitnehmen|bereitstellen|bereithalten|organisieren|abholen|zurueckgeben|zuruckgeben|tragen|anziehen)\b/.test(
+      key,
+    ) ||
+    // Parken, Zufahrt und Be-/Entladen.
+    /\b(?:parkplatz|parken|parking|parkhaus|tiefgarage|zufahrt|einfahrt|ladezone|anlieferung|beladen|entladen)\b/.test(
+      key,
+    ) ||
+    // Vorbereitende oder vor Ort zwingend auszuführende Handlungen.
+    /\b(?:vorher|vor beginn|vor arbeitsbeginn)\b.*\b(?:anrufen|telefonieren|melden|kontaktieren|informieren|bestaetigen|bestatigen)\b/.test(
+      key,
+    ) ||
+    /\b(?:aufschliessen|aufschließen|oeffnen|offnen|freigeben|absperren|abdecken|verschieben|raeumen|raumen)\b/.test(
+      key,
+    ) ||
+    /\b(?:wasseranschluss|stromanschluss|steckdose|wasserhahn)\b/.test(key) ||
+    /\b(?:nur zwischen|nur von|zugang nur|zutritt nur)\b/.test(key)
+  );
+};
+
+const collectUnifiedInfoEntriesV17_90L379 = (
+  values: Array<string | null | undefined>,
+  source: UnifiedInfoSourceV17_90L379,
+  startOrder: number,
+): UnifiedInfoEntryV17_90L379[] => {
+  const entries: UnifiedInfoEntryV17_90L379[] = [];
+  let order = startOrder;
+
+  values
+    .flatMap((value) => String(value ?? "").split(/\n+/g))
+    .map(compactWorksiteDisplayTextV17_90L376)
+    .filter(Boolean)
+    .forEach((rawLine) => {
+      const scoped = splitWorksiteDisplayPrefixV17_90L376(rawLine);
+      const siteLabel = scoped?.siteLabel || null;
+      const detail = scoped?.detail || rawLine;
+      splitWorksiteDisplayDetailV17_90L376(detail).forEach((line) => {
+        const normalizedLine = normalizeCredentialDisplayLineV17_90L376(line);
+        if (!normalizedLine) return;
+        entries.push({ siteLabel, line: normalizedLine, source, order });
+        order += 1;
+      });
+    });
+
+  return entries;
+};
+
+const flattenUnifiedInfoEntriesV17_90L379 = (
+  entries: UnifiedInfoEntryV17_90L379[],
+): string[] => {
+  const scopedLines = entries
+    .filter((entry) => Boolean(entry.siteLabel))
+    .map((entry) => entry.line);
+
+  const filtered = entries.filter(
+    (entry) =>
+      Boolean(entry.siteLabel) ||
+      !displayLineCoveredV17_90L378(entry.line, scopedLines),
+  );
+
+  const seen = new Set<string>();
+  const unique = filtered.filter((entry) => {
+    const key = `${normalizeWorksiteDisplayKeyV17_90L376(entry.siteLabel)}|${normalizeWorksiteDisplayKeyV17_90L376(entry.line)}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const general = unique
+    .filter((entry) => !entry.siteLabel)
+    .sort((a, b) => a.order - b.order);
+  const scoped = unique.filter((entry) => Boolean(entry.siteLabel));
+  const siteOrder: string[] = [];
+  const siteLabelByKey = new Map<string, string>();
+
+  scoped.forEach((entry) => {
+    const siteKey = normalizeWorksiteDisplayKeyV17_90L376(entry.siteLabel);
+    if (!siteKey || siteLabelByKey.has(siteKey)) return;
+    siteOrder.push(siteKey);
+    siteLabelByKey.set(siteKey, entry.siteLabel || "");
+  });
+
+  return [
+    ...general.map((entry) => entry.line),
+    ...siteOrder.flatMap((siteKey) =>
+      scoped
+        .filter(
+          (entry) =>
+            normalizeWorksiteDisplayKeyV17_90L376(entry.siteLabel) === siteKey,
+        )
+        .sort((a, b) => a.order - b.order)
+        .map((entry) => `${siteLabelByKey.get(siteKey)}: ${entry.line}`),
+    ),
+  ];
+};
+
 /**
- * V17.90L378: Vereinheitlicht ausschließlich die sichtbare Info-Darstellung.
- * Gefahrzeilen werden weiterhin separat behandelt. Primäre und zusätzliche
- * Hinweise werden für den Infochip zu einer vollständigen, arbeitsortbezogenen
- * Liste zusammengeführt. Gespeicherte Aufträge, Angebote, Rechnungen,
- * Arbeitsorte und Positionen werden nicht verändert.
+ * V17.90L379: Vereinheitlicht ausschließlich die sichtbare Info-Darstellung
+ * und trennt sie wieder fachlich nach Farbe:
+ * - Rot bleibt in den bestehenden Gefahr-Arrays der drei Seiten.
+ * - Gelb enthält Zugang, Schlüssel/Code, Mitbringen, Vorbereitung, Parken und
+ *   sonstige handlungsrelevante Besonderheiten.
+ * - Blau enthält Termin und neutrale organisatorische Informationen.
+ * Gespeicherte Aufträge, Angebote, Rechnungen, Arbeitsorte und Positionen
+ * werden nicht verändert.
  */
 export const buildUnifiedWorksiteInfoDisplayV17_90L378 = (
   primaryValues: Array<string | null | undefined>,
   additionalValues: Array<string | null | undefined> = [],
   accessValues: Array<string | null | undefined> = [],
 ): UnifiedWorksiteInfoDisplayV17_90L378 => {
-  const groups = groupWorksiteDisplayLinesV17_90L376([
-    // Access-Zeilen tragen bei Multi-Ort-Dokumenten die verlässliche
-    // Ausführungsort-Reihenfolge (1, 2, ...). Allgemeine Hinweise werden von
-    // der Gruppierung trotzdem vor den Arbeitsorten ausgegeben.
-    ...accessValues,
-    ...primaryValues,
-    ...additionalValues,
-  ]);
-
-  const scopedGroups = groups.filter(
-    (group): group is WorksiteDisplayGroupV17_90L376 & { siteLabel: string } =>
-      Boolean(group.siteLabel),
+  const primaryEntries = collectUnifiedInfoEntriesV17_90L379(
+    primaryValues,
+    "primary",
+    0,
   );
-  const scopedLines = scopedGroups.flatMap((group) => group.lines);
-  const generalLines = groups
-    .filter((group) => !group.siteLabel)
-    .flatMap((group) => group.lines)
-    .filter((line) => !displayLineCoveredV17_90L378(line, scopedLines));
+  const additionalEntries = collectUnifiedInfoEntriesV17_90L379(
+    additionalValues,
+    "additional",
+    primaryEntries.length,
+  );
+  const accessEntries = collectUnifiedInfoEntriesV17_90L379(
+    accessValues,
+    "access",
+    primaryEntries.length + additionalEntries.length,
+  );
 
-  const primary: string[] = [];
-  generalLines.forEach((line) => pushUniqueDisplayLineV17_90L376(primary, line));
-  scopedGroups.forEach((group) => {
-    group.lines.forEach((line) => {
-      const scopedLine = `${group.siteLabel}: ${line}`;
-      const key = normalizeWorksiteDisplayKeyV17_90L376(scopedLine);
-      if (!key) return;
-      if (
-        primary.some(
-          (existing) => normalizeWorksiteDisplayKeyV17_90L376(existing) === key,
-        )
-      ) {
-        return;
-      }
-      primary.push(scopedLine);
-    });
+  const allEntries = [
+    ...accessEntries,
+    ...primaryEntries,
+    ...additionalEntries,
+  ];
+
+  const yellowEntries: UnifiedInfoEntryV17_90L379[] = [];
+  const blueEntries: UnifiedInfoEntryV17_90L379[] = [];
+
+  allEntries.forEach((entry) => {
+    // Zugang, Schlüssel/Code und konkrete Vorbereitungsmaßnahmen haben Vorrang
+    // vor neutralen Kommunikationswörtern innerhalb derselben Zeile.
+    if (
+      entry.source === "access" ||
+      isActionableUnifiedInfoLineV17_90L379(entry.line)
+    ) {
+      yellowEntries.push(entry);
+      return;
+    }
+    if (isNeutralUnifiedInfoLineV17_90L379(entry.line)) {
+      blueEntries.push(entry);
+      return;
+    }
+    if (entry.source === "additional") {
+      yellowEntries.push(entry);
+      return;
+    }
+    blueEntries.push(entry);
   });
 
-  return { primary, additional: [] };
+  return {
+    primary: flattenUnifiedInfoEntriesV17_90L379(blueEntries),
+    additional: flattenUnifiedInfoEntriesV17_90L379(yellowEntries),
+  };
 };
