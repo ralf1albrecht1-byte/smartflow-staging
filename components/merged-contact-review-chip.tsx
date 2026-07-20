@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L382_CONTACT_SCOPED_ENTRY_PRIORITY_FIX
 // SMARTFLOW_V17_90L381_CONTACT_WORKSITE_SOURCE_SCOPE_FIX
 // SMARTFLOW_V17_90L371CZ_MERGED_CONTACT_SITE_SCOPE_AND_GLOBAL_EMAIL
 // SMARTFLOW_V17_90L371CY_MERGED_CONTACT_CHIP_OPERATIONAL_ONLY
@@ -247,11 +248,15 @@ function isMergedBillingContactEntryV17_90L371CY(
 function dedupeMergedContactEntriesV17_90L371CY(
   entries: MergedContactReviewEntry[],
 ): MergedContactReviewEntry[] {
-  const globalValueKeys = new Set(
+  // V17.90L382: A concrete worksite assignment is more reliable than an
+  // unscoped copy extracted from another persisted text source. Keep the
+  // scoped phone/WhatsApp/SMS entry and suppress only the duplicate general
+  // copy. Truly global instructions such as an after-completion e-mail remain.
+  const scopedValueKeys = new Set(
     entries
       .filter(
         (entry) =>
-          normalizeContactTextV17_90L175(entry.siteLabel) === "auftrag allgemein",
+          normalizeContactTextV17_90L175(entry.siteLabel) !== "auftrag allgemein",
       )
       .map((entry) =>
         [
@@ -266,8 +271,9 @@ function dedupeMergedContactEntriesV17_90L371CY(
     const valueKey = mergedContactEntryValueKeyV17_90L371CY(entry.contactValue);
     if (!valueKey) return false;
     const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
-    const isGlobal = normalizeContactTextV17_90L175(entry.siteLabel) === "auftrag allgemein";
-    if (!isGlobal && globalValueKeys.has([valueKey, channelKey].join("|"))) {
+    const isGlobal =
+      normalizeContactTextV17_90L175(entry.siteLabel) === "auftrag allgemein";
+    if (isGlobal && scopedValueKeys.has([valueKey, channelKey].join("|"))) {
       return false;
     }
     const key = [

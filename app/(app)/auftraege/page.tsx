@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L382_ORDER_DOG_CONTACT_EDITOR_GROUPING_ONLY
 // SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
@@ -5668,6 +5669,7 @@ const getOperationalBadges = (
         !kind ||
         !label ||
         kind === "warning" ||
+        kind === "dog" ||
         kind === "appointment" ||
         kind === "parking" ||
         kind === "key" ||
@@ -25333,11 +25335,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                     {unifiedOrderEditorInfoDisplayV17_90L378.additional.length > 0 && (
                       <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                         <div className="font-semibold">Weitere Besonderheiten</div>
-                        <div className="space-y-1">
-                          {unifiedOrderEditorInfoDisplayV17_90L378.additional.map((line, index) => (
-                            <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
-                          ))}
-                        </div>
+                        {renderGroupedWorksiteInfoLinesV17_90L376(
+                          unifiedOrderEditorInfoDisplayV17_90L378.additional,
+                          "order_edit_additional_v17_90l382",
+                          { compact: true },
+                        )}
                       </div>
                     )}
                   </div>
