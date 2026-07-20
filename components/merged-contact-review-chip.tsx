@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L381_CONTACT_WORKSITE_SOURCE_SCOPE_FIX
 // SMARTFLOW_V17_90L371CZ_MERGED_CONTACT_SITE_SCOPE_AND_GLOBAL_EMAIL
 // SMARTFLOW_V17_90L371CY_MERGED_CONTACT_CHIP_OPERATIONAL_ONLY
 // SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
@@ -166,6 +167,32 @@ function communicationRecordTextV17_90L175(record: any): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// V17.90L381: Each persisted text source is scoped independently. Concatenating
+// notes, special notes and the original customer message allowed the last
+// worksite heading of one source to leak into contacts from the next source.
+function communicationRecordTextSourcesV17_90L381(record: any): string[] {
+  const seen = new Set<string>();
+  return [
+    record?.notes,
+    record?.specialNotes,
+    record?.description,
+    record?.audioTranscript,
+    record?.customerMessage,
+    record?.sourceText,
+  ]
+    .map((value) =>
+      String(value || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .trim(),
+    )
+    .filter((value) => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
 }
 
 type ExplicitMergedContactV17_90L175 = {
@@ -347,7 +374,10 @@ function splitMergedContactTextByWorkSitesV17_90L371CZ(
       (entry, index, list) =>
         index === 0 || entry.index !== list[index - 1].index,
     );
-  if (uniqueStarts.length < 2) return [];
+  // V17.90L381: A single explicit worksite mention is sufficient once each
+  // source field is evaluated separately. Requiring two headings previously
+  // discarded valid one-site contact sections and forced an unsafe fallback.
+  if (uniqueStarts.length === 0) return [];
 
   return uniqueStarts.map((entry, index) => {
     const end = uniqueStarts[index + 1]?.index ?? lines.length;
@@ -385,64 +415,86 @@ function explicitMergedContactsV17_90L175(
   const result: ExplicitMergedContactV17_90L175[] = [];
   (Array.isArray(records) ? records : []).forEach((record: any, recordIndex) => {
     const workSites = Array.isArray(record?.workSites) ? record.workSites : [];
-    const fullText = communicationRecordTextV17_90L175(record)
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n");
+    const sourceTexts = communicationRecordTextSourcesV17_90L381(record);
     const rawMergedText = String(record?.notes || "")
       .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n");
-    const sectionSource = /(?:Hauptauftrag:|Zusammengeführt mit:)/i.test(rawMergedText)
-      ? rawMergedText
-      : fullText;
-    const mergedParts = sectionSource
+      .replace(/\r/g, "\n")
+      .trim();
+    const mergedParts = rawMergedText
       .split(/\n?\s*(?:[-─]{3,}\s*)?(?:Zusammengeführt mit:|Hauptauftrag:)\s*\n?/i)
       .map((part) => part.trim())
       .filter(Boolean);
-    const workSiteSections =
-      workSites.length > 1
-        ? splitMergedContactTextByWorkSitesV17_90L371CZ(fullText, workSites)
-        : [];
-    const sections =
-      workSites.length > 1 && mergedParts.length > 1
-        ? mergedParts.map((text, index) => {
-            const matchedSite = matchMergedContactWorkSiteV17_90L178(
-              text,
+
+    const sections: Array<{ text: string; siteLabel: string }> = [];
+
+    // Preserve the existing merged-order handling, but limit it to the notes
+    // source that actually contains the merge separators.
+    if (workSites.length > 1 && mergedParts.length > 1) {
+      mergedParts.forEach((part, index) => {
+        const matchedSite = matchMergedContactWorkSiteV17_90L178(
+          part,
+          workSites,
+          index,
+        );
+        const storedLabel = String(
+          matchedSite?.siteName || matchedSite?.name || "",
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+        const inferredLabel = mergedSectionSiteLabelV17_90L176(part);
+        const addressLabel = [
+          matchedSite?.siteAddress,
+          [matchedSite?.sitePlz, matchedSite?.siteCity]
+            .filter(Boolean)
+            .join(" "),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        sections.push({
+          text: part,
+          siteLabel:
+            storedLabel && !isBrokenMergedSiteLabelV17_90L176(storedLabel)
+              ? storedLabel
+              : inferredLabel || addressLabel || `Arbeitsort ${index + 1}`,
+        });
+      });
+    }
+
+    sourceTexts.forEach((sourceText) => {
+      if (
+        mergedParts.length > 1 &&
+        rawMergedText &&
+        sourceText === rawMergedText
+      ) {
+        return;
+      }
+
+      const scopedSections =
+        workSites.length > 1
+          ? splitMergedContactTextByWorkSitesV17_90L371CZ(
+              sourceText,
               workSites,
-              index,
-            );
-            const storedLabel = String(
-              matchedSite?.siteName || matchedSite?.name || "",
             )
-              .replace(/\s+/g, " ")
-              .trim();
-            const inferredLabel = mergedSectionSiteLabelV17_90L176(text);
-            const addressLabel = [
-              matchedSite?.siteAddress,
-              [matchedSite?.sitePlz, matchedSite?.siteCity]
-                .filter(Boolean)
-                .join(" "),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return {
-              text,
-              siteLabel:
-                storedLabel && !isBrokenMergedSiteLabelV17_90L176(storedLabel)
-                  ? storedLabel
-                  : inferredLabel || addressLabel || `Arbeitsort ${index + 1}`,
-            };
-          })
-        : workSiteSections.length > 0
-          ? workSiteSections
-          : [
-              {
-                text: fullText,
-                siteLabel: communicationRecordSiteLabelV17_90L175(
-                  record,
-                  recordIndex,
-                ),
-              },
-            ];
+          : [];
+
+      if (scopedSections.length > 0) {
+        sections.push(...scopedSections);
+        return;
+      }
+
+      sections.push({
+        text: sourceText,
+        // For multi-site records without a local worksite heading, never guess
+        // the first or last worksite. Global instructions are corrected below;
+        // any remaining unscoped operational contact stays explicitly general.
+        siteLabel:
+          workSites.length === 1
+            ? mergedContactSiteDisplayLabelV17_90L371CZ(workSites[0], 0)
+            : workSites.length > 1
+              ? "Auftrag allgemein"
+              : communicationRecordSiteLabelV17_90L175(record, recordIndex),
+      });
+    });
 
     for (const section of sections) {
       const segments = section.text
@@ -508,20 +560,23 @@ function explicitMergedContactsV17_90L175(
     }
   });
 
-  return result.filter(
-    (entry, index, all) => {
-      if (!String(entry.contactValue || "").includes("@") && !normalizePhoneForAction(entry.contactValue)) return false;
-      return all.findIndex(
+  return result.filter((entry, index, all) => {
+    const valueKey = mergedContactEntryValueKeyV17_90L371CY(
+      entry.contactValue,
+    );
+    if (!valueKey) return false;
+    return (
+      all.findIndex(
         (candidate) =>
           normalizeContactTextV17_90L175(candidate.siteLabel) ===
             normalizeContactTextV17_90L175(entry.siteLabel) &&
-          normalizePhoneForAction(candidate.contactValue) ===
-            normalizePhoneForAction(entry.contactValue) &&
+          mergedContactEntryValueKeyV17_90L371CY(candidate.contactValue) ===
+            valueKey &&
           normalizeContactTextV17_90L175(candidate.channelLabel) ===
             normalizeContactTextV17_90L175(entry.channelLabel),
-      ) === index;
-    },
-  );
+      ) === index
+    );
+  });
 }
 
 function sanitizeMergedContactReviewEntriesV17_90L175(
@@ -548,6 +603,13 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
       href: undefined,
     } as MergedContactReviewEntry;
   });
+  const explicitValueKeysV17_90L381 = new Set(
+    explicitEntries
+      .map((entry) =>
+        mergedContactEntryValueKeyV17_90L371CY(entry.contactValue),
+      )
+      .filter(Boolean),
+  );
 
   const fallbackOperationalEntries = fallbackEntries
     .filter((entry) => {
@@ -562,6 +624,12 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
       // source text itself. This prevents the company phone/e-mail from being
       // assigned to every worksite after a merge.
       if (masterValueKeys.has(valueKey)) return false;
+
+      // V17.90L381: Source-scoped explicit entries are authoritative. Suppress
+      // fallback copies of the same phone/e-mail even when the fallback guessed
+      // a different worksite (the concrete K-729 failure assigned both numbers
+      // to the final worksite).
+      if (explicitValueKeysV17_90L381.has(valueKey)) return false;
 
       return true;
     })
