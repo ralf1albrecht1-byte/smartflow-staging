@@ -1,48 +1,5247 @@
-'use client';
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { FileText, Plus, Download, Trash2, Loader2, Volume2, ImageIcon, AlertTriangle, Search, MoreVertical, Archive, ChevronLeft, ChevronRight, Undo2, MessageCircle } from 'lucide-react';
-import { sendPdfToBusinessWhatsApp } from '@/lib/whatsapp-share';
-import { CommunicationBlock, CommunicationChips, resolveCommunicationData, stripForwardedMessage } from '@/components/communication-block';
-import { ServiceCombobox, ServiceOption } from '@/components/service-combobox';
-import { autoFillCustomerFromNotes } from '@/lib/extract-from-notes';
-import { mergeCustomerIntoForm, isFallbackCustomerName } from '@/lib/customer-form';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { toast } from 'sonner';
-import { motion } from 'framer-motion';
-import { DuplicateCheckPanel, type DuplicateMatch } from '@/components/customer-duplicate-check';
-import { TouchImageViewer } from '@/components/touch-image-viewer';
-import { MwStControl } from '@/components/mwst-control';
-import { splitSpecialNotes } from '@/lib/special-notes-utils';
-import { fetchAllJSON } from '@/lib/fetch-utils';
-import { LoadErrorFallback } from '@/components/load-error-fallback';
-import { INVOICE_STATUS_STYLES, getStatusStyle } from '@/lib/status-colors';
-import { useDialogBackGuard } from '@/lib/use-dialog-back-guard';
-import { isCustomerDataIncomplete, isRequiredCustomerFieldMissing } from '@/lib/customer-links';
-import { PlzOrtInput } from '@/components/plz-ort-input';
-import { CustomerSearchCombobox } from '@/components/customer-search-combobox';
-import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
+"use client";
+// SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
+// SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
+// SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
+// SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
+// SMARTFLOW_V17_90L371CP_PRUNE_EMPTY_WORKSITE_AFTER_MOVE_TO_BILLING_ALL3
+// SMARTFLOW_V17_90L371CO_INVOICE_EMPTY_WORKSITE_DELETE_KEY_MATCH
+// SMARTFLOW_V17_90L371CN_INVOICE_LAST_ITEM_DELETE_DIRECT_MATCH_OFFER
+// SMARTFLOW_V17_90L371CM_KEEP_EMPTY_WORKSITE_AFTER_LAST_ITEM_DELETE_OFFER_INVOICE
+// SMARTFLOW_V17_90L371CL_RESTORE_BLUE_WORKSITE_EDITOR_KEEP_DELETE
+// SMARTFLOW_V17_90L371CK_DRAFT_WORKSITE_DELETE_ROOT_ITEM_GUARD
+// SMARTFLOW_V17_90L371CJ_WORKSITE_EDITOR_BLUE_DELETE_OFFER_INVOICE
+// SMARTFLOW_V17_90L371CI_EXECUTION_ADDRESS_COMPACT_MATCH_ORDER
+// SMARTFLOW_V17_90L371CH_STANDARD_BILLING_ROOT_GROUP_ALL3
+// SMARTFLOW_V17_90L371CF_MOVE_POSITION_COMPACT_HIGHLIGHT_ALL3
+// SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS
+// SMARTFLOW_V17_90L371CD_INVOICE_BILLING_ROOT_FROM_OFFER_GUARD
+// SMARTFLOW_V17_90L371CB_EMPTY_WORKSITE_DELETE_STAGED_ALL3
+// SMARTFLOW_V17_90L371BZ_BILLING_ADDRESS_ROOT_SAVE_ALL3
+// SMARTFLOW_V17_90L371CA_BILLING_ADDRESS_GREEN_COLLAPSIBLE_ALL3
+// SMARTFLOW_V17_90L371BY_WORKSITE_ROOT_DROPDOWN_ALL3
+// SMARTFLOW_V17_90L371BW_MOVE_POSITION_BETWEEN_WORKSITES_ALL3
+// SMARTFLOW_V17_90L371BS_INVOICE_CLOSED_CARD_ACTION_MENU_PORTAL
+// SMARTFLOW_V17_90L371BQ_CONTACT_TARGET_PICKER_GUARD
+// SMARTFLOW_V17_90L371AW_SOURCE_POPOVER_SCROLL_LOCK
+// SMARTFLOW_V17_90L371AU_COST_ADDRESS_GUARD_POPOVER_CONTEXT
+// SMARTFLOW_V17_90L371AT_CHIP_SOURCE_POPOVERS_ALL3
+// SMARTFLOW_V17_90L371X_CONTACT_CHIPS_DATE_SAFE
+// SMARTFLOW_V17_90L371V_CONTACT_DATE_AND_INVOICE_APPOINTMENT_DEDUPE
+// SMARTFLOW_V17_90L371U_APPOINTMENT_CONTACT_DEDUPE
+// SMARTFLOW_V17_90L371S_APPOINTMENT_RAW_DATE_TIME_MERGE
+// SMARTFLOW_V17_90L371R_APPOINTMENT_CHIP_TRUE_MERGE
+// SMARTFLOW_V17_90L371W_CONTACT_REVIEW_DATE_FIELD_STRIP
+// SMARTFLOW_V17_90L371Q_CONTACT_REVIEW_APPOINTMENT_GUARD
+// SMARTFLOW_V17_90L363_INVOICE_CLOSED_CARD_DELETE_MENU_FIX
+// SMARTFLOW_V17_90L356_INVOICE_MOBILE_EXECUTION_SITE_POPOVER_ONLY
+// SMARTFLOW_V17_90L355_INVOICE_PHONE_ACTION_CHIP_DIRECT_RENDER
+// SMARTFLOW_V17_90L354_INVOICE_PHONE_CONTACT_PHONE_SOURCE_FIX
+// SMARTFLOW_V17_90L353_INVOICE_PHONE_CONTACT_CHIP_ONLY
+// SMARTFLOW_V17_90L352_ORDER_INVOICE_CONTACT_ACTION_CHANNEL_GUARD
+// SMARTFLOW_V17_90L350_APPOINTMENT_DATE_TIME_DEDUPE_DISPLAY_ONLY
+// SMARTFLOW_V17_90L348_SPECIAL_NOTES_HANDOFF_DISPLAY_ONLY
+// SMARTFLOW_V17_90L346_OFFER_INVOICE_SPECIAL_NOTES_DISPLAY_MATCH_ORDER
+// SMARTFLOW_V17_90L345_INVOICE_MOBILE_CHIP_POPOVER_ONLY
+// SMARTFLOW_V17_90L344_INVOICE_CHIP_CLICK_JUMP_RESTORE
+// SMARTFLOW_V17_90L343_INVOICE_INFO_AND_APPOINTMENT_CHIPS_POPOVER_ONLY
+// SMARTFLOW_V17_90L342_INVOICE_APPOINTMENT_CHIP_POPOVER_ONLY
+// SMARTFLOW_V17_90L341_INVOICE_SMS_CONTACT_TRANSPORT_PREFIX_FIX
+// SMARTFLOW_V17_90L340_INVOICE_SMS_CONTACT_OVERRIDES_DERIVED_WHATSAPP
+// SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
+// SMARTFLOW_V17_90L338_INVOICE_DISPLAY_OPERATIONAL_FRAGMENT_DEDUPE
+// SMARTFLOW_V17_90L336_INVOICE_MANUAL_TEXTAREA_INHERITED_FRAGMENT_FILTER
+// SMARTFLOW_V17_90L335_INVOICE_MANUAL_TEXTAREA_STRICT_MANUAL_ONLY
+// SMARTFLOW_V17_90L334_INVOICE_MANUAL_NOTES_TEXTAREA_AND_DEDUPE
+// SMARTFLOW_V17_90L333_INVOICE_APPOINTMENT_CHIP_REAL_TERMS_ONLY
+// SMARTFLOW_V17_90L332_INVOICE_SPECIAL_NOTES_DISPLAY_LINE_LOCAL
+// SMARTFLOW_V17_90L330_INVOICE_APPOINTMENT_POPOVER_DISPLAY_ONLY
+// SMARTFLOW_V17_90L329_INVOICE_KEEP_ALL_SPECIAL_NOTE_APPOINTMENTS
+// SMARTFLOW_V17_90L328_INVOICE_SPECIAL_NOTES_DISPLAY_SPLIT_ONLY
+// SMARTFLOW_V17_90L326_INVOICE_APPOINTMENT_CHIP_FROM_INTAKE_NOTES
+// SMARTFLOW_V17_90L323_INVOICE_APPOINTMENT_CHIP_MULTIPLE_TERMS
+// SMARTFLOW_V17_90L322_INVOICE_INFO_POPOVER_STRUCTURED_LINE_LOCAL
+// SMARTFLOW_V17_90L320_OFFER_INVOICE_WORKSITE_SELECTOR_MATCH_ORDER
+// SMARTFLOW_V17_90L319_INVOICE_SPECIAL_NOTES_INFO_ONLY
+// SMARTFLOW_V17_90L314_MANUAL_SERVICE_NO_REVIEW_ACTIONS
+// SMARTFLOW_V17_90L311B_CLEAN_NEW_SERVICE_WORKSITE_UI_VERIFIED_ALL3
+// SMARTFLOW_V17_90L311_CLEAN_NEW_SERVICE_WORKSITE_UI_ALL3
+// SMARTFLOW_V17_90L310_YELLOW_SERVICE_CATALOG_MENU_ALL3
+// SMARTFLOW_V17_90L307_WORKSITE_PROFILE_TWO_CHOICE_ONLY_ALL3
+// SMARTFLOW_V17_90L306B_WORKSITE_PROFILE_THREE_CHOICE_UI_UNIQUE_ALL3
+// SMARTFLOW_V17_90L302C_WORKSITE_ID_SAFE_SAVE_VERIFIED_ALL3
 
-interface InvoiceItem { description: string; quantity: string; unit: string; unitPrice: string; }
-interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; description?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; invoiceDate: string; createdAt?: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; sourceOfferNumber?: string | null; }
-interface Customer { id: string; name: string; customerNumber?: string | null; address?: string | null; plz?: string | null; city?: string | null; country?: string | null; phone?: string | null; email?: string | null; }
+import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import {
+  FileText,
+  Plus,
+  Download,
+  Trash2,
+  Loader2,
+  Volume2,
+  ImageIcon,
+  AlertTriangle,
+  Info,
+  Search,
+  MoreVertical,
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  CalendarDays,
+  Undo2,
+  MessageCircle,
+  MapPin,
+  Pencil,
+  Phone,
+  X,
+} from "lucide-react";
+import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
+import {
+  CommunicationBlock,
+  CommunicationChips,
+  ContactActionChip,
+  resolveCommunicationData,
+  stripForwardedMessage,
+} from "@/components/communication-block";
+import {
+  MergedContactReviewChip,
+  hasMergedContactReviewEntries,
+} from "@/components/merged-contact-review-chip";
+import {
+  collectMergedAppointmentEntries,
+  formatMergedAppointmentTooltip,
+} from "@/lib/merged-appointment-utils";
+import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
+import { POSITION_TYPE_OPTIONS, POSITION_UNIT_SUGGESTIONS, getPositionTypeLabel, normalizePositionType, inferPositionTypeFromItem, getPositionBlockingIssues } from "@/lib/position-types";
+import {
+  mergeCustomerIntoForm,
+  isFallbackCustomerName,
+} from "@/lib/customer-form";
+import { extractDocumentContactFallback } from "@/lib/document-contact-fallback";
+import {
+  buildDocumentSiteOperationalContexts,
+  documentSiteAddressKey,
+} from "@/lib/document-site-context";
+import {
+  buildUnifiedWorksiteInfoDisplayV17_90L378,
+  groupWorksiteDisplayLinesV17_90L376,
+  isWorksiteAccessInstructionLineV17_90L380,
+  isWorksiteParkingOrLogisticsLineV17_90L380,
+  isWorksiteOperationalInstructionLineV17_90L380,
+  isWorksiteSiteLocalCommunicationLineV17_90L380,
+} from "@/lib/worksite-chip-display";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
+import {
+  DuplicateCheckPanel,
+  type DuplicateMatch,
+} from "@/components/customer-duplicate-check";
+import { TouchImageViewer } from "@/components/touch-image-viewer";
+import { MwStControl } from "@/components/mwst-control";
+import { formatCurrency } from "@/lib/currency";
+import {
+  splitSpecialNotes,
+  classifySpecialNoteRoleV17_90L93,
+} from "@/lib/special-notes-utils";
+import {
+  canonicalAppointmentBadgeV2,
+  getCanonicalIntakeV2,
+} from "@/lib/intake-v2/view";
+import { fetchAllJSON } from "@/lib/fetch-utils";
+import { LoadErrorFallback } from "@/components/load-error-fallback";
+import { INVOICE_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
+import { useDialogBackGuard } from "@/lib/use-dialog-back-guard";
+import {
+  isCustomerDataIncomplete,
+  isRequiredCustomerFieldMissing,
+} from "@/lib/customer-links";
+import { PlzOrtInput } from "@/components/plz-ort-input";
+import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
+import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
+
+const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
+
+// SMARTFLOW_V17_90L371K_MULTI_SITE_POSITION_UI_LABELS
+// SMARTFLOW_V17_90L371O_MERGE_POSITION_TYPE_CARD_LIST_FIX
+// SMARTFLOW_V17_90L371L_INTAKE_POSITION_TYPE_PREFIX_FIX
+const SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K = [
+  // SMARTFLOW_V17_90L371AN: Rechnungs-Kartenansicht wie Angebot:
+  // zuerst Dienstleistung, dann Material, Gerät/Maschine, danach Zusatzkosten.
+  "service",
+  "material",
+  "equipment",
+  "expense",
+  "disposal",
+  "flat_fee",
+  "other",
+];
+
+function smartflowResolvedPositionTypeV17_90L371K(item: any) {
+  return inferPositionTypeFromItem(item);
+}
+
+function smartflowPositionTypeLabelV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  return getPositionTypeLabel(type);
+}
+
+function smartflowPositionTypeSortRankV17_90L371K(item: any) {
+  const type = smartflowResolvedPositionTypeV17_90L371K(item);
+  const index = SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.indexOf(type);
+  return index >= 0 ? index : SMARTFLOW_POSITION_TYPE_ORDER_V17_90L371K.length;
+}
+
+function smartflowComparePositionEntriesV17_90L371K(left: any, right: any) {
+  const leftItem = left?.item ?? left;
+  const rightItem = right?.item ?? right;
+  const rankDiff = smartflowPositionTypeSortRankV17_90L371K(leftItem) - smartflowPositionTypeSortRankV17_90L371K(rightItem);
+  if (rankDiff !== 0) return rankDiff;
+  const leftName = String(leftItem?.serviceName ?? leftItem?.description ?? "").toLowerCase();
+  const rightName = String(rightItem?.serviceName ?? rightItem?.description ?? "").toLowerCase();
+  return leftName.localeCompare(rightName, "de-CH");
+}
+
+interface InvoiceItem {
+  positionType?: string | null;
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  sourceOrderId?: string | null;
+  _workSiteUiKey?: string | null;
+  _manualUserAdded?: boolean;
+}
+interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  customerId: string;
+  customer?: any;
+  items: any[];
+  orders?: {
+    id: string;
+    originOrderIds?: string[] | null;
+    reviewReasons?: string[] | null;
+    createdAt?: string | null;
+    date?: string | null;
+    mediaUrl?: string | null;
+    mediaType?: string | null;
+    imageUrls?: string[];
+    thumbnailUrls?: string[];
+    audioTranscript?: string | null;
+    audioDurationSec?: number | null;
+    audioTranscriptionStatus?: string | null;
+    notes?: string | null;
+    specialNotes?: string | null;
+    intakeSchemaVersion?: string | null;
+    intakeSnapshot?: unknown;
+    needsReview?: boolean;
+    hinweisLevel?: string;
+    description?: string | null;
+    siteAddressDifferent?: boolean;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+    customer?: {
+      name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+    } | null;
+    workSites?: Array<{
+      id?: string | null;
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+      siteNote?: string | null;
+      sourceOrderId?: string | null;
+      isPrimary?: boolean | null;
+      sortOrder?: number | null;
+    }> | null;
+  }[];
+  subtotal: number;
+  vatRate: number;
+  vatAmount: number;
+  total: number;
+  currency?: "CHF" | "EUR" | string | null;
+  status: string;
+  invoiceDate: string;
+  createdAt?: string;
+  dueDate: string | null;
+  notes: string | null;
+  sourceOfferId?: string | null;
+  sourceOfferNumber?: string | null;
+}
+interface CustomerExecutionAddress {
+  id: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  customerNumber?: string | null;
+  address?: string | null;
+  plz?: string | null;
+  city?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
+}
+
+const INVOICE_HISTORICAL_STATUSES = new Set([
+  "Gesendet",
+  "Überfällig",
+  "Bezahlt",
+  "Erledigt",
+]);
+
+const isHistoricalInvoiceStatus = (status: unknown) =>
+  INVOICE_HISTORICAL_STATUSES.has(String(status ?? "").trim());
+
+type InvoiceExecutionSite = {
+  customerExecutionAddressId?: string | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  sourceOrderId?: string | null;
+  operationalText?: string | null;
+  _workSiteUiKey?: string | null;
+};
+
+const getEmptyInvoiceExecutionSite = (): InvoiceExecutionSite => ({
+  siteName: "",
+  siteAddress: "",
+  sitePlz: "",
+  siteCity: "",
+  siteNote: "",
+});
+
+const compactInvoiceValue = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizeInvoiceSourceMatchV17_90L371AT = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function findInvoicePositionSourceLineV17_90L371AT(
+  sourceText: unknown,
+  item: any,
+): string {
+  const source = String(sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  const itemName = compactInvoiceValue(item?.description || item?.serviceName);
+  const itemKey = normalizeInvoiceSourceMatchV17_90L371AT(itemName);
+  if (!source || !itemKey) return "";
+  const nameTokens = itemKey.split(" ").filter((token) => token.length >= 4);
+  const quantity = Number(item?.quantity || 0);
+  const unitPrice = Number(item?.unitPrice || 0);
+  let bestLine = "";
+  let bestScore = 0;
+  const lines = source
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line))
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const lineKey = normalizeInvoiceSourceMatchV17_90L371AT(line);
+    if (!lineKey) continue;
+    let score = lineKey.includes(itemKey) ? 12 : 0;
+    score += nameTokens.filter((token) => lineKey.includes(token)).length * 4;
+    if (quantity > 0 && new RegExp(`\\b${String(quantity).replace(".", "[.,]")}\\b`).test(lineKey)) score += 4;
+    if (unitPrice > 0 && new RegExp(`\\b${String(unitPrice).replace(".", "[.,]")}\\b`).test(lineKey)) score += 4;
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+  return bestScore >= 4 ? bestLine : "";
+}
+
+function buildInvoiceSourceContextTooltipV17_90L371AU(
+  sourceText: unknown,
+  sourceLine: unknown,
+): string {
+  const source = compactInvoiceValue(sourceLine);
+  if (!source) return "";
+
+  const normalizeContextInputV17_90L371AV = (value: unknown) =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+
+  const splitContextLinesV17_90L371AV = (value: unknown) => {
+    const raw = normalizeContextInputV17_90L371AV(value)
+      .replace(/\b(WhatsApp|Kundennachricht)\s*:\s*/gi, "$1:\n")
+      .replace(/\b(Neuer Auftrag:)\s*/gi, "$1\n")
+      .replace(/(?<=[.!?])\s+(?=[A-ZÄÖÜÀ-ÖØ-Þ0-9])/gu, "\n");
+    return raw
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  };
+
+  const rawLines = splitContextLinesV17_90L371AV(sourceText);
+  const lines = rawLines.length > 0 ? rawLines.slice(0, 160) : [source];
+  const sourceKey = normalizeInvoiceSourceMatchV17_90L371AT(source);
+  const matchedIndex = lines.findIndex((line) => {
+    const lineKey = normalizeInvoiceSourceMatchV17_90L371AT(line);
+    return Boolean(sourceKey && lineKey && (lineKey.includes(sourceKey) || sourceKey.includes(lineKey)));
+  });
+
+  const renderedLines = lines.map((line, index) =>
+    index === matchedIndex ? `➜ ${line}` : `  ${line}`,
+  );
+
+  if (matchedIndex < 0) renderedLines.unshift(`➜ ${source}`);
+  return renderedLines.join("\n");
+}
+
+function sourcePopoverHighlightClassV17_90L371AV(label: string) {
+  return /(?:preis\s*prüfen|preis\s*pruefen|preis\s*prufen|menge|einheit|leistung\s*nicht\s*erkannt|vor\s+angebot|vor\s+rechnung|unklar)/i.test(label)
+    ? "rounded-md bg-red-100 px-1.5 py-1 font-bold text-red-950 ring-1 ring-red-200 dark:bg-red-900/40 dark:text-red-100 dark:ring-red-800"
+    : "rounded-md bg-amber-100 px-1.5 py-1 font-bold text-amber-950 ring-1 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:ring-amber-800";
+}
+
+function renderInvoicePositionSourcePopoverV17_90L371AT(sourceLine: string, label: string) {
+  const source = String(sourceLine || "").trim();
+  if (!source) return null;
+  const highlightClass = sourcePopoverHighlightClassV17_90L371AV(label);
+  return (
+    <InvoiceViewportTooltip preferredWidth={520} autoClose={false}>
+      <div className="w-full space-y-2 text-left text-xs leading-snug">
+        <div className="font-semibold text-slate-950 dark:text-slate-50">
+          Original aus Kundennachricht
+        </div>
+        <div
+          className="max-h-64 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800 shadow-inner dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          tabIndex={0}
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+          onScroll={(event) => event.stopPropagation()}
+        >
+          {source.split("\n").map((line, index) => {
+            const trimmed = line.trim();
+            const isHighlightedSourceLineV17_90L371AV = trimmed.startsWith("➜");
+            const visibleLine = trimmed.replace(/^➜\s*/, "");
+            return (
+              <span
+                key={`source_context_${index}`}
+                ref={
+                  isHighlightedSourceLineV17_90L371AV
+                    ? (node) => {
+                        const container = node?.parentElement as HTMLElement | null;
+                        if (!node || !container || typeof window === "undefined") return;
+                        if (container.dataset.smartflowSourceAutoscrolled === "1") return;
+                        container.dataset.smartflowSourceAutoscrolled = "1";
+                        window.requestAnimationFrame(() => {
+                          const targetTop = node.offsetTop - Math.max(0, (container.clientHeight - node.clientHeight) / 2);
+                          container.scrollTop = Math.max(0, targetTop);
+                        });
+                      }
+                    : undefined
+                }
+                className={`block whitespace-pre-wrap break-words ${
+                  isHighlightedSourceLineV17_90L371AV ? highlightClass : "px-1.5 py-0.5"
+                }`}
+              >
+                {visibleLine}
+              </span>
+            );
+          })}
+        </div>
+        <div className="text-[10px] font-medium text-muted-foreground">
+          {label || "Position prüfen"}
+        </div>
+      </div>
+    </InvoiceViewportTooltip>
+  );
+}
+
+
+// SMARTFLOW_V17_90L371Q: Merged contact review must not treat execution appointments as contacts.
+// Appointment lines stay visible in the violet appointment chip/info area only.
+const invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q =
+  /\b(?:kontakt|contact|telefon|tel\.?|phone|natel|handy|mobile|whats\s*app|whatsapp|sms|e-?mail|email|mail|anrufen|anruf|rueckruf|rückruf|melden|bescheid)\b/i;
+const invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q =
+  /\b(?:termin|datum|zeitfenster|appointment|rendez\s*vous|appuntamento|ausfuehrungstermin|ausführungstermin|arbeitsbeginn)\b|\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b|\b(?:[0-3]\d[01]\d(?:20)?\d{2})\b|\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:[01]?\d|2[0-3])\s*uhr\b/i;
+
+
+const invoice_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V =
+  /^\s*(?:[0-3]\d[01]\d(?:20)?\d{2}|\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\.?)\s*$/;
+
+function invoice_isAppointmentOnlyContactValueV17_90L371V(value?: string | null): boolean {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (invoice_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
+  const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(text);
+  const hasContact = invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(text) ||
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text) ||
+    (/\+?\d[\d\s().\/-]{6,}\d/.test(text) && !looksLikeCompactDate);
+  const hasAppointment = invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(text);
+  return hasAppointment && !hasContact;
+}
+
+function invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value?: string | null): string | null {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return value || null;
+  if (invoice_isAppointmentOnlyContactValueV17_90L371V(source)) return null;
+  const cleaned = source
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      if (!line) return false;
+      const looksLikeCompactDate = /^\s*[0-3]\d[01]\d(?:20)?\d{2}\s*$/.test(line);
+      const hasContact = invoice_CONTACT_REVIEW_CONTACT_LINE_V17_90L371Q.test(line) ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(line) ||
+        (/\+?\d[\d\s().\/-]{6,}\d/.test(line) && !looksLikeCompactDate);
+      const hasAppointment = invoice_CONTACT_REVIEW_APPOINTMENT_LINE_V17_90L371Q.test(line);
+      return !(hasAppointment && !hasContact);
+    })
+    .join("\n")
+    .trim();
+  return cleaned || null;
+}
+
+function invoice_isContactReviewDateLikeValueV17_90L371W(value: any): boolean {
+  const text = compactInvoiceValue(value);
+  if (!text) return false;
+  if (invoice_CONTACT_REVIEW_COMPACT_DATE_ONLY_V17_90L371V.test(text)) return true;
+  if (/^\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}(?:[T\s].*)?$/i.test(text)) return true;
+  if (/^\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?(?:\s*(?:[·,\-]|um)?\s*(?:[01]?\d|2[0-3])[:.]?[0-5]\d(?:\s*uhr)?)?$/i.test(text)) return true;
+  return invoice_isAppointmentOnlyContactValueV17_90L371V(text);
+}
+
+function invoice_isContactReviewDateFieldV17_90L371W(key?: string | null): boolean {
+  return /^(?:date|createdat|updatedat|appointmentdate|appointmenttime|executiondate|executiontime|scheduledat|startat|startsat|starttime|time|termin|datum|zeit)$/i.test(String(key || ""));
+}
+
+function invoice_sanitizeMergedContactReviewValueV17_90L371V(value: any, key?: string | null): any {
+  // L371W: Der Sammel-Kontaktchip darf nie Datum-/Termin-Felder als Kontaktwert anzeigen.
+  // Datum bleibt im violetten Terminchip; hier wird es aus den Record-Daten entfernt.
+  if (invoice_isContactReviewDateFieldV17_90L371W(key)) return null;
+  if (typeof value === "number") {
+    return invoice_isContactReviewDateLikeValueV17_90L371W(value) ? null : value;
+  }
+  if (typeof value === "string") {
+    return invoice_stripAppointmentOnlyContactReviewTextV17_90L371Q(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => invoice_sanitizeMergedContactReviewValueV17_90L371V(entry, key))
+      .filter((entry) => entry !== null && entry !== undefined && entry !== "");
+  }
+  if (value && typeof value === "object") {
+    const copy: any = { ...value };
+    Object.keys(copy).forEach((childKey) => {
+      const cleaned = invoice_sanitizeMergedContactReviewValueV17_90L371V(copy[childKey], childKey);
+      if (cleaned === null || cleaned === undefined || cleaned === "") delete copy[childKey];
+      else copy[childKey] = cleaned;
+    });
+    return copy;
+  }
+  return value;
+}
+
+function invoice_contactReviewIdentityKeyV17_90L371V(record: any): string {
+  const customer = record?.customer || {};
+  const name = compactInvoiceValue(customer?.name || record?.customerName || record?.name || "").toLocaleLowerCase("de-CH");
+  const phone = compactInvoiceValue(customer?.phone || record?.phone || "").replace(/\D+/g, "");
+  const email = compactInvoiceValue(customer?.email || record?.email || "").toLocaleLowerCase("de-CH");
+  const channel = compactInvoiceValue(record?.preferredChannel || record?.contactChannel || record?.channel || "").toLocaleLowerCase("de-CH");
+  return `${name}|${phone}|${email}|${channel}`;
+}
+
+function invoice_sanitizeMergedContactReviewRecordsV17_90L371Q<T extends any>(records: T[] | null | undefined): T[] {
+  // SMARTFLOW_V17_90L371X: Kontakt-/Datumsbereinigung passiert zentral in
+  // components/communication-block.tsx und components/merged-contact-review-chip.tsx.
+  // Die Page darf Records nicht rekursiv mutieren, weil dadurch Ladefehler
+  // und verlorene Termin-/Arbeitsortdaten entstehen können.
+  return (Array.isArray(records) ? records : []).filter(Boolean) as T[];
+}
+// V17.90L281: Strukturelle Termin-/Rollenfragmente dürfen niemals als
+// Arbeitsort- oder Kundennachrichten-Gruppenname erscheinen.
+const cleanInvoiceExecutionSiteLabelV17_90L281 = (value: unknown) => {
+  const text = compactInvoiceValue(value);
+  if (!text) return "";
+  const key = text
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (
+    /^(?:stermin|ausfuehrungstermin|ausfuehrungsdatum|ausfuehrungszeit|execution date|execution time)$/.test(
+      key,
+    )
+  ) {
+    return "";
+  }
+
+  return text;
+};
+type InvoiceCurrencyReviewDetailV17_90L227 = {
+  serviceName: string;
+  sourceCurrency: string;
+  documentCurrency: string;
+  originalAmount: number | null;
+};
+
+function collectInvoiceCurrencyReviewDetailsV17_90L227(
+  document: Invoice,
+): InvoiceCurrencyReviewDetailV17_90L227[] {
+  const documentCurrency =
+    String(document.currency || "CHF").trim().toUpperCase() || "CHF";
+  const sourceText = (document.orders || [])
+    .flatMap((order: any) => [order?.notes, order?.description, order?.audioTranscript])
+    .filter(Boolean)
+    .join("\n");
+  const seen = new Set<string>();
+  const details: InvoiceCurrencyReviewDetailV17_90L227[] = [];
+
+  for (const order of document.orders || []) {
+    for (const rawReason of order?.reviewReasons || []) {
+      const parts = String(rawReason || "")
+        .split(":")
+        .map((part) => compactInvoiceValue(part));
+      if (!["item_currency_mismatch", "currency_conflict_item"].includes(parts[0])) {
+        continue;
+      }
+      const serviceName = parts[1] || "Leistung";
+      const sourceCurrency = String(parts[2] || "").toUpperCase();
+      const targetCurrency = String(parts[3] || documentCurrency).toUpperCase();
+      const key = `${serviceName.toLowerCase()}|${sourceCurrency}|${targetCurrency}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const escapedCurrency = sourceCurrency.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const amountPatterns = escapedCurrency
+        ? [
+            new RegExp(`\\b${escapedCurrency}\\s*(\\d+(?:[.,]\\d{1,2})?)`, "i"),
+            new RegExp(`\\b(\\d+(?:[.,]\\d{1,2})?)\\s*${escapedCurrency}\\b`, "i"),
+          ]
+        : [];
+      let originalAmount: number | null = null;
+      for (const pattern of amountPatterns) {
+        const match = sourceText.match(pattern);
+        const parsed = Number(String(match?.[1] || "").replace(",", "."));
+        if (Number.isFinite(parsed) && parsed > 0) {
+          originalAmount = parsed;
+          break;
+        }
+      }
+
+      details.push({
+        serviceName,
+        sourceCurrency: sourceCurrency || "prüfen",
+        documentCurrency: targetCurrency || documentCurrency,
+        originalAmount,
+      });
+    }
+  }
+  return details;
+}
+
+function formatInvoiceCurrencyReviewTooltipV17_90L227(
+  details: InvoiceCurrencyReviewDetailV17_90L227[],
+): string {
+  return [
+    "Währung prüfen",
+    ...details.map((detail) => {
+      const original =
+        detail.originalAmount && detail.originalAmount > 0
+          ? `${detail.sourceCurrency} ${detail.originalAmount.toFixed(2)}`
+          : detail.sourceCurrency;
+      return `• ${detail.serviceName} — Original ${original}, Dokumentwährung ${detail.documentCurrency} · nicht berechnet`;
+    }),
+  ].join("\n");
+}
+
+
+function InvoiceWhatsAppIcon({
+  className = "h-4 w-4",
+}: {
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.2 19.1 6 15.9a7.4 7.4 0 1 1 2.8 2.7z" />
+      <path d="M9.1 8.7c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.7 1.6c.1.3.1.5-.1.7l-.4.5c.6 1.1 1.4 1.9 2.5 2.5l.5-.4c.2-.2.5-.2.7-.1l1.6.7c.3.1.4.3.4.5v.5c0 .3 0 .5-.5.7-.6.3-1.4.4-2.5 0-2.4-.8-4.4-2.8-5.2-5.2-.4-1.1-.3-1.9 0-2.5z" />
+    </svg>
+  );
+}
+
+function InvoicePdfDocumentIcon({
+  withDownload = false,
+}: {
+  withDownload?: boolean;
+}) {
+  return (
+    <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+      <FileText className="h-5 w-5" strokeWidth={1.9} />
+      <span className="absolute inset-x-[3px] top-[7px] rounded-[2px] bg-current px-[1px] py-[0.5px] text-center text-[5px] font-black leading-none text-white dark:text-slate-950">
+        PDF
+      </span>
+      {withDownload && (
+        <span className="absolute -bottom-1 -right-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-700 shadow-sm dark:border-blue-700 dark:bg-slate-950 dark:text-blue-200">
+          <Download className="h-2.5 w-2.5" strokeWidth={2.4} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function InvoiceDirectPdfIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6 shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        d="M6.5 2.75h7l4 4v14.5h-11z"
+        fill="white"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 2.75v4h4"
+        fill="none"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <rect x="4.15" y="11" width="15.7" height="6.45" rx="1.25" fill="#dc2626" />
+      <text
+        x="12"
+        y="15.55"
+        textAnchor="middle"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="4.75"
+        fontWeight="800"
+        fill="white"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+}
+
+function InvoicePdfWhatsAppIcon() {
+  return (
+    <span className="relative inline-flex h-5 w-6 shrink-0 items-center justify-start">
+      <InvoicePdfDocumentIcon />
+      <span className="absolute -bottom-1 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-200 bg-emerald-500 text-white shadow-sm dark:border-emerald-700">
+        <InvoiceWhatsAppIcon className="h-3 w-3" />
+      </span>
+    </span>
+  );
+}
+
+
+// SMARTFLOW_V17_90L371BS: Rechnungs-Aktionsmenü wird als Portal gerendert.
+// Dadurch bleibt Papierkorb auch bei geschlossener Karte klickbar und wird
+// nicht vom kompakten Kartenlayout überdeckt. Nur Rechnungen-Menü betroffen.
+function InvoiceCardActionMenuV17_90L371BS({
+  inv,
+  openEditInvoice,
+  updateStatus,
+  revertToOffer,
+  remove,
+}: {
+  inv: Invoice;
+  openEditInvoice: (invoice: Invoice, options?: any) => void;
+  updateStatus: (event: any, id: string, status: string) => void | Promise<void>;
+  revertToOffer: (invoice: Invoice) => void;
+  remove: (event: any, id: string) => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  const updateMenuPosition = () => {
+    if (typeof window === "undefined") return;
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const padding = 12;
+    const gap = 8;
+    const width = 220;
+    const estimatedHeight = 190;
+    const left = Math.min(
+      Math.max(padding, rect.left),
+      Math.max(padding, window.innerWidth - width - padding),
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - gap - padding;
+    const spaceAbove = rect.top - gap - padding;
+    const top =
+      spaceBelow < estimatedHeight && spaceAbove > spaceBelow
+        ? Math.max(padding, rect.top - estimatedHeight - gap)
+        : Math.min(window.innerHeight - padding - estimatedHeight, rect.bottom + gap);
+    setPosition({ left, top: Math.max(padding, top) });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && (buttonRef.current?.contains(target) || panelRef.current?.contains(target))) {
+        return;
+      }
+      setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("touchstart", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("touchstart", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const stop = (event: any) => {
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        data-card-toggle-ignore="true"
+        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="Aktionen"
+        aria-label="Aktionen"
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((current) => !current);
+          window.requestAnimationFrame(updateMenuPosition);
+        }}
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            data-card-toggle-ignore="true"
+            style={{
+              left: position?.left ?? -10000,
+              top: position?.top ?? 0,
+              width: 220,
+            }}
+            className="fixed z-[20000] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-2xl dark:border-slate-700 dark:bg-gray-900"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                openEditInvoice(inv);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <FileText className="h-4 w-4 text-primary" />
+              Bearbeiten
+            </button>
+            <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                void updateStatus(event, inv.id, "Erledigt");
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Archive className="h-4 w-4 text-amber-600" />
+              Archivieren
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                revertToOffer(inv);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Undo2 className="h-4 w-4 text-amber-600" />
+              {inv.sourceOfferId ? "Zurück zu Angebot" : "Zurück zu Auftrag"}
+            </button>
+            <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+            <button
+              type="button"
+              onClick={(event) => {
+                stop(event);
+                setOpen(false);
+                remove(event, inv.id);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              Papierkorb
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+type InvoiceMergedAppointmentEntry = ReturnType<
+  typeof collectMergedAppointmentEntries
+>[number];
+
+const normalizeInvoiceAppointmentDisplayKey = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getInvoiceAppointmentDayKey = (value: unknown): string => {
+  // SMARTFLOW_V17_90L334: Datum auch dann erkennen, wenn die Zeile mit
+  // "Termin:" beginnt. Vorher wurde nur am Zeilenanfang gesucht; dadurch
+  // blieben Halbduplikate wie "Termin: 12.08" neben "Termin: 12.08 · 10:30"
+  // in Rechnungsanzeige und Terminpopover sichtbar.
+  const label = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
+  const dateMatch = label.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, "0");
+    const month = dateMatch[2].padStart(2, "0");
+    const year = dateMatch[3] || "";
+    return `${day}.${month}`;
+  }
+  const relativeMatch = label.match(
+    /\b(heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+  );
+  return normalizeInvoiceAppointmentDisplayKey(relativeMatch?.[1] || "");
+};
+
+const invoiceAppointmentLabelHasTimeV17_90L371V = (value: unknown): boolean =>
+  /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\.([0-5]\d)\s*(?:uhr|h)?\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(
+    compactInvoiceValue(value),
+  );
+
+const getInvoiceAppointmentFactKeyV17_90L371U = (value: unknown): string => {
+  const label = compactInvoiceValue(value).replace(/^Termin\s*:?\s*/i, "");
+  const dayKey = getInvoiceAppointmentDayKey(label);
+  const withoutDates = label.replace(/\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/g, " ");
+  const timeMatch =
+    withoutDates.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    withoutDates.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\s*(?:uhr|h)?\b/i) ||
+    withoutDates.match(/\b(?:um|ab|gegen)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const timeKey = timeMatch
+    ? `${String(timeMatch[1]).padStart(2, "0")}:${timeMatch[2] || "00"}`
+    : "";
+  return dayKey || timeKey
+    ? `${dayKey || "ohne-datum"}|${timeKey || "ohne-uhrzeit"}`
+    : normalizeInvoiceAppointmentDisplayKey(label);
+};
+
+const compactInvoiceAppointmentEntriesForDisplay = (
+  entries: InvoiceMergedAppointmentEntry[],
+): InvoiceMergedAppointmentEntry[] => {
+  const result: InvoiceMergedAppointmentEntry[] = [];
+
+  for (const entry of entries) {
+    const siteKey = normalizeInvoiceAppointmentDisplayKey(entry.site);
+    const labelKey = getInvoiceAppointmentFactKeyV17_90L371U(entry.label);
+    if (!labelKey) continue;
+
+    const exactIndex = result.findIndex(
+      (current) =>
+        normalizeInvoiceAppointmentDisplayKey(current.site) === siteKey &&
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) === labelKey,
+    );
+    if (exactIndex >= 0) {
+      if (
+        String(entry.source || "").length >
+        String(result[exactIndex].source || "").length
+      ) {
+        result[exactIndex] = entry;
+      }
+      continue;
+    }
+
+    const dayKey = getInvoiceAppointmentDayKey(entry.label);
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(entry.label);
+    if (dayKey) {
+      const sameDaySiteIndex = result.findIndex(
+        (current) =>
+          normalizeInvoiceAppointmentDisplayKey(current.site) === siteKey &&
+          getInvoiceAppointmentDayKey(current.label) === dayKey,
+      );
+      if (sameDaySiteIndex >= 0) {
+        const currentHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:[01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(
+          result[sameDaySiteIndex].label,
+        );
+        if (currentHasTime && !hasTime) continue;
+        if (!currentHasTime && hasTime) {
+          result[sameDaySiteIndex] = entry;
+          continue;
+        }
+      }
+    }
+
+    result.push(entry);
+  }
+
+  return result;
+};
+
+// V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
+// Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
+type AdaptiveAppointmentLabels = {
+  full: string;
+  dateOnly: string | null;
+};
+
+const buildAdaptiveAppointmentLabels = (
+  value: unknown,
+): AdaptiveAppointmentLabels => {
+  // SMARTFLOW_V17_90L325: Auf Rechnungskarten bleibt der Terminchip außen
+  // bewusst icon-only. Details wie Datum/"Termine" stehen nur im Tooltip/Popover.
+  const full = compactInvoiceValue(value) || "Termin klären";
+  return { full, dateOnly: null };
+};
+
+// V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
+type StructuredInvoiceAppointmentTooltipV17_90L169 = {
+  date: string;
+  time: string;
+  note: string;
+  fallback: string;
+};
+
+const parseInvoiceAppointmentTooltipV17_90L169 = (
+  value: unknown,
+): StructuredInvoiceAppointmentTooltipV17_90L169 => {
+  const fallback = compactInvoiceValue(value) || "Termin klären";
+  const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
+  const dateMatch = source.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
+  const relativeMatch = source.match(
+    /\b(?:heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+  );
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
+        dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
+      }`
+    : compactInvoiceValue(relativeMatch?.[0] || "");
+  let sourceWithoutDate = dateMatch
+    ? source.replace(dateMatch[0], " ")
+    : source;
+  if (!dateMatch && relativeMatch) {
+    sourceWithoutDate = sourceWithoutDate.replace(relativeMatch[0], " ");
+  }
+
+  // V17.90L330: Termin-Popover nur Anzeige. Uhrzeiten wie "15 Uhr" dürfen
+  // nicht als Resttext "um 15" im Popover landen, sondern werden als 15:00 Uhr
+  // formatiert. Datum, relative Tagesangabe und Uhrzeit bleiben zusammen.
+  const clockMatches = Array.from(
+    sourceWithoutDate.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+    ),
+  ).map((match) =>
+    match[1]
+      ? `${match[1].padStart(2, "0")}:${match[2]}`
+      : `${String(match[3] || "").padStart(2, "0")}:00`,
+  );
+  const uniqueTimes = Array.from(new Set(clockMatches.filter(Boolean)));
+  const time =
+    uniqueTimes.length >= 2
+      ? `${uniqueTimes[0]}–${uniqueTimes[1]} Uhr`
+      : uniqueTimes[0]
+        ? `${uniqueTimes[0]} Uhr`
+        : "";
+  let note = source;
+  if (dateMatch) note = note.replace(dateMatch[0], " ");
+  if (!dateMatch && relativeMatch) note = note.replace(relativeMatch[0], " ");
+  note = note
+    .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
+    .replace(/\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/gi, " ")
+    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Datum|Zeitfenster|Appointment|Uhr|am|um|ab|gegen|von|bis)\b/gi, " ")
+    .replace(/[·•|]+/g, " ")
+    .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[,:;\-–—.\s]+$/g, "")
+    .replace(/^[,:;\-–—.\s]+/g, "")
+    .trim();
+  return { date, time, note, fallback };
+};
+
+const serializeInvoiceExecutionSiteForEdit = (
+  site?: InvoiceExecutionSite | null,
+) =>
+  JSON.stringify({
+    siteName: compactInvoiceValue(site?.siteName),
+    siteAddress: compactInvoiceValue(site?.siteAddress),
+    sitePlz: compactInvoiceValue(site?.sitePlz),
+    siteCity: compactInvoiceValue(site?.siteCity),
+    siteNote: compactInvoiceValue(site?.siteNote),
+    sourceOrderId: compactInvoiceValue(site?.sourceOrderId),
+  });
+
+const normalizeInvoiceServiceName = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const getInvoiceServiceReviewReasonV17_90L134 = (
+  item: InvoiceItem,
+  services: any[],
+): string => {
+  const name = compactInvoiceValue(item?.description);
+  const quantity = Number(item?.quantity || 0);
+  const price = Number(item?.unitPrice || 0);
+  const unit = compactInvoiceValue(item?.unit);
+  if (!name) return "Position prüfen";
+  if (quantity <= 0) return "Menge prüfen";
+  if (!unit || /(?:prüfen|pruefen|prufen)/i.test(unit)) return "Einheit prüfen";
+  if (price <= 0) return "Preis prüfen";
+  const catalog = (services || []).find(
+    (service: any) =>
+      normalizeInvoiceServiceName(service?.name) ===
+      normalizeInvoiceServiceName(name),
+  );
+  if (!catalog) return "Nicht im Leistungskatalog";
+  const catalogUnit = compactInvoiceValue(catalog?.unit);
+  const catalogPrice = Number(catalog?.defaultPrice || 0);
+  if (catalogUnit && catalogUnit !== unit) return "Einheit abweichend";
+  if (catalogPrice > 0 && Math.abs(catalogPrice - price) >= 0.001)
+    return "Preis abweichend";
+  return "";
+};
+
+const splitInvoicePdfText = (value?: string | null) => {
+  const source = String(value || "").trim();
+  const marker = "Titel: ";
+  if (!source.startsWith(marker)) return { pdfTitle: "", notes: source };
+  const [firstLine, ...rest] = source.split(/\n/);
+  return {
+    pdfTitle: firstLine.slice(marker.length).trim(),
+    notes: rest.join("\n").replace(/^\s+/, "").trim(),
+  };
+};
+
+const joinInvoicePdfText = (pdfTitle: string, notes: string) => {
+  const title = compactInvoiceValue(pdfTitle);
+  const body = String(notes || "").trim();
+  if (!title) return body;
+  return body ? `Titel: ${title}\n\n${body}` : `Titel: ${title}`;
+};
+
+// V17.90L321: Rechnungs-Besonderheiten bleiben intern. Wenn keine
+// internen Rechnungshinweise vorhanden sind, bleibt das alte PDF-Textformat
+// unverändert. Dadurch werden bestehende Rechnungen/PDF-Texte nicht migriert.
+const INVOICE_PDF_META_PREFIX_V17_90L321 = "[[SMARTFLOW_INVOICE_PDF_V1]]";
+
+type InvoicePdfMetaV17_90L321 = {
+  pdfTitle: string;
+  notes: string;
+  specialNotes: string;
+};
+
+function decodeInvoicePdfMetaV17_90L321(
+  value?: string | null,
+): InvoicePdfMetaV17_90L321 {
+  const raw = String(value ?? "").trim();
+  if (raw.startsWith(INVOICE_PDF_META_PREFIX_V17_90L321)) {
+    try {
+      const parsed = JSON.parse(
+        raw.slice(INVOICE_PDF_META_PREFIX_V17_90L321.length),
+      );
+      return {
+        pdfTitle: String(parsed?.pdfTitle ?? parsed?.title ?? "").trim(),
+        notes: String(parsed?.notes ?? parsed?.text ?? "").trim(),
+        specialNotes: String(
+          parsed?.specialNotes ?? parsed?.internalNotes ?? "",
+        ).trim(),
+      };
+    } catch {
+      return { pdfTitle: "", notes: raw, specialNotes: "" };
+    }
+  }
+  const legacy = splitInvoicePdfText(raw);
+  return {
+    pdfTitle: legacy.pdfTitle,
+    notes: legacy.notes,
+    specialNotes: "",
+  };
+}
+
+function encodeInvoicePdfMetaV17_90L321(
+  pdfTitle: string,
+  notes: string,
+  specialNotes: string,
+): string {
+  const cleanSpecialNotes = String(specialNotes || "").trim();
+  if (!cleanSpecialNotes) return joinInvoicePdfText(pdfTitle, notes);
+  return `${INVOICE_PDF_META_PREFIX_V17_90L321}${JSON.stringify({
+    pdfTitle: compactInvoiceValue(pdfTitle),
+    notes: String(notes || "").trim(),
+    specialNotes: cleanSpecialNotes,
+  })}`;
+}
+
+const OFFER_PDF_META_PREFIX_V17_90L319 = "[[SMARTFLOW_OFFER_PDF_V1]]";
+
+function decodeOfferInternalNotesForInvoiceV17_90L319(
+  value?: string | null,
+): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith(OFFER_PDF_META_PREFIX_V17_90L319)) return "";
+  try {
+    const parsed = JSON.parse(
+      raw.slice(OFFER_PDF_META_PREFIX_V17_90L319.length),
+    );
+    return String(parsed?.internalNotes ?? parsed?.specialNotes ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function splitInvoiceManualSpecialNoteLinesV17_90L319(
+  value?: string | null,
+): string[] {
+  return Array.from(
+    new Map(
+      String(value ?? "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => [normalizeInvoiceServiceName(line), line] as const)
+        .filter(([key]) => Boolean(key)),
+    ).values(),
+  );
+}
+
+const uniqueInvoiceLines = (values: Array<string | null | undefined>) =>
+  Array.from(
+    new Map(
+      values
+        .flatMap((value) => String(value || "").split(/\n+/g))
+        .map((line) => compactInvoiceValue(line))
+        .filter(Boolean)
+        .map((line) => [normalizeInvoiceServiceName(line), line]),
+    ).values(),
+  );
+
+function splitInvoiceSourceLinesV17_90L237(value: unknown): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line.replace(/^\s*[-•*]+\s*/g, "")))
+    .filter(Boolean);
+}
+
+function escapeInvoiceWorkSiteContextRegExpV17_90L372(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isInvoiceAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
+  return isWorksiteAccessInstructionLineV17_90L380(value);
+}
+
+function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label: compactInvoiceValue(site?.siteName) || compactInvoiceValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress].map(compactInvoiceValue).filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const rawSourceParts = [order?.notes, order?.audioTranscript]
+      .filter((source: any) => compactInvoiceValue(source));
+    const sourceParts = rawSourceParts.length > 0
+      ? rawSourceParts
+      : [order?.specialNotes].filter((source: any) => compactInvoiceValue(source));
+    const lines = sourceParts
+      .flatMap(splitInvoiceSourceLinesV17_90L237)
+      .map((line) =>
+        compactInvoiceValue(
+          line.replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, ""),
+        ),
+      )
+      .filter(Boolean);
+
+    const pushScoped = (siteLabel: string, rawHint: unknown) => {
+      const hint = compactInvoiceValue(rawHint)
+        .replace(/^\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)\s*:?\s*/i, "")
+        .replace(/[.;,\s]+$/g, "")
+        .replace(/\s*,\s*/g, " · ");
+      if (!hint || !isInvoiceAccessOrKeyHintLineV17_90L372(hint)) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const dedupeKey = normalizeInvoiceServiceName(formatted);
+      if (!dedupeKey || seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      result.push(formatted);
+    };
+
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
+      const lineKey = normalizeInvoiceServiceName(line);
+      if (!lineKey) return null;
+      for (const site of sites) {
+        for (const key of site.keys) {
+          const siteKey = normalizeInvoiceServiceName(key);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
+        }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(resolved.key);
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactInvoiceValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
+        if (rawHint) pushScoped(resolved.site.label, rawHint);
+        continue;
+      }
+
+      if (activeSiteLabel && isInvoiceAccessOrKeyHintLineV17_90L372(line)) {
+        pushScoped(activeSiteLabel, line);
+      }
+    }
+  }
+  return result;
+}
+
+function replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+  lines: string[],
+  orders: any[],
+): string[] {
+  const scoped = collectInvoiceScopedAccessHintLinesV17_90L372(orders);
+  if (scoped.length === 0) return lines;
+  return uniqueInvoiceLines([
+    ...lines.filter((line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line)),
+    ...scoped,
+  ]);
+}
+
+function collectInvoiceScopedOperationalHintLinesV17_90L380(
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label:
+          compactInvoiceValue(site?.siteName) ||
+          compactInvoiceValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress]
+          .map(compactInvoiceValue)
+          .filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const rawSourceParts = [order?.notes, order?.audioTranscript].filter(
+      (source: any) => compactInvoiceValue(source),
+    );
+    const sourceParts =
+      rawSourceParts.length > 0
+        ? rawSourceParts
+        : [order?.specialNotes].filter((source: any) =>
+            compactInvoiceValue(source),
+          );
+    const lines = sourceParts
+      .flatMap(splitInvoiceSourceLinesV17_90L237)
+      .map((line) =>
+        compactInvoiceValue(
+          line.replace(
+            /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
+            "",
+          ),
+        ),
+      )
+      .filter(Boolean);
+
+    const pushScoped = (
+      siteLabel: string,
+      rawHint: unknown,
+      rawLine: string,
+    ) => {
+      const hint = compactInvoiceValue(rawHint).replace(/[.;,\s]+$/g, "");
+      if (!hint || (!matchesHint(hint) && !matchesHint(rawLine))) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const key = normalizeInvoiceServiceName(formatted);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      result.push(formatted);
+    };
+
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
+      const lineKey = normalizeInvoiceServiceName(line);
+      if (!lineKey) return null;
+      for (const site of sites) {
+        for (const key of site.keys) {
+          const siteKey = normalizeInvoiceServiceName(key);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
+        }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(
+          resolved.key,
+        );
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactInvoiceValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
+        if (rawHint) pushScoped(resolved.site.label, rawHint, line);
+        continue;
+      }
+
+      if (activeSiteLabel && matchesHint(line)) {
+        pushScoped(activeSiteLabel, line, line);
+      }
+    }
+  }
+
+  return result;
+}
+
+function replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+  lines: string[],
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const scoped = collectInvoiceScopedOperationalHintLinesV17_90L380(
+    orders,
+    matchesHint,
+  );
+  if (scoped.length === 0) return lines;
+  return uniqueInvoiceLines([
+    ...lines.filter((line) => {
+      if (!matchesHint(line)) return true;
+      return /^(?!\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)\s*:)[^:]{2,120}:\s+/.test(
+        compactInvoiceValue(line),
+      );
+    }),
+    ...scoped,
+  ]);
+}
+
+function isInvoiceScopedAdditionalOperationalHintV17_90L380(
+  value?: string | null,
+): boolean {
+  const role = classifySpecialNoteRoleV17_90L93(value);
+  if (role === "parking" || role === "equipment" || role === "operational") {
+    return true;
+  }
+  return isWorksiteOperationalInstructionLineV17_90L380(value);
+}
+
+function isInvoiceScopedPrimaryCommunicationHintV17_90L380(
+  value?: string | null,
+): boolean {
+  return isWorksiteSiteLocalCommunicationLineV17_90L380(value);
+}
+
+
+function collectInvoiceServiceEvidenceLinesV17_90L237(invoice?: Invoice | null): Set<string> {
+  const result = new Set<string>();
+  for (const order of invoice?.orders || []) {
+    const raw = String(order?.notes || order?.audioTranscript || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const lines = raw.split(/\n+/g).map((line) => compactInvoiceValue(line));
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) continue;
+      const next = lines.slice(index + 1).find(Boolean) || "";
+      const sameLinePrice = /\b(?:CHF|EUR|USD|GBP)\s*\d|\b\d+(?:[.,]\d+)?\s*(?:CHF|EUR|USD|GBP)\b/i.test(line);
+      const nextLinePrice = /\b(?:gesamtpreis|pauschalpreis|prix\s+total|prix\s+forfaitaire|total\s+price|flat\s+fee|prezzo\s+totale|precio\s+total)\b.{0,40}\b(?:CHF|EUR|USD|GBP)\b/i.test(next);
+      if (sameLinePrice || nextLinePrice) result.add(normalizeInvoiceServiceName(line));
+    }
+  }
+  return result;
+}
+
+function invoiceHintMatchesServiceEvidenceV17_90L237(
+  value: string,
+  evidence: Set<string>,
+): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  for (const candidate of evidence) {
+    if (!candidate) continue;
+    if (key === candidate) return true;
+    const shorter = key.length <= candidate.length ? key : candidate;
+    const longer = key.length > candidate.length ? key : candidate;
+    if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.72) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function uniquePreferredInvoiceInfoLinesV17_90L237(values: string[]): string[] {
+  const result: string[] = [];
+  for (const raw of values) {
+    const line = compactInvoiceValue(raw);
+    const key = normalizeInvoiceServiceName(line);
+    if (!line || !key) continue;
+    const existingIndex = result.findIndex((entry) => {
+      const existing = normalizeInvoiceServiceName(entry);
+      if (existing === key) return true;
+      const shorter = existing.length <= key.length ? existing : key;
+      const longer = existing.length > key.length ? existing : key;
+      return shorter.length >= 8 && longer.includes(shorter);
+    });
+    if (existingIndex >= 0) {
+      if (line.length > result[existingIndex].length) result[existingIndex] = line;
+      continue;
+    }
+    result.push(line);
+  }
+  return result;
+}
+
+function extractInvoiceAccessLinesV17_90L237(
+  invoice: Invoice | null,
+  serviceNames: string[],
+): string[] {
+  const serviceKeys = (serviceNames || []).map(normalizeInvoiceServiceName).filter(Boolean);
+  const accessPattern = /\b(?:schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|zugang|zutritt|seiteneingang|hintereingang|eingangscode|key|keybox|key\s+box|door\s*code|access|entrance|cle|clé|boite\s+a\s+cles|boîte\s+à\s+clés|acces|accès|chiave|codice|ingresso|llave|codigo|código|acceso)\b/i;
+  const candidates: string[] = [];
+  const addSource = (source: unknown) => {
+    for (const line of splitInvoiceSourceLinesV17_90L237(source)) {
+      const key = normalizeInvoiceServiceName(line);
+      if (!key || !accessPattern.test(key)) continue;
+      if (
+        serviceKeys.some((serviceKey) =>
+          serviceKey.length >= 8 &&
+          (key === serviceKey || key.includes(serviceKey) || serviceKey.includes(key)),
+        )
+      ) continue;
+      candidates.push(line);
+    }
+  };
+  for (const order of invoice?.orders || []) {
+    // V17.90L264: Prefer canonical normalized role text. Raw language is used
+    // only when no canonical access instruction exists for this source order.
+    const before = candidates.length;
+    addSource(order?.specialNotes);
+    if (candidates.length > before) continue;
+    addSource(order?.notes);
+    addSource(order?.audioTranscript);
+  }
+  return uniquePreferredInvoiceInfoLinesV17_90L237(candidates);
+}
+
+function isInvoiceParkingLineV17_90L265(value?: string | null): boolean {
+  return isWorksiteParkingOrLogisticsLineV17_90L380(value);
+}
+
+function isInvoiceLowInformationHintV17_90L265(
+  value?: string | null,
+): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  return [
+    "anruf",
+    "rueckruf",
+    "rueckruf vor arbeitsbeginn",
+    "parkplatz pruefen",
+    "parkplatz nr",
+    "parkplatz nummer",
+    "parking pruefen",
+    "whatsapp bevorzugt",
+    "sms bevorzugt",
+    "keine telefonische rueckfrage",
+    "nicht anrufen",
+  ].includes(key);
+}
+
+function extractInvoiceCanonicalRoleLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  return uniquePreferredInvoiceInfoLinesV17_90L237(
+    (invoice?.orders || []).flatMap((order) =>
+      splitInvoiceSourceLinesV17_90L237(order?.specialNotes),
+    ),
+  );
+}
+
+function extractInvoiceParkingLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  return extractInvoiceCanonicalRoleLinesV17_90L265(invoice).filter(
+    isInvoiceParkingLineV17_90L265,
+  );
+}
+
+function isInvoiceAppointmentCommunicationLineV17_90L266(
+  value?: string | null,
+): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  if (!key) return false;
+  const hasAppointmentMarker =
+    /\b(?:termin|appointment|ausfuehrungstermin|zeitfenster)\b/.test(key);
+  const hasConcreteDateOrTime =
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(key) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(key);
+  return hasAppointmentMarker && hasConcreteDateOrTime;
+}
+
+function isInvoiceCommunicationLikeLineV17_90L266(
+  value?: string | null,
+): boolean {
+  return /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function invoiceCommunicationChannelKeyV17_90L334(value?: string | null): string {
+  const key = normalizeInvoiceServiceName(value || "");
+  if (/\bwhatsapp\b/.test(key)) return "whatsapp";
+  if (/\bsms\b/.test(key)) return "sms";
+  if (/\be ?mail|email|mail\b/.test(key)) return "email";
+  if (/\btelefon|telefonisch|anruf|anrufen|rueckruf|ruckruf\b/.test(key)) return "phone";
+  return "";
+}
+
+function preferInvoiceCommunicationLineV17_90L334(
+  current: string,
+  next: string,
+): string {
+  const currentKey = normalizeInvoiceServiceName(current);
+  const nextKey = normalizeInvoiceServiceName(next);
+  const currentIsSpecific = /\b(?:kontakt vor ort|ausschliesslich|ausschließlich|nur|kein|keine)\b/.test(currentKey);
+  const nextIsSpecific = /\b(?:kontakt vor ort|ausschliesslich|ausschließlich|nur|kein|keine)\b/.test(nextKey);
+  if (nextIsSpecific && !currentIsSpecific) return next;
+  if (currentIsSpecific && !nextIsSpecific) return current;
+  return next.length > current.length ? next : current;
+}
+
+function extractInvoiceCommunicationLinesV17_90L265(
+  invoice: Invoice | null,
+): string[] {
+  const pattern =
+    /\b(?:whatsapp|sms|e-?mail|mail|telefonisch|anrufen|anruf|rueckruf|rückruf|kontakt|melden|bescheid|benachrichtigen)\b/i;
+  return extractInvoiceCanonicalRoleLinesV17_90L265(invoice).filter(
+    (line) =>
+      pattern.test(normalizeInvoiceServiceName(line)) &&
+      !isInvoiceLowInformationHintV17_90L265(line) &&
+      !isInvoiceAppointmentCommunicationLineV17_90L266(line),
+  );
+}
+
+function invoiceAppointmentSignatureV17_90L265(value?: string | null): string {
+  const source = compactInvoiceValue(value);
+  if (!source) return "";
+  const date =
+    source.match(/\b(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)\b/)?.[1] ||
+    "";
+  const times = Array.from(source.matchAll(/\b(\d{1,2}[:.]\d{2})\b/g))
+    .map((match) => match[1].replace(".", ":"))
+    .join("-");
+  return date || times ? `${date}|${times}` : "";
+}
+
+function invoiceHintCombinesCanonicalFactsV17_90L265(
+  value: string,
+  canonicalLines: string[],
+): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  const contained = canonicalLines.filter((line) => {
+    const candidate = normalizeInvoiceServiceName(line);
+    return candidate.length >= 8 && key.includes(candidate);
+  });
+  return contained.length >= 2;
+}
+
+
+type InvoiceCanonicalWorkflowSummaryV17_90L273 = {
+  hazards: string[];
+  primaryHints: string[];
+  otherHints: string[];
+};
+
+type InvoiceCanonicalWorkflowRecordV17_90L273 = {
+  role: "safety" | "hint";
+  text: string;
+};
+
+function parseInvoiceCanonicalWorkflowRecordsV17_90L273(
+  value: unknown,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const markerPattern =
+    /\[(GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/gi;
+  const matches = Array.from(source.matchAll(markerPattern));
+  if (matches.length === 0) return [];
+
+  const records: InvoiceCanonicalWorkflowRecordV17_90L273[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const start = Number(match.index || 0) + match[0].length;
+    const end =
+      index + 1 < matches.length
+        ? Number(matches[index + 1].index || source.length)
+        : source.length;
+    const text = compactInvoiceValue(
+      source.slice(start, end).replace(/^\s*[-•*]+\s*/g, ""),
+    );
+    if (!text) continue;
+    records.push({
+      role: /^(?:GEFAHR|WARNUNG|WARNHINWEIS)$/i.test(String(match[1] || ""))
+        ? "safety"
+        : "hint",
+      text,
+    });
+  }
+  return records;
+}
+
+function isInvoiceCanonicalDogLineV17_90L273(value: string): boolean {
+  return /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)\b/i.test(
+    normalizeInvoiceServiceName(value),
+  );
+}
+
+function isInvoiceSafetyLikeLineV17_90L319(value: string): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  return (
+    isInvoiceCanonicalDogLineV17_90L273(value) ||
+    /\b(?:vorsicht|achtung|gefahr|warnung|warnhinweis|rutschig|giftig|beissen|beisst|beißt|aggressiv|gefährlich|gefaehrlich)\b/.test(
+      key,
+    )
+  );
+}
+
+function parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(
+  value: unknown,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  // SMARTFLOW_V17_90L332: Gemischte Quellen aus Auftrag/Angebot/Rechnung
+  // zeilenlokal auswerten. Ein einzelner technischer Marker wie [HINWEIS]
+  // darf nachfolgende manuelle Angebots-/Rechnungszeilen nicht mehr
+  // verschlucken oder mit Parkplatz/Termin zu einem Anzeige-Mischsatz verbinden.
+  const source = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const records: InvoiceCanonicalWorkflowRecordV17_90L273[] = [];
+  const addPlainLine = (line: string) => {
+    for (const plainLine of splitInvoiceManualSpecialNoteLinesV17_90L319(line)) {
+      records.push({
+        role: isInvoiceSafetyLikeLineV17_90L319(plainLine) ? "safety" : "hint",
+        text: plainLine,
+      });
+    }
+  };
+
+  for (const rawLine of source.split(/\n+/g)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const parsedLine = parseInvoiceCanonicalWorkflowRecordsV17_90L273(line);
+    if (parsedLine.length > 0) {
+      records.push(...parsedLine);
+      continue;
+    }
+    addPlainLine(line);
+  }
+
+  return records;
+}
+
+function isInvoiceCanonicalPrimaryLineV17_90L273(value: string): boolean {
+  const key = normalizeInvoiceServiceName(value);
+  if (!key) return false;
+  return /\b(?:termin|datum|uhr|zeitfenster|ankunft|vorher|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|telefonisch|anrufen|melden|zugang|zutritt|eingang|seitentuer|hintereingang|tiefgarage|badge|schluessel|schlussel|schluesselbox|schlusselbox|code|tor|tuerkode|turkode|tuercode|turcode)\b/.test(
+    key,
+  );
+}
+
+// V17.90L328: Anzeige-only-Splitting für Rechnungs-Besonderheiten.
+// Gespeicherte Texte/Payloads bleiben unverändert; nur die angezeigten Info-,
+// Warn- und Terminzeilen werden aus zusammengeklebten Hinweistexten sauber
+// getrennt. Dadurch landet im Terminchip ausschließlich Termininhalt.
+type InvoiceDisplayFactMatchV17_90L328 = {
+  index: number;
+  end: number;
+  role: "safety" | "hint";
+  text: string;
+};
+
+function cleanInvoiceDisplayFactTextV17_90L328(value: unknown): string {
+  let text = compactInvoiceValue(value)
+    .replace(/^[•*\-–—]+\s*/g, "")
+    .replace(/[,:;\-–—\s]+$/g, "")
+    .trim();
+  if (!text) return "";
+  text = text
+    .replace(/^türcode\b/i, "Türcode")
+    .replace(/^tuercode\b/i, "Türcode")
+    .replace(/^turcode\b/i, "Türcode")
+    .replace(/^türkode\b/i, "Türcode")
+    .replace(/^tuerkode\b/i, "Türcode")
+    .replace(/^turkode\b/i, "Türcode")
+    .replace(/^seitentür\b/i, "Seitentür")
+    .replace(/^seitentuer\b/i, "Seitentür")
+    .replace(/^schlüssel\b/i, "Schlüssel")
+    .replace(/^schluessel\b/i, "Schlüssel")
+    .replace(/^schlussel\b/i, "Schlüssel")
+    .replace(/^parkplatz\b/i, "Parkplatz")
+    .replace(/^kontakt\b/i, "Kontakt")
+    .replace(/^bitte\b/i, "Bitte")
+    .replace(/^termin\b/i, "Termin");
+  return text;
+}
+
+function uniqueInvoiceDisplayFactsV17_90L328(
+  matches: InvoiceDisplayFactMatchV17_90L328[],
+): InvoiceDisplayFactMatchV17_90L328[] {
+  const sorted = matches
+    .map((match) => ({
+      ...match,
+      text: cleanInvoiceDisplayFactTextV17_90L328(match.text),
+    }))
+    .filter((match) => Boolean(match.text))
+    .sort((a, b) => a.index - b.index || b.end - b.index - (a.end - a.index));
+
+  const accepted: InvoiceDisplayFactMatchV17_90L328[] = [];
+  for (const candidate of sorted) {
+    const overlaps = accepted.some(
+      (current) => candidate.index < current.end && candidate.end > current.index,
+    );
+    if (overlaps) continue;
+    const key = normalizeInvoiceServiceName(candidate.text);
+    if (!key) continue;
+    const duplicate = accepted.some((current) => {
+      const existing = normalizeInvoiceServiceName(current.text);
+      if (existing === key) return true;
+      const shorter = existing.length <= key.length ? existing : key;
+      const longer = existing.length > key.length ? existing : key;
+      return shorter.length >= 10 && longer.includes(shorter);
+    });
+    if (duplicate) continue;
+    accepted.push(candidate);
+  }
+  return accepted.sort((a, b) => a.index - b.index);
+}
+
+function splitInvoiceDisplayFactRecordsV17_90L328(
+  record: InvoiceCanonicalWorkflowRecordV17_90L273,
+): InvoiceCanonicalWorkflowRecordV17_90L273[] {
+  const source = compactInvoiceValue(record.text);
+  if (!source) return [];
+
+  const matches: InvoiceDisplayFactMatchV17_90L328[] = [];
+  const addMatches = (
+    regex: RegExp,
+    role: "safety" | "hint",
+    mapText?: (match: RegExpMatchArray) => string,
+  ) => {
+    for (const match of source.matchAll(regex)) {
+      const text = cleanInvoiceDisplayFactTextV17_90L328(
+        mapText ? mapText(match) : match[0],
+      );
+      if (!text) continue;
+      const index = Number(match.index || 0);
+      matches.push({ index, end: index + match[0].length, role, text });
+    }
+  };
+
+  addMatches(
+    /\b(?:Termin|Appointment|Ausführungstermin|Ausfuehrungstermin)\s*:?(?:\s+am)?\s+(?:\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))(?:\s*[.·,;\-–—]*\s*(?:(?:um|ab|gegen|von)\s*)?(?:[01]?\d|2[0-3])(?:[:.]\d{2}|\s*Uhr))?(?:\s*(?:bis|[-–—])\s*(?:[01]?\d|2[0-3])(?:[:.]\d{2}|\s*Uhr))?/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Bitte\s+)?(?:vorher\s+|kurz\s+|vor\s+Ort\s+)?(?:per\s+)?(?:WhatsApp|SMS|E-?Mail|Mail)\s+(?:melden|kontaktieren|schreiben|informieren)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\bKontakt\s+vor\s+Ort\s*:?(?:\s+nur)?\s+(?:WhatsApp|SMS|telefonisch|Telefon|E-?Mail|Mail)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Türcode|Tuercode|Turcode|Türkode|Tuerkode|Turkode|Code)\s*(?:Tor|Tür|Tuer)?\s*[:#-]?\s*[A-Za-z0-9-]{2,}\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Schlüssel|Schluessel|Schlussel)\s+(?:beim|bei|am|in|unter)\s+.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Türkode|Tuerkode|Turkode|Code|Seitentür|Seitentuer|Parkplatz|Parking|Hund|Hunde)\b|$)/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Seitentür|Seitentuer|Seiteneingang|Hintereingang)\s+(?:benutzen|nehmen|verwenden)\b/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Parkplatz|Parking|Tiefgarage|Stellplatz)\b.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Code|Schlüssel|Schluessel|Schlussel|Seitentür|Seitentuer|Hund|Hunde|Kontakt|Bitte)\b|$)/gi,
+    "hint",
+  );
+  addMatches(
+    /\b(?:Hund|Hunde|Dog|Dogs|Chien|Chiens|Cane|Cani|Perro|Perros)\b.+?(?=\s+\b(?:Termin|Appointment|Türcode|Tuercode|Turcode|Code|Schlüssel|Schluessel|Schlussel|Parkplatz|Parking|Kontakt|Bitte)\b|$)/gi,
+    "safety",
+  );
+
+  const accepted = uniqueInvoiceDisplayFactsV17_90L328(matches);
+  if (accepted.length === 0) return [record];
+
+  return accepted.map((match) => ({
+    role: match.role === "safety" || record.role === "safety" ? match.role : "hint",
+    text: match.text,
+  }));
+}
+
+function invoiceCommunicationLineMatchesContactFallbackV17_90L328(
+  line: string,
+  contactTitle: string,
+): boolean {
+  const lineKey = normalizeInvoiceServiceName(line);
+  const contactKey = normalizeInvoiceServiceName(contactTitle);
+  if (!lineKey || !contactKey) return false;
+  if (lineKey === contactKey) return true;
+  const shorter = lineKey.length <= contactKey.length ? lineKey : contactKey;
+  const longer = lineKey.length > contactKey.length ? lineKey : contactKey;
+  return shorter.length >= 10 && longer.includes(shorter);
+}
+
+function cleanInvoiceRawCustomerMessageForCommunicationOverrideV17_90L341(
+  value: unknown,
+): string {
+  // SMARTFLOW_V17_90L341: Für SMS/WhatsApp-Konflikte zählt der Inhalt der
+  // Kundennachricht, nicht der technische Eingangskanal. Alte Notizen können
+  // mit "WhatsApp:" beginnen; dieser Transport-Präfix darf eine ausdrückliche
+  // SMS-Anweisung nicht als WhatsApp-Wunsch überschreiben.
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/^\s*(?:WhatsApp|Telegram)\s*:\s*/i, "")
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)[0]
+    .replace(/^\s*\[META\].*$/gim, "")
+    .trim();
+}
+
+function isInvoiceRawCustomerMessageDisplayLeakV17_90L346(value: unknown): boolean {
+  const text = compactInvoiceValue(value);
+  if (text.length < 140) return false;
+  const key = normalizeInvoiceServiceName(text);
+  return (
+    /\b(?:neuer auftrag|rechnungsadresse|arbeitsort\s*\d|ausfuehrungsort\s*\d)\b/.test(key) &&
+    /\b(?:chf|pauschal|quadratmeter|stueck|stuck|m2|m²|einzelpreis|gesamt)\b/.test(key)
+  );
+}
+
+function isInvoiceAppointmentSummaryDisplayLineV17_90L348(value: unknown): boolean {
+  const key = normalizeInvoiceServiceName(value || "");
+  return /^termine\s+\d+\b/.test(key) || /\b1\s+termin\b.*\b2\s+termin\b/.test(key);
+}
+
+function normalizeInvoiceDisplayAppointmentLineV17_90L348(value: unknown): string {
+  const raw = compactInvoiceValue(value)
+    .replace(/[’']/g, "")
+    .replace(/^Termin\s*:?\s*/i, "");
+  if (!raw) return "";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  // SMARTFLOW_V17_90L350: Datum zuerst aus dem Suchtext entfernen. Sonst
+  // wird ein Datum wie "20.06" fälschlich als Uhrzeit "20:06" gelesen.
+  const rawWithoutDate = dateMatch ? raw.replace(dateMatch[0], " ") : raw;
+  const timeMatch =
+    rawWithoutDate.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}${
+        dateMatch[3]
+          ? `.${String(dateMatch[3]).length === 2 ? `20${dateMatch[3]}` : dateMatch[3]}`
+          : ""
+      }`
+    : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  if (!date && !time) return compactInvoiceValue(value);
+  return `Termin: ${[date, time].filter(Boolean).join(" · ")}`;
+}
+
+function invoiceAppointmentDisplaySignatureV17_90L348(value: unknown): string {
+  const raw = compactInvoiceValue(value).replace(/[’']/g, "");
+  const key = normalizeInvoiceServiceName(raw);
+  if (!/\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment|ausfuehrungstermin|ausführungstermin)\b/.test(key)) {
+    return "";
+  }
+  if (isInvoiceAppointmentSummaryDisplayLineV17_90L348(raw)) return "summary";
+  const dateMatch = raw.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  // SMARTFLOW_V17_90L350: Datum zuerst aus dem Suchtext entfernen. Sonst
+  // wird ein Datum wie "20.06" fälschlich als Uhrzeit "20:06" gelesen.
+  const rawWithoutDate = dateMatch ? raw.replace(dateMatch[0], " ") : raw;
+  const timeMatch =
+    rawWithoutDate.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b([01]?\d|2[0-3])\.([0-5]\d)\b/) ||
+    rawWithoutDate.match(/\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const day = dateMatch ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}` : "";
+  const time = timeMatch
+    ? timeMatch[2]
+      ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+      : `${timeMatch[1].padStart(2, "0")}:00`
+    : "";
+  return day || time ? `${day}|${time}` : "";
+}
+
+function invoiceAppointmentMonthDayKeyV17_90L348(value: unknown): string {
+  const match = compactInvoiceValue(value)
+    .replace(/[’']/g, "")
+    .match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  return match ? `${match[1].padStart(2, "0")}.${match[2].padStart(2, "0")}` : "";
+}
+
+function hasConcreteInvoiceContactIdentityV17_90L348(
+  contact?: {
+    title?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null,
+): boolean {
+  const title = compactInvoiceValue(contact?.title);
+  return Boolean(
+    compactInvoiceValue(contact?.name) ||
+      compactInvoiceValue(contact?.phone) ||
+      compactInvoiceValue(contact?.email) ||
+      /\b(?:\+?\d[\d\s()./-]{6,}\d|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i.test(title),
+  );
+}
+
+function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+  invoice: Invoice | null,
+  fallbackSpecialNotes?: string | null,
+): InvoiceCanonicalWorkflowSummaryV17_90L273 {
+  const sourceOrders = invoice?.orders || [];
+  // SMARTFLOW_V17_90L346: Multi-Ausführungsort-Anzeigen dürfen nicht mehr
+  // rohe WhatsApp-/Auftragstexte pro Arbeitsort ausgeben. Die Anzeige nutzt
+  // wie der Auftrag nur kanonische, deduplizierte Hinweiszeilen; Arbeitsorte,
+  // Leistungen, PDF, Summen und gespeicherte Daten bleiben unverändert.
+
+  const sources = [
+    ...sourceOrders.map((order) => order?.specialNotes),
+    fallbackSpecialNotes,
+  ].filter(Boolean);
+  const records = sources
+    .flatMap((value) =>
+      parseInvoiceWorkflowRecordsWithPlainFallbackV17_90L319(value),
+    )
+    .flatMap(splitInvoiceDisplayFactRecordsV17_90L328);
+  const explicitContact = extractDocumentContactFallback(
+    ...sourceOrders.flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+  );
+  // SMARTFLOW_V17_90L339: Direkter Auftrag→Rechnung darf keinen
+  // WhatsApp-Kontakt erfinden, wenn die Quelle ausdrücklich SMS/E-Mail/Telefon
+  // verlangt. Der Fallback aus dem Eingangskanal wird nur unterdrückt; echte
+  // strukturierte Kontaktzeilen aus specialNotes/Quelle bleiben unverändert.
+  const explicitSourceCommunicationChannelsV17_90L339 = new Set<string>();
+  const explicitRawCustomerCommunicationChannelsV17_90L340 = new Set<string>();
+  const collectSourceCommunicationChannelV17_90L339 = (
+    value: unknown,
+    target: Set<string> = explicitSourceCommunicationChannelsV17_90L339,
+  ) => {
+    const key = normalizeInvoiceServiceName(value);
+    if (!key) return;
+    if (/\bsms\b/.test(key)) target.add("sms");
+    if (/\b(?:e ?mail|email|mail)\b/.test(key)) target.add("email");
+    if (/\b(?:telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf)\b/.test(key)) {
+      target.add("phone");
+    }
+    if (/\bwhatsapp\b/.test(key)) target.add("whatsapp");
+  };
+  [
+    ...sourceOrders.flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+    fallbackSpecialNotes,
+  ].forEach((value) => collectSourceCommunicationChannelV17_90L339(value));
+  // SMARTFLOW_V17_90L340: Für die Konfliktentscheidung zählt nur die
+  // eigentliche Kundennachricht/Transkription. `specialNotes` können bereits
+  // abgeleitete Fallbacks wie "Kontakt vor Ort: nur WhatsApp" enthalten und
+  // dürfen eine ausdrückliche SMS-Anweisung nicht wieder überschreiben.
+  sourceOrders
+    .flatMap((order) => [order?.notes, order?.audioTranscript])
+    .map(cleanInvoiceRawCustomerMessageForCommunicationOverrideV17_90L341)
+    .forEach((value) =>
+      collectSourceCommunicationChannelV17_90L339(
+        value,
+        explicitRawCustomerCommunicationChannelsV17_90L340,
+      ),
+    );
+  const explicitContactTitleV17_90L339 = compactInvoiceValue(explicitContact.title);
+  const explicitContactHasIdentityV17_90L348 =
+    hasConcreteInvoiceContactIdentityV17_90L348(explicitContact as any);
+  const explicitContactChannelV17_90L339 = invoiceCommunicationChannelKeyV17_90L334(
+    explicitContactTitleV17_90L339,
+  );
+  const suppressWhatsAppFallbackContactV17_90L339 =
+    explicitContactChannelV17_90L339 === "whatsapp" &&
+    !explicitSourceCommunicationChannelsV17_90L339.has("whatsapp") &&
+    ["sms", "email", "phone"].some((channel) =>
+      explicitSourceCommunicationChannelsV17_90L339.has(channel),
+    );
+  const suppressDerivedWhatsAppContactV17_90L340 =
+    !explicitRawCustomerCommunicationChannelsV17_90L340.has("whatsapp") &&
+    ["sms", "email", "phone"].some((channel) =>
+      explicitRawCustomerCommunicationChannelsV17_90L340.has(channel),
+    );
+  const canonicalAppointmentLinesV17_90L276 = sourceOrders
+    .map((order) => {
+      const snapshot = getCanonicalIntakeV2(order);
+      const appointment = snapshot
+        ? canonicalAppointmentBadgeV2(snapshot)
+        : null;
+      const raw = String(appointment?.tooltip || appointment?.label || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^Termin\s*:?\s*/i, "");
+      return raw ? `Termin: ${raw}` : "";
+    })
+    .filter(Boolean);
+
+  const hazards: string[] = [];
+  const primaryHints: string[] = [];
+  const otherHints: string[] = [];
+  const seen = new Set<string>();
+  const seenAppointmentsV17_90L348 = new Set<string>();
+
+  const add = (target: string[], raw: string) => {
+    const rawText = String(raw || "").replace(/\s+/g, " ").trim();
+    if (!rawText || isInvoiceRawCustomerMessageDisplayLeakV17_90L346(rawText)) return;
+    const appointmentSignature = invoiceAppointmentDisplaySignatureV17_90L348(rawText);
+    if (appointmentSignature === "summary") return;
+    const text = appointmentSignature
+      ? normalizeInvoiceDisplayAppointmentLineV17_90L348(rawText)
+      : rawText;
+    const key = normalizeInvoiceServiceName(text).replace(/^termin\s+/, "");
+    if (!text || !key) return;
+
+    // SMARTFLOW_V17_90L334: Gleichartige Kontaktzeilen in der Rechnung nicht
+    // doppelt anzeigen, z. B. "Kontakt vor Ort: nur WhatsApp" und
+    // "Kontakt per WhatsApp". Die spezifischere Zeile bleibt erhalten.
+    if (target === primaryHints && isInvoiceCommunicationLikeLineV17_90L266(text)) {
+      const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+      // SMARTFLOW_V17_90L348: Ein reiner WhatsApp-Transport/Fallback ohne
+      // Name, Telefonnummer oder E-Mail ist keine aktive Kontaktregel für die
+      // Rechnungsanzeige.
+      if (channelKey === "whatsapp" && !explicitContactHasIdentityV17_90L348) {
+        return;
+      }
+      // SMARTFLOW_V17_90L340: Wenn die echte Kundennachricht ausdrücklich
+      // SMS/E-Mail/Telefon verlangt und kein WhatsApp erwähnt, werden
+      // abgeleitete WhatsApp-Fallbackzeilen in der Rechnungsanzeige entfernt.
+      // Die echte SMS-Zeile bleibt sichtbar.
+      if (channelKey === "whatsapp" && suppressDerivedWhatsAppContactV17_90L340) {
+        return;
+      }
+      if (channelKey) {
+        const existingContactIndex = target.findIndex(
+          (entry) => invoiceCommunicationChannelKeyV17_90L334(entry) === channelKey,
+        );
+        if (existingContactIndex >= 0) {
+          target[existingContactIndex] = preferInvoiceCommunicationLineV17_90L334(
+            target[existingContactIndex],
+            text,
+          );
+          seen.add(key);
+          return;
+        }
+      }
+    }
+
+    // SMARTFLOW_V17_90L332: Reine Datumsfragmente nicht zusätzlich anzeigen,
+    // wenn derselbe Termin bereits mit Uhrzeit vorhanden ist. Betrifft nur
+    // Anzeige/Dedupe der Rechnungs-Besonderheiten.
+    const dayKey = getInvoiceAppointmentDayKey(text);
+    const isAppointmentLike = /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(text);
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+    if (isAppointmentLike && dayKey) {
+      const existingIndex = target.findIndex((entry) => {
+        const existingDayKey = getInvoiceAppointmentDayKey(entry);
+        if (!existingDayKey || existingDayKey !== dayKey) return false;
+        return /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(entry);
+      });
+      if (existingIndex >= 0 && !hasTime) return;
+      if (existingIndex >= 0 && hasTime) {
+        target[existingIndex] = text;
+        seen.add(key);
+        return;
+      }
+    }
+
+    // SMARTFLOW_V17_90L338: Anzeige-only-Dedupe für operative
+    // Fragmentzeilen. Geerbte Alt-/Mischdaten können z. B. zusätzlich
+    // "Zugang über" und "Hintereingang" liefern, obwohl bereits
+    // "Zugang über Hintereingang" strukturiert vorhanden ist. Solche
+    // Bruchstücke werden nur in der Rechnungsanzeige unterdrückt; gespeicherte
+    // Texte, PDF-Felder, Termine, Leistungen und Summen bleiben unverändert.
+    const operationalFragmentPatternV17_90L338 =
+      /\b(?:zugang|zutritt|uber|ueber|hintereingang|seiteneingang|eingang|tor|tur|tuer|tür|code|tuercode|turcode|türcode|tuerkode|turkode|schluessel|schlussel|schlüssel|key|parkplatz|parking|whatsapp|sms|kontakt|hund)\b/;
+    const isOperationalFragmentCoveredV17_90L338 = (
+      existingLine: string,
+      candidateKey: string,
+    ): boolean => {
+      const existingKey = normalizeInvoiceServiceName(existingLine).replace(
+        /^termin\s+/,
+        "",
+      );
+      if (!existingKey || existingKey === candidateKey) return false;
+      if (!operationalFragmentPatternV17_90L338.test(candidateKey)) {
+        return false;
+      }
+      if (candidateKey.length >= 4 && existingKey.includes(candidateKey)) {
+        return true;
+      }
+      const candidateTokens = candidateKey
+        .split(/\s+/g)
+        .filter((token) => token.length >= 3);
+      return (
+        candidateTokens.length >= 2 &&
+        candidateTokens.every((token) => existingKey.includes(token))
+      );
+    };
+
+    if (
+      target.some((entry) =>
+        isOperationalFragmentCoveredV17_90L338(entry, key),
+      )
+    ) {
+      return;
+    }
+
+    for (let index = target.length - 1; index >= 0; index -= 1) {
+      const existingKey = normalizeInvoiceServiceName(target[index]).replace(
+        /^termin\s+/,
+        "",
+      );
+      if (
+        existingKey &&
+        existingKey.length + 3 <= key.length &&
+        key.includes(existingKey) &&
+        operationalFragmentPatternV17_90L338.test(existingKey)
+      ) {
+        seen.delete(existingKey);
+        target.splice(index, 1);
+      }
+    }
+
+    if (appointmentSignature) {
+      const dayOnly = appointmentSignature.split("|")[0] || "";
+      const duplicateAppointment =
+        seenAppointmentsV17_90L348.has(appointmentSignature) ||
+        (dayOnly &&
+          Array.from(seenAppointmentsV17_90L348).some(
+            (existing) =>
+              existing.startsWith(`${dayOnly}|`) &&
+              existing.split("|")[1] &&
+              !appointmentSignature.split("|")[1],
+          ));
+      if (duplicateAppointment) return;
+      seenAppointmentsV17_90L348.add(appointmentSignature);
+    }
+
+    if (seen.has(key)) return;
+    seen.add(key);
+    target.push(text);
+  };
+
+  canonicalAppointmentLinesV17_90L276.forEach((line) =>
+    add(primaryHints, line),
+  );
+  if (
+    explicitContactTitleV17_90L339 &&
+    explicitContactHasIdentityV17_90L348 &&
+    !suppressWhatsAppFallbackContactV17_90L339
+  ) {
+    add(primaryHints, explicitContactTitleV17_90L339);
+  }
+
+  for (const record of records) {
+    const isAppointmentRecord = /\b(?:termin|appointment|ausfuehrungstermin|ausführungstermin|zeitfenster)\b/i.test(
+      record.text,
+    );
+    // V17.90L329: Weitere Terminhinweise aus Angebot/Rechnungs-Besonderheiten
+    // nicht mehr pauschal ausblenden, nur weil bereits ein kanonischer
+    // Intake-Termin existiert. Sonst fehlen z. B. zusätzliche manuelle
+    // Termine aus dem Angebot in der Rechnung. Exakte Duplikate filtert add().
+    if (
+      explicitContact.title &&
+      !isAppointmentRecord &&
+      isInvoiceCommunicationLikeLineV17_90L266(record.text) &&
+      invoiceCommunicationLineMatchesContactFallbackV17_90L328(
+        record.text,
+        explicitContact.title,
+      )
+    ) {
+      continue;
+    }
+    if (record.role === "safety" || isInvoiceCanonicalDogLineV17_90L273(record.text)) {
+      add(hazards, record.text);
+      continue;
+    }
+    if (isInvoiceParkingLineV17_90L265(record.text)) {
+      add(otherHints, record.text);
+      continue;
+    }
+    if (isInvoiceCanonicalPrimaryLineV17_90L273(record.text)) {
+      add(primaryHints, record.text);
+      continue;
+    }
+    add(otherHints, record.text);
+  }
+
+  // V17.90L322: Manuelle Rechnungs-Besonderheiten strikt zeilenlokal halten.
+  // Falls ein alter/abgeleiteter Mischsatz Termin + Hund/Gefahr enthält und
+  // dieselben Fakten bereits sauber getrennt vorhanden sind, wird nur dieser
+  // Mischsatz ausgeblendet. Echte Einzelzeilen bleiben unverändert.
+  const hasSeparatePrimaryAppointmentV17_90L322 = primaryHints.some((line) =>
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(
+      normalizeInvoiceServiceName(line),
+    ),
+  );
+  const hasSeparateSafetyLineV17_90L322 = hazards.some((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    return (
+      isInvoiceCanonicalDogLineV17_90L273(line) &&
+      !/\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(key)
+    );
+  });
+  const cleanHazardsV17_90L322 = hazards.filter((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    const mixesAppointmentAndSafety =
+      /\b(?:termin|datum|uhr|zeitfenster|ankunft)\b/.test(key) &&
+      (isInvoiceCanonicalDogLineV17_90L273(line) ||
+        /\b(?:vorsicht|achtung|gefahr|warnung|warnhinweis|rutschig|giftig|beissen|beisst|beißt|aggressiv|gefährlich|gefaehrlich)\b/.test(
+          key,
+        ));
+    return !(
+      mixesAppointmentAndSafety &&
+      hasSeparatePrimaryAppointmentV17_90L322 &&
+      hasSeparateSafetyLineV17_90L322
+    );
+  });
+
+  const cleanPrimaryHintsV17_90L341 = primaryHints.filter((line) => {
+    if (!suppressDerivedWhatsAppContactV17_90L340) return true;
+    return invoiceCommunicationChannelKeyV17_90L334(line) !== "whatsapp";
+  });
+
+  const invoiceAppointmentAnnouncementV17_90L371AN =
+    extractInvoiceAppointmentAnnouncementV17_90L371AN(
+      ...sourceOrders.flatMap((order) => [
+        order?.notes,
+        order?.audioTranscript,
+        order?.specialNotes,
+      ]),
+      fallbackSpecialNotes,
+    );
+  const cleanPrimaryHintsV17_90L371AN =
+    enrichInvoiceAppointmentHintsWithAnnouncementV17_90L371AN(
+      cleanPrimaryHintsV17_90L341,
+      invoiceAppointmentAnnouncementV17_90L371AN,
+    );
+
+  const scopedInvoiceAccessPrimaryHintsV17_90L375 = replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+    cleanPrimaryHintsV17_90L371AN,
+    sourceOrders,
+  );
+  const scopedInvoicePrimaryHintsV17_90L375 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      scopedInvoiceAccessPrimaryHintsV17_90L375,
+      sourceOrders,
+      isInvoiceScopedPrimaryCommunicationHintV17_90L380,
+    );
+  const scopedInvoiceHazardsV17_90L380 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      cleanHazardsV17_90L322,
+      sourceOrders,
+      (line) => classifySpecialNoteRoleV17_90L93(line) === "safety",
+    );
+  const scopedInvoiceOtherHintsV17_90L380 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      otherHints.filter(
+        (line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line),
+      ),
+      sourceOrders,
+      isInvoiceScopedAdditionalOperationalHintV17_90L380,
+    );
+  return {
+    hazards: scopedInvoiceHazardsV17_90L380,
+    primaryHints: scopedInvoicePrimaryHintsV17_90L375,
+    otherHints: scopedInvoiceOtherHintsV17_90L380,
+  };
+}
+
+function collectInvoiceCanonicalSpecialNotesV17_90L237(
+  invoice: Invoice | null,
+  fallback?: string | null,
+): string {
+  const canonical = (invoice?.orders || [])
+    .map((order) => String(order?.specialNotes || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  return canonical || String(fallback || "");
+}
+
+function buildInvoiceSpecialNotesSourceV17_90L319(
+  invoice: Invoice | null,
+  sourceOfferInternalNotes?: string | null,
+  invoiceInternalNotesV17_90L321?: string | null,
+): string {
+  const storedInvoiceInternalNotesV17_90L321 = invoice
+    ? decodeInvoicePdfMetaV17_90L321(invoice.notes).specialNotes
+    : "";
+  return [
+    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    sourceOfferInternalNotes,
+    invoiceInternalNotesV17_90L321,
+    storedInvoiceInternalNotesV17_90L321,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractInvoiceAppointmentAnnouncementV17_90L371AN(
+  ...values: unknown[]
+): string {
+  const source = values
+    .map((value) => String(value || ""))
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return "";
+
+  const matches = Array.from(
+    source.matchAll(
+      /\b(\d{1,3})\s*(?:min\.?|minuten?|minutes?)\s+(?:vorher|vorab|vor arbeitsbeginn|vor dem termin|beforehand|before)\b(?:.{0,80}?\b(?:telefonisch|anrufen|anruf|telefon|call|whatsapp|sms|melden|bescheid|informieren))?/giu,
+    ),
+  );
+
+  for (const match of matches) {
+    const minutes = Number(match[1]);
+    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) continue;
+    const text = compactInvoiceValue(match[0]);
+    const key = normalizeInvoiceServiceName(text);
+    if (/\bwhatsapp\b/.test(key)) return `${minutes} Minuten vorher per WhatsApp melden`;
+    if (/\bsms\b/.test(key)) return `${minutes} Minuten vorher per SMS melden`;
+    if (/\b(?:telefonisch|telefon|anrufen|anruf|call)\b/.test(key)) {
+      return `${minutes} Minuten vorher anrufen`;
+    }
+    return `${minutes} Minuten vorher melden`;
+  }
+
+  return "";
+}
+
+function enrichInvoiceAppointmentHintsWithAnnouncementV17_90L371AN(
+  lines: string[],
+  announcement: string,
+): string[] {
+  const cleanAnnouncement = compactInvoiceValue(announcement);
+  if (!cleanAnnouncement) return lines;
+  const announcementKey = normalizeInvoiceServiceName(cleanAnnouncement);
+  if (!announcementKey) return lines;
+
+  const result = [...lines];
+  const alreadyVisible = result.some((line) => {
+    const key = normalizeInvoiceServiceName(line);
+    return (
+      key.includes(announcementKey) ||
+      (/\bvorher\b/.test(key) &&
+        /\b(?:anrufen|melden|telefon|telefonisch|whatsapp|sms)\b/.test(key))
+    );
+  });
+  if (alreadyVisible) return result;
+
+  const appointmentIndex = result.findIndex((line) =>
+    /\b(?:termin|datum|uhr|zeitfenster|ankunft|appointment)\b/i.test(line),
+  );
+
+  if (appointmentIndex >= 0) {
+    result[appointmentIndex] = `${compactInvoiceValue(result[appointmentIndex])} · ${cleanAnnouncement}`;
+    return result;
+  }
+
+  result.push(cleanAnnouncement);
+  return result;
+}
+
+function invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+  line: string,
+  inheritedLines: string[],
+): boolean {
+  const text = compactInvoiceValue(line);
+  const key = normalizeInvoiceServiceName(text);
+  if (!text || !key) return true;
+
+  const channelKey = invoiceCommunicationChannelKeyV17_90L334(text);
+  const dayKey = getInvoiceAppointmentDayKey(text);
+  const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+
+  return inheritedLines.some((candidateRaw) => {
+    const candidate = compactInvoiceValue(candidateRaw);
+    const candidateKey = normalizeInvoiceServiceName(candidate);
+    if (!candidate || !candidateKey) return false;
+    if (candidateKey === key) return true;
+
+    // SMARTFLOW_V17_90L335: Abgeleitete Kommunikationszeilen wie
+    // "Kontakt per WhatsApp" sind geerbte Auftrag-/Angebotsinformation und
+    // dürfen nicht im manuellen Rechnungs-Textarea auftauchen, wenn derselbe
+    // Kanal bereits strukturiert übernommen wurde.
+    const candidateChannelKey = invoiceCommunicationChannelKeyV17_90L334(candidate);
+    if (channelKey && candidateChannelKey && channelKey === candidateChannelKey) {
+      return true;
+    }
+
+    const candidateDayKey = getInvoiceAppointmentDayKey(candidate);
+    if (dayKey && candidateDayKey && dayKey === candidateDayKey) {
+      const candidateHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(candidate);
+      if (hasTime === candidateHasTime || candidateHasTime) return true;
+    }
+
+    // SMARTFLOW_V17_90L348: Geerbte Termine auch dann aus dem manuellen
+    // Rechnungs-Textarea entfernen, wenn eine Quelle das Jahr enthält und die
+    // andere nicht, z. B. "20.06.2026" vs. "20.06.".
+    const monthDayKey = invoiceAppointmentMonthDayKeyV17_90L348(text);
+    const candidateMonthDayKey = invoiceAppointmentMonthDayKeyV17_90L348(candidate);
+    if (monthDayKey && candidateMonthDayKey && monthDayKey === candidateMonthDayKey) {
+      const candidateHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:um|ab|gegen|von|bis)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(candidate);
+      if (hasTime === candidateHasTime || candidateHasTime) return true;
+    }
+
+    // SMARTFLOW_V17_90L336: Bereits geerbte Hinweise können in alten/
+    // kontaminierten Rechnungen als Bruchstücke im manuellen Textfeld liegen
+    // (z. B. "Zugang über" + "Hintereingang" statt "Zugang über Hintereingang").
+    // Solche operativen Fragmente gehören weiterhin nur in die strukturierten
+    // Informationsblöcke und dürfen nicht als manueller Rechnungstext erscheinen.
+    const inheritedOperationalFragment =
+      key.length >= 6 &&
+      candidateKey.includes(key) &&
+      /\b(?:zugang|zutritt|hintereingang|seiteneingang|eingang|tor|tuer|tur|tür|code|tuercode|turcode|türcode|schluessel|schlussel|schlüssel|parkplatz|parking|hund|whatsapp|sms|kontakt)\b/.test(
+        key,
+      );
+    if (inheritedOperationalFragment) return true;
+
+    // Exakte Fakten, die nur unterschiedlich mit Marker/Präfix kommen,
+    // zuverlässig ausblenden; freie manuelle Rechnungszusätze bleiben stehen.
+    const shorter = key.length <= candidateKey.length ? key : candidateKey;
+    const longer = key.length > candidateKey.length ? key : candidateKey;
+    return shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.82;
+  });
+}
+
+function buildInvoiceManualTextareaValueV17_90L334(
+  invoice: Invoice | null,
+  storedInvoiceSpecialNotes?: string | null,
+  sourceOfferInternalNotes?: string | null,
+): string {
+  // SMARTFLOW_V17_90L335: Das Textfeld "Besonderheiten in der Rechnung"
+  // ist strikt manual-only. Es zeigt nur Hinweise, die wirklich in der
+  // Rechnung selbst ergänzt wurden. Alle geerbten Auftrag-/Angebot-/Intake-
+  // Fakten bleiben darunter strukturiert sichtbar und werden beim Speichern
+  // weiter mitgeführt, erscheinen aber nicht als editierbarer Text.
+  const storedLines = splitInvoiceManualSpecialNoteLinesV17_90L319(
+    storedInvoiceSpecialNotes,
+  );
+  if (storedLines.length === 0) return "";
+
+  const inheritedSource = [
+    ...(invoice?.orders || []).map((order) => order?.specialNotes),
+    sourceOfferInternalNotes,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  const inheritedSummary = buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+    invoice,
+    inheritedSource,
+  );
+  const inheritedLines = uniqueInvoiceLines([
+    inheritedSource,
+    inheritedSummary.primaryHints.join("\n"),
+    inheritedSummary.hazards.join("\n"),
+    inheritedSummary.otherHints.join("\n"),
+  ]);
+
+  return storedLines
+    .filter((line, index) => {
+      if (invoiceLineMatchesInheritedSpecialNoteV17_90L335(line, inheritedLines)) {
+        return false;
+      }
+      const nextLine = storedLines[index + 1] || "";
+      const previousLine = storedLines[index - 1] || "";
+      const joinedWithNext = nextLine ? compactInvoiceValue(`${line} ${nextLine}`) : "";
+      const joinedWithPrevious = previousLine ? compactInvoiceValue(`${previousLine} ${line}`) : "";
+      return (
+        !joinedWithNext ||
+        !invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+          joinedWithNext,
+          inheritedLines,
+        )
+      ) && (
+        !joinedWithPrevious ||
+        !invoiceLineMatchesInheritedSpecialNoteV17_90L335(
+          joinedWithPrevious,
+          inheritedLines,
+        )
+      );
+    })
+    .join("\n");
+}
+
+function flattenInvoiceSpecialInfoLinesV17_90L319(
+  summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const text = String(value || "").trim();
+    const key = normalizeInvoiceServiceName(text);
+    if (!text || !key || seen.has(key)) return;
+    seen.add(key);
+    result.push(text);
+  };
+  summary.primaryHints.forEach(add);
+  summary.hazards.forEach(add);
+  summary.otherHints.forEach(add);
+  return result;
+}
+
+type InvoiceAppointmentTimingV17_90L324 = "past" | "current" | "unknown";
+
+const getInvoiceAppointmentTimingV17_90L324 = (value: unknown): InvoiceAppointmentTimingV17_90L324 => {
+  const text = compactInvoiceValue(value).toLocaleLowerCase("de-CH");
+  if (!text) return "unknown";
+  if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) {
+    return "past";
+  }
+  if (/\b(?:heute|morgen|übermorgen|uebermorgen)\b/i.test(text)) {
+    return "current";
+  }
+
+  const dateMatch = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  if (!dateMatch) return "unknown";
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const rawYear = dateMatch[3];
+  const year = rawYear
+    ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear)
+    : currentYear;
+  const parsed = new Date(year, month - 1, day);
+  if (
+    !Number.isFinite(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return "unknown";
+  }
+
+  const todayStart = new Date(currentYear, now.getMonth(), now.getDate());
+  return parsed.getTime() < todayStart.getTime() ? "past" : "current";
+};
+
+const shouldShowInvoiceAppointmentChipV17_90L324 = (value: unknown): boolean => {
+  // SMARTFLOW_V17_90L325: Chip bleibt nur sichtbar, wenn mindestens ein
+  // aktueller/unklarer Terminhinweis vorhanden ist; vergangene Termine bleiben nur im Info-Chip.
+  const text = compactInvoiceValue(value);
+  if (!text) return false;
+  if (/^Termine(?:\s*·\s*\d+)?/i.test(text)) return true;
+  return getInvoiceAppointmentTimingV17_90L324(text) !== "past";
+};
+
+
+const getInvoiceAppointmentChipToneClassV17_90L371AJ = (value: unknown): string => {
+  const text = compactInvoiceValue(value).toLocaleLowerCase("de-CH");
+  const normal = "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100";
+  // SMARTFLOW_V17_90L371AL: Terminchip-Farbe nach Dringlichkeit.
+  // Morgen = deutlich dunkler, heute = stärkste Hervorhebung, abgelaufen = grau.
+  const tomorrow = "border-violet-600 bg-violet-300 text-violet-950 hover:bg-violet-400 shadow-md ring-1 ring-violet-500";
+  const today = "border-orange-600 bg-orange-300 text-orange-950 hover:bg-orange-400 shadow-md ring-1 ring-orange-500";
+  const past = "border-slate-300 bg-slate-200 text-slate-500 hover:bg-slate-200 opacity-70 grayscale";
+  if (!text) return normal;
+  if (/\b(?:gestern|vorgestern|vergangen|abgelaufen|vorbei)\b/i.test(text)) return past;
+  if (/\bheute\b/i.test(text)) return today;
+  if (/\bmorgen\b/i.test(text) && !/\b(?:übermorgen|uebermorgen)\b/i.test(text)) return tomorrow;
+  const dateMatch = text.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/);
+  if (!dateMatch) return normal;
+  const now = new Date();
+  const rawYear = dateMatch[3];
+  const year = rawYear ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear) : now.getFullYear();
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const parsed = new Date(year, month - 1, day);
+  if (!Number.isFinite(parsed.getTime())) return normal;
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const targetStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+  const diffDays = Math.round((targetStart - todayStart) / 86400000);
+  if (diffDays < 0) return past;
+  if (diffDays === 0) return today;
+  if (diffDays === 1) return tomorrow;
+  return normal;
+};
+
+const isInvoiceAppointmentHintForChipV17_90L326 = (value: unknown): boolean => {
+  const text = compactInvoiceValue(value);
+  if (!text) return false;
+
+  // SMARTFLOW_V17_90L333: Der Rechnungs-Kalenderchip darf nur echte
+  // Ausführungstermine anzeigen. Reine Hinweis-/To-do-Zeilen wie
+  // "Termin bitte nochmals bestätigen" gehören in den Infochip, nicht in
+  // den Kalenderchip. Deshalb reicht das Wort "Termin" alleine nicht aus.
+  const hasConcreteDate = /\b\d{1,2}[.\/-]\d{1,2}(?:[.\/-]\d{2,4})?\b/.test(text);
+  const hasRelativeDay = /\b(?:heute|morgen|übermorgen|uebermorgen)\b/i.test(text);
+  const hasWeekday = /\b(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(text);
+  const hasClockTime =
+    /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(text) ||
+    /\b(?:um|ab|bis|gegen|von)?\s*(?:[01]?\d|2[0-3])\s*uhr\b/i.test(text);
+
+  return hasConcreteDate || hasRelativeDay || hasWeekday || hasClockTime;
+};
+
+type InvoiceSpecialAppointmentDisplayEntryV17_90L330 = {
+  text: string;
+  key: string;
+  dayKey: string;
+  hasTime: boolean;
+};
+
+function buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(
+  value: unknown,
+): InvoiceSpecialAppointmentDisplayEntryV17_90L330 | null {
+  const text = compactInvoiceValue(value)
+    .replace(/^Termin\s*:\s*/i, "")
+    .trim();
+  if (!text || !isInvoiceAppointmentHintForChipV17_90L326(text)) return null;
+  if (getInvoiceAppointmentTimingV17_90L324(text) === "past") return null;
+
+  const dateMatch = text.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\.?\b/,
+  );
+  const relativeMatch = text.match(
+    /\b(?:heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+  );
+  const dayKey = dateMatch
+    ? [dateMatch[1].padStart(2, "0"), dateMatch[2].padStart(2, "0")].join(".")
+    : normalizeInvoiceAppointmentKeyV17_90L177R(relativeMatch?.[0] || "");
+  const times = Array.from(
+    text.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*uhr\b/gi,
+    ),
+  )
+    .map((match) =>
+      match[1]
+        ? `${match[1].padStart(2, "0")}:${match[2]}`
+        : `${String(match[3] || "").padStart(2, "0")}:00`,
+    )
+    .filter(Boolean);
+  const timeKey = Array.from(new Set(times)).join("-");
+  if (!dayKey && !timeKey) return null;
+
+  // SMARTFLOW_V17_90L333: Dedupe nach tatsächlichem Termin-Fakt
+  // statt nach Volltext. So wird "08.07" entfernt, sobald "08.07 · 09:30"
+  // existiert; unterschiedliche Uhrzeiten am selben Tag bleiben erhalten.
+  const key = [dayKey || "ohne-datum", timeKey || "ohne-uhrzeit"]
+    .filter(Boolean)
+    .join("|");
+  return { text, key, dayKey, hasTime: Boolean(timeKey) };
+}
+
+function buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
+  summary: InvoiceCanonicalWorkflowSummaryV17_90L273,
+): string {
+  const result: InvoiceSpecialAppointmentDisplayEntryV17_90L330[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const entry = buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(value);
+    if (!entry || seen.has(entry.key)) return;
+
+    // V17.90L330: Datum-only-Duplikate wie "Termin: 08.07" werden im
+    // Rechnungschip unterdrückt, wenn derselbe Tag bereits mit Uhrzeit vorhanden
+    // ist. Dadurch bleiben alle echten Zusatztermine erhalten, aber der Chip
+    // zeigt keine Halbduplikate.
+    const sameDayIndex = entry.dayKey
+      ? result.findIndex((current) => current.dayKey === entry.dayKey)
+      : -1;
+    if (sameDayIndex >= 0) {
+      const current = result[sameDayIndex];
+      if (current.hasTime && !entry.hasTime) return;
+      if (!current.hasTime && entry.hasTime) {
+        seen.add(entry.key);
+        result[sameDayIndex] = entry;
+        return;
+      }
+    }
+
+    seen.add(entry.key);
+    result.push(entry);
+  };
+
+  // V17.90L323/L330: Der Terminchip der Rechnung darf bei mehreren
+  // Besonderheiten-Terminen nicht blind den ersten alten Termin anzeigen.
+  // Die Details bleiben im Info-Chip; außen zeigt L325 nur das Kalender-Icon.
+  summary.primaryHints.forEach(add);
+  if (result.length === 0) return "";
+  if (result.length === 1) return result[0].text;
+
+  return [
+    `Termine · ${result.length}`,
+    ...result.map((entry, index) => `${index + 1}. ${entry.text}`),
+  ].join("\n");
+}
+
+function splitInvoiceAppointmentDisplayRowsV17_90L371R(value: unknown): string[] {
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactInvoiceValue(line).replace(/^\d+\.\s*/, ""))
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+  return /^Termine\s*·\s*\d+/i.test(lines[0]) ? lines.slice(1) : lines;
+}
+
+function mergeInvoiceAppointmentDisplayLabelsV17_90L371R(
+  primaryLabel: unknown,
+  secondaryLabel: unknown,
+): string {
+  const result: InvoiceSpecialAppointmentDisplayEntryV17_90L330[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const raw = compactInvoiceValue(value);
+    if (!raw) return;
+    const normalizedText = /^termin\b/i.test(raw) || /\btermin\b/i.test(raw)
+      ? raw
+      : `Termin ${raw}`;
+    const entry = buildInvoiceSpecialAppointmentDisplayEntryV17_90L330(normalizedText);
+    if (!entry) return;
+
+    const sameDayIndex = entry.dayKey
+      ? result.findIndex((current) => current.dayKey === entry.dayKey)
+      : -1;
+    if (sameDayIndex >= 0) {
+      const current = result[sameDayIndex];
+      if (current.hasTime && !entry.hasTime) return;
+      if (!current.hasTime && entry.hasTime) {
+        seen.delete(current.key);
+        seen.add(entry.key);
+        result[sameDayIndex] = entry;
+        return;
+      }
+    }
+
+    if (seen.has(entry.key)) return;
+    seen.add(entry.key);
+    result.push(entry);
+  };
+
+  splitInvoiceAppointmentDisplayRowsV17_90L371R(primaryLabel).forEach(add);
+  splitInvoiceAppointmentDisplayRowsV17_90L371R(secondaryLabel).forEach(add);
+
+  if (result.length === 0) return "";
+  if (result.length === 1) return result[0].text;
+  return [
+    `Termine · ${result.length}`,
+    ...result.map((entry, index) => `${index + 1}. ${entry.text}`),
+  ].join("\n");
+}
+
+const cleanInvoiceCustomerMessage = (value?: string | null) =>
+  String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/^(?:WhatsApp|Telegram):\s*\n?/i, "")
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)[0]
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^\s*\[META\]/i.test(trimmed)) return false;
+      if (
+        /^\s*\[(?:Titel|Title|Priorität|Prioritaet|Priority)\s*:/i.test(trimmed)
+      )
+        return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const isPrimaryInvoiceInformationLine = (value?: string | null) => {
+  const text = normalizeInvoiceServiceName(value);
+  if (!text) return false;
+  return (
+    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort|zugang|zutritt|schluessel|schlussel|schlüssel|schluesselbox|schlusselbox|schlüsselbox|schluesselkasten|schlusselkasten|schlüsselkasten|tuerkode|turkode|türkode|tuercode|turcode|türcode|seiteneingang|hintereingang|keybox|door code|access code)\b/.test(
+      text,
+    ) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(text) ||
+    /\b(?:0|\+41)[0-9\s()./-]{7,}\b/.test(text)
+  );
+};
+
+function collectInvoiceExecutionSites(source: {
+  items?: any[] | null;
+  orders?: Invoice["orders"] | null;
+}): InvoiceExecutionSite[] {
+  const sites: InvoiceExecutionSite[] = [];
+  const sourceOrders = source.orders || [];
+  const sourceOrderRole = new Map(
+    sourceOrders.map((order) => [
+      String(order?.id || ""),
+      Boolean(order?.siteAddressDifferent),
+    ]),
+  );
+  const operationalContextByAddress = new Map(
+    buildDocumentSiteOperationalContexts(sourceOrders as any[]).map((context) => [
+      documentSiteAddressKey(context),
+      context.text,
+    ]),
+  );
+
+  const add = (candidate?: InvoiceExecutionSite | null) => {
+    if (!candidate) return;
+    const site: InvoiceExecutionSite = {
+      siteName:
+        cleanInvoiceExecutionSiteLabelV17_90L281(candidate.siteName) || null,
+      siteAddress: compactInvoiceValue(candidate.siteAddress) || null,
+      sitePlz: compactInvoiceValue(candidate.sitePlz) || null,
+      siteCity: compactInvoiceValue(candidate.siteCity) || null,
+      siteNote: compactInvoiceValue(candidate.siteNote) || null,
+      sourceOrderId: compactInvoiceValue(candidate.sourceOrderId) || null,
+      _workSiteUiKey: compactInvoiceValue(candidate._workSiteUiKey) || null,
+      operationalText:
+        compactInvoiceValue(candidate.operationalText) ||
+        compactInvoiceValue(operationalContextByAddress.get(documentSiteAddressKey(candidate))) ||
+        null,
+    };
+    if (!site.siteAddress || !site.sitePlz || !site.siteCity) return;
+    const key = [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) => compactInvoiceValue(value).toLowerCase())
+      .join("|");
+    const existing = sites.find(
+      (entry) =>
+        [entry.siteName, entry.siteAddress, entry.sitePlz, entry.siteCity]
+          .map((value) => compactInvoiceValue(value).toLowerCase())
+          .join("|") === key,
+    );
+    if (existing) {
+      if (!existing.operationalText && site.operationalText) {
+        existing.operationalText = site.operationalText;
+      }
+      if (!existing.sourceOrderId && site.sourceOrderId) {
+        existing.sourceOrderId = site.sourceOrderId;
+      }
+      return;
+    }
+    sites.push(site);
+  };
+
+  (source.items || []).forEach((item: any) => {
+    const sourceOrderId = compactInvoiceValue(item?.sourceOrderId);
+    if (sourceOrderId && sourceOrderRole.get(sourceOrderId) === false) return;
+    add({
+      siteName: item?.siteName,
+      siteAddress: item?.siteAddress,
+      sitePlz: item?.sitePlz,
+      siteCity: item?.siteCity,
+      siteNote: item?.siteNote,
+      sourceOrderId: item?.sourceOrderId,
+      _workSiteUiKey: item?._workSiteUiKey,
+    });
+  });
+  // V17.90L371CA: Keine leeren Ausführungsorte nur aus verknüpften
+  // Aufträgen/Angeboten wiederherstellen. Rechnungs-Arbeitsorte werden aus
+  // konkreten Positions-Site-Feldern gesammelt. Dadurch bleibt root/
+  // Rechnungsadresse root und ein gelöschter leerer Arbeitsort kommt nicht
+  // durch die Quellenverknüpfung zurück.
+  return sites;
+}
+
+type InvoiceItemGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: Array<{ item: InvoiceItem; index: number }>;
+  subtotal: number;
+};
+
+const hasCompleteInvoiceItemSiteV17_90L371CD = (item: {
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+}) =>
+  Boolean(
+    compactInvoiceValue(item.siteAddress) &&
+      compactInvoiceValue(item.sitePlz) &&
+      compactInvoiceValue(item.siteCity),
+  );
+
+const invoiceBillingRootItemFingerprintV17_90L371CD = (item: any) =>
+  [
+    compactInvoiceValue(item?.description || item?.serviceName).toLocaleLowerCase("de-CH"),
+    compactInvoiceValue(item?.quantity),
+    compactInvoiceValue(item?.unit).toLocaleLowerCase("de-CH"),
+    compactInvoiceValue(item?.unitPrice),
+  ].join("|");
+
+const collectSourceOfferBillingRootItemKeysV17_90L371CD = (offer: any): string[] => {
+  const keys = new Set<string>();
+  (Array.isArray(offer?.items) ? offer.items : []).forEach((item: any) => {
+    if (hasCompleteInvoiceItemSiteV17_90L371CD(item)) return;
+    const key = invoiceBillingRootItemFingerprintV17_90L371CD(item);
+    if (key.replace(/\|/g, "")) keys.add(key);
+  });
+  return Array.from(keys);
+};
+
+const clearInvoiceItemBillingRootSiteV17_90L371CD = (item: InvoiceItem): InvoiceItem => ({
+  ...item,
+  siteName: null,
+  siteAddress: null,
+  sitePlz: null,
+  siteCity: null,
+  siteNote: null,
+  sourceOrderId: null,
+  _workSiteUiKey: null,
+});
+
+const repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD = (
+  sourceItems: InvoiceItem[],
+  sourceOfferRootKeys?: string[],
+): InvoiceItem[] => {
+  if (!Array.isArray(sourceOfferRootKeys) || sourceOfferRootKeys.length === 0) {
+    return sourceItems;
+  }
+  const rootKeys = new Set(sourceOfferRootKeys);
+  let changed = false;
+  const next = sourceItems.map((item) => {
+    const key = invoiceBillingRootItemFingerprintV17_90L371CD(item);
+    if (!rootKeys.has(key)) return item;
+    if (!hasCompleteInvoiceItemSiteV17_90L371CD(item) && !compactInvoiceValue(item.sourceOrderId)) {
+      return item;
+    }
+    changed = true;
+    return clearInvoiceItemBillingRootSiteV17_90L371CD(item);
+  });
+  return changed ? next : sourceItems;
+};
+
+const invoiceSiteKey = (site: InvoiceExecutionSite) =>
+  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
+    .map((value) => compactInvoiceValue(value).toLowerCase())
+    .join("|");
+
+// V17.90L287: UI-only stable key. Typing in a worksite must not change the
+// React group key and remount the editor. The key is never persisted.
+const invoiceWorkSiteGroupKeyV17_90L287 = (site: InvoiceExecutionSite) =>
+  compactInvoiceValue(site._workSiteUiKey) ||
+  `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+
+const stripInvoiceWorkSiteUiStateV17_90L287 = (
+  item: InvoiceItem,
+): InvoiceItem => {
+  const { _workSiteUiKey: _ignoredUiKey, ...persisted } = item;
+  return persisted;
+};
+
+const ensureInvoiceExecutionSiteUiKeysV17_90L302 = (
+  sites: InvoiceExecutionSite[],
+  seed: string,
+): InvoiceExecutionSite[] => {
+  const seen = new Set<string>();
+  return sites.map((site, index) => {
+    const rawKey = compactInvoiceValue(site._workSiteUiKey);
+    const stableKey = rawKey && !seen.has(rawKey)
+      ? rawKey
+      : `invoice-site-${seed || "draft"}-${index}`;
+    seen.add(stableKey);
+    return { ...site, _workSiteUiKey: stableKey };
+  });
+};
+
+// V17.90L292: Rechnungs-Arbeitsorte werden über die Positionen gespeichert.
+// Vor jedem Save wird deshalb der aktuelle sichtbare Arbeitsortzustand noch
+// einmal verbindlich in die zugeordneten Positionen geschrieben.
+function applyInvoiceExecutionSitesToItemsV17_90L292(
+  sourceItems: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+): InvoiceItem[] {
+  const cleanSites = sites.filter(
+    (site) =>
+      Boolean(compactInvoiceValue(site.siteAddress)) &&
+      Boolean(compactInvoiceValue(site.sitePlz)) &&
+      Boolean(compactInvoiceValue(site.siteCity)),
+  );
+
+  if (cleanSites.length === 0) {
+    return sourceItems.map((item) => ({
+      ...item,
+      siteName: null,
+      siteAddress: null,
+      sitePlz: null,
+      siteCity: null,
+      siteNote: null,
+      sourceOrderId: null,
+    }));
+  }
+
+  return sourceItems.map((item) => {
+    const site =
+      cleanSites.find(
+        (candidate) =>
+          Boolean(compactInvoiceValue(candidate._workSiteUiKey)) &&
+          candidate._workSiteUiKey === item._workSiteUiKey,
+      ) ||
+      cleanSites.find(
+        (candidate) => invoiceSiteKey(candidate) === invoiceSiteKey(item),
+      ) ||
+      undefined;
+
+    if (!site) {
+      const hasCompleteItemSiteV17_90L371CA = Boolean(
+        compactInvoiceValue(item.siteAddress) &&
+          compactInvoiceValue(item.sitePlz) &&
+          compactInvoiceValue(item.siteCity),
+      );
+      return {
+        ...item,
+        siteName: hasCompleteItemSiteV17_90L371CA ? item.siteName || null : null,
+        siteAddress: hasCompleteItemSiteV17_90L371CA ? item.siteAddress || null : null,
+        sitePlz: hasCompleteItemSiteV17_90L371CA ? item.sitePlz || null : null,
+        siteCity: hasCompleteItemSiteV17_90L371CA ? item.siteCity || null : null,
+        siteNote: hasCompleteItemSiteV17_90L371CA ? item.siteNote || null : null,
+        sourceOrderId: hasCompleteItemSiteV17_90L371CA ? item.sourceOrderId || null : null,
+      };
+    }
+    return {
+      ...item,
+      siteName: compactInvoiceValue(site.siteName) || null,
+      siteAddress: compactInvoiceValue(site.siteAddress) || null,
+      sitePlz: compactInvoiceValue(site.sitePlz) || null,
+      siteCity: compactInvoiceValue(site.siteCity) || null,
+      siteNote: compactInvoiceValue(site.siteNote) || null,
+      // V17.90L293: Ein direkt in der Rechnung angelegter Arbeitsort
+      // ist dokumenteigene Zuordnung und darf nicht durch die alte
+      // Auftragsrolle beim erneuten Laden ausgeblendet werden.
+      sourceOrderId: compactInvoiceValue(site._workSiteUiKey)
+        ? null
+        : site.sourceOrderId || item.sourceOrderId || null,
+    };
+  });
+}
+
+function groupInvoiceItemsByExecutionSite(
+  sourceItems: InvoiceItem[],
+  sites: InvoiceExecutionSite[] = [],
+): InvoiceItemGroup[] {
+  const groups = new Map<string, InvoiceItemGroup>();
+
+  // V17.90L284: Arbeitsorte zuerst als eigenständige Gruppen anlegen.
+  // So bleibt ein neuer Arbeitsort sichtbar und bearbeitbar, bevor ihm eine
+  // Leistung zugeordnet wird.
+  sites.filter(Boolean).forEach((site) => {
+    const key = invoiceWorkSiteGroupKeyV17_90L287(site);
+    if (!groups.has(key)) {
+      groups.set(key, { key, site, entries: [], subtotal: 0 });
+    }
+  });
+
+  sourceItems.forEach((item, index) => {
+    const hasCompleteItemSite = Boolean(
+      compactInvoiceValue(item.siteAddress) &&
+        compactInvoiceValue(item.sitePlz) &&
+        compactInvoiceValue(item.siteCity),
+    );
+    const itemUiKey = compactInvoiceValue((item as InvoiceExecutionSite)._workSiteUiKey);
+    const matchedSite =
+      sites.find(
+        (site) =>
+          Boolean(compactInvoiceValue(site._workSiteUiKey)) &&
+          compactInvoiceValue(site._workSiteUiKey) === itemUiKey,
+      ) ||
+      sites.find(
+        (site) =>
+          hasCompleteItemSite &&
+          invoiceSiteKey(site) === invoiceSiteKey(item),
+      ) ||
+      null;
+    const site =
+      matchedSite ||
+      (hasCompleteItemSite
+        ? {
+            siteName: item.siteName || null,
+            siteAddress: item.siteAddress || null,
+            sitePlz: item.sitePlz || null,
+            siteCity: item.siteCity || null,
+            siteNote: item.siteNote || null,
+            sourceOrderId: item.sourceOrderId || null,
+            _workSiteUiKey: item._workSiteUiKey || null,
+          }
+        : null);
+    const key = site
+      ? invoiceWorkSiteGroupKeyV17_90L287(site)
+      : "general";
+    const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+    const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
+    group.entries.push({ item, index });
+    group.subtotal += Number.isFinite(lineTotal) ? lineTotal : 0;
+    groups.set(key, group);
+  });
+  return Array.from(groups.values()).sort((left, right) => {
+    if (!left.site && right.site) return -1;
+    if (left.site && !right.site) return 1;
+    const leftEmpty = left.entries.length === 0;
+    const rightEmpty = right.entries.length === 0;
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    return 0;
+  });
+}
+
+function buildInvoiceGroupReviewRows(
+  group: InvoiceItemGroup,
+  services: any[],
+  currency: "CHF" | "EUR",
+): string[] {
+  return group.entries.flatMap(({ item }) => {
+    const name = compactInvoiceValue(item?.description) || "Neue Position";
+    const quantity = Number(item?.quantity || 0);
+    const unitPrice = Number(item?.unitPrice || 0);
+    const unit = compactInvoiceValue(item?.unit);
+    const matched = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(name),
+    );
+    const reasons: string[] = [];
+    if (
+      !name ||
+      quantity <= 0 ||
+      unitPrice <= 0 ||
+      !unit ||
+      /(?:prüfen|pruefen|prufen)/i.test(unit)
+    )
+      reasons.push("Preis, Menge oder Einheit prüfen");
+    if (!matched) reasons.push("nicht im Leistungskatalog");
+    if (matched) {
+      const catalogPrice = Number(matched?.defaultPrice || 0);
+      const catalogUnit = compactInvoiceValue(matched?.unit);
+      if (catalogUnit && catalogUnit !== unit)
+        reasons.push(`Einheit: ${unit || "–"} statt ${catalogUnit}`);
+      if (Math.abs(catalogPrice - unitPrice) >= 0.001)
+        reasons.push(
+          `Preis: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`,
+        );
+    }
+    return reasons.length > 0
+      ? [
+          `${name}
+${reasons.join(" · ")}`,
+        ]
+      : [];
+  });
+}
+
+type InvoiceServiceReviewEntry = {
+  item: InvoiceItem;
+  description: string;
+  category: "blocker" | "deviation" | "missing";
+  details: string[];
+};
+
+type InvoiceServiceReviewSiteGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: InvoiceServiceReviewEntry[];
+};
+
+type InvoiceServiceDisplayEntry = {
+  item: InvoiceItem;
+  description: string;
+  category: "blocker" | "deviation" | "missing" | "catalog";
+  details: string[];
+};
+
+type InvoiceServiceDisplaySiteGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: InvoiceServiceDisplayEntry[];
+};
+
+function buildInvoiceServiceDisplayEntriesV17_90L136(
+  items: InvoiceItem[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceDisplayEntry[] {
+  return (items || []).map((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const description =
+      compactInvoiceValue(item?.description) || "Unbenannte Position";
+    const unit = compactInvoiceValue(item?.unit);
+    const matchedService = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(description),
+    );
+    const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${
+      unit || "–"
+    } × ${
+      unitPrice > 0 ? formatCurrency(unitPrice, currency) : "Preis prüfen"
+    } = ${formatCurrency(
+      Math.max(0, quantity) * Math.max(0, unitPrice),
+      currency,
+    )}`;
+    const missingReasons = [
+      !compactInvoiceValue(item?.description) ? "Positionsname fehlt" : "",
+      !unit ? "Einheit fehlt" : "",
+      quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+      unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+    ].filter(Boolean);
+
+    if (missingReasons.length > 0) {
+      return {
+        item,
+        description,
+        category: "blocker" as const,
+        details: [`Aktuell: ${currentCalculation}`, ...missingReasons],
+      };
+    }
+
+    if (!matchedService) {
+      return {
+        item,
+        description,
+        category: "missing" as const,
+        details: [`Aktuell: ${currentCalculation}`],
+      };
+    }
+
+    const catalogUnit = compactInvoiceValue(matchedService?.unit);
+    const catalogPrice = Number(matchedService?.defaultPrice || 0);
+    const sameUnit = !catalogUnit || catalogUnit === unit;
+    const samePrice = Math.abs(catalogPrice - unitPrice) < 0.001;
+    const details = [
+      `Aktuell: ${currentCalculation}`,
+      `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${
+        catalogUnit || "–"
+      }`,
+      ...[
+        !sameUnit
+          ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
+          : "",
+        !samePrice ? "Preis weicht vom Katalog ab." : "",
+      ].filter(Boolean),
+    ];
+
+    return {
+      item,
+      description,
+      category:
+        sameUnit && samePrice ? ("catalog" as const) : ("deviation" as const),
+      details,
+    };
+  });
+}
+
+function buildInvoiceServiceDisplaySiteGroupsV17_90L136(
+  items: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceDisplaySiteGroup[] {
+  return groupInvoiceItemsByExecutionSite(items, sites)
+    .map((group) => ({
+      key: group.key,
+      site: group.site,
+      entries: buildInvoiceServiceDisplayEntriesV17_90L136(
+        group.entries.map((entry) => entry.item),
+        services,
+        currency,
+      ),
+    }))
+    .filter((group) => group.entries.length > 0);
+}
+
+function buildInvoiceServiceReviewEntriesV17_90L135G(
+  items: InvoiceItem[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceReviewEntry[] {
+  return (items || []).flatMap<InvoiceServiceReviewEntry>((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const description =
+      compactInvoiceValue(item?.description) || "Unbenannte Position";
+    const unit = compactInvoiceValue(item?.unit);
+    const matchedService = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(description),
+    );
+    const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${unit || "–"} × ${
+      unitPrice > 0 ? formatCurrency(unitPrice, currency) : "Preis prüfen"
+    } = ${formatCurrency(Math.max(0, quantity) * Math.max(0, unitPrice), currency)}`;
+    const missingReasons = [
+      !compactInvoiceValue(item?.description) ? "Positionsname fehlt" : "",
+      !unit ? "Einheit fehlt" : "",
+      quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+      unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+    ].filter(Boolean);
+
+    if (missingReasons.length > 0) {
+      return [
+        {
+          item,
+          description,
+          category: "blocker" as const,
+          details: [...missingReasons, `Aktuell: ${currentCalculation}`],
+        },
+      ];
+    }
+    if (!matchedService) {
+      return [
+        {
+          item,
+          description,
+          category: "missing" as const,
+          details: [`Aktuell: ${currentCalculation}`],
+        },
+      ];
+    }
+    const catalogUnit = compactInvoiceValue(matchedService?.unit);
+    const catalogPrice = Number(matchedService?.defaultPrice || 0);
+    const sameUnit = catalogUnit === unit;
+    const samePrice = Math.abs(catalogPrice - unitPrice) < 0.001;
+    if (sameUnit && samePrice) return [];
+    return [
+      {
+        item,
+        description,
+        category: "deviation" as const,
+        details: [
+          `Aktuell: ${currentCalculation}`,
+          `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${catalogUnit || "–"}`,
+          ...[
+            !sameUnit
+              ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
+              : "",
+            !samePrice ? "Preis weicht vom Katalog ab." : "",
+          ].filter(Boolean),
+        ],
+      },
+    ];
+  });
+}
+
+function buildInvoiceServiceReviewSiteGroupsV17_90L135G(
+  items: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceReviewSiteGroup[] {
+  return groupInvoiceItemsByExecutionSite(items, sites)
+    .map((group) => ({
+      key: group.key,
+      site: group.site,
+      entries: buildInvoiceServiceReviewEntriesV17_90L135G(
+        group.entries.map((entry) => entry.item),
+        services,
+        currency,
+      ),
+    }))
+    .filter((group) => group.entries.length > 0);
+}
+
+function getInvoiceMergedCount(invoice: Invoice): number {
+  const orderCount = Array.isArray(invoice.orders) ? invoice.orders.length : 0;
+  const originCount = Math.max(
+    0,
+    ...(invoice.orders || []).map((order) =>
+      Array.isArray(order.originOrderIds)
+        ? order.originOrderIds.filter(Boolean).length
+        : 0,
+    ),
+  );
+  const hasMergeReason = (invoice.orders || []).some((order) =>
+    (order.reviewReasons || []).some((reason) =>
+      ["manual_order_merge", "double_merge"].includes(String(reason || "")),
+    ),
+  );
+  return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
+}
+
+type InvoiceCardCommunicationChannelV17_90L352 = "sms" | "whatsapp" | "mail" | "phone";
+
+type InvoiceCardCommunicationActionV17_90L352 = {
+  channel: InvoiceCardCommunicationChannelV17_90L352;
+  phone: string;
+  email: string;
+  minutesBefore: number | null;
+  sourceText: string;
+};
+
+const normalizeInvoiceContactTextV17_90L352 = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/whats\s+app/g, "whatsapp")
+    .replace(/e\s*mail/g, "email")
+    .replace(/[^a-z0-9+@.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isInvoiceChannelNegatedV17_90L352 = (
+  text: string,
+  tokenPattern: string,
+) =>
+  new RegExp(
+    `\\b(?:kein|keine|keinen|nicht|ohne|nie|no|not|never|ned|nid|nit|n[oö]d|noed|nod)\\b.{0,24}\\b(?:${tokenPattern})\\b`,
+    "i",
+  ).test(text) ||
+  new RegExp(
+    `\\b(?:${tokenPattern})\\b.{0,24}\\b(?:nicht|keine?|keinen|ohne|no|not|never|gesperrt|verboten)\\b`,
+    "i",
+  ).test(text);
+
+const isInvoiceExplicitChannelInstructionLineV17_90L352 = (value: string) =>
+  /\b(?:nur|only|ausschliesslich|ausschließlich|per|via|ueber|über|kontakt|melden|schreiben|informieren|senden|benachrichtigen|vorher|zuerst|erst|minuten|minute|message|nachricht|reicht|bevorzugt)\b/i.test(
+    value,
+  );
+
+const normalizeInvoicePhoneForActionV17_90L352 = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const hasPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 6) return "";
+  return `${hasPlus ? "+" : ""}${digits}`;
+};
+
+const extractInvoiceActionPhoneV17_90L352 = (
+  source: string,
+  invoice: Invoice,
+  explicitContact: ReturnType<typeof extractDocumentContactFallback>,
+  resolved: any,
+  fullSource?: string,
+) => {
+  // SMARTFLOW_V17_90L354: Telefon-Anweisungen stehen oft in einer
+  // eigenen Zeile ("Bitte 20 Minuten vorher telefonisch anrufen."),
+  // während die eigentliche Nummer in einer separaten Tel:-Zeile der
+  // übernommenen Kundennachricht steht. Für den Telefon-Chip darf daher
+  // die Nummer aus einer klar beschrifteten Telefon-/Kontaktzeile des
+  // gesamten Quelltexts gelesen werden. Reine Datums-/Preis-/Adresszahlen
+  // bleiben ausgeschlossen, weil sie kein passendes Label haben.
+  const strictPhoneSource = `${source}\n${fullSource || ""}`;
+  const labelled =
+    strictPhoneSource.match(
+      /(?:tel\.?|telefon|phone|mobile|handy|natel|kontakt(?:\s+vor\s+ort)?|anruf(?:en)?|rueckruf|ruckruf)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] || "";
+  const local = Array.from(source.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
+    .map((match) => String(match[0] || "").trim())
+    .find((candidate) => {
+      const digits = candidate.replace(/\D/g, "");
+      return digits.length >= 7 && digits.length <= 15;
+    });
+  return normalizeInvoicePhoneForActionV17_90L352(
+    labelled ||
+      local ||
+      explicitContact.phone ||
+      resolved.phone ||
+      resolved.customer?.phone ||
+      invoice.customer?.phone ||
+      "",
+  );
+};
+
+const extractInvoiceActionEmailV17_90L352 = (
+  source: string,
+  invoice: Invoice,
+  explicitContact: ReturnType<typeof extractDocumentContactFallback>,
+  resolved: any,
+) => {
+  const local = source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  return String(
+    local ||
+      explicitContact.email ||
+      resolved.email ||
+      resolved.customer?.email ||
+      invoice.customer?.email ||
+      "",
+  ).trim();
+};
+
+const resolveInvoiceCardCommunicationActionV17_90L352 = (
+  invoice: Invoice,
+  resolved: any,
+): InvoiceCardCommunicationActionV17_90L352 | null => {
+  const rawSource = (invoice.orders || [])
+    .flatMap((order) => [order?.specialNotes, order?.notes, order?.audioTranscript])
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!rawSource.trim()) return null;
+
+  const explicitContact = extractDocumentContactFallback(
+    ...(invoice.orders || []).flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+  );
+
+  const lines = rawSource
+    .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) =>
+      compactInvoiceValue(
+        line
+          .replace(/^\s*(?:WhatsApp|Telegram|SMS|Kundennachricht)\s*:\s*/i, "")
+          .replace(/^\s*[-•*]+\s*/g, ""),
+      ),
+    )
+    .filter(Boolean);
+
+  const candidates: InvoiceCardCommunicationActionV17_90L352[] = [];
+  for (const line of lines) {
+    if (!isInvoiceExplicitChannelInstructionLineV17_90L352(line)) continue;
+    const normalized = normalizeInvoiceContactTextV17_90L352(line);
+    const hasSms = /\bsms\b/.test(normalized);
+    const hasWhatsApp = /\bwhatsapp\b/.test(normalized);
+    const hasMail = /\b(?:email|mail)\b/.test(normalized);
+    const hasPhone = /\b(?:telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf|call)\b/.test(normalized);
+    const smsNegated = hasSms && isInvoiceChannelNegatedV17_90L352(normalized, "sms");
+    const whatsappNegated =
+      hasWhatsApp && isInvoiceChannelNegatedV17_90L352(normalized, "whatsapp");
+    const mailNegated =
+      hasMail && isInvoiceChannelNegatedV17_90L352(normalized, "email|mail");
+    const phoneNegated =
+      hasPhone && isInvoiceChannelNegatedV17_90L352(
+        normalized,
+        "telefon|telefonisch|anruf|anrufen|rueckruf|ruckruf|call",
+      );
+
+    let channel: InvoiceCardCommunicationChannelV17_90L352 | null = null;
+    if (hasSms && !smsNegated) channel = "sms";
+    else if (hasMail && !mailNegated) channel = "mail";
+    else if (hasWhatsApp && !whatsappNegated) channel = "whatsapp";
+    else if (hasPhone && !phoneNegated) channel = "phone";
+    if (!channel) continue;
+
+    const minutesMatch = line.match(/\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i);
+    candidates.push({
+      channel,
+      phone: extractInvoiceActionPhoneV17_90L352(
+        line,
+        invoice,
+        explicitContact,
+        resolved,
+        rawSource,
+      ),
+      email: extractInvoiceActionEmailV17_90L352(
+        line,
+        invoice,
+        explicitContact,
+        resolved,
+      ),
+      minutesBefore: minutesMatch ? Number(minutesMatch[1]) : null,
+      sourceText: line,
+    });
+  }
+
+  return candidates.sort((left, right) => {
+    const leftTarget = left.channel === "mail" ? left.email : left.phone;
+    const rightTarget = right.channel === "mail" ? right.email : right.phone;
+    return Number(Boolean(rightTarget)) - Number(Boolean(leftTarget));
+  })[0] || null;
+};
+
+const buildInvoiceCommunicationChipContextV17_90L352 = (
+  action: InvoiceCardCommunicationActionV17_90L352,
+) => {
+  const timing = action.minutesBefore
+    ? ` ${action.minutesBefore} Minuten vorher.`
+    : "";
+  if (action.channel === "sms") {
+    return `Nur SMS${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  if (action.channel === "whatsapp") {
+    return `Nur WhatsApp${action.phone ? ` an ${action.phone}` : ""}.${timing}`;
+  }
+  if (action.channel === "phone") {
+    return `Telefonisch anrufen${action.phone ? `: ${action.phone}` : ""}.${timing}`;
+  }
+  return `Nur E-Mail${action.email ? ` an ${action.email}` : ""}.`;
+};
+
+function buildInvoiceCommunicationData(invoice: Invoice) {
+  const resolved = resolveCommunicationData(null, invoice.orders || []);
+  const explicitContact = extractDocumentContactFallback(
+    ...(invoice.orders || []).flatMap((order) => [
+      order?.notes,
+      order?.audioTranscript,
+      order?.specialNotes,
+    ]),
+  );
+  const action = resolveInvoiceCardCommunicationActionV17_90L352(
+    invoice,
+    resolved,
+  );
+  const emptyCustomer = {
+    ...(resolved.customer || {}),
+    name:
+      explicitContact.name ||
+      resolved.customer?.name ||
+      invoice.customer?.name ||
+      null,
+    phone: null,
+    email: null,
+  };
+
+  // SMARTFLOW_V17_90L380: Kein Kontaktchip ohne ausdrückliche
+  // Kundenanweisung. Eine erkannte WhatsApp-/SMS-/E-Mail-Anweisung bleibt aber
+  // auch ohne bereits hinterlegte Nummer/E-Mail sichtbar; CommunicationChips
+  // kennzeichnet dann die fehlenden Kontaktdaten. Reine Transportpräfixe werden
+  // bereits beim Ermitteln der Kommunikationsaktion ausgeschlossen.
+  if (!action) {
+    return {
+      ...resolved,
+      customer: emptyCustomer,
+      phone: null,
+      contactPhone: null,
+      email: null,
+      specialNotes: "",
+      communicationContext: "",
+      notes: "",
+      audioTranscript: "",
+    };
+  }
+
+  const context = buildInvoiceCommunicationChipContextV17_90L352(action);
+  const targetPhone = action.channel === "mail" ? null : action.phone || null;
+  const targetEmail = action.channel === "mail" ? action.email || null : null;
+  const storedCustomerPhone =
+    invoice.customer?.phone || resolved.customer?.phone || null;
+  const storedCustomerEmail =
+    invoice.customer?.email || resolved.customer?.email || null;
+  const sourceContext = [context, action.sourceText]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    ...resolved,
+    customer: {
+      ...emptyCustomer,
+      name: invoice.customer?.name || resolved.customer?.name || emptyCustomer.name,
+      phone: storedCustomerPhone,
+      email: storedCustomerEmail,
+    },
+    phone: storedCustomerPhone,
+    contactPhone: targetPhone,
+    email: storedCustomerEmail || targetEmail,
+    specialNotes: "",
+    communicationContext: sourceContext,
+    notes: sourceContext,
+    audioTranscript: "",
+  };
+}
+
+function formatInvoiceDateLabel(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function toInvoiceDateInputValue(value?: string | null): string {
+  if (!value) return "";
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToInvoiceDate(value: string, days: number): string {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayInvoiceDateInputValue(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+type InvoiceAppointmentEntryV17_90L177R = {
+  site: string;
+  label: string;
+  source: string;
+};
+
+function normalizeInvoiceAppointmentKeyV17_90L177R(
+  value?: string | null,
+): string {
+  return compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
+  const line = compactInvoiceValue(
+    String(value || "").replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, ""),
+  );
+  if (!line) return "";
+  const dateMatch = line.match(
+    /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
+  );
+  const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
+  const explicitDateTimeWithoutWord = Boolean(
+    dateMatch &&
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/i.test(lineWithoutDate) &&
+      !/\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|rückruf|mail|e-?mail|melden|bescheid)\b/i.test(line) &&
+      !/\b(?:chf|eur|franken|euro|pauschal|preis|à|a\s+chf)\b/i.test(line)
+  );
+  if (
+    !explicitDateTimeWithoutWord &&
+    !/\b(?:termin|datum|zeitfenster|appointment|ausführungstermin|ausfuehrungstermin|uhr)\b/i.test(
+      line,
+    )
+  ) {
+    return "";
+  }
+
+  const timeMatches = Array.from(
+    lineWithoutDate.matchAll(
+      /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b|\b(?:um|ab|gegen|von|bis)?\s*([01]?\d|2[0-3])\s*(?:uhr|h)\b/gi,
+    ),
+  );
+  const times = timeMatches
+    .map((match) =>
+      match[1]
+        ? `${match[1].padStart(2, "0")}:${match[2]}`
+        : `${String(match[3] || "").padStart(2, "0")}:00`,
+    )
+    .filter((time, index, all) => time && all.indexOf(time) === index);
+  const timeLabel =
+    times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, "0");
+    const month = dateMatch[2].padStart(2, "0");
+    const year = dateMatch[3]
+      ? String(dateMatch[3]).length === 2
+        ? `20${dateMatch[3]}`
+        : String(dateMatch[3])
+      : "";
+    const dateLabel = year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+    return `Termin ${dateLabel}${timeLabel ? ` · ${timeLabel}` : ""}`;
+  }
+
+  if (timeLabel) {
+    const relativeDate = line.match(
+      /\b(?:heute|morgen|übermorgen|uebermorgen|nächsten?\s+(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)|kommenden?\s+(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))\b/i,
+    )?.[0];
+    return `Termin${relativeDate ? ` ${relativeDate}` : ""} · ${timeLabel}`;
+  }
+
+  if (/\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line)) {
+    return "Termin klären";
+  }
+
+  return "";
+}
+
+function splitInvoiceAppointmentSectionsV17_90L177R(
+  value?: string | null,
+): string[] {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const sections = source
+    .split(
+      /\n\s*(?:─{3,}|-{3,})\s*\n|\n\s*(?:Hauptauftrag|Zusammengeführt mit|Zusammengefuehrt mit)\s*:\s*/gi,
+    )
+    .map((section) => section.trim())
+    .filter(Boolean);
+  return sections.length > 0 ? sections : [source];
+}
+
+function extractInvoiceAppointmentLinesV17_90L177R(
+  value?: string | null,
+): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => compactInvoiceValue(line))
+    .filter((line) => Boolean(parseInvoiceAppointmentLineV17_90L177R(line)));
+}
+
+function resolveInvoiceAppointmentSiteV17_90L177R(
+  order: NonNullable<Invoice["orders"]>[number],
+  section: string,
+  sectionIndex: number,
+): string {
+  const workSites = Array.isArray(order?.workSites)
+    ? [...order.workSites].sort(
+        (a, b) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+  const sectionKey = normalizeInvoiceAppointmentKeyV17_90L177R(section);
+  const matchingSite = workSites.find((site) => {
+    const candidates = [
+      site?.siteName,
+      site?.siteAddress,
+      [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
+    ]
+      .map((value) => normalizeInvoiceAppointmentKeyV17_90L177R(value))
+      .filter(Boolean);
+    return candidates.some((candidate) => sectionKey.includes(candidate));
+  });
+  const fallbackSite = matchingSite || workSites[sectionIndex] || workSites[0];
+  return (
+    compactInvoiceValue(fallbackSite?.siteName) ||
+    compactInvoiceValue(fallbackSite?.siteAddress) ||
+    compactInvoiceValue(order?.siteName) ||
+    compactInvoiceValue(order?.siteAddress) ||
+    `Arbeitsort ${sectionIndex + 1}`
+  );
+}
+
+function collectInvoiceAppointmentEntriesV17_90L177R(
+  invoice: Invoice,
+): InvoiceAppointmentEntryV17_90L177R[] {
+  const entries: InvoiceAppointmentEntryV17_90L177R[] = [];
+
+  const addEntry = (entry: InvoiceAppointmentEntryV17_90L177R) => {
+    const labelKey = getInvoiceAppointmentFactKeyV17_90L371U(entry.label);
+    if (!labelKey) return;
+    const siteKey = normalizeInvoiceAppointmentKeyV17_90L177R(entry.site);
+    const exactIndex = entries.findIndex(
+      (current) =>
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) === labelKey &&
+        normalizeInvoiceAppointmentKeyV17_90L177R(current.site) === siteKey,
+    );
+    if (exactIndex >= 0) {
+      if (entry.source.length > entries[exactIndex].source.length) {
+        entries[exactIndex] = entry;
+      }
+      return;
+    }
+
+    const looseIndex = entries.findIndex((current) => {
+      if (
+        getInvoiceAppointmentFactKeyV17_90L371U(current.label) !== labelKey
+      ) {
+        return false;
+      }
+      const currentSite = normalizeInvoiceAppointmentKeyV17_90L177R(
+        current.site,
+      );
+      return !currentSite || !siteKey || /^arbeitsort \d+$/.test(currentSite);
+    });
+    if (looseIndex >= 0) {
+      const current = entries[looseIndex];
+      entries[looseIndex] = {
+        site:
+          /^arbeitsort \d+$/i.test(current.site) &&
+          !/^arbeitsort \d+$/i.test(entry.site)
+            ? entry.site
+            : current.site,
+        label: current.label,
+        source:
+          current.source.length >= entry.source.length
+            ? current.source
+            : entry.source,
+      };
+      return;
+    }
+
+    const entryDayKey = getInvoiceAppointmentDayKey(entry.label);
+    if (entryDayKey) {
+      const sameDaySameSiteIndex = entries.findIndex(
+        (current) =>
+          normalizeInvoiceAppointmentKeyV17_90L177R(current.site) === siteKey &&
+          getInvoiceAppointmentDayKey(current.label) === entryDayKey,
+      );
+      if (sameDaySameSiteIndex >= 0) {
+        const current = entries[sameDaySameSiteIndex];
+        const currentHasTime = invoiceAppointmentLabelHasTimeV17_90L371V(current.label);
+        const entryHasTime = invoiceAppointmentLabelHasTimeV17_90L371V(entry.label);
+        if (currentHasTime && !entryHasTime) return;
+        if (!currentHasTime && entryHasTime) {
+          entries[sameDaySameSiteIndex] = entry;
+          return;
+        }
+        if (!currentHasTime && !entryHasTime) return;
+      }
+    }
+
+    entries.push(entry);
+  };
+
+  // SMARTFLOW_V17_90L371AJ: Termin-Chips/Popover nur noch aus der zentral
+  // bereinigten Terminliste anzeigen. Die alte lokale Rohtext-Nachlese aus
+  // notes/specialNotes erzeugte weiterhin Dubletten wie "morgen · 10:00 Uhr",
+  // "22.06.2026" oder Reststücke wie "09:00 Uhr / 06".
+  const mergedAppointmentEntriesV17_90L371AJ = compactInvoiceAppointmentEntriesForDisplay(
+    collectMergedAppointmentEntries((invoice.orders || []) as any),
+  );
+  mergedAppointmentEntriesV17_90L371AJ.forEach((entry: any) => {
+    const rawLabel = compactInvoiceValue(entry?.label)
+      .replace(/^Termin\s*:??\s*/i, "")
+      .trim();
+    if (!rawLabel) return;
+    addEntry({
+      site:
+        cleanInvoiceExecutionSiteLabelV17_90L281(entry?.site) ||
+        compactInvoiceValue(entry?.address) ||
+        "Arbeitsort",
+      label: rawLabel,
+      source: rawLabel,
+    });
+  });
+
+  return entries;
+}
+
+function formatInvoiceAppointmentLabel(invoice: Invoice): string {
+  const rawEntries = collectInvoiceAppointmentEntriesV17_90L177R(invoice).filter(
+    (entry) => getInvoiceAppointmentTimingV17_90L324(entry.label) !== "past",
+  );
+  const timedDays = new Set(
+    rawEntries
+      .filter((entry) => invoiceAppointmentLabelHasTimeV17_90L371V(entry.label))
+      .map((entry) => getInvoiceAppointmentDayKey(entry.label))
+      .filter(Boolean),
+  );
+  const entries = rawEntries.filter((entry) => {
+    const dayKey = getInvoiceAppointmentDayKey(entry.label);
+    const hasTime = invoiceAppointmentLabelHasTimeV17_90L371V(entry.label);
+    return !(dayKey && !hasTime && timedDays.has(dayKey));
+  });
+  if (entries.length === 0) return "";
+  if (entries.length === 1) return entries[0].label;
+  return [
+    `Termine · ${entries.length}`,
+    ...entries.map((entry, index) => {
+      const site = cleanInvoiceExecutionSiteLabelV17_90L281(entry.site);
+      return `${index + 1}. ${site ? `${site} — ` : ""}${entry.label}`;
+    }),
+  ].join("\n");
+}
+
+function InvoiceViewportTooltip({
+  children,
+  preferredWidth = 420,
+  autoClose = true,
+  mobileDismissOnInteraction = false,
+}: {
+  children: any;
+  preferredWidth?: number;
+  autoClose?: boolean;
+  mobileDismissOnInteraction?: boolean;
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const openRef = useRef(false);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInTriggerRef = useRef(false);
+  const pointerInTooltipRef = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
+  const isMobileDismissMode = () =>
+    mobileDismissOnInteraction &&
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 767px)").matches;
+
+  const setTooltipOpen = (nextOpen: boolean) => {
+    openRef.current = nextOpen;
+    setOpen(nextOpen);
+  };
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+  const clearAutoCloseTimer = () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  };
+  const closeTooltipImmediately = () => {
+    clearOpenTimer();
+    clearHideTimer();
+    clearAutoCloseTimer();
+    setTooltipOpen(false);
+  };
+  const scheduleAutoClose = () => {
+    clearAutoCloseTimer();
+    if (!autoClose) return;
+    autoCloseTimerRef.current = setTimeout(() => {
+      autoCloseTimerRef.current = null;
+      setTooltipOpen(false);
+    }, 3000);
+  };
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(
+      240,
+      Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+    );
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(0, rect.top - gap - viewportPadding);
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const minimumUsableTooltipSpace = 120;
+    const openBelow =
+      availableAbove >= minimumUsableTooltipSpace
+        ? false
+        : availableBelow >= minimumUsableTooltipSpace
+          ? true
+          : availableBelow > availableAbove;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(1, Math.min(560, available));
+    return openBelow
+      ? { left, width, maxHeight, top: rect.bottom + gap }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+  const closeOtherPopovers = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+  };
+
+  const openTooltipImmediately = () => {
+    closeOtherPopovers();
+    clearOpenTimer();
+    clearHideTimer();
+    const next = calculatePosition();
+    if (next) setPosition(next);
+    setTooltipOpen(true);
+  };
+  const scheduleShowTooltip = () => {
+    clearHideTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      closeOtherPopovers();
+      const next = calculatePosition();
+      if (next) setPosition(next);
+      setTooltipOpen(true);
+    }, 300);
+  };
+  const scheduleHide = () => {
+    clearOpenTimer();
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      if (pointerInTriggerRef.current || pointerInTooltipRef.current) return;
+      setTooltipOpen(false);
+    }, autoClose ? 900 : 650);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+    const pointerEntered = () => {
+      if (isMobileDismissMode()) return;
+      pointerInTriggerRef.current = true;
+      scheduleShowTooltip();
+    };
+    const pointerLeft = () => {
+      if (isMobileDismissMode()) return;
+      pointerInTriggerRef.current = false;
+      scheduleHide();
+    };
+    const focused = () => {
+      if (isMobileDismissMode()) return;
+      openTooltipImmediately();
+    };
+    const focusOut = (event: FocusEvent) => {
+      if (isMobileDismissMode()) return;
+      if (!trigger.contains(event.relatedTarget as Node | null)) scheduleHide();
+    };
+    const clicked = () => {
+      if (isMobileDismissMode()) {
+        if (openRef.current) {
+          closeTooltipImmediately();
+          return;
+        }
+        openTooltipImmediately();
+        scheduleAutoClose();
+        return;
+      }
+      if (open) {
+        clearOpenTimer();
+        clearHideTimer();
+        clearAutoCloseTimer();
+        setTooltipOpen(true);
+        return;
+      }
+      openTooltipImmediately();
+    };
+    trigger.addEventListener("pointerenter", pointerEntered);
+    trigger.addEventListener("pointerleave", pointerLeft);
+    trigger.addEventListener("focusin", focused);
+    trigger.addEventListener("focusout", focusOut);
+    trigger.addEventListener("click", clicked);
+    return () => {
+      trigger.removeEventListener("pointerenter", pointerEntered);
+      trigger.removeEventListener("pointerleave", pointerLeft);
+      trigger.removeEventListener("focusin", focused);
+      trigger.removeEventListener("focusout", focusOut);
+      trigger.removeEventListener("click", clicked);
+      clearOpenTimer();
+      clearHideTimer();
+    };
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
+
+  useEffect(
+    () => () => {
+      clearOpenTimer();
+      clearHideTimer();
+      clearAutoCloseTimer();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      if (!openRef.current) return;
+      const target = event.target as Node | null;
+      const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+      if (target && trigger?.contains(target)) return;
+      if (target && tooltipRef.current?.contains(target)) return;
+      closeTooltipImmediately();
+    };
+    const closeFromGlobalEvent = () => closeTooltipImmediately();
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227, closeFromGlobalEvent);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227, closeFromGlobalEvent);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (isMobileDismissMode()) {
+      const dismissOutside = (event: PointerEvent) => {
+        const target = event.target as Node | null;
+        const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+        if (!target) return;
+        if (trigger?.contains(target) || tooltipRef.current?.contains(target)) {
+          return;
+        }
+        closeTooltipImmediately();
+      };
+      const dismissOnViewportMovement = () => closeTooltipImmediately();
+
+      document.addEventListener("pointerdown", dismissOutside, true);
+      window.addEventListener("scroll", dismissOnViewportMovement, true);
+      window.addEventListener("touchmove", dismissOnViewportMovement, {
+        capture: true,
+        passive: true,
+      });
+      window.addEventListener("resize", dismissOnViewportMovement, {
+        passive: true,
+      });
+      return () => {
+        document.removeEventListener("pointerdown", dismissOutside, true);
+        window.removeEventListener("scroll", dismissOnViewportMovement, true);
+        window.removeEventListener("touchmove", dismissOnViewportMovement, true);
+        window.removeEventListener("resize", dismissOnViewportMovement);
+      };
+    }
+
+    const update = (event?: Event) => {
+      const target = event?.target as Node | null;
+      if (target && tooltipRef.current?.contains(target)) return;
+      const next = calculatePosition();
+      if (next) setPosition(next);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, preferredWidth, mobileDismissOnInteraction]);
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <span
+            ref={tooltipRef}
+            role="tooltip"
+            onPointerEnter={() => {
+              if (isMobileDismissMode()) return;
+              pointerInTooltipRef.current = true;
+              clearHideTimer();
+              clearAutoCloseTimer();
+            }}
+            onPointerDown={() => {
+              if (isMobileDismissMode()) return;
+              clearAutoCloseTimer();
+            }}
+            onPointerUp={() => {
+              if (isMobileDismissMode()) return;
+              scheduleAutoClose();
+            }}
+            onWheel={(event) => {
+              event.stopPropagation();
+              if (isMobileDismissMode()) return;
+              clearAutoCloseTimer();
+            }}
+            onTouchMove={(event) => {
+              event.stopPropagation();
+              if (isMobileDismissMode()) return;
+              clearAutoCloseTimer();
+            }}
+            onScroll={(event) => {
+              event.stopPropagation();
+              if (isMobileDismissMode()) return;
+              clearAutoCloseTimer();
+            }}
+            onPointerLeave={() => {
+              if (isMobileDismissMode()) return;
+              pointerInTooltipRef.current = false;
+              scheduleHide();
+            }}
+            style={{
+              left: position.left,
+              width: position.width,
+              maxHeight: position.maxHeight,
+              top: position.top,
+              bottom: position.bottom,
+            }}
+            className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          >
+            {children}
+          </span>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function renderInvoiceGroupedWorksiteLinesV17_90L376(
+  values: string[],
+  keyPrefix: string,
+  options: { bullet?: boolean; compact?: boolean } = {},
+) {
+  const groups = groupWorksiteDisplayLinesV17_90L376(values);
+  const hasScopedGroups = groups.some((group) => Boolean(group.siteLabel));
+  return (
+    <span className={`block ${options.compact ? "space-y-1.5" : "space-y-2"}`}>
+      {groups.map((group, groupIndex) => {
+        const heading =
+          group.siteLabel || (hasScopedGroups ? "Allgemein" : "");
+        return (
+          <span
+            key={`${keyPrefix}_group_${groupIndex}`}
+            className={`block ${
+              heading
+                ? "rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/30"
+                : ""
+            }`}
+          >
+            {heading && (
+              <span className="mb-1 block font-extrabold text-slate-950 dark:text-slate-50">
+                {heading}
+              </span>
+            )}
+            {group.lines.map((line, lineIndex) => (
+              <span
+                key={`${keyPrefix}_group_${groupIndex}_line_${lineIndex}`}
+                className="block whitespace-pre-wrap break-words leading-relaxed"
+              >
+                {options.bullet ? "• " : ""}
+                {line}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function InvoiceAppointmentTooltipContentV17_90L169({
+  text,
+}: {
+  text: string;
+}) {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const multiple = /^Termine\s*·\s*\d+/i.test(lines[0] || "");
+
+  if (multiple) {
+    const entries = lines.slice(1).map((line) => {
+      const cleaned = line.replace(/^\d+\.\s*/, "").trim();
+      const dashParts = cleaned.split(/\s+—\s+/);
+      let site = "";
+      let appointment = cleaned;
+      if (dashParts.length > 1) {
+        site = dashParts[0].trim();
+        appointment = dashParts.slice(1).join(" — ").trim();
+      } else {
+        const colonSiteMatch = cleaned.match(/^(.+?):\s+(Termin\b.+)$/i);
+        if (
+          colonSiteMatch &&
+          normalizeInvoiceAppointmentKeyV17_90L177R(colonSiteMatch[1]) !== "termin"
+        ) {
+          site = colonSiteMatch[1].trim();
+          appointment = colonSiteMatch[2].trim();
+        }
+      }
+      if (/^arbeitsort\s+\d+$/i.test(site)) site = "";
+      return { site, appointment };
+    });
+
+    return (
+      <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+        <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
+          <CalendarDays className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+          {lines[0]}
+        </span>
+        <span className="block space-y-2">
+          {entries.map((entry, index) => {
+            const parts = parseInvoiceAppointmentTooltipV17_90L169(
+              entry.appointment,
+            );
+            const appointmentLabel =
+              [parts.date, parts.time].filter(Boolean).join(" · ") ||
+              parts.fallback;
+            return (
+              <span
+                key={`${entry.site}-${entry.appointment}-${index}`}
+                className="block rounded-lg border border-violet-200 bg-white/80 p-2.5 dark:border-violet-800/60 dark:bg-slate-950/25"
+              >
+                {entry.site && (
+                  <span className="mb-1 block break-words text-[11px] font-bold leading-tight text-violet-900 dark:text-violet-100">
+                    {entry.site}
+                  </span>
+                )}
+                <span className="block break-words text-[12px] font-extrabold leading-relaxed">
+                  {index + 1}. {appointmentLabel}
+                </span>
+                {parts.note && (
+                  <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-600 dark:text-slate-300">
+                    {parts.note}
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      </span>
+    );
+  }
+
+  const parts = parseInvoiceAppointmentTooltipV17_90L169(text);
+  return (
+    <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+      <span className="flex items-start gap-2">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+        <span className="min-w-0 flex-1">
+          {parts.date ? (
+            <span className="block text-lg font-extrabold leading-none tracking-tight">
+              {parts.date}
+            </span>
+          ) : (
+            <span className="block text-sm font-extrabold leading-tight">
+              Termin
+            </span>
+          )}
+          {parts.time && (
+            <span className="mt-1.5 block text-sm font-extrabold leading-tight">
+              {parts.time}
+            </span>
+          )}
+          {parts.note && (
+            <span className="mt-2 block border-t border-violet-200 pt-2 text-[12px] font-medium leading-relaxed dark:border-violet-800/70">
+              {parts.note}
+            </span>
+          )}
+          {!parts.date && !parts.time && !parts.note && (
+            <span className="mt-1 block text-[12px] font-semibold leading-relaxed">
+              {parts.fallback}
+            </span>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+// V17.90L136: Einheitliche Leistungsdarstellung innen und außen.
+function InvoiceServiceReviewSectionsV17_90L135G({
+  entries,
+}: {
+  entries: InvoiceServiceReviewEntry[];
+}) {
+  const sections = [
+    { key: "blocker", title: "Preis / Menge / Einheit prüfen" },
+    { key: "deviation", title: "Preis oder Einheit abweichend" },
+    { key: "missing", title: "Nicht im Leistungskatalog" },
+  ] as const;
+  return (
+    <span className="block text-left font-normal">
+      {sections.map((section, sectionIndex) => {
+        const sectionItems = entries.filter(
+          (entry) => entry.category === section.key,
+        );
+        if (sectionItems.length === 0) return null;
+        const hasPreviousVisibleSection = sections
+          .slice(0, sectionIndex)
+          .some((candidate) =>
+            entries.some((entry) => entry.category === candidate.key),
+          );
+        return (
+          <span
+            key={section.key}
+            className={`block ${hasPreviousVisibleSection ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+          >
+            <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </span>
+            {sectionItems.map((entry, reviewIndex) => (
+              <span
+                key={`${entry.description}-${reviewIndex}`}
+                className={`block ${reviewIndex > 0 ? "mt-2" : ""}`}
+              >
+                <span className="block break-words font-bold text-foreground">
+                  * {entry.description}
+                </span>
+                {entry.details.map((detail, detailIndex) => {
+                  const trimmedDetail = detail.trim();
+                  const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                    trimmedDetail,
+                  );
+                  const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                  return (
+                    <span
+                      key={`${entry.description}-${detailIndex}`}
+                      className={`block break-words text-xs ${
+                        isCurrentPrice
+                          ? "font-bold text-slate-950 dark:text-slate-50"
+                          : isCatalogPrice
+                            ? "font-normal text-slate-500 dark:text-slate-400"
+                            : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      {detail}
+                    </span>
+                  );
+                })}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function InvoiceServiceDisplaySectionsV17_90L136({
+  entries,
+}: {
+  entries: InvoiceServiceDisplayEntry[];
+}) {
+  const sections = [
+    { key: "blocker", title: "Preis / Menge / Einheit prüfen" },
+    { key: "deviation", title: "Preis oder Einheit abweichend" },
+    { key: "missing", title: "Nicht im Leistungskatalog" },
+    { key: "catalog", title: "Im Leistungskatalog" },
+  ] as const;
+
+  return (
+    <span className="block text-left font-normal">
+      {sections.map((section, sectionIndex) => {
+        const sectionItems = entries.filter(
+          (entry) => entry.category === section.key,
+        );
+        if (sectionItems.length === 0) return null;
+        const visibleSectionIndex = sections
+          .slice(0, sectionIndex)
+          .some((candidate) =>
+            entries.some((entry) => entry.category === candidate.key),
+          );
+        return (
+          <span
+            key={section.key}
+            className={`block ${
+              visibleSectionIndex
+                ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700"
+                : ""
+            }`}
+          >
+            <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </span>
+            {sectionItems.map((entry, itemIndex) => (
+              <span
+                key={`${entry.description}-${itemIndex}`}
+                className={`block ${itemIndex > 0 ? "mt-2" : ""}`}
+              >
+                <span className="block break-words font-bold text-foreground">
+                  * {entry.description}
+                </span>
+                {entry.details.map((detail, detailIndex) => {
+                  const trimmedDetail = detail.trim();
+                  const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                    trimmedDetail,
+                  );
+                  const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                  return (
+                    <span
+                      key={`${entry.description}-${detailIndex}`}
+                      className={`block break-words text-xs ${
+                        isCurrentPrice
+                          ? "font-bold text-slate-950 dark:text-slate-50"
+                          : isCatalogPrice
+                            ? "font-normal text-slate-500 dark:text-slate-400"
+                            : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      {detail}
+                    </span>
+                  );
+                })}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function InvoiceServiceDisplayTooltipContentV17_90L136({
+  total,
+  entries,
+  siteGroups = [],
+}: {
+  total: number;
+  entries: InvoiceServiceDisplayEntry[];
+  siteGroups?: InvoiceServiceDisplaySiteGroup[];
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = siteGroups.length > 1;
+
+  return (
+    <span className="block text-left font-normal">
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        Positionen · {total}
+      </span>
+      {multipleSites ? (
+        <span className="block space-y-2">
+          {siteGroups.map((group, index) => {
+            const active = activeSiteKey === group.key;
+            const address =
+              [
+                group.site?.siteAddress,
+                [group.site?.sitePlz, group.site?.siteCity]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Adresse nicht angegeben";
+            return (
+              <span
+                key={group.key}
+                role="button"
+                tabIndex={0}
+                onPointerEnter={() => setActiveSiteKey(group.key)}
+                onFocus={() => setActiveSiteKey(group.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
+                  active
+                    ? "border-cyan-300 dark:border-cyan-800"
+                    : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
+                }`}
+              >
+                <span
+                  className={`flex items-start justify-between gap-3 p-2 ${
+                    active
+                      ? "bg-cyan-50 dark:bg-cyan-950/30"
+                      : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-slate-950 dark:text-slate-50">
+                      {index + 1}.{" "}
+                      {group.site?.siteName ||
+                        group.site?.siteAddress ||
+                        `Ausführungsort ${index + 1}`}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
+                      {address}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                    Positionen · {group.entries.length}
+                  </span>
+                </span>
+                {active && (
+                  <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
+                    <InvoiceServiceDisplaySectionsV17_90L136
+                      entries={group.entries}
+                    />
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <InvoiceServiceDisplaySectionsV17_90L136 entries={entries} />
+      )}
+    </span>
+  );
+}
+
+function InvoiceServiceReviewTooltipContentV17_90L135G({
+  total,
+  entries,
+  siteGroups = [],
+  title,
+}: {
+  total: number;
+  entries: InvoiceServiceReviewEntry[];
+  siteGroups?: InvoiceServiceReviewSiteGroup[];
+  title?: string;
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = siteGroups.length > 1;
+  return (
+    <span className="block text-left font-normal">
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        {title || `Positionen prüfen · ${total}`}
+      </span>
+      {multipleSites ? (
+        <span className="block space-y-2">
+          {siteGroups.map((group, index) => {
+            const active = activeSiteKey === group.key;
+            const address =
+              [
+                group.site?.siteAddress,
+                [group.site?.sitePlz, group.site?.siteCity]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Adresse nicht angegeben";
+            return (
+              <span
+                key={group.key}
+                role="button"
+                tabIndex={0}
+                onPointerEnter={() => setActiveSiteKey(group.key)}
+                onFocus={() => setActiveSiteKey(group.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
+                  active
+                    ? "border-cyan-300 dark:border-cyan-800"
+                    : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
+                }`}
+              >
+                <span
+                  className={`flex items-start justify-between gap-3 p-2 ${
+                    active
+                      ? "bg-cyan-50 dark:bg-cyan-950/30"
+                      : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-slate-950 dark:text-slate-50">
+                      {index + 1}.{" "}
+                      {group.site?.siteName ||
+                        group.site?.siteAddress ||
+                        `Ausführungsort ${index + 1}`}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
+                      {address}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                    Positionen prüfen · {group.entries.length}
+                  </span>
+                </span>
+                {active && (
+                  <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
+                    <InvoiceServiceReviewSectionsV17_90L135G
+                      entries={group.entries}
+                    />
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <InvoiceServiceReviewSectionsV17_90L135G entries={entries} />
+      )}
+    </span>
+  );
+}
+
+type InvoiceMobileServiceSheetStateV17_90L174 = {
+  title: string;
+  entries: InvoiceServiceReviewEntry[];
+  siteGroups: InvoiceServiceReviewSiteGroup[];
+};
+
+function InvoiceMobileServiceReviewSheetV17_90L174({
+  state,
+  onClose,
+}: {
+  state: InvoiceMobileServiceSheetStateV17_90L174;
+  onClose: () => void;
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = state.siteGroups.length > 1;
+
+  return (
+    <div className="fixed inset-0 z-[12000]">
+      <button
+        type="button"
+        aria-label="Positionsübersicht schließen"
+        className="absolute inset-0 bg-black/25 backdrop-blur-[1px]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed left-3 right-3 top-1/2 flex max-h-[82vh] min-h-0 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:left-1/2 sm:right-auto sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <div className="min-w-0 truncate text-base font-bold text-slate-950 dark:text-slate-50">
+            {state.title}
+          </div>
+          <button
+            type="button"
+            aria-label="Positionsübersicht schließen"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-5">
+          {multipleSites ? (
+            <div className="space-y-2">
+              {state.siteGroups.map((group, groupIndex) => {
+                const active = activeSiteKey === group.key;
+                const address =
+                  [
+                    group.site?.siteAddress,
+                    [group.site?.sitePlz, group.site?.siteCity]
+                      .filter(Boolean)
+                      .join(" "),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Adresse nicht angegeben";
+                return (
+                  <div
+                    key={`invoice_mobile_group_${group.key}`}
+                    className={`overflow-hidden rounded-xl border ${
+                      active
+                        ? "border-cyan-300"
+                        : "border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className={`flex w-full items-start justify-between gap-3 p-3 text-left ${
+                        active
+                          ? "bg-cyan-50 dark:bg-cyan-950/30"
+                          : "bg-slate-50 dark:bg-slate-800/60"
+                      }`}
+                      onClick={() =>
+                        setActiveSiteKey((current) =>
+                          current === group.key ? null : group.key,
+                        )
+                      }
+                    >
+                      <span className="min-w-0">
+                        <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
+                          {groupIndex + 1}.{" "}
+                          {group.site?.siteName ||
+                            group.site?.siteAddress ||
+                            `Ausführungsort ${groupIndex + 1}`}
+                        </span>
+                        <span className="mt-0.5 block break-words text-[11px] text-slate-600 dark:text-slate-300">
+                          {address}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900">
+                        Positionen prüfen · {group.entries.length}
+                      </span>
+                    </button>
+                    {active && (
+                      <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <InvoiceServiceReviewSectionsV17_90L135G
+                          entries={group.entries}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <InvoiceServiceReviewSectionsV17_90L135G entries={state.entries} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceExecutionSitesTooltip({
+  sites,
+}: {
+  sites: InvoiceExecutionSite[];
+}) {
+  if (sites.length === 0) return null;
+  return (
+    <InvoiceViewportTooltip
+      preferredWidth={420}
+      mobileDismissOnInteraction
+    >
+      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-4 w-4" />
+        {sites.length > 1
+          ? `Ausführungsorte · ${sites.length}`
+          : "Ausführungsadresse"}
+      </span>
+      <span className="block space-y-2">
+        {sites.map((site, siteIndex) => (
+          <span
+            key={`invoice_execution_tooltip_${siteIndex}`}
+            className={`block ${
+              siteIndex > 0
+                ? "border-t border-sky-100 pt-2 dark:border-slate-700"
+                : ""
+            }`}
+          >
+            {sites.length > 1 && (
+              <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
+                Arbeitsort {siteIndex + 1}
+              </span>
+            )}
+            <span className="grid grid-cols-[76px_1fr] gap-x-2 gap-y-1.5">
+              {site.siteName && (
+                <>
+                  <span className="text-muted-foreground">Objekt:</span>
+                  <span className="break-words font-bold text-slate-950 dark:text-slate-50">
+                    {site.siteName}
+                  </span>
+                </>
+              )}
+              <span className="text-muted-foreground">Strasse:</span>
+              <span className="break-words">{site.siteAddress || "–"}</span>
+              <span className="text-muted-foreground">PLZ / Ort:</span>
+              <span className="break-words">
+                {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
+              </span>
+            </span>
+          </span>
+        ))}
+      </span>
+    </InvoiceViewportTooltip>
+  );
+}
 
 const statusColors: Record<string, string> = {
-  'Entwurf': 'bg-gray-100 text-gray-800',
-  'Gesendet': 'bg-blue-100 text-blue-800',
-  'Überfällig': 'bg-red-100 text-red-800',
-  'Bezahlt': 'bg-green-100 text-green-800',
+  Entwurf: "bg-gray-100 text-gray-800",
+  Gesendet: "bg-blue-100 text-blue-800",
+  Überfällig: "bg-red-100 text-red-800",
+  Bezahlt: "bg-green-100 text-green-800",
 };
+
+// Native <select> elements can keep the previously painted background in
+// Chromium when a compact card is collapsed. Inline colors are used in
+// addition to the Tailwind classes so the closed control always reflects the
+// currently selected invoice status.
+const statusInlineStyles = {
+  Entwurf: {
+    backgroundColor: "#f3f4f6",
+    color: "#1f2937",
+    borderColor: "#d1d5db",
+  },
+  Gesendet: {
+    backgroundColor: "#dbeafe",
+    color: "#1e40af",
+    borderColor: "#93c5fd",
+  },
+  Überfällig: {
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+    borderColor: "#fca5a5",
+  },
+  Bezahlt: {
+    backgroundColor: "#dcfce7",
+    color: "#166534",
+    borderColor: "#86efac",
+  },
+} as const;
+
+const getInvoiceStatusInlineStyle = (status: string) =>
+  statusInlineStyles[status as keyof typeof statusInlineStyles] ||
+  statusInlineStyles.Entwurf;
 
 // Invoice statuses shown in the dropdown.
 // Order matters: Entwurf → Gesendet → Überfällig → Bezahlt reflects the
 // real-world lifecycle.
-const invoiceStatuses = ['Entwurf', 'Gesendet', 'Überfällig', 'Bezahlt'];
+const invoiceStatuses = ["Entwurf", "Gesendet", "Überfällig", "Bezahlt"];
 
 /**
  * Effective status for display purposes.
@@ -62,24 +5261,29 @@ const invoiceStatuses = ['Entwurf', 'Gesendet', 'Überfällig', 'Bezahlt'];
  * unless the user explicitly picks "Überfällig" in the dropdown. This
  * keeps automatic detection safe and reversible.
  */
-function getEffectiveInvoiceStatus(inv: { status?: string | null; dueDate?: string | null }): string {
-  const raw = (inv?.status ?? '').trim();
-  if (raw !== 'Gesendet') return raw || 'Entwurf';
+function getEffectiveInvoiceStatus(inv: {
+  status?: string | null;
+  dueDate?: string | null;
+}): string {
+  const raw = (inv?.status ?? "").trim();
+  if (raw !== "Gesendet") return raw || "Entwurf";
   const due = inv?.dueDate ? new Date(inv.dueDate) : null;
   if (!due || isNaN(due.getTime())) return raw;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  return dueDay.getTime() < today.getTime() ? 'Überfällig' : raw;
+  return dueDay.getTime() < today.getTime() ? "Überfällig" : raw;
 }
 
 export default function RechnungenPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [searchText, setSearchText] = useState('');
-  const [filterStatus, setFilterStatus] = useState('Alle');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'amount'>('newest');
+  const [searchText, setSearchText] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Alle");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "amount">(
+    "newest",
+  );
   const [visibleCount, setVisibleCount] = useState(30);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
@@ -88,67 +5292,266 @@ export default function RechnungenPage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
-  const [form, setForm] = useState({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] as string[] });
-const getEmptyItem = (): InvoiceItem => ({
-  description: '',
-  quantity: '1',
-  unit: 'Stunde',
-  unitPrice: '',
-});
+  const [editingInvoiceCustomer, setEditingInvoiceCustomer] =
+    useState<Customer | null>(null);
+  const initialInvoiceDate = getTodayInvoiceDateInputValue();
+  const [defaultPaymentDays, setDefaultPaymentDays] = useState(14);
+  const [form, setForm] = useState({
+    customerId: "",
+    invoiceDate: initialInvoiceDate,
+    dueDate: addDaysToInvoiceDate(initialInvoiceDate, 14),
+    paymentDays: "14",
+    pdfTitle: "",
+    notes: "",
+    specialNotes: "",
+    orderIds: [] as string[],
+  });
+  const historicalInvoiceCustomerLocked = Boolean(
+    editingInvoice && isHistoricalInvoiceStatus(editingInvoice.status),
+  );
+  const dialogInvoiceCustomer =
+    historicalInvoiceCustomerLocked && editingInvoiceCustomer
+      ? editingInvoiceCustomer
+      : form.customerId
+        ? customers.find((customer) => customer.id === form.customerId) || null
+        : null;
+  const getEmptyItem = (): InvoiceItem => ({
+    positionType: "service",
+    description: "",
+    quantity: "",
+    unit: "",
+    unitPrice: "",
+  });
 
-const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
+  const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
+  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(
+    null,
+  );
+  const [recentlyMovedInvoiceItemIndexV17_90L371CF, setRecentlyMovedInvoiceItemIndexV17_90L371CF] = useState<number | null>(null);
+  const recentlyMovedInvoiceItemTimerRefV17_90L371CF = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markInvoiceItemMovedV17_90L371CF = (index: number) => {
+    if (recentlyMovedInvoiceItemTimerRefV17_90L371CF.current) {
+      clearTimeout(recentlyMovedInvoiceItemTimerRefV17_90L371CF.current);
+      recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = null;
+    }
+    setRecentlyMovedInvoiceItemIndexV17_90L371CF(index);
+    if (typeof window !== "undefined") {
+      recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = setTimeout(() => {
+        setRecentlyMovedInvoiceItemIndexV17_90L371CF((current) =>
+          current === index ? null : current,
+        );
+        recentlyMovedInvoiceItemTimerRefV17_90L371CF.current = null;
+      }, 2800);
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (recentlyMovedInvoiceItemTimerRefV17_90L371CF.current) {
+        clearTimeout(recentlyMovedInvoiceItemTimerRefV17_90L371CF.current);
+      }
+    };
+  }, []);
+  const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<
+    number | null
+  >(null);
+  const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [saveExecutionAddressInCustomerProfile, setSaveExecutionAddressInCustomerProfile] =
+    useState(true);
+  const [customerExecutionAddressSaveModeV17_90L296, setCustomerExecutionAddressSaveModeV17_90L296] =
+    useState<"local" | "create">("local");
+  const [executionAddressClearRequested, setExecutionAddressClearRequested] =
+    useState(false);
+  const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
+    useState("");
+  const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<
+    Set<string>
+  >(new Set());
+  const [newInvoiceItemSiteKey, setNewInvoiceItemSiteKey] =
+    useState<string>("");
+  const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<
+    Set<string>
+  >(new Set());
+  const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] =
+    useState(false);
+  const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] =
+    useState(false);
+  const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] =
+    useState<Set<string>>(new Set());
+  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] =
+    useState(false);
+  const [activeInvoiceServiceSheet, setActiveInvoiceServiceSheet] =
+    useState<InvoiceMobileServiceSheetStateV17_90L174 | null>(null);
+  const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
+  const [sourceOfferInternalNotesByIdV17_90L319, setSourceOfferInternalNotesByIdV17_90L319] =
+    useState<Record<string, string>>({});
+  const [sourceOfferBillingRootItemKeysByIdV17_90L371CD, setSourceOfferBillingRootItemKeysByIdV17_90L371CD] =
+    useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setUseTouchChipPopovers(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    setInvoiceServiceOverviewOpen(false);
+  }, [dialogOpen, editingInvoice?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let restored = false;
+    try {
+      const stored = window.localStorage.getItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+      );
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setExpandedInvoiceCardIds(
+            new Set(
+              parsed.filter(
+                (value: unknown): value is string => typeof value === "string",
+              ),
+            ),
+          );
+          restored = true;
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+      );
+    }
+    setInvoiceCardInitialStateApplied(restored);
+    setInvoiceCardExpansionRestored(true);
+  }, []);
+  const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<
+    string | null
+  >(null);
+  const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
+    useState<InvoiceExecutionSite | null>(null);
+  const [invoiceExecutionSiteDrafts, setInvoiceExecutionSiteDrafts] = useState<
+    InvoiceExecutionSite[]
+  >([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!editingExecutionAddress) return;
+    const currentSite = editingInvoice
+      ? collectInvoiceExecutionSites({
+          items,
+          orders: editingInvoice?.orders || [],
+        })[0] || null
+      : newInvoiceExecutionSite;
+    setExecutionAddressEditSnapshot(
+      serializeInvoiceExecutionSiteForEdit(currentSite),
+    );
+    // Snapshot only when the editor changes from closed to open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingExecutionAddress]);
+
+  useEffect(() => {
+    const customerId = compactInvoiceValue(form.customerId);
+    if (!dialogOpen || !customerId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/customers/${customerId}/execution-addresses`,
+        );
+        if (!response.ok) return;
+        const executionAddresses = await response.json();
+        if (cancelled || !Array.isArray(executionAddresses)) return;
+        setCustomers((current) =>
+          current.map((customer) =>
+            customer.id === customerId
+              ? { ...customer, executionAddresses }
+              : customer,
+          ),
+        );
+      } catch {
+        // Manuelle Eingabe bleibt jederzeit möglich.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, form.customerId]);
+
+  useEffect(() => {
+    if (serviceActionMenuIndex === null) return;
+    const closeMenu = () => setServiceActionMenuIndex(null);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
+  }, [serviceActionMenuIndex]);
   const [downloading, setDownloading] = useState<string | null>(null);
-  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  // Native action menus avoid a full invoice-list render on open/close.
   const [vatRate, setVatRate] = useState(8.1);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
+  const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
-  const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
+  const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<
+    string | null
+  >(null);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
   const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
-  const [mediaUrl, setMediaUrl] = useState('');
-  const [mediaType, setMediaType] = useState('');
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [mediaType, setMediaType] = useState("");
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [editOrderCtx, setEditOrderCtx] = useState<any>(null);
   const resolveS3Url = async (cloudPath: string) => {
-    const res = await fetch('/api/upload/media-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cloud_storage_path: cloudPath, isPublic: false }) });
+    const res = await fetch("/api/upload/media-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cloud_storage_path: cloudPath, isPublic: false }),
+    });
     const data = await res.json();
     return data.url as string;
   };
   const openMedia = async (cloudPath: string, type: string) => {
     try {
-      setMediaType(type); setMediaDialogOpen(true);
+      setMediaType(type);
+      setMediaDialogOpen(true);
       const url = await resolveS3Url(cloudPath);
       setMediaUrl(url);
-    } catch { toast.error('Medien konnten nicht geladen werden'); }
+    } catch {
+      toast.error("Medien konnten nicht geladen werden");
+    }
   };
   const openImageGallery = async (cloudPaths: string[]) => {
     if (!cloudPaths.length) return;
-    setGalleryUrls([]); setGalleryIdx(0); setMediaType('image'); setMediaDialogOpen(true);
-    const urls = await Promise.all(cloudPaths.map(p => resolveS3Url(p)));
+    setGalleryUrls([]);
+    setGalleryIdx(0);
+    setMediaType("image");
+    setMediaDialogOpen(true);
+    const urls = await Promise.all(cloudPaths.map((p) => resolveS3Url(p)));
     setGalleryUrls(urls);
   };
 
   // Linked order data (for communication block)
-  const [linkedOrderData, setLinkedOrderData] = useState<{ notes?: string | null; specialNotes?: string | null; needsReview?: boolean; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; hinweisLevel?: string | null; description?: string | null } | null>(null);
-
-  // Auto-fill customer data from order notes when dialog opens
-  const autoFillCustomer = async (customerId: string) => {
-    if (!customerId) return;
-    try {
-      const res = await fetch(`/api/customers/${customerId}/auto-fill`, { method: 'POST' });
-      if (res.ok) {
-        const updated = await res.json();
-        setCustomers(prev => {
-          const exists = prev.some(c => c.id === updated.id);
-          if (exists) return prev.map(c => c.id === updated.id ? { ...c, ...updated } : c);
-          return [...prev, updated];
-        });
-      }
-    } catch {}
-  };
+  const [linkedOrderData, setLinkedOrderData] = useState<{
+    notes?: string | null;
+    specialNotes?: string | null;
+    needsReview?: boolean;
+    mediaUrl?: string | null;
+    mediaType?: string | null;
+    imageUrls?: string[];
+    thumbnailUrls?: string[];
+    audioTranscript?: string | null;
+    audioDurationSec?: number | null;
+    audioTranscriptionStatus?: string | null;
+    hinweisLevel?: string | null;
+    positionType?: string | null;
+    description?: string | null;
+  } | null>(null);
 
   // Block D: open the "Kunde bearbeiten" sheet for the currently-selected customer.
   // Used both by the inline ✏️ button and by clicking the customer summary box.
@@ -156,115 +5559,246 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   // shortcut) pass a customer id directly without first relying on the
   // form state being flushed (useful when called immediately after
   // `openEditInvoice()` because React state updates batch).
-  // Optional `noteOverride` is the linked-order's notes used for merge.
-  const openCustomerEditor = async (customerIdOverride?: string, noteOverride?: string | null) => {
+  const openCustomerEditor = async (customerIdOverride?: string) => {
+    if (historicalInvoiceCustomerLocked) {
+      toast.error(
+        "Gesendete, bezahlte oder archivierte Rechnungen behalten den historischen Kundenstand. Setze die Rechnung zuerst auf Entwurf.",
+      );
+      return;
+    }
     const targetId = customerIdOverride || form.customerId;
     if (!targetId) return;
-    let freshCust: Customer | null = customers.find((c: Customer) => c.id === targetId) || null;
+    let freshCust: Customer | null =
+      customers.find((c: Customer) => c.id === targetId) || null;
     try {
       const res = await fetch(`/api/customers/${targetId}`);
       if (res.ok) {
         const fetched = await res.json();
         if (fetched && fetched.id) {
           freshCust = fetched;
-          setCustomers(prev => prev.map(c => c.id === fetched.id ? { ...c, ...fetched } : c));
+          setCustomers((prev) =>
+            prev.map((c) => (c.id === fetched.id ? { ...c, ...fetched } : c)),
+          );
         }
       }
     } catch {}
     if (freshCust) {
-      const noteSource = noteOverride !== undefined ? noteOverride : linkedOrderData?.notes;
+      // V17.90L277: Der Kundeneditor startet ausschließlich mit dem
+      // gespeicherten Kundenstamm. Verknüpfte Auftragsnachrichten enthalten
+      // häufig Ausführungsadressen oder fremde Kontaktpersonen und dürfen
+      // deshalb keine Kundenfelder vorbefüllen.
       // Use blank form as merge base — prevents stale data from previously viewed records leaking in
-      const blankForm = { name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' };
-      const merged = mergeCustomerIntoForm(blankForm, freshCust as any, noteSource);
+      const blankForm = {
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+        plz: "",
+        city: "",
+        country: "CH",
+      };
+      const merged = mergeCustomerIntoForm(
+        blankForm,
+        freshCust as any,
+        null,
+      );
       setNewCust(merged);
     }
-    setEditingCustomer(true); setShowNewCustomer(true);
+    setEditingCustomer(true);
+    setShowNewCustomer(true);
   };
 
   // New/edit customer inline
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(false);
-  const [newCust, setNewCust] = useState({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
+  const [newCust, setNewCust] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+    plz: "",
+    city: "",
+    country: "CH",
+  });
   const [savingCust, setSavingCust] = useState(false);
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
 
   // Stage E (deterministic chip flow): pending customerId waiting for the
   // dialog to mount before opening the customer-edit section. Set by the chip
   // shortcut in list cards via openEditInvoice({openCustomerSection:true}).
-  const [pendingOpenCustomerEditor, setPendingOpenCustomerEditor] = useState<string | null>(null);
+  const [pendingOpenCustomerEditor, setPendingOpenCustomerEditor] = useState<
+    string | null
+  >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
+  const serviceItemsRef = useRef<HTMLDivElement | null>(null);
+  const invoiceExecutionSitesRef = useRef<HTMLDivElement | null>(null);
+  const invoiceSpecialNotesRef = useRef<HTMLDivElement | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    action: () => Promise<void>;
+  } | null>(null);
 
   // Android/browser back: close the edit dialog FIRST instead of jumping to the
   // previously visited module. Safe version — see lib/use-dialog-back-guard.ts.
-  useDialogBackGuard(dialogOpen, () => { setDialogOpen(false); setEditingInvoice(null); });
+  useDialogBackGuard(dialogOpen, () => {
+    setDialogOpen(false);
+    setEditingInvoice(null);
+  });
 
   // Save customer (update or create — merge goes via Sheet)
   const saveCustomer = async () => {
-    if (!newCust.name.trim()) { toast.error('Name erforderlich'); return; }
+    if (historicalInvoiceCustomerLocked) {
+      toast.error(
+        "Historische Rechnungsdaten können nicht über dieses Dokument geändert werden. Setze die Rechnung zuerst auf Entwurf.",
+      );
+      return;
+    }
+    if (!newCust.name.trim()) {
+      toast.error("Name erforderlich");
+      return;
+    }
     setSavingCust(true);
     try {
       if (editingCustomer && form.customerId) {
         // Phase 2f: compute fieldsToClear = fields user intentionally emptied.
-        const dbCust = customers.find((c: Customer) => c.id === form.customerId);
+        const dbCust = customers.find(
+          (c: Customer) => c.id === form.customerId,
+        );
         const fieldsToClear: string[] = [];
         if (dbCust) {
-          (['name', 'phone', 'email', 'address', 'plz', 'city'] as const).forEach((k) => {
+          (
+            ["name", "phone", "email", "address", "plz", "city"] as const
+          ).forEach((k) => {
             const was = (dbCust as any)[k];
             const now = (newCust as any)[k];
-            if (was && String(was).trim() && !String(now || '').trim()) fieldsToClear.push(k);
+            if (was && String(was).trim() && !String(now || "").trim())
+              fieldsToClear.push(k);
           });
         }
-        const res = await fetch(`/api/customers/${form.customerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newCust, fieldsToClear }) });
+        const res = await fetch(`/api/customers/${form.customerId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...newCust, fieldsToClear }),
+        });
         if (res.ok) {
           const updated = await res.json();
-          setCustomers(prev => { const e = prev.some(c => c.id === updated.id); return e ? prev.map(c => c.id === updated.id ? { ...c, ...updated } : c) : [...prev, updated]; });
+          setCustomers((prev) => {
+            const e = prev.some((c) => c.id === updated.id);
+            return e
+              ? prev.map((c) =>
+                  c.id === updated.id ? { ...c, ...updated } : c,
+                )
+              : [...prev, updated];
+          });
           // Also update nested customer in invoices so list/cards refresh immediately
-          setInvoices(prev => prev.map(inv => inv.customerId === updated.id ? { ...inv, customer: { ...inv.customer, ...updated } } : inv));
-          setForm(f => ({ ...f, customerId: updated.id }));
+          setInvoices((prev) =>
+            prev.map((inv) =>
+              inv.customerId === updated.id &&
+              !isHistoricalInvoiceStatus(inv.status)
+                ? { ...inv, customer: { ...inv.customer, ...updated } }
+                : inv,
+            ),
+          );
+          setForm((f) => ({ ...f, customerId: updated.id }));
           toast.success(`Kunde "${updated.name}" aktualisiert!`);
         } else {
-          const err = await res.json().catch(() => ({} as any));
-          if (err?.reason === 'would_clear_existing_value') toast.error(err?.error || 'Feld kann nicht geleert werden.');
-          else toast.error('Fehler beim Aktualisieren');
+          const err = await res.json().catch(() => ({}) as any);
+          if (err?.reason === "would_clear_existing_value")
+            toast.error(err?.error || "Feld kann nicht geleert werden.");
+          else toast.error("Fehler beim Aktualisieren");
           return;
         }
       } else {
-        const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newCust) });
-        if (res.ok) { const created = await res.json(); setCustomers(prev => [...prev, created]); setForm(f => ({ ...f, customerId: created.id })); toast.success('Neuer Kunde erstellt – eigene ID wurde vergeben'); }
-        else toast.error('Fehler beim Anlegen');
+        const res = await fetch("/api/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newCust),
+        });
+        if (res.ok) {
+          const created = await res.json();
+          setCustomers((prev) => [...prev, created]);
+          setForm((f) => ({ ...f, customerId: created.id }));
+          toast.success("Neuer Kunde erstellt – eigene ID wurde vergeben");
+        } else toast.error("Fehler beim Anlegen");
       }
-      setShowNewCustomer(false); setEditingCustomer(false);
-      setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
-    } catch { toast.error('Fehler'); } finally { setSavingCust(false); }
+      setShowNewCustomer(false);
+      setEditingCustomer(false);
+      setNewCust({
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+        plz: "",
+        city: "",
+        country: "CH",
+      });
+    } catch {
+      toast.error("Fehler");
+    } finally {
+      setSavingCust(false);
+    }
   };
 
-  const load = async () => {
-    setLoading(true);
-    setLoadError(null);
-    const { results: [inv, cust, ord, svc, settings], errors } = await fetchAllJSON<[any[], any[], any[], any[], any]>([
-      { url: '/api/invoices', fallback: [] },
-      { url: '/api/customers', fallback: [] },
-      { url: '/api/orders?status=Erledigt', fallback: [] },
-      { url: '/api/services', fallback: [] },
-      { url: '/api/settings', fallback: null },
+  const load = async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
+    const paymentTermsPromise = fetch("/api/settings/invoice-payment-terms", {
+      cache: "no-store",
+    })
+      .then(async (response) =>
+        response.ok ? await response.json() : { paymentDays: 14 },
+      )
+      .catch(() => ({ paymentDays: 14 }));
+    const {
+      results: [inv, cust, ord, svc, settings],
+      errors,
+    } = await fetchAllJSON<[any[], any[], any[], any[], any]>([
+      { url: "/api/invoices", fallback: [] },
+      { url: "/api/customers", fallback: [] },
+      { url: "/api/orders?status=Erledigt", fallback: [] },
+      { url: "/api/services", fallback: [] },
+      { url: "/api/settings", fallback: null },
     ]);
+    const paymentTerms = await paymentTermsPromise;
     // If most critical endpoints failed, show error state
     if (errors.length >= 2) {
-      setLoadError(errors);
-      setLoading(false);
+      if (!silent) {
+        setLoadError(errors);
+        setLoading(false);
+      }
       return;
     }
     // Filter out "Erledigt" invoices (they go to archiv)
-    setInvoices((inv ?? []).filter((i: Invoice) => i.status !== 'Erledigt'));
+    setInvoices((inv ?? []).filter((i: Invoice) => i.status !== "Erledigt"));
     // Merge customers from invoices/orders (they may be soft-deleted)
     const custMap = new Map<string, any>();
     (cust ?? []).forEach((c: any) => custMap.set(c.id, c));
-    (inv ?? []).forEach((i: any) => { if (i.customer && !custMap.has(i.customer.id)) custMap.set(i.customer.id, i.customer); });
-    (ord ?? []).forEach((o: any) => { if (o.customer && !custMap.has(o.customer.id)) custMap.set(o.customer.id, o.customer); });
-    setCustomers(Array.from(custMap.values()) as any); setOrders(ord ?? []); setServices(svc ?? []);
+    (inv ?? []).forEach((i: any) => {
+      if (i.customer && !custMap.has(i.customer.id))
+        custMap.set(i.customer.id, i.customer);
+    });
+    (ord ?? []).forEach((o: any) => {
+      if (o.customer && !custMap.has(o.customer.id))
+        custMap.set(o.customer.id, o.customer);
+    });
+    setCustomers(Array.from(custMap.values()) as any);
+    setOrders(ord ?? []);
+    setServices(svc ?? []);
+    const loadedPaymentDays = Number(paymentTerms?.paymentDays);
+    setDefaultPaymentDays(
+      Number.isInteger(loadedPaymentDays) &&
+        loadedPaymentDays >= 1 &&
+        loadedPaymentDays <= 365
+        ? loadedPaymentDays
+        : 14,
+    );
     // Set default VAT rate from settings
     if (settings) {
+      setCurrency(settings.currency === "EUR" ? "EUR" : "CHF");
       if (settings.mwstAktiv && settings.mwstSatz != null) {
         setDefaultVatRate(Number(settings.mwstSatz));
       } else if (settings.mwstAktiv === false) {
@@ -281,56 +5815,212 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
       //      WhatsApp-capable by definition.
       //   STRICT: NEVER fall back to `telefon2` (second number); NEVER
       //   use Customer.phone.
-      setBusinessWhatsappNumber(settings.whatsappIntakeNumber || settings.telefon || null);
+      setBusinessWhatsappNumber(
+        settings.whatsappIntakeNumber || settings.telefon || null,
+      );
       if (settings.whatsappEnabled === false) setWhatsappEnabled(false);
     }
-    if (errors.length > 0) toast.error('Einige Daten konnten nicht vollständig geladen werden');
-    setLoading(false);
+    if (errors.length > 0)
+      toast.error("Einige Daten konnten nicht vollständig geladen werden");
+    if (!silent) setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    const sourceOfferIds = Array.from(
+      new Set(
+        invoices
+          .map((invoice) => compactInvoiceValue(invoice.sourceOfferId))
+          .filter(Boolean),
+      ),
+    ).filter(
+      (offerId) =>
+        !Object.prototype.hasOwnProperty.call(
+          sourceOfferInternalNotesByIdV17_90L319,
+          offerId,
+        ) ||
+        !Object.prototype.hasOwnProperty.call(
+          sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+          offerId,
+        ),
+    );
+    if (sourceOfferIds.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(
+      sourceOfferIds.map(async (offerId) => {
+        try {
+          const response = await fetch(`/api/offers/${offerId}`, {
+            cache: "no-store",
+          });
+          if (!response.ok) return [offerId, "", [] as string[]] as const;
+          const offer = await response.json();
+          return [
+            offerId,
+            decodeOfferInternalNotesForInvoiceV17_90L319(offer?.notes),
+            collectSourceOfferBillingRootItemKeysV17_90L371CD(offer),
+          ] as const;
+        } catch {
+          return [offerId, "", [] as string[]] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setSourceOfferInternalNotesByIdV17_90L319((current) => {
+        const next = { ...current };
+        for (const [offerId, notes] of entries) next[offerId] = notes;
+        return next;
+      });
+      setSourceOfferBillingRootItemKeysByIdV17_90L371CD((current) => {
+        const next = { ...current };
+        for (const [offerId, _notes, rootKeys] of entries) next[offerId] = rootKeys;
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    invoices,
+    sourceOfferInternalNotesByIdV17_90L319,
+    sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+  ]);
+
+  useEffect(() => {
+    if (!dialogOpen || !editingInvoice?.sourceOfferId) return;
+    const rootKeys =
+      sourceOfferBillingRootItemKeysByIdV17_90L371CD[
+        compactInvoiceValue(editingInvoice.sourceOfferId)
+      ];
+    if (!rootKeys || rootKeys.length === 0) return;
+    setItems((current) =>
+      repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD(current, rootKeys),
+    );
+  }, [
+    dialogOpen,
+    editingInvoice?.id,
+    editingInvoice?.sourceOfferId,
+    sourceOfferBillingRootItemKeysByIdV17_90L371CD,
+  ]);
+
+  useEffect(() => {
+    const refreshVisibleList = () => {
+      // Background refreshes must not replace the complete list with the
+      // loading screen. That caused a visible flash on the first click after
+      // returning to this browser tab.
+      if (!dialogOpen) void load({ silent: true });
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleList();
+    };
+    window.addEventListener("focus", refreshVisibleList);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshVisibleList);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen]);
 
   // editId logic removed — flow buttons now redirect to list only
 
-  // Close dropdown on outside click
+  // Close native action menus on outside click without touching React state.
   useEffect(() => {
-    if (!dropdownOpenId) return;
-    const handler = () => setDropdownOpenId(null);
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, [dropdownOpenId]);
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details[data-invoice-action-menu][open]",
+        )
+        .forEach((menu) => {
+          if (!target || !menu.contains(target)) menu.open = false;
+        });
+    };
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, []);
   useEffect(() => {
-    if (searchParams?.get('new') === '1' && searchParams?.get('fromOffer') !== '1') {
-  setItems([getEmptyItem()]);
-  setDialogOpen(true);
-}
+    if (
+      searchParams?.get("new") === "1" &&
+      searchParams?.get("fromOffer") !== "1"
+    ) {
+      setItems([getEmptyItem()]);
+      setDialogOpen(true);
+    }
     // Handle fromOffer: fetch offer's linked order data
-    if (searchParams?.get('fromOffer') === '1') {
-      const customerId = searchParams.get('customerId') ?? '';
-      const offerId = searchParams.get('offerId') ?? '';
-      setForm(f => ({ ...f, customerId }));
-      const itemsJson = searchParams.get('items');
+    if (searchParams?.get("fromOffer") === "1") {
+      const customerId = searchParams.get("customerId") ?? "";
+      const offerId = searchParams.get("offerId") ?? "";
+      setForm((f) => ({ ...f, customerId }));
+      const itemsJson = searchParams.get("items");
       if (itemsJson) {
         try {
           const parsed = JSON.parse(itemsJson);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setItems(parsed.map((item: any) => ({
-              description: item.serviceName || item.description || '',
-              quantity: String(item.quantity ?? 1),
-              unit: item.unit ?? 'Stunde',
-              unitPrice: String(item.unitPrice ?? 50),
-            })));
+            setItems(
+              parsed.map((item: any) => {
+                const siteAddress = item.siteAddress || item.workSite?.siteAddress || null;
+                const sitePlz = item.sitePlz || item.workSite?.sitePlz || null;
+                const siteCity = item.siteCity || item.workSite?.siteCity || null;
+                const hasCompleteSiteV17_90L371CC = Boolean(
+                  compactInvoiceValue(siteAddress) &&
+                    compactInvoiceValue(sitePlz) &&
+                    compactInvoiceValue(siteCity),
+                );
+                return {
+                  positionType: inferPositionTypeFromItem(item),
+                  description: item.serviceName || item.description || "",
+                  quantity: String(item.quantity ?? 0),
+                  unit: item.unit ?? "Stunde",
+                  unitPrice: String(item.unitPrice ?? 0),
+                  siteName: hasCompleteSiteV17_90L371CC
+                    ? item.siteName || item.workSite?.siteName || null
+                    : null,
+                  siteAddress: hasCompleteSiteV17_90L371CC ? siteAddress : null,
+                  sitePlz: hasCompleteSiteV17_90L371CC ? sitePlz : null,
+                  siteCity: hasCompleteSiteV17_90L371CC ? siteCity : null,
+                  siteNote: hasCompleteSiteV17_90L371CC
+                    ? item.siteNote || item.workSite?.siteNote || null
+                    : null,
+                  sourceOrderId: hasCompleteSiteV17_90L371CC ? item.sourceOrderId || null : null,
+                };
+              }),
+            );
           }
         } catch {}
       }
       if (offerId) {
-        fetch(`/api/offers/${offerId}`).then(r => r.json()).then(offer => {
-          const lo = offer?.orders?.[0];
-          if (lo) setLinkedOrderData({ notes: lo.notes, specialNotes: lo.specialNotes, needsReview: lo.needsReview, mediaUrl: lo.mediaUrl, mediaType: lo.mediaType, imageUrls: lo.imageUrls, thumbnailUrls: lo.thumbnailUrls, audioTranscript: lo.audioTranscript, audioDurationSec: lo.audioDurationSec, audioTranscriptionStatus: lo.audioTranscriptionStatus, hinweisLevel: lo.hinweisLevel, description: lo.description });
-          if (offer?.orders?.length) setEditOrderCtx(resolveCommunicationData(null, offer.orders));
-        }).catch(() => {});
+        fetch(`/api/offers/${offerId}`)
+          .then((r) => r.json())
+          .then((offer) => {
+            const lo = offer?.orders?.[0];
+            if (lo)
+              setLinkedOrderData({
+                notes: lo.notes,
+                specialNotes: lo.specialNotes,
+                needsReview: lo.needsReview,
+                mediaUrl: lo.mediaUrl,
+                mediaType: lo.mediaType,
+                imageUrls: lo.imageUrls,
+                thumbnailUrls: lo.thumbnailUrls,
+                audioTranscript: lo.audioTranscript,
+                audioDurationSec: lo.audioDurationSec,
+                audioTranscriptionStatus: lo.audioTranscriptionStatus,
+                hinweisLevel: lo.hinweisLevel,
+                positionType: inferPositionTypeFromItem(lo),
+        description: lo.description,
+              });
+            if (offer?.orders?.length)
+              setEditOrderCtx(resolveCommunicationData(null, offer.orders));
+          })
+          .catch(() => {});
       }
-      // Auto-fill: extract missing customer data from notes and update DB
-      if (customerId) autoFillCustomer(customerId);
+      // V17.90L277: Angebot → Rechnung übernimmt den bestehenden Kunden
+      // unverändert. Freitext aus verknüpften Aufträgen darf den Kundenstamm
+      // weder ergänzen noch überschreiben.
       setDialogOpen(true);
     }
     // fromOrder auto-open removed — small dropdown now creates directly via API
@@ -342,7 +6032,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   // Works even for Erledigt invoices (though customer detail currently prefers
   // routing those to /archiv for context).
   useEffect(() => {
-    const editId = searchParams?.get('edit');
+    const editId = searchParams?.get("edit");
     if (!editId || dialogOpen) return;
     let cancelled = false;
     (async () => {
@@ -350,33 +6040,61 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
         const res = await fetch(`/api/invoices/${editId}`);
         if (cancelled) return;
         if (!res.ok) {
-          toast.error(res.status === 404 ? 'Rechnung nicht gefunden' : 'Fehler beim Öffnen');
-          router.replace('/rechnungen', { scroll: false });
+          toast.error(
+            res.status === 404
+              ? "Rechnung nicht gefunden"
+              : "Fehler beim Öffnen",
+          );
+          router.replace("/rechnungen", { scroll: false });
           return;
         }
         const inv = await res.json();
         if (cancelled) return;
         openEditInvoice(inv);
-        router.replace('/rechnungen', { scroll: false });
+        router.replace("/rechnungen", { scroll: false });
       } catch {
         if (!cancelled) {
-          toast.error('Fehler beim Öffnen');
-          router.replace('/rechnungen', { scroll: false });
+          toast.error("Fehler beim Öffnen");
+          router.replace("/rechnungen", { scroll: false });
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const openNewInvoice = () => {
+    const invoiceDate = getTodayInvoiceDateInputValue();
     setEditingInvoice(null);
+    setExecutionAddressClearRequested(false);
+    setEditingInvoiceCustomer(null);
     setVatRate(defaultVatRate);
-    setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] });
+    setCurrency(currency === "EUR" ? "EUR" : "CHF");
+    setForm({
+      customerId: "",
+      invoiceDate,
+      dueDate: addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+      paymentDays: String(defaultPaymentDays),
+      pdfTitle: "",
+      notes: "",
+      specialNotes: "",
+      orderIds: [],
+    });
     setItems([getEmptyItem()]);
+    setExpandedItemIndex(null);
+    setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(false);
+    setExpandedInvoiceSiteKeys(new Set());
+    setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
+    setNewInvoiceExecutionSite(null);
+    setInvoiceExecutionSiteDrafts([]);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
-    setShowNewCustomer(false); setEditingCustomer(false);
+    setShowNewCustomer(false);
+    setEditingCustomer(false);
     setDialogOpen(true);
   };
 
@@ -386,31 +6104,111 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
    * used by the list-card "Kundendaten unvollständig" chip so the user
    * lands directly inside the editor with one tap.
    */
-  const openEditInvoice = (inv: Invoice, opts?: { openCustomerSection?: boolean }) => {
-    setDropdownOpenId(null);
+  const openEditInvoice = (
+    inv: Invoice,
+    opts?: {
+      openCustomerSection?: boolean;
+      focusStatus?: boolean;
+      focusItems?: boolean;
+      focusExecutionSites?: boolean;
+      focusSpecialNotes?: boolean;
+    },
+  ) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+    }
+    setActiveInvoiceServiceSheet(null);
     setEditingInvoice(inv);
+    setExecutionAddressClearRequested(false);
+    setEditingInvoiceCustomer(inv.customer ? { ...inv.customer } : null);
     setDupCheckOpen(false);
     // Reset customer form to prevent stale data leaking between records
-    setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
+    setNewCust({
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+      plz: "",
+      city: "",
+      country: "CH",
+    });
     setVatRate(inv.vatRate != null ? Number(inv.vatRate) : defaultVatRate);
+    setCurrency(inv.currency === "EUR" ? "EUR" : "CHF");
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = inv.orders?.[0];
-    if (lo) setLinkedOrderData({ notes: lo.notes, specialNotes: lo.specialNotes, needsReview: lo.needsReview, mediaUrl: lo.mediaUrl, mediaType: lo.mediaType, imageUrls: lo.imageUrls, thumbnailUrls: lo.thumbnailUrls, audioTranscript: lo.audioTranscript, audioDurationSec: lo.audioDurationSec, audioTranscriptionStatus: lo.audioTranscriptionStatus, hinweisLevel: lo.hinweisLevel, description: lo.description });
+    if (lo)
+      setLinkedOrderData({
+        notes: lo.notes,
+        specialNotes: lo.specialNotes,
+        needsReview: lo.needsReview,
+        mediaUrl: lo.mediaUrl,
+        mediaType: lo.mediaType,
+        imageUrls: lo.imageUrls,
+        thumbnailUrls: lo.thumbnailUrls,
+        audioTranscript: lo.audioTranscript,
+        audioDurationSec: lo.audioDurationSec,
+        audioTranscriptionStatus: lo.audioTranscriptionStatus,
+        hinweisLevel: lo.hinweisLevel,
+        positionType: inferPositionTypeFromItem(lo),
+        description: lo.description,
+      });
     else setLinkedOrderData(null);
-    setEditOrderCtx(inv.orders?.length ? resolveCommunicationData(null, inv.orders) : null);
+    setEditOrderCtx(
+      inv.orders?.length ? resolveCommunicationData(null, inv.orders) : null,
+    );
     // Strip forwarded customer message from Bemerkungen (legacy data cleanup)
     const cleanNotes = stripForwardedMessage(inv.notes, lo?.notes);
+    const invoicePdfText = decodeInvoicePdfMetaV17_90L321(cleanNotes);
+    const invoiceDate = toInvoiceDateInputValue(inv.invoiceDate);
     setForm({
       customerId: inv.customerId,
-      invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().split('T')[0] : '',
-      paymentDays: '30',
-      notes: cleanNotes,
+      invoiceDate,
+      dueDate:
+        toInvoiceDateInputValue(inv.dueDate) ||
+        addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+      paymentDays: String(defaultPaymentDays),
+      pdfTitle: invoicePdfText.pdfTitle,
+      notes: invoicePdfText.notes,
+      specialNotes: buildInvoiceManualTextareaValueV17_90L334(
+        inv,
+        invoicePdfText.specialNotes,
+        sourceOfferInternalNotesByIdV17_90L319[
+          compactInvoiceValue(inv.sourceOfferId)
+        ] || "",
+      ),
       orderIds: [],
     });
-    setItems(
+    setExpandedItemIndex(null);
+    setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(false);
+    setExpandedInvoiceSiteKeys(new Set());
+    setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
+    setNewInvoiceExecutionSite(null);
+    setInvoiceExecutionSiteDrafts([]);
+    const mappedInvoiceItemsV17_90L371CD =
       inv.items?.length > 0
-        ? inv.items.map((it: any) => ({ description: it.description ?? '', quantity: String(it.quantity ?? 1), unit: it.unit ?? 'Stunde', unitPrice: String(it.unitPrice ?? 0) }))
-        : [getEmptyItem()]
+        ? inv.items.map((it: any) => ({
+            positionType: inferPositionTypeFromItem(it),
+            description: it.description ?? "",
+            quantity: String(it.quantity ?? 0),
+            unit: it.unit ?? "Stunde",
+            unitPrice: String(it.unitPrice ?? 0),
+            siteName: it.siteName || null,
+            siteAddress: it.siteAddress || null,
+            sitePlz: it.sitePlz || null,
+            siteCity: it.siteCity || null,
+            siteNote: it.siteNote || null,
+            sourceOrderId: it.sourceOrderId || null,
+          }))
+        : [getEmptyItem()];
+    setItems(
+      repairInvoiceItemsFromSourceOfferBillingRootV17_90L371CD(
+        mappedInvoiceItemsV17_90L371CD,
+        sourceOfferBillingRootItemKeysByIdV17_90L371CD[
+          compactInvoiceValue(inv.sourceOfferId)
+        ],
+      ),
     );
     if (opts?.openCustomerSection && inv.customerId) {
       // Stage E (deterministic flow): mark a pending request; the effect below
@@ -420,12 +6218,47 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
       setPendingOpenCustomerEditor(inv.customerId);
       // We intentionally DO NOT reset showNewCustomer / editingCustomer here.
     } else {
-      setShowNewCustomer(false); setEditingCustomer(false);
+      setShowNewCustomer(false);
+      setEditingCustomer(false);
       setPendingOpenCustomerEditor(null);
     }
     setDialogOpen(true);
-    // Auto-fill: extract missing customer data from notes and update DB
-    if (inv.customerId) autoFillCustomer(inv.customerId);
+    if (opts?.focusStatus) {
+      window.setTimeout(() => {
+        const statusSelect = document.getElementById(
+          "invoice-status-select",
+        ) as HTMLSelectElement | null;
+        statusSelect?.scrollIntoView({ behavior: "smooth", block: "center" });
+        statusSelect?.focus();
+      }, 180);
+    }
+    if (opts?.focusItems) {
+      window.setTimeout(() => {
+        serviceItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 180);
+    }
+    if (opts?.focusExecutionSites) {
+      window.setTimeout(() => {
+        (invoiceExecutionSitesRef.current || serviceItemsRef.current)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 180);
+    }
+    if (opts?.focusSpecialNotes) {
+      window.setTimeout(() => {
+        invoiceSpecialNotesRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 180);
+    }
+    // V17.90L277: Das Öffnen einer Rechnung ist strikt read-only gegenüber
+    // dem zentralen Kundenstamm. Kundennachrichten, Kontaktpersonen und
+    // Ausführungsadressen dürfen niemals automatisch Kundendaten verändern.
   };
 
   // Stage E (deterministic chip flow): runs AFTER the dialog has actually
@@ -439,7 +6272,8 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     let cancelled = false;
     (async () => {
       try {
-        let freshCust: Customer | null = customers.find((c: Customer) => c.id === targetId) || null;
+        let freshCust: Customer | null =
+          customers.find((c: Customer) => c.id === targetId) || null;
         try {
           const res = await fetch(`/api/customers/${targetId}`);
           if (res.ok) {
@@ -447,18 +6281,31 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             if (fetched && fetched.id) {
               freshCust = fetched;
               if (!cancelled) {
-                setCustomers(prev => prev.map(c => c.id === fetched.id ? { ...c, ...fetched } : c));
+                setCustomers((prev) =>
+                  prev.map((c) =>
+                    c.id === fetched.id ? { ...c, ...fetched } : c,
+                  ),
+                );
               }
             }
           }
         } catch {}
         if (cancelled) return;
         if (freshCust) {
-          const noteSource = linkedOrderData?.notes ?? null;
+          // V17.90L277: Auch der Chip-Schnellzugriff übernimmt ausschließlich
+          // den gespeicherten Kundenstamm und niemals Freitext aus Aufträgen.
           const merged = mergeCustomerIntoForm(
-            { name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' },
+            {
+              name: "",
+              phone: "",
+              email: "",
+              address: "",
+              plz: "",
+              city: "",
+              country: "CH",
+            },
             freshCust as any,
-            noteSource,
+            null,
           );
           setNewCust(merged);
         }
@@ -466,13 +6313,18 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
         setShowNewCustomer(true);
         setPendingOpenCustomerEditor(null);
         requestAnimationFrame(() => {
-          customerEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          customerEditorRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
         });
       } catch {
         if (!cancelled) setPendingOpenCustomerEditor(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOpenCustomerEditor, dialogOpen, form.customerId]);
 
@@ -480,115 +6332,1967 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     if (!dialogOpen) setPendingOpenCustomerEditor(null);
   }, [dialogOpen]);
 
-  const addItem = () => setItems([...items, getEmptyItem()]);
-  const removeItem = (i: number) => setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
+  const toggleInvoiceExecutionAddressEditor = (
+    site?: InvoiceExecutionSite | null,
+  ) => {
+    if (!site) return;
+    if (!editingExecutionAddress) {
+      setEditingExecutionAddress(true);
+      return;
+    }
+    if (
+      serializeInvoiceExecutionSiteForEdit(site) !==
+      executionAddressEditSnapshot
+    ) {
+      toast.info("Bitte Ausführungsadresse zuerst speichern.");
+      return;
+    }
+    setEditingExecutionAddress(false);
+  };
+
+  const setNewInvoiceExecutionAddressEnabled = (enabled: boolean) => {
+    if (!enabled) {
+      setNewInvoiceExecutionSite(null);
+      setItems((current: InvoiceItem[]) =>
+        current.map((item: InvoiceItem) => ({
+          ...item,
+          siteName: null,
+          siteAddress: null,
+          sitePlz: null,
+          siteCity: null,
+          siteNote: null,
+          _workSiteUiKey: null,
+        })),
+      );
+      setEditingInvoiceSiteKey(null);
+      setNewInvoiceItemSiteKey("");
+      setExpandedInvoiceSiteKeys(new Set());
+      setEditingExecutionAddress(false);
+      return;
+    }
+
+    const uiKey = `invoice-draft-site-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const site: InvoiceExecutionSite = {
+      ...getEmptyInvoiceExecutionSite(),
+      sourceOrderId: null,
+      _workSiteUiKey: uiKey,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    setNewInvoiceExecutionSite(site);
+    setItems((current: InvoiceItem[]) => {
+      const baseItems = current.length > 0 ? current : [getEmptyItem()];
+      return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+    });
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setEditingExecutionAddress(true);
+  };
+
+  const updateNewInvoiceExecutionSite = (
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    setNewInvoiceExecutionSite((current) => ({
+      ...(current || getEmptyInvoiceExecutionSite()),
+      [field]: value,
+    }));
+  };
+
+  const addItem = () => {
+    // V17.90L371BZ: Der globale Button "+ Position" startet auf
+    // Rechnungsadresse/root. Auch bei genau einem Ausführungsort darf keine
+    // automatische Zwangszuordnung erfolgen; der Arbeitsort-Wähler im Formular
+    // bleibt die bewusste Auswahl.
+    setItems((current) => [
+      { ...getEmptyItem(), _manualUserAdded: true },
+      ...current,
+    ]);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-service-item-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+  const removeItem = (i: number) => {
+    const removedItem = items?.[i] || null;
+    const removedSiteCandidate = removedItem && (
+      compactInvoiceValue((removedItem as any)._workSiteUiKey) ||
+      compactInvoiceValue(removedItem.siteName) ||
+      compactInvoiceValue(removedItem.siteAddress) ||
+      compactInvoiceValue(removedItem.sitePlz) ||
+      compactInvoiceValue(removedItem.siteCity) ||
+      compactInvoiceValue(removedItem.siteNote) ||
+      compactInvoiceValue(removedItem.sourceOrderId)
+    )
+      ? ({
+          siteName: removedItem.siteName || null,
+          siteAddress: removedItem.siteAddress || null,
+          sitePlz: removedItem.sitePlz || null,
+          siteCity: removedItem.siteCity || null,
+          siteNote: removedItem.siteNote || null,
+          sourceOrderId: removedItem.sourceOrderId || null,
+          _workSiteUiKey: (removedItem as any)._workSiteUiKey || null,
+        } as InvoiceExecutionSite)
+      : null;
+    const removedSiteKey = removedSiteCandidate
+      ? invoiceGroupKeyForSite(removedSiteCandidate)
+      : "";
+
+    setItems((current) =>
+      current?.filter((_: any, idx: number) => idx !== i) ?? [],
+    );
+
+    // SMARTFLOW_V17_90L371CN: Rechnung wie Angebot: Beim Löschen der letzten
+    // Position wird die Position sofort aus der UI entfernt. Der Arbeitsort
+    // bleibt als leerer Draft sichtbar und zeigt den Empty-State.
+    if (removedSiteCandidate && removedSiteKey) {
+      const visibleRemovedSiteCandidateV17_90L371CO: InvoiceExecutionSite = {
+        ...removedSiteCandidate,
+        // Der Empty-State-Arbeitsort muss denselben UI-Key behalten, den der
+        // sichtbare Button später wieder an removeInvoiceExecutionSite übergibt.
+        // Sonst erzeugt ensureInvoiceExecutionSiteUiKeys einen neuen invoice-site-*
+        // Key und der leere Rechnungs-Arbeitsort lässt sich nicht entfernen.
+        _workSiteUiKey: removedSiteKey,
+      };
+      setInvoiceExecutionSiteDrafts((current) =>
+        current.some((site) => invoiceGroupKeyForSite(site) === removedSiteKey)
+          ? current
+          : [visibleRemovedSiteCandidateV17_90L371CO, ...current],
+      );
+      setExpandedInvoiceSiteKeys((current) => new Set([...current, removedSiteKey]));
+    }
+
+    setExpandedItemIndex((current) =>
+      current === i
+        ? null
+        : current != null && current > i
+          ? current - 1
+          : current,
+    );
+    setServiceActionMenuIndex(null);
+  };
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
     setItems(updated);
   };
 
-  const onItemServiceSelect = (idx: number, name: string, svcOpt?: ServiceOption) => {
+  const assignInvoiceItemToSite = (index: number, siteKey: string) => {
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
+    if (!siteKey) {
+      clearInvoiceItemSiteAssignmentV17_90L371BW(index);
+      return;
+    }
+    const site = sites.find(
+      (candidate) => invoiceGroupKeyForSite(candidate) === siteKey,
+    );
+    if (!site) return;
+    const itemBeforeMove = items[index];
+    const shouldCloseAfterMove = Boolean(
+      compactInvoiceValue(itemBeforeMove?.description) ||
+        compactInvoiceValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              siteName: site.siteName || null,
+              siteAddress: site.siteAddress || null,
+              sitePlz: site.sitePlz || null,
+              siteCity: site.siteCity || null,
+              siteNote: site.siteNote || null,
+              sourceOrderId: site.sourceOrderId || null,
+              _workSiteUiKey: site._workSiteUiKey || null,
+            }
+          : item,
+      ),
+    );
+
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
+    setNewInvoiceItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
+    setServiceActionMenuIndex(null);
+
+    if (shouldCloseAfterMove) {
+      markInvoiceItemMovedV17_90L371CF(index);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    }
+  };
+
+  const isRealInvoiceExecutionSiteItemV17_90L371CP = (
+    item?: InvoiceItem | null,
+  ) =>
+    Boolean(
+      compactInvoiceValue(item?.description) ||
+        compactInvoiceValue(item?.unit) ||
+        Number(item?.quantity || 0) > 0 ||
+        Number(item?.unitPrice || 0) > 0,
+    );
+
+  const cleanupInvoiceExecutionSiteAfterMoveToBillingV17_90L371CP = (
+    previousSiteKey?: string | null,
+    movedItemIndex?: number | null,
+  ) => {
+    const siteKey = compactInvoiceValue(previousSiteKey);
+    if (!siteKey || siteKey === "general") return;
+
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const previousSite = currentSites.find(
+      (site) => invoiceGroupKeyForSite(site) === siteKey,
+    );
+    if (!previousSite) return;
+
+    const hasRemainingRealItems = items.some(
+      (item, itemIndex) =>
+        itemIndex !== movedItemIndex &&
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey &&
+        isRealInvoiceExecutionSiteItemV17_90L371CP(item),
+    );
+    if (hasRemainingRealItems) return;
+
+    const previousAddressKey = invoiceSiteKey(previousSite);
+    const previousSourceOrderId = compactInvoiceValue(previousSite.sourceOrderId);
+    const matchesPreviousSite = (site?: InvoiceExecutionSite | null) => {
+      if (!site) return false;
+      if (invoiceGroupKeyForSite(site) === siteKey) return true;
+      if (compactInvoiceValue(site._workSiteUiKey) === siteKey) return true;
+      if (invoiceSiteKey(site) !== previousAddressKey) return false;
+      const sourceOrderId = compactInvoiceValue(site.sourceOrderId);
+      return (
+        sourceOrderId === previousSourceOrderId ||
+        !sourceOrderId ||
+        !previousSourceOrderId
+      );
+    };
+
+    const nextSites = currentSites.filter((site) => !matchesPreviousSite(site));
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.filter((site) => !matchesPreviousSite(site)),
+    );
+    setNewInvoiceExecutionSite((current) =>
+      current && matchesPreviousSite(current) ? null : current,
+    );
+    setItems((current) =>
+      current.filter(
+        (item, itemIndex) =>
+          itemIndex === movedItemIndex ||
+          !matchesPreviousSite(item as InvoiceExecutionSite) ||
+          isRealInvoiceExecutionSiteItemV17_90L371CP(item),
+      ),
+    );
+    setExpandedInvoiceSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(siteKey);
+      next.add("general");
+      return next;
+    });
+    setEditingInvoiceSiteKey((current) => (current === siteKey ? null : current));
+    setNewInvoiceItemSiteKey((current) => (current === siteKey ? "" : current));
+
+    if (nextSites.length === 0) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+      setNewInvoiceExecutionSite(null);
+      setInvoiceExecutionSiteDrafts([]);
+    }
+  };
+
+  const clearInvoiceItemSiteAssignmentV17_90L371BW = (index: number) => {
+    const itemBeforeMove = items[index];
+    const previousSiteKeyV17_90L371CP = itemBeforeMove
+      ? invoiceGroupKeyForSite(itemBeforeMove as InvoiceExecutionSite)
+      : "";
+    const shouldCloseAfterMove = Boolean(
+      compactInvoiceValue(itemBeforeMove?.description) ||
+        compactInvoiceValue(itemBeforeMove?.unit) ||
+        Number(itemBeforeMove?.quantity || 0) > 0 ||
+        Number(itemBeforeMove?.unitPrice || 0) > 0,
+    );
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              siteName: null,
+              siteAddress: null,
+              sitePlz: null,
+              siteCity: null,
+              siteNote: null,
+              sourceOrderId: null,
+              _workSiteUiKey: null,
+            }
+          : item,
+      ),
+    );
+    cleanupInvoiceExecutionSiteAfterMoveToBillingV17_90L371CP(
+      previousSiteKeyV17_90L371CP,
+      index,
+    );
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, "general"]));
+    setNewInvoiceItemSiteKey("");
+    setExpandedItemIndex(shouldCloseAfterMove ? null : index);
+    setServiceActionMenuIndex(null);
+
+    if (shouldCloseAfterMove) {
+      markInvoiceItemMovedV17_90L371CF(index);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-service-item-index="${index}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    }
+  };
+
+  const onItemServiceSelect = (
+    idx: number,
+    name: string,
+    svcOpt?: ServiceOption,
+  ) => {
     const svc = svcOpt ?? services?.find((s: any) => s.name === name);
     if (svc) {
-      updateItem(idx, 'description', svc.name);
-      updateItem(idx, 'unitPrice', String(svc.defaultPrice ?? 0));
-      updateItem(idx, 'unit', svc.unit ?? 'Stunde');
+      updateItem(idx, "description", svc.name);
+      updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
+      updateItem(idx, "unit", compactInvoiceValue(svc.unit));
+      updateItem(idx, "positionType", normalizePositionType((svc as any).positionType));
     } else if (!name) {
-      updateItem(idx, 'description', '');
-      updateItem(idx, 'unitPrice', '');
-      updateItem(idx, 'quantity', '');
-      updateItem(idx, 'unit', 'Stunde');
+      updateItem(idx, "description", "");
+      updateItem(idx, "unitPrice", "");
+      updateItem(idx, "quantity", "");
+      updateItem(idx, "unit", "");
     } else {
-      updateItem(idx, 'description', name);
+      updateItem(idx, "description", name);
     }
   };
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
-    setServices((prev: any[]) => [...prev, newSvc].sort((a, b) => (a?.name ?? '').localeCompare(b?.name ?? '', 'de', { sensitivity: 'base' })));
+    setServices((prev: any[]) =>
+      [...prev, newSvc].sort((a, b) =>
+        (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
+          sensitivity: "base",
+        }),
+      ),
+    );
   };
 
-  const subtotal = items?.reduce((sum: number, item: InvoiceItem) => sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0), 0) ?? 0;
-  const vatAmount = subtotal * (vatRate / 100);
-  const total = subtotal + vatAmount;
+  const saveInvoiceItemToServices = async (index: number) => {
+    const item = items[index];
+    const name = compactInvoiceValue(item?.description);
+    const price = Number(item?.unitPrice || 0);
+    const quantity = Number(item?.quantity || 0);
+    const unit = compactInvoiceValue(item?.unit);
+    if (!name || price <= 0 || quantity <= 0 || !unit) {
+      toast.error("Position, Preis, Menge und Einheit zuerst prüfen");
+      return;
+    }
 
-  const onCustomerChange = (customerId: string) => {
-    setForm(f => ({ ...f, customerId }));
-    if (!editingInvoice) {
-      const customerOrders = orders?.filter((o: any) => o?.customerId === customerId && !o?.invoiceId) ?? [];
-      if (customerOrders?.length > 0) {
-        setItems(customerOrders.map((o: any) => ({ description: o?.description ?? '', quantity: String(o?.quantity ?? 1), unit: o?.priceType === 'Stundensatz' ? 'Stunde' : 'Pauschal', unitPrice: String(o?.unitPrice ?? 0) })));
-        setForm(f => ({ ...f, orderIds: customerOrders.map((o: any) => o?.id) }));
+    const existing = services.find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(name),
+    );
+
+    if (existing) {
+      const sameUnit = compactInvoiceValue(existing.unit) === unit;
+      const samePrice =
+        Math.abs(Number(existing.defaultPrice || 0) - price) < 0.001;
+      if (sameUnit && samePrice) {
+        onItemServiceSelect(index, existing.name, existing);
+        toast.success("Leistung ist bereits passend im Leistungskatalog");
+        setServiceActionMenuIndex(null);
+        return;
       }
+      setConfirmDialog({
+        title: "Leistungskatalog aktualisieren?",
+        message: `${name} ist bereits vorhanden. Preis und Einheit mit den Rechnungswerten ersetzen?`,
+        action: async () => {
+          const response = await fetch("/api/services", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: existing.id,
+              name: existing.name || name,
+              defaultPrice: price,
+              unit,
+            }),
+          });
+          if (!response.ok) {
+            toast.error("Leistungskatalog konnte nicht aktualisiert werden");
+            return;
+          }
+          const savedService: ServiceOption = await response.json();
+          handleServiceCreated(savedService);
+          onItemServiceSelect(index, savedService.name, savedService);
+          toast.success("Leistungskatalog wurde aktualisiert");
+        },
+      });
+      setServiceActionMenuIndex(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, defaultPrice: price, unit }),
+      });
+      if (!response.ok) throw new Error("service_create_failed");
+      const savedService: ServiceOption = await response.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(index, savedService.name, savedService);
+      toast.success("Leistung wurde in den Leistungskatalog übernommen");
+    } catch {
+      toast.error("Leistung konnte nicht übernommen werden");
+    } finally {
+      setServiceActionMenuIndex(null);
     }
   };
 
-  const save = async () => {
-    if (!form?.customerId) { toast.error('Bitte Kunde wählen'); return; }
-    if (!items?.length || !items[0]?.description?.trim()) { toast.error('Mindestens eine Leistung'); return; }
-    setSaving(true);
-    try {
-      const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate }) });
-      if (res.ok) { toast.success('Rechnung erstellt'); setDialogOpen(false); load(); setItems([getEmptyItem()]);setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] }); }
-      else toast.error('Fehler');
-    } catch { toast.error('Fehler'); } finally { setSaving(false); }
+  const invoiceGroupKeyForSite = (site: InvoiceExecutionSite) =>
+    invoiceWorkSiteGroupKeyV17_90L287(site);
+
+  const getCurrentInvoiceExecutionSitesV17_90L284 = () => {
+    const collected = executionAddressClearRequested
+      ? []
+      : collectInvoiceExecutionSites({
+          items,
+          orders: editingInvoice?.orders || [],
+        });
+    const result: InvoiceExecutionSite[] = [];
+    const seen = new Set<string>();
+    const addSite = (site: InvoiceExecutionSite) => {
+      const key = invoiceGroupKeyForSite(site);
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(site);
+    };
+    invoiceExecutionSiteDrafts.forEach(addSite);
+    if (!editingInvoice && newInvoiceExecutionSite) {
+      addSite(newInvoiceExecutionSite);
+    }
+    collected.forEach(addSite);
+    return ensureInvoiceExecutionSiteUiKeysV17_90L302(
+      result,
+      editingInvoice?.id || "invoice",
+    );
   };
 
-  const saveEdit = async () => {
-    if (!editingInvoice) return;
+  const normalizeCustomerExecutionAddressKeyV17_90L289 = (site: {
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  }) =>
+    [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactInvoiceValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+
+  const currentInvoiceExecutionSitesForSuggestionsV17_90L289 =
+    getCurrentInvoiceExecutionSitesV17_90L284();
+
+  const customerExecutionAddressSuggestionsV17_90L289 = useMemo(() => {
+    const customer = customers.find(
+      (entry) => entry.id === compactInvoiceValue(form.customerId),
+    );
+    const stored = customer?.executionAddresses ?? [];
+    const usedKeys = new Set(
+      currentInvoiceExecutionSitesForSuggestionsV17_90L289
+        .map(normalizeCustomerExecutionAddressKeyV17_90L289)
+        .filter((key) => key && key !== "||"),
+    );
+    const seen = new Set<string>();
+
+    return stored
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.lastUsedAt || 0).getTime() -
+          new Date(left.lastUsedAt || 0).getTime(),
+      )
+      .filter((site) => {
+        if (
+          !compactInvoiceValue(site.siteAddress) ||
+          !compactInvoiceValue(site.sitePlz) ||
+          !compactInvoiceValue(site.siteCity)
+        )
+          return false;
+        const key = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+        if (!key || key === "||" || usedKeys.has(key) || seen.has(key))
+          return false;
+        seen.add(key);
+        return true;
+      });
+  }, [
+    customers,
+    form.customerId,
+    items,
+    invoiceExecutionSiteDrafts,
+    newInvoiceExecutionSite,
+    editingInvoice,
+    executionAddressClearRequested,
+  ]);
+
+  const applyCustomerExecutionAddressToInvoiceSiteV17_90L289 = (
+    targetKey: string,
+    suggestion: CustomerExecutionAddress,
+  ) => {
+    const target = currentInvoiceExecutionSitesForSuggestionsV17_90L289.find(
+      (site) => invoiceGroupKeyForSite(site) === targetKey,
+    );
+    if (!target) return;
+
+    const stableUiKey =
+      compactInvoiceValue(target._workSiteUiKey) ||
+      `invoice-site-${Math.random().toString(36).slice(2)}`;
+    const replacement = {
+      customerExecutionAddressId: suggestion.id || null,
+      siteName: compactInvoiceValue(suggestion.siteName) || null,
+      siteAddress: compactInvoiceValue(suggestion.siteAddress) || null,
+      sitePlz: compactInvoiceValue(suggestion.sitePlz) || null,
+      siteCity: compactInvoiceValue(suggestion.siteCity) || null,
+      siteNote: compactInvoiceValue(suggestion.siteNote) || null,
+      _workSiteUiKey: stableUiKey,
+    };
+
+    setNewInvoiceExecutionSite((current) =>
+      current && invoiceGroupKeyForSite(current) === targetKey
+        ? { ...current, ...replacement }
+        : current,
+    );
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.map((site) =>
+        invoiceGroupKeyForSite(site) === targetKey
+          ? { ...site, ...replacement }
+          : site,
+      ),
+    );
+    const {
+      customerExecutionAddressId: _customerExecutionAddressId,
+      ...itemReplacement
+    } = replacement;
+    setItems((current) =>
+      current.map((item) =>
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === targetKey
+          ? { ...item, ...itemReplacement }
+          : item,
+      ),
+    );
+    setEditingInvoiceSiteKey(stableUiKey);
+    setNewInvoiceItemSiteKey(stableUiKey);
+    setExpandedInvoiceSiteKeys((current) =>
+      new Set([...current, stableUiKey]),
+    );
+    setCustomerExecutionAddressSaveModeV17_90L296("create");
+    toast.success("Gespeicherter Ausführungsort übernommen.");
+  };
+
+  const resolveInvoiceCustomerExecutionAddressIdV17_90L295 = (
+    site: InvoiceExecutionSite,
+  ) => {
+    const directId = compactInvoiceValue(site.customerExecutionAddressId);
+    if (directId) return directId;
+    const customer = customers.find(
+      (entry) => entry.id === compactInvoiceValue(form.customerId),
+    );
+    const stored = customer?.executionAddresses || [];
+    const exactKey = normalizeCustomerExecutionAddressKeyV17_90L289(site);
+    const exact = stored.find(
+      (entry) =>
+        normalizeCustomerExecutionAddressKeyV17_90L289(entry) === exactKey,
+    );
+    if (exact?.id) return exact.id;
+    const addressKey = [site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) =>
+        compactInvoiceValue(value)
+          .toLocaleLowerCase("de-CH")
+          .replace(/[^a-z0-9äöüß]+/g, ""),
+      )
+      .join("|");
+    const addressMatches = stored.filter(
+      (entry) =>
+        [entry.siteAddress, entry.sitePlz, entry.siteCity]
+          .map((value) =>
+            compactInvoiceValue(value)
+              .toLocaleLowerCase("de-CH")
+              .replace(/[^a-z0-9äöüß]+/g, ""),
+          )
+          .join("|") === addressKey,
+    );
+    return addressMatches.length === 1 ? addressMatches[0]?.id || null : null;
+  };
+
+  const getSelectedCustomerExecutionAddressV17_90L296 = (site: InvoiceExecutionSite) => {
+    const addressId = compactInvoiceValue(site.customerExecutionAddressId);
+    if (!addressId) return null;
+    const customer = customers.find(
+      (entry) => entry.id === compactInvoiceValue(form.customerId),
+    );
+    return (customer?.executionAddresses || []).find(
+      (entry) => entry.id === addressId,
+    ) || null;
+  };
+
+  const customerExecutionAddressChangedV17_90L296 = (site: InvoiceExecutionSite) => {
+    const stored = getSelectedCustomerExecutionAddressV17_90L296(site);
+    if (!stored) return false;
+    const normalize = (value: unknown) =>
+      compactInvoiceValue(value)
+        .toLocaleLowerCase("de-CH")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9äöüß]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    return [
+      site.siteName,
+      site.siteAddress,
+      site.sitePlz,
+      site.siteCity,
+      site.siteNote,
+    ].map(normalize).join("|") !== [
+      stored.siteName,
+      stored.siteAddress,
+      stored.sitePlz,
+      stored.siteCity,
+      stored.siteNote,
+    ].map(normalize).join("|");
+  };
+
+  const shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298 = (_site?: InvoiceExecutionSite | null) => {
+    // V17.90L306: Die alte Checkbox wird durch den eindeutigen Entscheidungsblock
+    // ersetzt. So gibt es keine doppelte Logik zwischen Rechnung und Kundenprofil.
+    return false;
+  };
+
+  const shouldPersistCustomerExecutionAddressChoiceV17_90L305 = (site: InvoiceExecutionSite) => {
+    const knownCustomerAddressId =
+      compactInvoiceValue(site.customerExecutionAddressId) ||
+      resolveInvoiceCustomerExecutionAddressIdV17_90L295(site);
+    if (knownCustomerAddressId) {
+      const changed = customerExecutionAddressChangedV17_90L296({
+        ...site,
+        customerExecutionAddressId: knownCustomerAddressId,
+      });
+      return changed && customerExecutionAddressSaveModeV17_90L296 !== "local";
+    }
+    return customerExecutionAddressSaveModeV17_90L296 === "create";
+  };
+
+  // V17.90L307: Dokumente dürfen Kundenprofil-Vorlagen nicht überschreiben.
+  // Erlaubt sind nur: lokal übernehmen oder als neue Kundenprofil-Vorlage speichern.
+  const renderCustomerExecutionAddressSaveChoiceV17_90L296 = (site: InvoiceExecutionSite) => {
+    const hasAddressContent = Boolean(
+      compactInvoiceValue(site.siteName) ||
+        compactInvoiceValue(site.siteAddress) ||
+        compactInvoiceValue(site.sitePlz) ||
+        compactInvoiceValue(site.siteCity) ||
+        compactInvoiceValue(site.siteNote),
+    );
+    if (!hasAddressContent) return null;
+    const knownCustomerAddressId =
+      compactInvoiceValue(site.customerExecutionAddressId) ||
+      resolveInvoiceCustomerExecutionAddressIdV17_90L295(site);
+    const isChangedStoredAddress = Boolean(
+      knownCustomerAddressId &&
+        customerExecutionAddressChangedV17_90L296({
+          ...site,
+          customerExecutionAddressId: knownCustomerAddressId,
+        }),
+    );
+    if (knownCustomerAddressId && !isChangedStoredAddress) return null;
+
+    return (
+      <div className="rounded-md border border-amber-300 bg-amber-50/70 p-2.5 text-xs dark:border-amber-800 dark:bg-amber-950/20">
+        <div className="mb-2 font-semibold">
+          {isChangedStoredAddress
+            ? "Gespeicherter Ausführungsort wurde geändert"
+            : "Was soll mit dieser Ausführungsadresse passieren?"}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="customer-execution-address-save-mode-v17-90l307"
+              className="mt-0.5"
+              checked={customerExecutionAddressSaveModeV17_90L296 === "local"}
+              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("local")}
+            />
+            <span>
+              <span className="font-medium">Nur in dieser Rechnung übernehmen</span>
+              <span className="block text-[11px] text-muted-foreground">Kundenprofil bleibt unverändert.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="customer-execution-address-save-mode-v17-90l307"
+              className="mt-0.5"
+              checked={customerExecutionAddressSaveModeV17_90L296 === "create"}
+              onChange={() => setCustomerExecutionAddressSaveModeV17_90L296("create")}
+            />
+            <span>
+              <span className="font-medium">Als neuen Ausführungsort im Kundenprofil speichern</span>
+              <span className="block text-[11px] text-muted-foreground">Bestehende Vorlage bleibt erhalten.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  const persistInvoiceExecutionAddressInCustomerV17_90L295 = async (
+    site: InvoiceExecutionSite,
+  ): Promise<CustomerExecutionAddress> => {
+    const customerId = compactInvoiceValue(form.customerId);
+    if (!customerId) throw new Error("Bitte zuerst einen Kunden auswählen.");
+    const response = await fetch(
+      `/api/customers/${customerId}/execution-addresses/upsert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addressId: null,
+          saveMode: "create",
+          siteName: compactInvoiceValue(site.siteName) || null,
+          siteAddress: compactInvoiceValue(site.siteAddress),
+          sitePlz: compactInvoiceValue(site.sitePlz),
+          siteCity: compactInvoiceValue(site.siteCity),
+          siteNote: compactInvoiceValue(site.siteNote) || null,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        payload?.error || "Ausführungsort konnte nicht gespeichert werden.",
+      );
+    }
+    const saved = payload as CustomerExecutionAddress;
+    setCustomers((current) =>
+      current.map((customer) => {
+        if (customer.id !== customerId) return customer;
+        const previous = customer.executionAddresses || [];
+        const next = previous.some((entry) => entry.id === saved.id)
+          ? previous.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...previous];
+        return { ...customer, executionAddresses: next };
+      }),
+    );
+    return saved;
+  };
+
+  const normalizeExecutionAddressSearchV17_90L291 = (value: unknown) =>
+    compactInvoiceValue(value)
+      .toLocaleLowerCase("de-CH")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9äöüß]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const filterCustomerExecutionAddressesV17_90L291 = (query: unknown) => {
+    const tokens = normalizeExecutionAddressSearchV17_90L291(query)
+      .split(" ")
+      .filter(Boolean);
+    if (tokens.length === 0)
+      return customerExecutionAddressSuggestionsV17_90L289;
+
+    return customerExecutionAddressSuggestionsV17_90L289.filter(
+      (suggestion) => {
+        const searchable = normalizeExecutionAddressSearchV17_90L291(
+          [
+            suggestion.siteName,
+            suggestion.siteAddress,
+            suggestion.sitePlz,
+            suggestion.siteCity,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        return tokens.every((token) => searchable.includes(token));
+      },
+    );
+  };
+
+  const deleteCustomerExecutionAddressV17_90L291 = async (
+    suggestion: CustomerExecutionAddress,
+  ) => {
+    const customerId = compactInvoiceValue(form.customerId);
+    const addressId = compactInvoiceValue(suggestion.id);
+    if (!customerId || !addressId) return;
+
+    const label =
+      compactInvoiceValue(suggestion.siteName) ||
+      compactInvoiceValue(suggestion.siteAddress) ||
+      "Ausführungsort";
+    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`))
+      return;
+
+    try {
+      const response = await fetch(
+        `/api/customers/${customerId}/execution-addresses/${addressId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        toast.error(
+          payload?.error || "Ausführungsort konnte nicht entfernt werden.",
+        );
+        return;
+      }
+      setCustomers((current) =>
+        current.map((customer) =>
+          customer.id === customerId
+            ? {
+                ...customer,
+                executionAddresses: (customer.executionAddresses || []).filter(
+                  (address) => address.id !== addressId,
+                ),
+              }
+            : customer,
+        ),
+      );
+      toast.success("Ausführungsort wurde aus dem Kundenprofil entfernt.");
+    } catch {
+      toast.error("Netzwerkfehler beim Entfernen des Ausführungsorts.");
+    }
+  };
+
+  const renderInvoiceExecutionAddressAutocompleteV17_90L291 = ({
+    targetKey,
+    value,
+    onChange,
+    labelClassName = "text-xs",
+    inputClassName = "",
+    placeholder = "z. B. Wohnpark Limmat, Serverraum",
+  }: {
+    targetKey: string;
+    value: string;
+    onChange: (value: string) => void;
+    labelClassName?: string;
+    inputClassName?: string;
+    placeholder?: string;
+  }) => {
+    const suggestions = filterCustomerExecutionAddressesV17_90L291(value);
+
+    return (
+      <div className="group relative">
+        <Label className={labelClassName}>Objekt / Bereich</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className={`pl-8 ${inputClassName}`.trim()}
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-[140] mt-1 hidden max-h-64 overflow-y-auto rounded-md border border-cyan-200 bg-background p-1.5 shadow-xl group-focus-within:block dark:border-cyan-900/70">
+            {suggestions.map((suggestion) => {
+              const key =
+                normalizeCustomerExecutionAddressKeyV17_90L289(suggestion);
+              const title =
+                compactInvoiceValue(suggestion.siteName) ||
+                compactInvoiceValue(suggestion.siteAddress) ||
+                "Ausführungsort";
+              const address = [
+                compactInvoiceValue(suggestion.siteAddress),
+                [suggestion.sitePlz, suggestion.siteCity]
+                  .map(compactInvoiceValue)
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+
+              return (
+                <div
+                  key={`${targetKey}-${key}`}
+                  className="flex items-stretch gap-1 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-950/30"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-xs"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      applyCustomerExecutionAddressToInvoiceSiteV17_90L289(
+                        targetKey,
+                        suggestion,
+                      )
+                    }
+                  >
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                      {title}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {address}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                    title="Aus Kundenprofil entfernen"
+                    aria-label="Ausführungsort aus Kundenprofil entfernen"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void deleteCustomerExecutionAddressV17_90L291(
+                        suggestion,
+                      );
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const setInvoiceExecutionAddressEnabledV17_90L288 = (
+    enabled: boolean,
+    executionSite?: InvoiceExecutionSite | null,
+  ) => {
+    if (!enabled) {
+      const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+      if (currentSites.length > 1) {
+        toast.error(
+          "Mehrere Arbeitsorte können nur einzeln bearbeitet werden.",
+        );
+        return;
+      }
+
+      setExecutionAddressClearRequested(true);
+      setItems((current: InvoiceItem[]) =>
+        current.map((item: InvoiceItem) => ({
+          ...item,
+          siteName: null,
+          siteAddress: null,
+          sitePlz: null,
+          siteCity: null,
+          siteNote: null,
+          _workSiteUiKey: null,
+        })),
+      );
+      setInvoiceExecutionSiteDrafts([]);
+      setNewInvoiceExecutionSite(null);
+      setEditingInvoiceSiteKey(null);
+      setNewInvoiceItemSiteKey("");
+      setExpandedInvoiceSiteKeys(new Set());
+      setEditingExecutionAddress(false);
+      return;
+    }
+
+    setExecutionAddressClearRequested(false);
+    if (executionSite) return;
+
+    const uiKey = `invoice-draft-site-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const site: InvoiceExecutionSite = {
+      siteName: "",
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+      sourceOrderId: null,
+      _workSiteUiKey: uiKey,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    setInvoiceExecutionSiteDrafts([site]);
+    setItems((current: InvoiceItem[]) => {
+      const baseItems = current.length > 0 ? current : [getEmptyItem()];
+      return baseItems.map((item: InvoiceItem) => ({ ...item, ...site }));
+    });
+    setEditingExecutionAddress(true);
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setServiceActionMenuIndex(null);
+  };
+
+  const focusInvoiceWorkSiteEditorV17_90L284 = () => {
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            "[data-invoice-work-site-editor] input",
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
+  const addInvoiceExecutionSite = () => {
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const unfinishedSite = sites.find((site) => {
+      const siteKey = invoiceGroupKeyForSite(site);
+      const assignedItems = items.filter(
+        (item) =>
+          invoiceGroupKeyForSite(item as InvoiceExecutionSite) === siteKey,
+      );
+      const hasSiteContent = Boolean(
+        compactInvoiceValue(site.siteName) ||
+          compactInvoiceValue(site.siteAddress) ||
+          compactInvoiceValue(site.sitePlz) ||
+          compactInvoiceValue(site.siteCity) ||
+          compactInvoiceValue(site.siteNote),
+      );
+      return (
+        !hasSiteContent ||
+        assignedItems.some(
+          (item) => !compactInvoiceValue(item.description),
+        )
+      );
+    });
+    if (unfinishedSite) {
+      const unfinishedKey = invoiceGroupKeyForSite(unfinishedSite);
+      setEditingInvoiceSiteKey(unfinishedKey);
+      setNewInvoiceItemSiteKey(unfinishedKey);
+      setExpandedInvoiceSiteKeys(
+        (current) => new Set([...current, unfinishedKey]),
+      );
+      focusInvoiceWorkSiteEditorV17_90L284();
+      toast.info("Neuen Arbeitsort und Position zuerst vollständig ausfüllen.");
+      return;
+    }
+
+    const uiKey = `invoice-draft-site-${Math.random().toString(36).slice(2)}`;
+    const site: InvoiceExecutionSite = {
+      siteName: "",
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+      sourceOrderId: null,
+      _workSiteUiKey: uiKey,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    const isFirstExecutionSite = sites.length === 0;
+
+    if (!editingInvoice && isFirstExecutionSite) {
+      setNewInvoiceExecutionSite(site);
+    } else {
+      setInvoiceExecutionSiteDrafts((current) => [site, ...current]);
+    }
+    setItems((current: InvoiceItem[]) => {
+      // V17.90L293: Der erste Arbeitsort übernimmt die vorhandenen
+      // Rechnungsleistungen. Nur weitere Arbeitsorte erhalten automatisch
+      // eine neue leere Leistungszeile.
+      if (isFirstExecutionSite) {
+        const baseItems = current.length > 0 ? current : [getEmptyItem()];
+        return baseItems.map((item: InvoiceItem) => ({
+          ...item,
+          ...site,
+          _manualUserAdded:
+            Boolean((item as any)._manualUserAdded) ||
+            !compactInvoiceValue(item.description),
+        }));
+      }
+      return [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current];
+    });
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    if (!isFirstExecutionSite) setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(true);
+    focusInvoiceWorkSiteEditorV17_90L284();
+  };
+
+  const addInvoiceItemToSiteV17_90L284 = (site: InvoiceExecutionSite) => {
+    const key = invoiceGroupKeyForSite(site);
+    setItems((current) => [{ ...getEmptyItem(), ...site, _manualUserAdded: true }, ...current]);
+    setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-service-item-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
+  const updateInvoiceGroupSite = (
+    groupKey: string,
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.map((site) =>
+        invoiceGroupKeyForSite(site) === groupKey
+          ? { ...site, [field]: value || null }
+          : site,
+      ),
+    );
+    setItems((current) =>
+      current.map((item) =>
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === groupKey
+          ? { ...item, [field]: value || null }
+          : item,
+      ),
+    );
+    setEditingInvoiceSiteKey(groupKey);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, groupKey]));
+  };
+
+  const removeInvoiceExecutionSite = (groupKey: string) => {
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const groups = groupInvoiceItemsByExecutionSite(items || [], currentSites);
+    const group = groups.find((entry) => entry.key === groupKey);
+    if (!group?.site) return;
+    const hasRealItems = group.entries.some(({ item }) => {
+      const description = compactInvoiceValue(item.description);
+      const unit = compactInvoiceValue(item.unit);
+      const isOnlyUntouchedPlaceholderV17_90L371CJ =
+        (!description || /^(?:neue position|position auswählen|position auswaehlen|leistung auswählen|leistung auswaehlen|position prüfen|position pruefen|leistung prüfen|leistung pruefen)$/i.test(description)) &&
+        (!unit || /^(?:einheit prüfen|einheit pruefen|prüfen|pruefen)$/i.test(unit)) &&
+        Number(item.quantity || 0) <= 0 &&
+        Number(item.unitPrice || 0) <= 0;
+      return !isOnlyUntouchedPlaceholderV17_90L371CJ;
+    });
+    if (hasRealItems) {
+      toast.error(
+        "Arbeitsort kann nicht gelöscht werden: Positionen sind noch zugeordnet.",
+      );
+      return;
+    }
+
+    const siteLabel =
+      compactInvoiceValue(group.site.siteName) ||
+      compactInvoiceValue(group.site.siteAddress) ||
+      "Ausführungsort";
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(
+        `Ausführungsort „${siteLabel}“ löschen?
+
+Dieser Arbeitsort enthält keine Positionen.`,
+      );
+    if (!confirmed) return;
+
+    const removedInvoiceSiteAddressKeyV17_90L371CO = invoiceSiteKey(group.site);
+    const removedInvoiceSiteSourceOrderIdV17_90L371CO = compactInvoiceValue(
+      group.site.sourceOrderId,
+    );
+    const matchesRemovedInvoiceSiteV17_90L371CO = (
+      site?: InvoiceExecutionSite | null,
+    ) => {
+      if (!site) return false;
+      if (invoiceGroupKeyForSite(site) === groupKey) return true;
+      if (compactInvoiceValue(site._workSiteUiKey) === groupKey) return true;
+      const sameAddress =
+        invoiceSiteKey(site) === removedInvoiceSiteAddressKeyV17_90L371CO;
+      if (!sameAddress) return false;
+      const sourceOrderId = compactInvoiceValue(site.sourceOrderId);
+      return (
+        sourceOrderId === removedInvoiceSiteSourceOrderIdV17_90L371CO ||
+        !sourceOrderId ||
+        !removedInvoiceSiteSourceOrderIdV17_90L371CO
+      );
+    };
+
+    const nextSites = currentSites.filter(
+      (site) => !matchesRemovedInvoiceSiteV17_90L371CO(site),
+    );
+    const nextItems = items.filter(
+      (item) => !matchesRemovedInvoiceSiteV17_90L371CO(item as InvoiceExecutionSite),
+    );
+
+    const shouldClearExecutionAddressV17_90L371CA = nextSites.length === 0;
+    setInvoiceExecutionSiteDrafts((current) =>
+      current.filter((site) => !matchesRemovedInvoiceSiteV17_90L371CO(site)),
+    );
+    setNewInvoiceExecutionSite((current) =>
+      current && matchesRemovedInvoiceSiteV17_90L371CO(current) ? null : current,
+    );
+    setItems(nextItems);
+    setExpandedInvoiceSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(groupKey);
+      return next;
+    });
+    setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
+    if (shouldClearExecutionAddressV17_90L371CA) {
+      setExecutionAddressClearRequested(true);
+      setEditingExecutionAddress(false);
+      setNewInvoiceExecutionSite(null);
+      setInvoiceExecutionSiteDrafts([]);
+    }
+    toast.success("Ausführungsort gelöscht.");
+  };
+
+  const toggleAllInvoiceSites = () => {
+    const sites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
+    setExpandedInvoiceSiteKeys((current) => {
+      const allOpen =
+        groups.length > 0 && groups.every((group) => current.has(group.key));
+      return allOpen
+        ? new Set()
+        : new Set(groups.map((group) => group.key));
+    });
+  };
+
+  const updateInvoiceExecutionSite = (
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    setItems((current) =>
+      current.map((item) => ({ ...item, [field]: value || null })),
+    );
+  };
+
+  const subtotal =
+    items?.reduce(
+      (sum: number, item: InvoiceItem) =>
+        sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0),
+      0,
+    ) ?? 0;
+  const vatAmount = subtotal * (vatRate / 100);
+  const total = subtotal + vatAmount;
+
+  const renderInvoiceServiceOverview = () => {
+    const overviewItems = (items || []).filter((item: InvoiceItem) =>
+      compactInvoiceValue(item?.description),
+    );
+    const overviewSites = collectInvoiceExecutionSites({
+      items: overviewItems,
+      orders: editingInvoice?.orders || [],
+    });
+    const overviewGroups = groupInvoiceItemsByExecutionSite(
+      overviewItems,
+      overviewSites,
+    ).filter((group) => group.entries.length > 0);
+    const hasMultipleOverviewSites = overviewGroups.length > 1;
+
+    return (
+      <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-semibold">Positionsübersicht</div>
+            <div className="text-xs text-muted-foreground">
+              Live aus den Positionen oben
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setInvoiceServiceOverviewOpen((current) => !current)}
+            className="h-7 w-full px-2 text-[11px] sm:w-auto"
+          >
+            {invoiceServiceOverviewOpen ? "Einklappen" : "Anzeigen"}
+          </Button>
+        </div>
+
+        {!invoiceServiceOverviewOpen && (
+          <button
+            type="button"
+            className="mt-2 flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40"
+            onClick={() => setInvoiceServiceOverviewOpen(true)}
+          >
+            <span className="min-w-0 truncate text-muted-foreground">
+              {hasMultipleOverviewSites
+                ? `${overviewGroups.length} Arbeitsorte · ${overviewItems.length} Positionen`
+                : `${overviewItems.length} Position${overviewItems.length === 1 ? "" : "en"}`}
+            </span>
+            <span className="shrink-0 font-mono font-semibold text-primary">
+              {formatCurrency(subtotal, currency)}
+            </span>
+          </button>
+        )}
+
+        {invoiceServiceOverviewOpen && hasMultipleOverviewSites && (
+          <div className="mt-2 space-y-2 rounded-lg border-2 border-slate-300 bg-muted/20 p-2 dark:border-slate-700">
+            {overviewGroups.map((group, groupIndex) => {
+              const groupTotal = group.entries.reduce(
+                (sum, entry) =>
+                  sum +
+                  Number(entry.item?.quantity || 0) *
+                    Number(entry.item?.unitPrice || 0),
+                0,
+              );
+              const visibleWorkSiteNumber = overviewGroups
+                .slice(0, groupIndex + 1)
+                .filter((candidate) => Boolean(candidate.site)).length;
+              const siteTitle = group.site
+                ? `${visibleWorkSiteNumber}. ${
+                    group.site?.siteName ||
+                    group.site?.siteAddress ||
+                    "Ausführungsort"
+                  }`
+                : "Rechnungsadresse";
+              const siteAddress = group.site
+                ? [
+                    group.site?.siteName ? group.site?.siteAddress : null,
+                    [group.site?.sitePlz, group.site?.siteCity]
+                      .filter(Boolean)
+                      .join(" "),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "Positionen an der Rechnungsadresse";
+              const isBillingOverviewGroup = !group.site;
+
+              return (
+                <div
+                  key={`invoice-overview-site-${group.key}`}
+                  className={`overflow-hidden rounded-md border-2 shadow-sm ${
+                    isBillingOverviewGroup
+                      ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20"
+                      : "border-cyan-300 bg-cyan-50/30 dark:border-cyan-800 dark:bg-cyan-950/20"
+                  }`}
+                >
+                  <div
+                    className={`flex items-start justify-between gap-2 border-b-2 px-2 py-1.5 ${
+                      isBillingOverviewGroup
+                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/70 dark:bg-emerald-950/30"
+                        : "border-cyan-200 bg-cyan-50 dark:border-cyan-900/70 dark:bg-cyan-950/30"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold leading-tight">
+                        {group.site ? "📍" : "🧾"} {siteTitle}
+                      </div>
+                      {siteAddress && (
+                        <div className="text-xs text-muted-foreground">
+                          {siteAddress}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 rounded-md border border-slate-300 bg-background px-2 py-1 text-right font-mono text-sm font-bold text-primary dark:border-slate-700">
+                      {formatCurrency(groupTotal, currency)}
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-slate-200 px-2 text-sm dark:divide-slate-700">
+                    {group.entries.map(({ item, index }) => {
+                      const quantity = Number(item?.quantity || 0);
+                      const unitPrice = Number(item?.unitPrice || 0);
+                      const lineTotal = quantity * unitPrice;
+                      return (
+                        <div
+                          key={`invoice-overview-${group.key}-${index}`}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-1.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {compactInvoiceValue(item?.description) ||
+                                "Unbenannte Position"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {quantity > 0
+                                ? `${quantity} ${compactInvoiceValue(item?.unit) || "–"}`
+                                : "Menge prüfen"}
+                              {" · "}
+                              {unitPrice > 0
+                                ? formatCurrency(unitPrice, currency)
+                                : "Preis prüfen"}
+                            </div>
+                          </div>
+                          <div className="text-right font-mono text-sm font-medium">
+                            {formatCurrency(
+                              Number.isFinite(lineTotal) ? lineTotal : 0,
+                              currency,
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="flex justify-between rounded-md border border-slate-300 bg-muted/70 px-3 py-2 text-sm font-semibold dark:border-slate-700">
+              <span>Gesamt netto</span>
+              <span className="font-mono text-primary">
+                {formatCurrency(subtotal, currency)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {invoiceServiceOverviewOpen && !hasMultipleOverviewSites && (
+          <div className="mt-2 overflow-x-auto rounded-lg border-2 border-slate-300 dark:border-slate-700">
+            <table className="w-full min-w-[680px] border-collapse text-[13px] leading-snug">
+              <thead className="bg-slate-50 text-left dark:bg-slate-900/70">
+                <tr className="border-b border-slate-300 dark:border-slate-700">
+                  <th className="w-12 px-2 py-1.5 font-semibold">Nr.</th>
+                  <th className="px-2 py-1.5 font-semibold">Position</th>
+                  <th className="w-32 px-2 py-1.5 font-semibold">Einheit</th>
+                  <th className="w-20 px-2 py-1.5 text-right font-semibold">
+                    Menge
+                  </th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">
+                    Einzelpreis
+                  </th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">
+                    Summe
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {overviewItems.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-2 py-3 text-center text-muted-foreground"
+                    >
+                      Keine Position erfasst.
+                    </td>
+                  </tr>
+                ) : (
+                  overviewItems.map((item: InvoiceItem, index: number) => {
+                    const quantity = Number(item?.quantity || 0);
+                    const unitPrice = Number(item?.unitPrice || 0);
+                    const lineTotal = quantity * unitPrice;
+                    return (
+                      <tr
+                        key={`invoice-overview-row-${index}`}
+                        className="border-b border-slate-200 last:border-b-0 dark:border-slate-800"
+                      >
+                        <td className="px-2 py-1.5 align-top">{index + 1}</td>
+                        <td className="px-2 py-1.5 align-top font-medium">
+                          {item.description}
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          {compactInvoiceValue(item.unit) || "–"}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {Number.isFinite(quantity) ? quantity : 0}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {formatCurrency(
+                            Number.isFinite(unitPrice) ? unitPrice : 0,
+                            currency,
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {formatCurrency(
+                            Number.isFinite(lineTotal) ? lineTotal : 0,
+                            currency,
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-900/70">
+                  <td colSpan={5} className="px-2 py-2">
+                    Gesamt
+                  </td>
+                  <td className="px-2 py-2 text-right font-mono text-primary">
+                    {formatCurrency(subtotal, currency)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const onCustomerChange = (customerId: string) => {
+    // A manually created invoice must not silently inherit every open order of
+    // the selected customer. Hidden orderIds could trigger source-order
+    // blockers and make "Rechnung erstellen" fail although the visible manual
+    // invoice is complete.
+    setForm((current) => ({
+      ...current,
+      customerId,
+      ...(!editingInvoice ? { orderIds: [] } : {}),
+    }));
+  };
+
+  const save = async (
+    closeAfterSave = true,
+    itemsOverride?: InvoiceItem[],
+    executionSitesOverride?: InvoiceExecutionSite[],
+    forceClearExecutionAddressV17_90L302 = false,
+  ): Promise<boolean> => {
+    const sourceItems = itemsOverride ?? items;
+    if (!form?.customerId) {
+      toast.error("Bitte Kunde wählen");
+      return false;
+    }
+    if (!sourceItems?.some((item) => compactInvoiceValue(item.description))) {
+      toast.error("Mindestens eine Leistung");
+      return false;
+    }
+    const currentExecutionSites =
+      executionSitesOverride ?? getCurrentInvoiceExecutionSitesV17_90L284();
+    const itemsForCreateWithUiState =
+      applyInvoiceExecutionSitesToItemsV17_90L292(
+        sourceItems,
+        currentExecutionSites,
+      );
+    // SMARTFLOW_V17_90L371CG_EMPTY_WORKSITE_GUARD_VISIBLE_GROUPS:
+    // Der Guard muss dieselbe sichtbare Gruppierung prüfen wie die UI. Nach einem
+    // Verschieben kann die Position noch über _workSiteUiKey am Ziel-Arbeitsort
+    // hängen; itemsForCreateWithUiState wird danach für das Speichern bereinigt.
+    // Würde der Guard auf die bereinigten Keys prüfen, entstehen False-Positive-
+    // Meldungen, obwohl am Ziel-Arbeitsort sichtbar Positionen liegen.
+    const emptyExecutionSiteForCreateV17_90L371CF = groupInvoiceItemsByExecutionSite(
+      sourceItems,
+      currentExecutionSites,
+    ).find((group) => {
+      const site = group.site;
+      if (!site) return false;
+      const hasCompleteSite = Boolean(
+        compactInvoiceValue(site.siteAddress) &&
+          compactInvoiceValue(site.sitePlz) &&
+          compactInvoiceValue(site.siteCity),
+      );
+      if (!hasCompleteSite) return false;
+      return !group.entries.some(({ item }) => compactInvoiceValue(item?.description));
+    });
+    if (emptyExecutionSiteForCreateV17_90L371CF) {
+      const siteLabel =
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.site?.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForCreateV17_90L371CF.site?.siteAddress) ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return false;
+    }
+    // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
+    // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
+    // Pflichtziel und dürfen den Save nicht blockieren.
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return false;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
+      return false;
+    }
+    const primaryExecutionSiteForProfilePayloadV17_90L306 =
+      currentExecutionSites[0] || null;
+    const saveExecutionAddressInCustomerProfileForPayloadV17_90L306 =
+      primaryExecutionSiteForProfilePayloadV17_90L306
+        ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(
+            primaryExecutionSiteForProfilePayloadV17_90L306,
+          )
+        : false;
+    setSaving(true);
+    try {
+      const itemsForCreate = itemsForCreateWithUiState.map(
+        stripInvoiceWorkSiteUiStateV17_90L287,
+      );
+      const res = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: form.customerId,
+          invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
+          paymentDays: form.paymentDays,
+          orderIds: form.orderIds,
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
+          items: itemsForCreate,
+          clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
+          saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          upsertCustomerExecutionAddress: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          vatRate,
+          currency,
+        }),
+      });
+      if (res.ok) {
+        const createdInvoice = await res.json().catch(() => null);
+        toast.success("Rechnung gespeichert");
+        setInvoiceExecutionSiteDrafts([]);
+        await load();
+        if (closeAfterSave) {
+          setDialogOpen(false);
+          setItems([getEmptyItem()]);
+          setNewInvoiceExecutionSite(null);
+          setExecutionAddressEditSnapshot(
+            serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
+          );
+          setEditingExecutionAddress(false);
+          const invoiceDate = getTodayInvoiceDateInputValue();
+          setForm({
+            customerId: "",
+            invoiceDate,
+            dueDate: addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+            paymentDays: String(defaultPaymentDays),
+            pdfTitle: "",
+            notes: "",
+            specialNotes: "",
+            orderIds: [],
+          });
+        } else if (createdInvoice?.id) {
+          setEditingInvoice(createdInvoice);
+          setItems(
+            Array.isArray(createdInvoice.items)
+              ? createdInvoice.items
+              : itemsForCreate,
+          );
+          setExecutionAddressEditSnapshot(
+            serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
+          );
+          setNewInvoiceExecutionSite(null);
+          setEditingExecutionAddress(false);
+        }
+        return true;
+      } else {
+        const errorData = await res.json().catch(() => null);
+        toast.error(
+          errorData?.error || "Rechnung konnte nicht erstellt werden",
+        );
+        return false;
+      }
+    } catch (error) {
+      console.error("invoice create failed", error);
+      toast.error("Rechnung konnte nicht erstellt werden");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async (
+    closeAfterSave = true,
+    itemsOverride?: InvoiceItem[],
+    executionSitesOverride?: InvoiceExecutionSite[],
+    forceClearExecutionAddressV17_90L302 = false,
+  ): Promise<boolean> => {
+    if (!editingInvoice) return false;
+    const sourceItems = itemsOverride ?? items;
+    const currentExecutionSitesV17_90L292 =
+      executionSitesOverride ?? getCurrentInvoiceExecutionSitesV17_90L284();
+    const itemsForEditWithUiStateV17_90L292 =
+      applyInvoiceExecutionSitesToItemsV17_90L292(
+        sourceItems,
+        currentExecutionSitesV17_90L292,
+      );
+    const emptyExecutionSiteForEditV17_90L371CF = groupInvoiceItemsByExecutionSite(
+      sourceItems,
+      currentExecutionSitesV17_90L292,
+    ).find((group) => {
+      const site = group.site;
+      if (!site) return false;
+      const hasCompleteSite = Boolean(
+        compactInvoiceValue(site.siteAddress) &&
+          compactInvoiceValue(site.sitePlz) &&
+          compactInvoiceValue(site.siteCity),
+      );
+      if (!hasCompleteSite) return false;
+      return !group.entries.some(({ item }) => compactInvoiceValue(item?.description));
+    });
+    if (emptyExecutionSiteForEditV17_90L371CF) {
+      const siteLabel =
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.site?.siteName) ||
+        compactInvoiceValue(emptyExecutionSiteForEditV17_90L371CF.site?.siteAddress) ||
+        "Ausführungsort";
+      toast.error(
+        `Arbeitsort „${siteLabel}“ enthält keine Positionen. Bitte Position hinzufügen oder den Ausführungsort löschen.`,
+      );
+      return false;
+    }
+    // V17.90L371BZ: Eine Rechnungsposition darf bewusst auf der
+    // Rechnungsadresse/root bleiben. Sichtbare Ausführungsorte sind dafür kein
+    // Pflichtziel und dürfen den Save nicht blockieren.
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return false;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
+      return false;
+    }
+    const primaryExecutionSiteForProfilePayloadV17_90L306 =
+      currentExecutionSitesV17_90L292[0] || null;
+    const saveExecutionAddressInCustomerProfileForPayloadV17_90L306 =
+      primaryExecutionSiteForProfilePayloadV17_90L306
+        ? shouldPersistCustomerExecutionAddressChoiceV17_90L305(
+            primaryExecutionSiteForProfilePayloadV17_90L306,
+          )
+        : false;
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: editingInvoice.status, notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: editingInvoice.status,
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
+          invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
+          items: itemsForEditWithUiStateV17_90L292.map(
+            stripInvoiceWorkSiteUiStateV17_90L287,
+          ),
+          clearExecutionAddress: executionAddressClearRequested || forceClearExecutionAddressV17_90L302,
+          saveExecutionAddressInCustomerProfile: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          upsertCustomerExecutionAddress: saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          skipCustomerExecutionAddressUpsert: !saveExecutionAddressInCustomerProfileForPayloadV17_90L306,
+          vatRate,
+          currency,
+        }),
       });
-      if (res.ok) {
-        toast.success('Rechnung aktualisiert');
+      if (!res.ok) {
+        toast.error("Fehler");
+        return false;
+      }
+      const savedInvoice = await res.json().catch(() => null);
+      if (savedInvoice && !closeAfterSave) {
+        setEditingInvoice(savedInvoice);
+      }
+      setExecutionAddressClearRequested(false);
+      toast.success("Rechnung aktualisiert");
+      setInvoiceExecutionSiteDrafts([]);
+      if (closeAfterSave) {
         setDialogOpen(false);
         setEditingInvoice(null);
-        load();
       }
-      else toast.error('Fehler');
-    } catch { toast.error('Fehler'); } finally { setSaving(false); }
+      await load();
+      return true;
+    } catch {
+      toast.error("Fehler");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const persistAndAcceptInvoiceExecutionSiteV17_90L295 = async (
+    targetKey?: string | null,
+  ) => {
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    const site = targetKey
+      ? currentSites.find(
+          (entry) => invoiceGroupKeyForSite(entry) === targetKey,
+        )
+      : currentSites[0];
+    if (
+      !site ||
+      !compactInvoiceValue(site.siteAddress) ||
+      !compactInvoiceValue(site.sitePlz) ||
+      !compactInvoiceValue(site.siteCity)
+    ) {
+      toast.error("Bitte Strasse, PLZ und Ort des Ausführungsorts ausfüllen.");
+      return;
+    }
+
+    let currentSitesForSaveV17_90L302 = currentSites;
+    const shouldPersistCustomerExecutionAddressV17_90L305 =
+      shouldPersistCustomerExecutionAddressChoiceV17_90L305(site);
+    if (shouldPersistCustomerExecutionAddressV17_90L305) {
+      const savedCustomerAddress =
+        await persistInvoiceExecutionAddressInCustomerV17_90L295(site);
+      currentSitesForSaveV17_90L302 = currentSites.map((entry) =>
+        invoiceGroupKeyForSite(entry) === invoiceGroupKeyForSite(site)
+          ? {
+              ...entry,
+              customerExecutionAddressId: savedCustomerAddress.id,
+            }
+          : entry,
+      );
+      setNewInvoiceExecutionSite((current) =>
+        current &&
+        invoiceGroupKeyForSite(current) === invoiceGroupKeyForSite(site)
+          ? {
+              ...current,
+              customerExecutionAddressId: savedCustomerAddress.id,
+            }
+          : current,
+      );
+      setInvoiceExecutionSiteDrafts((current) =>
+        current.map((entry) =>
+          invoiceGroupKeyForSite(entry) === invoiceGroupKeyForSite(site)
+            ? {
+                ...entry,
+                customerExecutionAddressId: savedCustomerAddress.id,
+              }
+            : entry,
+        ),
+      );
+    }
+
+    const saved = editingInvoice
+      ? await saveEdit(false, undefined, currentSitesForSaveV17_90L302)
+      : await save(false, undefined, currentSitesForSaveV17_90L302);
+    if (!saved) return;
+    const updatedSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    setExecutionAddressEditSnapshot(
+      serializeInvoiceExecutionSiteForEdit(updatedSites[0] || null),
+    );
+    setEditingInvoiceSiteKey(null);
+    setEditingExecutionAddress(false);
+    toast.success(
+      shouldPersistCustomerExecutionAddressV17_90L305
+        ? "Ausführungsort übernommen und im Kundenprofil gespeichert."
+        : "Ausführungsort übernommen.",
+    );
+  };
+
+  const saveInvoiceExecutionAddress = async () => {
+    const currentSites = getCurrentInvoiceExecutionSitesV17_90L284();
+    try {
+      await persistAndAcceptInvoiceExecutionSiteV17_90L295(
+        editingInvoiceSiteKey ||
+          (currentSites[0] ? invoiceGroupKeyForSite(currentSites[0]) : null),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Ausführungsort konnte nicht übernommen werden.",
+      );
+    }
   };
 
   // Save + Archive → set status Erledigt + back to list
   const saveAndArchive = async () => {
     if (!editingInvoice) return;
+    const unassignedExecutionSite =
+      getCurrentInvoiceExecutionSitesV17_90L284().length > 1
+        ? getCurrentInvoiceExecutionSitesV17_90L284().find((site) => {
+            const siteKey = invoiceGroupKeyForSite(site);
+            return !items.some((item) => {
+              const itemKey = invoiceGroupKeyForSite(
+                item as InvoiceExecutionSite,
+              );
+              return (
+                itemKey === siteKey ||
+                (site.sourceOrderId &&
+                  item.sourceOrderId === site.sourceOrderId)
+              );
+            });
+          })
+        : null;
+    if (unassignedExecutionSite) {
+      toast.error(
+        "Bitte dem neuen Arbeitsort mindestens eine Position zuordnen oder den Arbeitsort löschen.",
+      );
+      return;
+    }
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Erledigt', notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "Erledigt",
+          notes: encodeInvoicePdfMetaV17_90L321(
+            form.pdfTitle,
+            form.notes,
+            form.specialNotes,
+          ),
+          invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
+          items: items.map(stripInvoiceWorkSiteUiStateV17_90L287),
+          clearExecutionAddress: executionAddressClearRequested,
+          saveExecutionAddressInCustomerProfile: false,
+          upsertCustomerExecutionAddress: false,
+          skipCustomerExecutionAddressUpsert: true,
+          vatRate,
+          currency,
+        }),
       });
       if (res.ok) {
-        toast.success('Rechnung erledigt und archiviert');
+        // L182: Nach erfolgreichem Archivieren sofort aus der aktiven Liste
+        // entfernen. Ein erneutes Laden der ganzen Seite ist nicht nötig.
+        removeInvoiceFromActiveList(editingInvoice.id);
+        toast.success("Rechnung erledigt und archiviert");
         setDialogOpen(false);
         setEditingInvoice(null);
-        load();
-      }
-      else toast.error('Fehler');
-    } catch { toast.error('Fehler'); } finally { setSaving(false); }
+      } else toast.error("Fehler");
+    } catch {
+      toast.error("Fehler");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const downloadPdf = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setDownloading(id);
-    try {
-      const res = await fetch(`/api/invoices/${id}/pdf?_t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'rechnung.pdf'; a.click(); URL.revokeObjectURL(url);
-        toast.success('PDF heruntergeladen');
-        // Block N: fire-and-forget audit event for the user-initiated download.
-        fetch('/api/audit/share-event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'INVOICE_PDF_DOWNLOADED', targetType: 'Invoice', targetId: id }),
-        }).catch(() => {});
-      } else toast.error('PDF-Fehler');
-    } catch { toast.error('Fehler'); } finally { setDownloading(null); }
+    window.open(
+      `/api/invoices/${id}/pdf?_t=${Date.now()}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   const sendPdfToWhatsApp = async (inv: Invoice) => {
@@ -599,78 +8303,228 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     // Customer.phone and CompanySettings.telefon2 are NEVER used.
     if (!businessWhatsappNumber) {
       toast.error(
-        'Keine WhatsApp-Nummer für den Betrieb hinterlegt. Bitte unter Einstellungen → Kontakt die Hauptnummer (Telefon) oder die WhatsApp-Empfangsnummer eintragen.',
-        { duration: 6000 }
+        "Keine WhatsApp-Nummer für den Betrieb hinterlegt. Bitte unter Einstellungen → Kontakt die Hauptnummer (Telefon) oder die WhatsApp-Empfangsnummer eintragen.",
+        { duration: 6000 },
       );
       return;
     }
     setDownloading(inv.id);
-    const sendingToast = toast.loading('PDF wird erstellt und an Ihre WhatsApp gesendet …');
+    const sendingToast = toast.loading(
+      "PDF wird erstellt und an Ihre WhatsApp gesendet …",
+    );
     try {
-      const result = await sendPdfToBusinessWhatsApp({ kind: 'invoice', id: inv.id });
+      const result = await sendPdfToBusinessWhatsApp({
+        kind: "invoice",
+        id: inv.id,
+      });
       toast.dismiss(sendingToast);
       if (result.ok) {
-        toast.success('PDF wurde an Ihre WhatsApp-Nummer gesendet. Sie können es nun aus dem Chat an den Kunden weiterleiten.', { duration: 6000 });
-      } else if (result.reason === 'no_business_number') {
+        toast.success(
+          "PDF wurde an Ihre WhatsApp-Nummer gesendet. Sie können es nun aus dem Chat an den Kunden weiterleiten.",
+          { duration: 6000 },
+        );
+      } else if (result.reason === "no_business_number") {
         toast.error(
           result.message ||
-          'Keine WhatsApp-Nummer für den Betrieb hinterlegt. Bitte unter Einstellungen → Kontakt die Hauptnummer (Telefon) oder die WhatsApp-Empfangsnummer eintragen.',
-          { duration: 6000 }
+            "Keine WhatsApp-Nummer für den Betrieb hinterlegt. Bitte unter Einstellungen → Kontakt die Hauptnummer (Telefon) oder die WhatsApp-Empfangsnummer eintragen.",
+          { duration: 6000 },
         );
-      } else if (result.reason === 'pdf_failed') {
-        toast.error(result.message || 'PDF konnte nicht erstellt werden.');
-      } else if (result.reason === 'upload_failed') {
-        toast.error(result.message || 'PDF konnte nicht für den Versand bereitgestellt werden.');
-      } else if (result.reason === 'twilio_not_configured') {
+      } else if (result.reason === "pdf_failed") {
+        toast.error(result.message || "PDF konnte nicht erstellt werden.");
+      } else if (result.reason === "upload_failed") {
         toast.error(
           result.message ||
-          'WhatsApp-Versand ist nicht konfiguriert. Bitte Twilio-Absendernummer (TWILIO_WHATSAPP_FROM) hinterlegen.',
-          { duration: 8000 }
+            "PDF konnte nicht für den Versand bereitgestellt werden.",
         );
-      } else if (result.reason === 'twilio_invalid_to') {
-        toast.error(result.message || 'Die hinterlegte WhatsApp-Nummer ist ungültig.', { duration: 6000 });
-      } else if (result.reason === 'twilio_rejected') {
-        toast.error(result.message || 'WhatsApp-Versand wurde von Twilio abgelehnt.', { duration: 6000 });
-      } else if (result.reason === 'twilio_network') {
-        toast.error(result.message || 'Verbindung zu Twilio fehlgeschlagen. Bitte erneut versuchen.');
-      } else if (result.reason === 'unauthorized') {
-        toast.error('Bitte melden Sie sich erneut an.');
+      } else if (result.reason === "twilio_not_configured") {
+        toast.error(
+          result.message ||
+            "WhatsApp-Versand ist nicht konfiguriert. Bitte Twilio-Absendernummer (TWILIO_WHATSAPP_FROM) hinterlegen.",
+          { duration: 8000 },
+        );
+      } else if (result.reason === "twilio_invalid_to") {
+        toast.error(
+          result.message || "Die hinterlegte WhatsApp-Nummer ist ungültig.",
+          { duration: 6000 },
+        );
+      } else if (result.reason === "twilio_rejected") {
+        toast.error(
+          result.message || "WhatsApp-Versand wurde von Twilio abgelehnt.",
+          { duration: 6000 },
+        );
+      } else if (result.reason === "twilio_network") {
+        toast.error(
+          result.message ||
+            "Verbindung zu Twilio fehlgeschlagen. Bitte erneut versuchen.",
+        );
+      } else if (result.reason === "unauthorized") {
+        toast.error("Bitte melden Sie sich erneut an.");
       } else {
-        toast.error(result.message || 'Fehler beim Senden an WhatsApp.');
+        toast.error(result.message || "Fehler beim Senden an WhatsApp.");
       }
     } catch (err) {
       toast.dismiss(sendingToast);
-      console.error('[rechnungen] sendPdfToWhatsApp failed', err);
-      toast.error('Fehler beim Senden an WhatsApp.');
+      console.error("[rechnungen] sendPdfToWhatsApp failed", err);
+      toast.error("Fehler beim Senden an WhatsApp.");
     } finally {
       setDownloading(null);
     }
   };
 
-  const updateStatus = async (e: React.MouseEvent | React.ChangeEvent, id: string, status: string) => {
-    if ('stopPropagation' in e) e.stopPropagation();
-    await fetch(`/api/invoices/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-    if (status === 'Erledigt') {
-      toast.success('Rechnung erledigt – verschoben ins Archiv');
+  const removeInvoiceFromActiveList = (id: string) => {
+    setInvoices((current) => current.filter((invoice) => invoice.id !== id));
+    setExpandedInvoiceCardIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setExpandedInvoiceServiceCardIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const restoreInvoiceInActiveList = (
+    invoice: Invoice | null,
+    previousIndex: number,
+  ) => {
+    if (!invoice) return;
+    setInvoices((current) => {
+      if (current.some((entry) => entry.id === invoice.id)) return current;
+      const next = [...current];
+      next.splice(
+        Math.min(Math.max(previousIndex, 0), next.length),
+        0,
+        invoice,
+      );
+      return next;
+    });
+  };
+
+  const updateStatus = async (
+    e: React.MouseEvent | React.ChangeEvent,
+    id: string,
+    status: string,
+  ) => {
+    if ("stopPropagation" in e) e.stopPropagation();
+    const previousIndex = invoices.findIndex((invoice) => invoice.id === id);
+    const previousInvoice = previousIndex >= 0 ? invoices[previousIndex] : null;
+    const previousStatus = previousInvoice?.status;
+    const movesToArchive = status === "Erledigt";
+
+    if (movesToArchive) {
+      // L182: Erfolgreich archivierte Rechnungen gehören nicht mehr in die
+      // aktive Rechnungsliste. Optimistisch sofort entfernen, damit Karte und
+      // Zähler ohne Reload reagieren. Bei API-Fehler exakt zurücksetzen.
+      removeInvoiceFromActiveList(id);
     } else {
-      toast.success('Status aktualisiert');
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === id ? { ...invoice, status } : invoice,
+        ),
+      );
     }
-    load();
+
+    try {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error("status_update_failed");
+      if (movesToArchive) {
+        toast.success("Rechnung archiviert");
+      } else if (status === "Bezahlt") {
+        toast.success("Rechnung als bezahlt markiert.", {
+          duration: 8000,
+          action: {
+            label: "Archivieren",
+            onClick: () => {
+              void updateStatus(
+                { stopPropagation: () => {} } as any,
+                id,
+                "Erledigt",
+              );
+            },
+          },
+        });
+      } else {
+        toast.success("Status aktualisiert");
+      }
+    } catch {
+      if (movesToArchive) {
+        restoreInvoiceInActiveList(previousInvoice, previousIndex);
+      } else {
+        setInvoices((current) =>
+          current.map((invoice) =>
+            invoice.id === id
+              ? { ...invoice, status: previousStatus || invoice.status }
+              : invoice,
+          ),
+        );
+      }
+      toast.error(
+        movesToArchive
+          ? "Rechnung konnte nicht archiviert werden"
+          : "Status konnte nicht gespeichert werden",
+      );
+    }
   };
 
   const remove = (e: React.MouseEvent, id: string) => {
+    e.preventDefault?.();
     e.stopPropagation();
     setConfirmDialog({
-      title: 'In Papierkorb verschieben?',
-      message: 'Die Rechnung wird in den Papierkorb verschoben.',
+      title: "In Papierkorb verschieben?",
+      message: "Die Rechnung wird in den Papierkorb verschoben.",
       action: async () => {
-        const inv = invoices.find(i => i.id === id);
-        if (inv?.sourceOfferId) {
-          await fetch(`/api/offers/${inv.sourceOfferId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Angenommen' }) });
-          toast.info('Angebot-Status zurückgesetzt');
+        const removedIndex = invoices.findIndex((invoice) => invoice.id === id);
+        const removedInvoice =
+          removedIndex >= 0 ? invoices[removedIndex] : null;
+        const restoreInvoice = () => {
+          if (!removedInvoice) return;
+          setInvoices((current) => {
+            if (current.some((invoice) => invoice.id === removedInvoice.id))
+              return current;
+            const next = [...current];
+            next.splice(
+              Math.min(Math.max(removedIndex, 0), next.length),
+              0,
+              removedInvoice,
+            );
+            return next;
+          });
+        };
+
+        setInvoices((current) =>
+          current.filter((invoice) => invoice.id !== id),
+        );
+        try {
+          if (removedInvoice?.sourceOfferId) {
+            await fetch(`/api/offers/${removedInvoice.sourceOfferId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "Angenommen" }),
+            });
+            toast.info("Angebot-Status zurückgesetzt");
+          }
+          const res = await fetch(`/api/invoices/${id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const result = await res.json().catch(() => ({}));
+            restoreInvoice();
+            toast.error(
+              result?.error || "Rechnung konnte nicht verschoben werden",
+            );
+            return;
+          }
+          toast.success("Rechnung in Papierkorb verschoben");
+        } catch {
+          restoreInvoice();
+          toast.error("Fehler beim Verschieben in den Papierkorb");
         }
-        await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
-        toast.success('Rechnung in Papierkorb verschoben'); load();
       },
     });
   };
@@ -681,25 +8535,31 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
       ? `Rechnung ${inv.invoiceNumber} zurück zu Angeboten verschieben? Die Rechnung wird gelöscht und das verknüpfte Angebot wird wieder aktiviert.`
       : `Rechnung ${inv.invoiceNumber} zurücksetzen? Die Rechnung wird gelöscht und die verknüpften Aufträge werden wieder aktiv.`;
     setConfirmDialog({
-      title: hasOffer ? 'Zurück zu Angeboten?' : 'Rechnung zurücksetzen?',
+      title: hasOffer ? "Zurück zu Angeboten?" : "Rechnung zurücksetzen?",
       message: msg,
       action: async () => {
         try {
-          const res = await fetch(`/api/invoices/${inv.id}/revert`, { method: 'POST' });
+          const res = await fetch(`/api/invoices/${inv.id}/revert`, {
+            method: "POST",
+          });
           if (res.ok) {
             const data = await res.json();
             if (data.reactivatedOffer) {
-              toast.success('Rechnung zurückgesetzt — Angebot wieder aktiv');
-              router.push('/angebote');
+              toast.success("Rechnung zurückgesetzt — Angebot wieder aktiv");
+              router.push("/angebote");
             } else {
-              toast.success(`Rechnung zurückgesetzt — ${data.revertedOrders || 0} Auftrag/Aufträge wieder aktiv`);
-              router.push('/auftraege');
+              toast.success(
+                `Rechnung zurückgesetzt — ${data.revertedOrders || 0} Auftrag/Aufträge wieder aktiv`,
+              );
+              router.push("/auftraege");
             }
           } else {
             const err = await res.json().catch(() => ({}));
-            toast.error(err.error || 'Fehler beim Zurücksetzen');
+            toast.error(err.error || "Fehler beim Zurücksetzen");
           }
-        } catch { toast.error('Fehler beim Zurücksetzen'); }
+        } catch {
+          toast.error("Fehler beim Zurücksetzen");
+        }
       },
     });
   };
@@ -707,41 +8567,190 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   // Sort: Offen first, then by status, alphabetical by customer
   const sorted = [...invoices].sort((a, b) => {
     switch (sortBy) {
-      case 'oldest': return new Date(a.createdAt ?? a.invoiceDate ?? 0).getTime() - new Date(b.createdAt ?? b.invoiceDate ?? 0).getTime();
-      case 'name': return (a.customer?.name ?? '').localeCompare(b.customer?.name ?? '');
-      case 'amount': return (Number(b.total) || 0) - (Number(a.total) || 0);
-      default: return new Date(b.createdAt ?? b.invoiceDate ?? 0).getTime() - new Date(a.createdAt ?? a.invoiceDate ?? 0).getTime();
+      case "oldest":
+        return (
+          new Date(a.createdAt ?? a.invoiceDate ?? 0).getTime() -
+          new Date(b.createdAt ?? b.invoiceDate ?? 0).getTime()
+        );
+      case "name":
+        return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
+      case "amount":
+        return (Number(b.total) || 0) - (Number(a.total) || 0);
+      default:
+        return (
+          new Date(b.createdAt ?? b.invoiceDate ?? 0).getTime() -
+          new Date(a.createdAt ?? a.invoiceDate ?? 0).getTime()
+        );
     }
   });
 
-  const unpaidCount = invoices.filter(i => i.status !== 'Bezahlt').length;
-  const paidCount = invoices.filter(i => i.status === 'Bezahlt').length;
+  const unpaidCount = invoices.filter((i) => i.status !== "Bezahlt").length;
+  const paidCount = invoices.filter((i) => i.status === "Bezahlt").length;
+  const visibleInvoiceIds = sorted
+    .slice(0, visibleCount)
+    .map((invoice) => invoice.id);
+  const visibleInvoiceIdsKey = visibleInvoiceIds.join("\u241f");
 
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
-  if (loadError) return <LoadErrorFallback details={loadError} onRetry={load} />;
+  useEffect(() => {
+    if (
+      !invoiceCardExpansionRestored ||
+      invoiceCardInitialStateApplied ||
+      visibleInvoiceIds.length === 0
+    )
+      return;
+    setExpandedInvoiceCardIds(new Set(visibleInvoiceIds));
+    setInvoiceCardInitialStateApplied(true);
+  }, [
+    invoiceCardExpansionRestored,
+    invoiceCardInitialStateApplied,
+    visibleInvoiceIdsKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      !invoiceCardExpansionRestored ||
+      !invoiceCardInitialStateApplied ||
+      typeof window === "undefined"
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+        JSON.stringify(Array.from(expandedInvoiceCardIds)),
+      );
+    } catch {
+      // Local storage can be unavailable in strict/private browser modes.
+    }
+  }, [
+    invoiceCardExpansionRestored,
+    invoiceCardInitialStateApplied,
+    expandedInvoiceCardIds,
+  ]);
+
+  const allVisibleInvoiceCardsExpanded =
+    visibleInvoiceIds.length > 0 &&
+    visibleInvoiceIds.every((id) => expandedInvoiceCardIds.has(id));
+
+  const toggleInvoiceCard = (id: string) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227));
+    }
+    setActiveInvoiceServiceSheet(null);
+    setExpandedInvoiceCardIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllInvoiceCards = () => {
+    setExpandedInvoiceCardIds((current) => {
+      const next = new Set(current);
+      visibleInvoiceIds.forEach((id) => {
+        if (allVisibleInvoiceCardsExpanded) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
+  };
+
+  const toggleInvoiceServiceCard = (id: string) => {
+    setExpandedInvoiceServiceCardIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  if (loading)
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  if (loadError)
+    return <LoadErrorFallback details={loadError} onRetry={load} />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2"><FileText className="w-7 h-7 text-primary" /> Rechnungen</h1>
-          <p className="text-muted-foreground mt-1">{unpaidCount} offen &middot; {paidCount} bezahlt</p>
+    <div className="space-y-4 pb-16 md:pb-8">
+      {activeInvoiceServiceSheet && (
+        <InvoiceMobileServiceReviewSheetV17_90L174
+          state={activeInvoiceServiceSheet}
+          onClose={() => setActiveInvoiceServiceSheet(null)}
+        />
+      )}
+      <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
+        <span className="font-display text-sm font-bold sm:text-base">
+          Rechnungen
+        </span>
+      </div>
+
+      <div className="fixed left-1/2 top-0 z-40 flex h-14 -translate-x-1/2 items-center">
+        <button
+          type="button"
+          onClick={() => router.push("/angebote")}
+          className="pointer-events-auto inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-sm backdrop-blur hover:bg-muted"
+          aria-label="Zu Angebote"
+          title="Zu Angebote"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span className="hidden sm:inline">Angebote</span>
+        </button>
+      </div>
+
+      <div className="-mx-2 px-2 py-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {unpaidCount} offen · {paidCount} bezahlt
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-2.5 text-xs"
+              onClick={toggleAllInvoiceCards}
+              disabled={visibleInvoiceIds.length === 0}
+            >
+              {allVisibleInvoiceCardsExpanded
+                ? "Alle schließen"
+                : "Alle öffnen"}
+            </Button>
+            <Button className="h-8 px-2.5 text-xs" onClick={openNewInvoice}>
+              <Plus className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Neue Rechnung</span>
+              <span className="sm:hidden">Neu</span>
+            </Button>
+          </div>
         </div>
-        <Button onClick={openNewInvoice}><Plus className="w-4 h-4 mr-1" />Neue Rechnung</Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Name, Ort, Leistung, Rechnungs-Nr…" className="pl-10 h-9 text-sm" value={searchText} onChange={(e: any) => setSearchText(e?.target?.value ?? '')} />
+          <Input
+            placeholder="Name, Ort, Leistung, Rechnungs-Nr…"
+            className="pl-10 h-9 text-sm"
+            value={searchText}
+            onChange={(e: any) => setSearchText(e?.target?.value ?? "")}
+          />
         </div>
-        <select className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9" value={filterStatus} onChange={(e: any) => setFilterStatus(e?.target?.value ?? 'Alle')}>
+        <select
+          className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9"
+          value={filterStatus}
+          onChange={(e: any) => setFilterStatus(e?.target?.value ?? "Alle")}
+        >
           <option value="Alle">Status: Alle</option>
           <option value="Offen">Unbezahlt</option>
           <option value="Überfällig">Überfällig</option>
           <option value="Bezahlt">Bezahlt</option>
         </select>
-        <select className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9" value={sortBy} onChange={(e: any) => setSortBy(e?.target?.value ?? 'newest')}>
+        <select
+          className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9"
+          value={sortBy}
+          onChange={(e: any) => setSortBy(e?.target?.value ?? "newest")}
+        >
           <option value="newest">Neueste zuerst</option>
           <option value="oldest">Älteste zuerst</option>
           <option value="name">Name A–Z</option>
@@ -752,100 +8761,1103 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
       <div className="space-y-1.5">
         {(() => {
           const filteredInv = sorted.filter((inv: Invoice) => {
-            if (filterStatus === 'Offen' && inv.status === 'Bezahlt') return false;
-            if (filterStatus === 'Bezahlt' && inv.status !== 'Bezahlt') return false;
+            if (filterStatus === "Offen" && inv.status === "Bezahlt")
+              return false;
+            if (filterStatus === "Bezahlt" && inv.status !== "Bezahlt")
+              return false;
             // "Überfällig" matches either stored status OR dynamically derived (Gesendet + past dueDate).
             // Uses same getEffectiveInvoiceStatus helper already used for badge display.
-            if (filterStatus === 'Überfällig' && getEffectiveInvoiceStatus(inv) !== 'Überfällig') return false;
-            const s = searchText?.toLowerCase() ?? '';
+            if (
+              filterStatus === "Überfällig" &&
+              getEffectiveInvoiceStatus(inv) !== "Überfällig"
+            )
+              return false;
+            const s = searchText?.toLowerCase() ?? "";
             if (!s) return true;
-            const itemDescs = inv.items?.map((it: any) => it.description).filter(Boolean).join(' ') || '';
-            return inv?.customer?.name?.toLowerCase()?.includes(s) || inv?.customer?.city?.toLowerCase()?.includes(s) || itemDescs.toLowerCase().includes(s) || inv?.invoiceNumber?.toLowerCase()?.includes(s) || inv?.customer?.customerNumber?.toLowerCase()?.includes(s);
+            const itemDescs =
+              inv.items
+                ?.map((it: any) => it.description)
+                .filter(Boolean)
+                .join(" ") || "";
+            return (
+              inv?.customer?.name?.toLowerCase()?.includes(s) ||
+              inv?.customer?.city?.toLowerCase()?.includes(s) ||
+              itemDescs.toLowerCase().includes(s) ||
+              inv?.invoiceNumber?.toLowerCase()?.includes(s) ||
+              inv?.customer?.customerNumber?.toLowerCase()?.includes(s)
+            );
           });
-          return filteredInv.length === 0 ? <p className="text-center text-muted-foreground py-8">Keine Rechnungen gefunden</p> : (
+          return confirmDialog ? null : filteredInv.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              Keine Rechnungen gefunden
+            </p>
+          ) : (
             <>
-              {filteredInv.slice(0, visibleCount).map((inv: Invoice, i: number) => {
-                const isPaid = inv.status === 'Bezahlt';
-                const itemDescs = inv.items?.map((it: any) => it.description).filter(Boolean).join(' + ') || '–';
-                const orderCtx = resolveCommunicationData(null, inv.orders);
-                // Effective status may auto-derive "Überfällig" for unpaid
-                // "Gesendet" invoices whose dueDate has passed. The select
-                // below uses this for display (value + color) only; the raw
-                // stored status remains in the DB until the user actively
-                // changes it via the dropdown.
-                const effectiveStatus = getEffectiveInvoiceStatus(inv);
-                return (
-                  <motion.div key={inv?.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
-                    <Card className={`cursor-pointer transition-shadow hover:shadow-md tap-safe`} onClick={() => openEditInvoice(inv)}>
-                      <CardContent className="px-3 py-1.5">
-                        <div className="flex items-start gap-1.5">
-                          {/* Left: 3-dot menu */}
-                          <div className="relative shrink-0 pt-0.5" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(dropdownOpenId === inv.id ? null : inv.id); }} className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted" title="Aktionen">
-                              <MoreVertical className="w-3.5 h-3.5" />
+              {filteredInv
+                .slice(0, visibleCount)
+                .map((inv: Invoice, i: number) => {
+                  const isPaid = inv.status === "Bezahlt";
+                  // Effective status may auto-derive "Überfällig" for unpaid
+                  // "Gesendet" invoices whose dueDate has passed. The select
+                  // below uses this for display (value + color) only; the raw
+                  // stored status remains in the DB until the user actively
+                  // changes it via the dropdown.
+                  const effectiveStatus = getEffectiveInvoiceStatus(inv);
+                  const invoiceExecutionSites =
+                    collectInvoiceExecutionSites(inv);
+                  const executionSite = invoiceExecutionSites[0] || null;
+                  const visibleItems = (inv.items || []).filter((item: any) =>
+                    Boolean(String(item?.description || "").trim()),
+                  );
+                  const invoiceCardExpanded = expandedInvoiceCardIds.has(
+                    inv.id,
+                  );
+                  const invoiceServicesExpanded =
+                    expandedInvoiceServiceCardIds.has(inv.id);
+                  const displayedInvoiceItems = invoiceServicesExpanded
+                    ? visibleItems
+                    : visibleItems.slice(0, 6);
+                  const dueLabel = formatInvoiceDateLabel(inv.dueDate);
+                  const invoiceAppointmentEntries =
+                    collectInvoiceAppointmentEntriesV17_90L177R(inv);
+                  const invoiceAppointmentLabel =
+                    formatInvoiceAppointmentLabel(inv);
+                  let invoiceAppointmentDisplayLabel =
+                    invoiceAppointmentLabel;
+                  const invoiceContactData = buildInvoiceCommunicationData(inv);
+                  const invoicePhoneContactActionV17_90L355 =
+                    resolveInvoiceCardCommunicationActionV17_90L352(
+                      inv,
+                      resolveCommunicationData(null, inv.orders || []),
+                    );
+                  const shouldRenderInvoicePhoneChipV17_90L355 =
+                    invoicePhoneContactActionV17_90L355?.channel === "phone";
+                  const invoiceSourceOfferInternalNotesV17_90L319 =
+                    sourceOfferInternalNotesByIdV17_90L319[
+                      compactInvoiceValue(inv.sourceOfferId)
+                    ] || "";
+                  const invoiceSpecialNotesSourceV17_90L319 =
+                    buildInvoiceSpecialNotesSourceV17_90L319(
+                      inv,
+                      invoiceSourceOfferInternalNotesV17_90L319,
+                    );
+                  const invoiceSpecialSummaryV17_90L319 =
+                    buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+                      inv,
+                      invoiceSpecialNotesSourceV17_90L319,
+                    );
+                  const unifiedInvoiceInfoDisplayV17_90L378 =
+                    buildUnifiedWorksiteInfoDisplayV17_90L378(
+                      invoiceSpecialSummaryV17_90L319.primaryHints,
+                      invoiceSpecialSummaryV17_90L319.otherHints,
+                    );
+                  const invoiceSpecialInfoLinesV17_90L319 = [
+                    ...invoiceSpecialSummaryV17_90L319.hazards,
+                    ...unifiedInvoiceInfoDisplayV17_90L378.primary,
+                    ...unifiedInvoiceInfoDisplayV17_90L378.additional,
+                  ];
+                  const hasInvoiceSpecialInfoV17_90L319 =
+                    invoiceSpecialInfoLinesV17_90L319.length > 0;
+                  const invoiceSpecialAppointmentDisplayLabelV17_90L323 =
+                    buildInvoiceAppointmentDisplayFromSpecialSummaryV17_90L323(
+                      invoiceSpecialSummaryV17_90L319,
+                    );
+                  if (invoiceSpecialAppointmentDisplayLabelV17_90L323) {
+                    invoiceAppointmentDisplayLabel =
+                      mergeInvoiceAppointmentDisplayLabelsV17_90L371R(
+                        invoiceAppointmentLabel,
+                        invoiceSpecialAppointmentDisplayLabelV17_90L323,
+                      );
+                  }
+                  if (
+                    !shouldShowInvoiceAppointmentChipV17_90L324(
+                      invoiceAppointmentDisplayLabel,
+                    )
+                  ) {
+                    invoiceAppointmentDisplayLabel = "";
+                  }
+                  const invoiceAppointmentChipLabels =
+                    buildAdaptiveAppointmentLabels(
+                      invoiceAppointmentDisplayLabel,
+                    );
+                  const mergedCount = getInvoiceMergedCount(inv);
+                  const mergedContactReviewRecordsV17_90L371Q =
+                    invoice_sanitizeMergedContactReviewRecordsV17_90L371Q((inv.orders || []) as any);
+                  const hasMergedContactReview = hasMergedContactReviewEntries(
+                    mergedContactReviewRecordsV17_90L371Q as any,
+                  );
+                  const invoiceCurrencyReviewDetails =
+                    collectInvoiceCurrencyReviewDetailsV17_90L227(inv);
+                  const invoiceCurrencyReviewCount =
+                    invoiceCurrencyReviewDetails.length;
+                  const invoiceCurrencyReviewTooltip =
+                    formatInvoiceCurrencyReviewTooltipV17_90L227(
+                      invoiceCurrencyReviewDetails,
+                    );
+
+                  const renderInvoiceQuickActions = () => (
+                    <div
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3 dark:border-slate-700"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => downloadPdf(event, inv.id)}
+                        className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 shadow-sm transition hover:-translate-y-px hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        title="PDF herunterladen"
+                        aria-label="PDF herunterladen"
+                      >
+                        <InvoiceDirectPdfIcon />
+                      </button>
+                      {whatsappEnabled && businessWhatsappNumber && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void sendPdfToWhatsApp(inv);
+                          }}
+                          disabled={downloading === inv.id}
+                          className="inline-flex h-8 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:-translate-y-px hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+                          title="PDF per WhatsApp senden"
+                          aria-label="PDF per WhatsApp senden"
+                        >
+                          {downloading === inv.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <InvoicePdfWhatsAppIcon />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+
+                  const renderInvoiceCompactFunctionalChips = () => (
+                    <div
+                      className="inline-flex min-w-0 flex-wrap items-center gap-1.5 empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {hasMergedContactReview ? (
+                        <MergedContactReviewChip
+                          records={mergedContactReviewRecordsV17_90L371Q as any}
+                          compact
+                        />
+                      ) : (
+                        <CommunicationChips
+                          data={invoiceContactData}
+                          compact
+                          contactsOnly
+                        />
+                      )}
+                      {!hasMergedContactReview &&
+                        shouldRenderInvoicePhoneChipV17_90L355 && (
+                          <ContactActionChip
+                            icon={Phone}
+                            label="Telefon"
+                            color="blue"
+                            href={
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? `tel:${invoicePhoneContactActionV17_90L355.phone}`
+                                : undefined
+                            }
+                            title={[
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? `Anrufen: ${invoicePhoneContactActionV17_90L355.phone}`
+                                : "Telefonisch melden",
+                              invoicePhoneContactActionV17_90L355.sourceText,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                            compact
+                            contactHeading="Telefonkontakt"
+                            contactName={inv.customer?.name || "Kunde"}
+                            contactValue={
+                              invoicePhoneContactActionV17_90L355.phone ||
+                              "Keine Telefonnummer vorhanden"
+                            }
+                            contactHint={
+                              invoicePhoneContactActionV17_90L355.phone
+                                ? "Antippen oder anklicken, um anzurufen."
+                                : "Keine Telefonnummer hinterlegt."
+                            }
+                          />
+                        )}
+                      {hasInvoiceSpecialInfoV17_90L319 && (
+                        <button
+                          type="button"
+                          data-card-toggle-ignore="true"
+                          aria-label="Besonderheiten anzeigen"
+                          title="Besonderheiten"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onPointerUp={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onTouchEnd={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            // SMARTFLOW_V17_90L345: Auf Touch/Mobil öffnet der
+                            // Infochip nur das Popover. Desktop bleibt Klick-
+                            // Sprung in die Rechnungs-Besonderheiten.
+                            if (useTouchChipPopovers) return;
+                            openEditInvoice(inv, { focusSpecialNotes: true });
+                          }}
+                          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        >
+                          <Info className="h-4 w-4" />
+                          <InvoiceViewportTooltip
+                            preferredWidth={360}
+                            mobileDismissOnInteraction
+                          >
+                            <span className="block space-y-2">
+                              <span className="flex items-center gap-2 text-sm font-bold text-blue-800 dark:text-blue-200">
+                                <Info className="h-4 w-4" />
+                                Besonderheiten
+                              </span>
+                              <span className="block space-y-2 text-[12px] leading-snug">
+                                {unifiedInvoiceInfoDisplayV17_90L378.primary.length > 0 && (
+                                  <span className="block rounded-xl border border-blue-300 bg-blue-50 p-2.5 text-blue-950 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
+                                    <span className="block font-semibold">
+                                      Wichtige Informationen
+                                    </span>
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      unifiedInvoiceInfoDisplayV17_90L378.primary,
+                                      `invoice-info-primary-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
+                                  </span>
+                                )}
+                                {invoiceSpecialSummaryV17_90L319.hazards.length > 0 && (
+                                  <span className="block rounded-xl border border-red-300 bg-red-50 p-2.5 text-red-950 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100">
+                                    <span className="block font-semibold">
+                                      Gefahr / Achtung
+                                    </span>
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      invoiceSpecialSummaryV17_90L319.hazards,
+                                      `invoice-info-hazard-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
+                                  </span>
+                                )}
+                                {unifiedInvoiceInfoDisplayV17_90L378.additional.length > 0 && (
+                                  <span className="block rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+                                    <span className="block font-semibold">
+                                      Weitere Besonderheiten
+                                    </span>
+                                    {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                      unifiedInvoiceInfoDisplayV17_90L378.additional,
+                                      `invoice-info-other-${inv.id}`,
+                                      { bullet: true, compact: true },
+                                    )}
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          </InvoiceViewportTooltip>
+                        </button>
+                      )}
+                    </div>
+                  );
+
+                  const invoiceServiceDisplayEntries =
+                    buildInvoiceServiceDisplayEntriesV17_90L136(
+                      visibleItems as InvoiceItem[],
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceServiceDisplaySiteGroups =
+                    buildInvoiceServiceDisplaySiteGroupsV17_90L136(
+                      visibleItems as InvoiceItem[],
+                      invoiceExecutionSites,
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceServicesTooltipText =
+                    invoiceServiceDisplayEntries
+                      .map((entry) =>
+                        [`* ${entry.description}`, ...entry.details].join("\n"),
+                      )
+                      .join("\n\n") || `Positionen · ${visibleItems.length}`;
+
+                  const invoiceServiceReviewEntries =
+                    buildInvoiceServiceReviewEntriesV17_90L135G(
+                      visibleItems as InvoiceItem[],
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceServiceReviewSiteGroups =
+                    buildInvoiceServiceReviewSiteGroupsV17_90L135G(
+                      visibleItems as InvoiceItem[],
+                      invoiceExecutionSites,
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceBlockerEntries =
+                    invoiceServiceReviewEntries.filter(
+                      (entry) => entry.category === "blocker",
+                    );
+                  const invoiceYellowReviewEntries =
+                    invoiceServiceReviewEntries.filter(
+                      (entry) => entry.category !== "blocker",
+                    );
+                  const invoiceBlockerSiteGroups =
+                    invoiceServiceReviewSiteGroups
+                      .map((group) => ({
+                        ...group,
+                        entries: group.entries.filter(
+                          (entry) => entry.category === "blocker",
+                        ),
+                      }))
+                      .filter((group) => group.entries.length > 0);
+                  const invoiceYellowReviewSiteGroups =
+                    invoiceServiceReviewSiteGroups
+                      .map((group) => ({
+                        ...group,
+                        entries: group.entries.filter(
+                          (entry) => entry.category !== "blocker",
+                        ),
+                      }))
+                      .filter((group) => group.entries.length > 0);
+
+                  const renderInvoiceCompactReviewChip = (
+                    tone: "yellow" | "red",
+                  ) => {
+                    const isRed = tone === "red";
+                    const entries = isRed
+                      ? invoiceBlockerEntries
+                      : invoiceYellowReviewEntries;
+                    const siteGroups = isRed
+                      ? invoiceBlockerSiteGroups
+                      : invoiceYellowReviewSiteGroups;
+                    if (entries.length === 0) return null;
+
+                    const title = isRed
+                      ? `Preis / Menge / Einheit prüfen · ${entries.length}`
+                      : `Positionen prüfen · ${entries.length}`;
+
+                    return (
+                      <button
+                        type="button"
+                        aria-label={title}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (useTouchChipPopovers) {
+                            setActiveInvoiceServiceSheet({
+                              title,
+                              entries,
+                              siteGroups,
+                            });
+                            return;
+                          }
+                          openEditInvoice(inv, { focusItems: true });
+                          setExpandedItemIndex(null);
+                        }}
+                        className={`group relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full px-2 py-0 text-[10px] font-bold shadow-sm outline-none focus:ring-2 focus:ring-offset-1 ${
+                          isRed
+                            ? "border border-red-300 bg-red-100 text-red-800 hover:bg-red-200 focus:ring-red-300"
+                            : "border border-yellow-400 bg-yellow-100 text-yellow-900 ring-1 ring-yellow-200/70 hover:bg-yellow-200 focus:ring-yellow-300"
+                        }`}
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>{entries.length}</span>
+                        {!useTouchChipPopovers && (
+                          <InvoiceViewportTooltip
+                            preferredWidth={432}
+                            autoClose={false}
+                          >
+                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                              total={entries.length}
+                              entries={entries}
+                              siteGroups={siteGroups}
+                              title={title}
+                            />
+                          </InvoiceViewportTooltip>
+                        )}
+                      </button>
+                    );
+                  };
+
+                  const renderInvoiceCurrencyReviewChip = (slot: string) => {
+                    if (invoiceCurrencyReviewCount <= 0) return null;
+                    const title = `Währung prüfen · ${invoiceCurrencyReviewCount}`;
+                    return (
+                      <button
+                        key={`${slot}-currency-review`}
+                        type="button"
+                        aria-label={title}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (!useTouchChipPopovers) openEditInvoice(inv, { focusItems: true });
+                        }}
+                        className="relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0 text-[10px] font-bold text-red-800 shadow-sm hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-1"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Währung</span>
+                        <span>{invoiceCurrencyReviewCount}</span>
+                        <InvoiceViewportTooltip
+                          preferredWidth={360}
+                          mobileDismissOnInteraction
+                        >
+                          <span className="whitespace-pre-wrap break-words">
+                            {invoiceCurrencyReviewTooltip}
+                          </span>
+                        </InvoiceViewportTooltip>
+                      </button>
+                    );
+                  };
+
+                  const renderInvoiceServicesChip = (
+                    placement: "compact" | "expanded" = "compact",
+                  ) =>
+                    invoiceYellowReviewEntries.length > 0 ||
+                    invoiceBlockerEntries.length > 0 ||
+                    invoiceCurrencyReviewCount > 0 ||
+                    Boolean(invoiceAppointmentDisplayLabel) ? (
+                      <span
+                        className={
+                          placement === "compact"
+                            ? "inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700"
+                            : "inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700"
+                        }
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          {renderInvoiceCompactReviewChip("yellow")}
+                          {renderInvoiceCompactReviewChip("red")}
+                          {renderInvoiceCurrencyReviewChip("review-group")}
+                          {invoiceAppointmentDisplayLabel && (
+                            <button
+                              type="button"
+                              data-card-toggle-ignore="true"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onPointerUp={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onTouchEnd={(event) => event.stopPropagation()}
+                              onMouseDown={(event) => event.stopPropagation()}
+                              onMouseUp={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                // SMARTFLOW_V17_90L345: Auf Touch/Mobil öffnet
+                                // der Terminchip nur das Termin-Popover.
+                                // Desktop bleibt Klick-Sprung.
+                                if (useTouchChipPopovers) return;
+                                openEditInvoice(inv, { focusSpecialNotes: true });
+                              }}
+                              className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
+                              aria-label={invoiceAppointmentDisplayLabel}
+                            >
+                              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                              {invoiceAppointmentChipLabels.dateOnly && (
+                                <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                  {invoiceAppointmentChipLabels.dateOnly}
+                                </span>
+                              )}
+                              <span className="sr-only">
+                                {invoiceAppointmentChipLabels.full}
+                              </span>
+                              <InvoiceViewportTooltip
+                                preferredWidth={320}
+                                mobileDismissOnInteraction
+                              >
+                                <InvoiceAppointmentTooltipContentV17_90L169
+                                  text={invoiceAppointmentDisplayLabel}
+                                />
+                              </InvoiceViewportTooltip>
                             </button>
-                            {dropdownOpenId === inv.id && (
-                              <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
-                                <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); openEditInvoice(inv); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
-                                  <FileText className="w-3.5 h-3.5 text-primary" />Bearbeiten
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); downloadPdf({ stopPropagation: () => {} } as any, inv.id); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
-                                  <Download className="w-3.5 h-3.5 text-green-600" />PDF herunterladen
-                                </button>
-                                {whatsappEnabled && <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); sendPdfToWhatsApp(inv); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
-                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />PDF an WhatsApp senden
-                                </button>}
-                                <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); updateStatus(e, inv.id, 'Erledigt'); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
-                                  <Archive className="w-3.5 h-3.5 text-amber-600" />Archivieren
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); revertToOffer(inv); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
-                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />{inv.sourceOfferId ? 'Zurück zu Angebot' : 'Zurück zu Auftrag'}
-                                </button>
-                                <div className="border-t my-1" />
-                                <button onClick={(e) => { e.stopPropagation(); setDropdownOpenId(null); remove({ stopPropagation: () => {} } as any, inv.id); }} className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2">
-                                  <Trash2 className="w-3.5 h-3.5" />Papierkorb
-                                </button>
+                          )}
+                        </span>
+                      </span>
+                    ) : null;
+                  return (
+                    <motion.div
+                      key={inv?.id}
+                      data-invoice-card-wrapper
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.02 }}
+                    >
+                      <Card
+                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 transition-all hover:shadow-md tap-safe active:scale-[0.998]"
+                        aria-expanded={invoiceCardExpanded}
+                        onClick={(event) => {
+                          if (
+                            event.target instanceof Element &&
+                            event.target.closest(
+                              "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                            )
+                          )
+                            return;
+                          toggleInvoiceCard(inv.id);
+                        }}
+                      >
+                        <CardContent className="p-3 sm:p-4">
+                          <div className="flex items-start gap-2">
+                            <InvoiceCardActionMenuV17_90L371BS
+                              inv={inv}
+                              openEditInvoice={openEditInvoice}
+                              updateStatus={updateStatus}
+                              revertToOffer={revertToOffer}
+                              remove={remove}
+                            />
+
+                            {!invoiceCardExpanded && (
+                              <div
+                                className={`min-w-0 flex-1 cursor-pointer rounded-lg px-1.5 py-1 transition-colors hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-slate-800/80 dark:active:bg-slate-700 ${isPaid ? "opacity-80" : ""}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
+                                        {(() => {
+                                          const dt =
+                                            inv.orders?.[0]?.createdAt ||
+                                            inv.createdAt ||
+                                            inv.invoiceDate;
+                                          return dt
+                                            ? `${new Date(
+                                                dt,
+                                              ).toLocaleDateString("de-CH", {
+                                                day: "2-digit",
+                                                month: "2-digit",
+                                              })} ${new Date(
+                                                dt,
+                                              ).toLocaleTimeString("de-CH", {
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                              })}`
+                                            : "";
+                                        })()}
+                                      </span>
+                                      <span className="min-w-0 max-w-[20rem] shrink truncate text-sm font-semibold">
+                                        {isFallbackCustomerName(
+                                          inv?.customer?.name,
+                                        )
+                                          ? "Kunde nicht zugeordnet"
+                                          : inv?.customer?.name || "–"}
+                                      </span>
+                                      {inv?.customer?.customerNumber && (
+                                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                                          ({inv.customer.customerNumber})
+                                        </span>
+                                      )}
+                                      {invoiceExecutionSites.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onTouchStart={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            if (useTouchChipPopovers) return;
+                                            openEditInvoice(inv, { focusExecutionSites: true });
+                                          }}
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
+                                          aria-label="Ausführungsort anzeigen"
+                                        >
+                                          <MapPin className="h-3 w-3 shrink-0" />
+                                          <span className="truncate">
+                                            {invoiceExecutionSites.length > 1
+                                              ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                              : executionSite?.siteName ||
+                                                executionSite?.siteAddress ||
+                                                "Ausführungsort"}
+                                          </span>
+                                          <InvoiceExecutionSitesTooltip
+                                            sites={invoiceExecutionSites}
+                                          />
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
+                                      Positionen · {visibleItems.length}
+                                    </div>
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
+                                      <select
+                                        value={effectiveStatus}
+                                        onMouseDown={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onPointerDown={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onPointerUp={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onTouchStart={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onChange={(event) =>
+                                          updateStatus(
+                                            event,
+                                            inv.id,
+                                            event.target.value,
+                                          )
+                                        }
+                                        className={`h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                                          statusColors[effectiveStatus] ||
+                                          statusColors.Entwurf
+                                        }`}
+                                        style={getInvoiceStatusInlineStyle(
+                                          effectiveStatus,
+                                        )}
+                                        aria-label={`Status bearbeiten: ${effectiveStatus}`}
+                                      >
+                                        {invoiceStatuses.map((status) => (
+                                          <option
+                                            key={status}
+                                            value={status}
+                                            style={getInvoiceStatusInlineStyle(
+                                              status,
+                                            )}
+                                          >
+                                            {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {renderInvoiceCompactFunctionalChips()}
+                                      {renderInvoiceQuickActions()}
+                                      {useTouchChipPopovers ? (
+                                        (invoiceYellowReviewEntries.length >
+                                          0 ||
+                                          invoiceBlockerEntries.length > 0 ||
+                                          invoiceCurrencyReviewCount > 0 ||
+                                          Boolean(
+                                            invoiceAppointmentDisplayLabel,
+                                          )) && (
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                            <span className="inline-flex items-center gap-1.5">
+                                              {renderInvoiceCompactReviewChip(
+                                                "yellow",
+                                              )}
+                                              {renderInvoiceCompactReviewChip(
+                                                "red",
+                                              )}
+                                              {renderInvoiceCurrencyReviewChip("review-group")}
+                                              {invoiceAppointmentDisplayLabel && (
+                                                <button
+                                                  type="button"
+                                                  data-card-toggle-ignore="true"
+                                                  onPointerDown={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onPointerUp={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onTouchStart={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onTouchEnd={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onMouseDown={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onMouseUp={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                  }}
+                                                  className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getInvoiceAppointmentChipToneClassV17_90L371AJ(invoiceAppointmentDisplayLabel)}`}
+                                                  aria-label={
+                                                    invoiceAppointmentDisplayLabel
+                                                  }
+                                                >
+                                                  <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                  <InvoiceViewportTooltip
+                                                    preferredWidth={320}
+                                                    mobileDismissOnInteraction
+                                                  >
+                                                    <InvoiceAppointmentTooltipContentV17_90L169
+                                                      text={
+                                                        invoiceAppointmentDisplayLabel
+                                                      }
+                                                    />
+                                                  </InvoiceViewportTooltip>
+                                                </button>
+                                              )}
+                                            </span>
+                                          </span>
+                                        )
+                                      ) : (
+                                        <>
+                                          {renderInvoiceServicesChip("compact")}
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
+                                      <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(inv?.total ?? 0),
+                                          inv.currency === "EUR"
+                                            ? "EUR"
+                                            : "CHF",
+                                        )}
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                  </div>
+                                  <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
+                                    <div className="flex min-w-0 items-center justify-end gap-2 self-end pr-3 sm:pr-5">
+                                      <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(inv?.total ?? 0),
+                                          inv.currency === "EUR"
+                                            ? "EUR"
+                                            : "CHF",
+                                        )}
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             )}
-                          </div>
+                            <div
+                              className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""} ${invoiceCardExpanded ? "" : "hidden"}`}
+                            >
+                              <div
+                                className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 md:flex-nowrap"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                  {(() => {
+                                    const dt =
+                                      inv.orders?.[0]?.createdAt ||
+                                      inv.createdAt ||
+                                      inv.invoiceDate;
+                                    return dt
+                                      ? new Date(dt).toLocaleDateString(
+                                          "de-CH",
+                                          { day: "2-digit", month: "2-digit" },
+                                        )
+                                      : "";
+                                  })()}
+                                </span>
+                                <span className="min-w-0 max-w-[20rem] shrink truncate font-semibold text-sm sm:text-base text-foreground">
+                                  {isFallbackCustomerName(inv?.customer?.name)
+                                    ? "⚠️ Kunde nicht zugeordnet"
+                                    : (inv?.customer?.name ?? "")}
+                                </span>
+                                {inv?.customer?.customerNumber && (
+                                  <span className="text-xs text-muted-foreground">
+                                    ({inv.customer.customerNumber})
+                                  </span>
+                                )}
+                                {mergedCount > 1 && (
+                                  <span className="rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    Zusammengeführt · {mergedCount}
+                                  </span>
+                                )}
+                                {invoiceExecutionSites.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onTouchStart={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      if (useTouchChipPopovers) return;
+                                      openEditInvoice(inv, { focusExecutionSites: true });
+                                    }}
+                                    className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
+                                    aria-label="Ausführungsadresse anzeigen"
+                                  >
+                                    <MapPin className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">
+                                      {invoiceExecutionSites.length > 1
+                                        ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                        : executionSite?.siteName ||
+                                          executionSite?.siteAddress ||
+                                          "Ausführungsort"}
+                                    </span>
+                                    <InvoiceExecutionSitesTooltip
+                                      sites={invoiceExecutionSites}
+                                    />
+                                  </button>
+                                )}
+                                {isCustomerDataIncomplete(inv.customer) && (
+                                  <MissingCustomerDataBadge
+                                    variant="compact"
+                                    onClick={() =>
+                                      openEditInvoice(inv, {
+                                        openCustomerSection: true,
+                                      })
+                                    }
+                                  />
+                                )}
+                                <span className="ml-auto flex shrink-0 flex-col items-end whitespace-nowrap leading-tight">
+                                  <span className="font-mono text-[11px] text-muted-foreground">
+                                    {inv?.invoiceNumber ?? ""}
+                                  </span>
+                                  {dueLabel && (
+                                    <span className="mt-0.5 text-[10px] font-medium text-muted-foreground">
+                                      Fällig: {dueLabel}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
 
-                          {/* Center: Main info */}
-                          <div className={`flex-1 min-w-0 ${isPaid ? 'opacity-80' : ''}`}>
-                            <div className="flex items-center gap-1.5 text-xs">
-                              <span className="text-muted-foreground shrink-0">{(() => { const dt = inv.orders?.[0]?.createdAt || inv.createdAt; return dt ? new Date(dt).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' }) + ' ' + new Date(dt).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) : (inv?.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString('de-CH') : ''); })()}</span>
-                              <span className="text-muted-foreground">·</span>
-                              <span className="font-medium text-foreground truncate">{isFallbackCustomerName(inv?.customer?.name) ? '⚠️ Kunde nicht zugeordnet' : (inv?.customer?.name ?? '')}{inv?.customer?.customerNumber ? ` (${inv.customer.customerNumber})` : ''}</span>
-                              {isCustomerDataIncomplete(inv.customer) && (
-                                <MissingCustomerDataBadge
-                                  variant="compact"
-                                  onClick={() => openEditInvoice(inv, { openCustomerSection: true })}
-                                />
-                              )}
-                              <span className="text-muted-foreground hidden sm:inline">·</span>
-                              <span className={`text-xs truncate hidden sm:inline ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</span>
-                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>CHF {Number(inv?.total ?? 0).toFixed(2)}</span>
-                            </div>
-                            <p className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</p>
-                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                              <select onClick={(e) => e.stopPropagation()} className="text-[11px] border rounded px-1.5 py-0.5" style={getStatusStyle(INVOICE_STATUS_STYLES, effectiveStatus)} value={effectiveStatus} onChange={(e: any) => updateStatus(e, inv?.id, e?.target?.value ?? '')}>
-                                {invoiceStatuses.map(s => <option key={s} style={getStatusStyle(INVOICE_STATUS_STYLES, s)}>{s}</option>)}
-                              </select>
-                              <span className="font-mono text-[11px] text-muted-foreground">{inv?.invoiceNumber ?? ''}</span>
-                              {(inv?.status === 'Gesendet' || inv?.status === 'Bezahlt') && inv?.invoiceDate && (
-                                <span className="text-[10px] text-muted-foreground italic">Gesendet {new Date(inv.invoiceDate).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
-                              )}
-                              <CommunicationChips data={orderCtx} onAudioClick={() => { if (orderCtx.mediaUrl) { openMedia(orderCtx.mediaUrl, 'audio'); }}} onImageClick={() => { const imgs = orderCtx.imageUrls; if (imgs && imgs.length > 0) { openImageGallery(imgs); }}} />
+                              <div
+                                className="mt-3 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 p-3 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEditInvoice(inv);
+                                  setExpandedItemIndex(null);
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    openEditInvoice(inv);
+                                    setExpandedItemIndex(null);
+                                  }
+                                }}
+                              >
+                                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                                  Positionen · {visibleItems.length}
+                                </div>
+                                <div className="space-y-1">
+                                  {displayedInvoiceItems.map(
+                                    (item: any, itemIndex: number) => (
+                                      <div
+                                        key={`${inv.id}-item-${itemIndex}`}
+                                        className="grid min-w-0 grid-cols-[7.5rem_minmax(0,1fr)_auto] items-start gap-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_auto]"
+                                      >
+                                        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground max-sm:col-span-2">
+                                          {smartflowPositionTypeLabelV17_90L371K(item)}
+                                        </span>
+                                        <span className="min-w-0 break-words leading-snug">
+                                          <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500/80" />
+                                          {item.description}
+                                        </span>
+                                        <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
+                                          {formatCurrency(
+                                            Number(item.quantity || 0) *
+                                              Number(item.unitPrice || 0),
+                                            inv.currency === "EUR"
+                                              ? "EUR"
+                                              : "CHF",
+                                          )}
+                                        </span>
+                                      </div>
+                                    ),
+                                  )}
+                                </div>
+                                {visibleItems.length > 6 && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onTouchStart={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      toggleInvoiceServiceCard(inv.id);
+                                    }}
+                                    className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                                  >
+                                    {invoiceServicesExpanded
+                                      ? "Weniger Positionen anzeigen"
+                                      : `+ ${visibleItems.length - 6} weitere Positionen`}
+                                  </button>
+                                )}
+                              </div>
+
+                              <div
+                                className="relative mt-1.5 flex min-h-8 min-w-0 cursor-pointer flex-wrap items-center gap-1.5 overflow-visible rounded-lg px-1.5 py-1 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700"
+                                onClick={(event) => {
+                                  if (
+                                    event.target instanceof Element &&
+                                    event.target.closest(
+                                      "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                    )
+                                  )
+                                    return;
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
+                                <select
+                                  onClick={(event) => event.stopPropagation()}
+                                  className={`h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium ${
+                                    statusColors[effectiveStatus] ||
+                                    statusColors.Entwurf
+                                  }`}
+                                  style={getInvoiceStatusInlineStyle(
+                                    effectiveStatus,
+                                  )}
+                                  value={effectiveStatus}
+                                  onChange={(event) =>
+                                    updateStatus(
+                                      event,
+                                      inv.id,
+                                      event.target.value,
+                                    )
+                                  }
+                                >
+                                  {invoiceStatuses.map((status) => (
+                                    <option
+                                      key={status}
+                                      style={getStatusStyle(
+                                        INVOICE_STATUS_STYLES,
+                                        status,
+                                      )}
+                                    >
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                                {renderInvoiceCompactFunctionalChips()}
+                                {renderInvoiceQuickActions()}
+                                {useTouchChipPopovers ? (
+                                  (invoiceYellowReviewEntries.length > 0 ||
+                                    invoiceBlockerEntries.length > 0 ||
+                                    invoiceCurrencyReviewCount > 0 ||
+                                    Boolean(
+                                      invoiceAppointmentDisplayLabel,
+                                    )) && (
+                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {renderInvoiceCompactReviewChip(
+                                          "yellow",
+                                        )}
+                                        {renderInvoiceCompactReviewChip("red")}
+                                        {renderInvoiceCurrencyReviewChip("review-group")}
+                                        {invoiceAppointmentDisplayLabel && (
+                                          <button
+                                            type="button"
+                                            data-card-toggle-ignore="true"
+                                            onPointerDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onPointerUp={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onTouchStart={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onTouchEnd={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onMouseDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onMouseUp={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${getInvoiceAppointmentChipToneClassV17_90L371AJ(invoiceAppointmentDisplayLabel)}`}
+                                            aria-label={
+                                              invoiceAppointmentDisplayLabel
+                                            }
+                                          >
+                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            <InvoiceViewportTooltip
+                                              preferredWidth={320}
+                                              mobileDismissOnInteraction
+                                            >
+                                              <InvoiceAppointmentTooltipContentV17_90L169
+                                                text={
+                                                  invoiceAppointmentDisplayLabel
+                                                }
+                                              />
+                                            </InvoiceViewportTooltip>
+                                          </button>
+                                        )}
+                                      </span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <>{renderInvoiceServicesChip("expanded")}</>
+                                )}
+                              </div>
+
+                              <div
+                                className="relative mt-2 flex min-h-0 cursor-pointer items-start justify-end gap-3 rounded-lg border-t px-1.5 py-2 transition-colors hover:bg-blue-50/80 active:bg-blue-100 dark:hover:bg-slate-800/60 dark:active:bg-slate-700 sm:min-h-12 sm:justify-between sm:py-3"
+                                onClick={(event) => {
+                                  if (
+                                    event.target instanceof Element &&
+                                    event.target.closest(
+                                      "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                                    )
+                                  )
+                                    return;
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
+                              >
+                                <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
+                                <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
+                                  <div className="shrink-0 text-right">
+                                    <div
+                                      className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
+                                    >
+                                      {formatCurrency(
+                                        Number(inv?.total ?? 0),
+                                        inv.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                      inkl. MwSt.
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                );
-              })}
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })}
               {filteredInv.length > visibleCount && (
                 <div className="text-center pt-4">
-                  <Button variant="outline" onClick={() => setVisibleCount(v => v + 30)}>Mehr laden ({filteredInv.length - visibleCount} weitere)</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setVisibleCount((v) => v + 30)}
+                  >
+                    Mehr laden ({filteredInv.length - visibleCount} weitere)
+                  </Button>
                 </div>
               )}
             </>
@@ -853,386 +9865,2684 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
         })()}
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingInvoice(null); }}>
-        <DialogContent className={`${dupCheckOpen ? 'max-w-4xl w-[95vw]' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}>
-          <DialogHeader>
-            <DialogTitle>{editingInvoice ? 'Rechnung bearbeiten' : 'Neue Rechnung'}</DialogTitle>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setEditingInvoice(null);
+        }}
+      >
+        <DialogContent
+          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-4xl w-[95vw]"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all [&>button]:hidden`}
+        >
+          <div className="pointer-events-none sticky top-0 z-[80] flex h-0 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setDialogOpen(false);
+                setEditingInvoice(null);
+              }}
+              className="pointer-events-auto mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 shadow-sm transition-colors hover:bg-red-100 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 dark:border-red-900/60 dark:bg-red-950/80 dark:text-red-300 dark:hover:bg-red-900/80"
+              aria-label="Bearbeitungsfenster schließen"
+              title="Schließen"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <DialogHeader className="pr-12">
+            <DialogTitle>
+              {editingInvoice ? "Rechnung bearbeiten" : "Neue Rechnung"}
+            </DialogTitle>
             {/* Source / traceability info — non-editable */}
             {editingInvoice?.sourceOfferNumber && (
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5" />
-                Erstellt aus Angebot <span className="font-mono font-medium text-foreground">{editingInvoice.sourceOfferNumber}</span>
+                Erstellt aus Angebot{" "}
+                <span className="font-mono font-medium text-foreground">
+                  {editingInvoice.sourceOfferNumber}
+                </span>
               </p>
             )}
           </DialogHeader>
-          <div className={dupCheckOpen ? 'grid grid-cols-1 sm:grid-cols-2 gap-4 dupcheck-split min-w-0' : 'min-w-0 overflow-hidden'}>
-          <div className={`space-y-4 min-w-0${dupCheckOpen ? ' max-h-[35vh] sm:max-h-none overflow-y-auto dupcheck-form-col' : ''}`}>
-            {/* Top header: customer-data warnings — shown near customer area.
+          <div
+            className={
+              dupCheckOpen
+                ? "grid grid-cols-1 sm:grid-cols-2 gap-4 dupcheck-split min-w-0"
+                : "min-w-0 overflow-hidden"
+            }
+          >
+            <div
+              className={`space-y-4 min-w-0${dupCheckOpen ? " max-h-[35vh] sm:max-h-none overflow-y-auto dupcheck-form-col" : ""}`}
+            >
+              {/* Top header: customer-data warnings — shown near customer area.
                 The chip itself is the only click target — clicking it opens
                 the customer-edit section. No duplicate buttons; the existing
                 "✏️ Bearbeiten" link inside the customer card and
                 "Kunde aktualisieren" save button inside the edit section
                 handle all other actions. */}
-            {(() => {
-              const cust = form.customerId ? customers.find((c: Customer) => c.id === form.customerId) : null;
-              // Canonical rule — name/address/plz/city required; phone/email optional.
-              const missingData = !!cust && isCustomerDataIncomplete(cust);
-              if (!linkedOrderData?.needsReview && !missingData) return null;
-              return (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => openCustomerEditor()}
-                    className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
-                    aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
-                  >
-                    {linkedOrderData?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
-                      <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
-                    </Badge>}
-                    {!linkedOrderData?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
-                  </button>
-                </div>
-              );
-            })()}
-            {/* Customer Info / Select / Edit */}
-            <div>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-1 gap-1">
-                <Label>Kunde *</Label>
-                {!showNewCustomer && form.customerId && (
+              {(() => {
+                if (historicalInvoiceCustomerLocked) return null;
+                const cust = dialogInvoiceCustomer;
+                // Canonical rule — name/address/plz/city required; phone/email optional.
+                const missingData = !!cust && isCustomerDataIncomplete(cust);
+                if (!linkedOrderData?.needsReview && !missingData) return null;
+                return (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <button className="text-xs text-blue-600 hover:underline flex items-center gap-1" onClick={() => openCustomerEditor()}>✏️ Bearbeiten</button>
-                    <button className="text-xs text-amber-600 hover:underline flex items-center gap-1" onClick={() => setDupCheckOpen(true)}>🔍 Duplikate prüfen</button>
+                    <button
+                      type="button"
+                      onClick={() => openCustomerEditor()}
+                      className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
+                      aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
+                    >
+                      {linkedOrderData?.needsReview && (
+                        <Badge
+                          variant="secondary"
+                          className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300"
+                        >
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Kundendaten prüfen
+                        </Badge>
+                      )}
+                      {!linkedOrderData?.needsReview && missingData && (
+                        <MissingCustomerDataBadge variant="standard" />
+                      )}
+                    </button>
                   </div>
-                )}
-              </div>
-              {!showNewCustomer ? (
-                <>
-                  {editingInvoice && form.customerId ? (() => {
-                    const cust = customers.find((c: Customer) => c.id === form.customerId);
-                    if (!cust) return null;
-                    // Required fields: name/address/plz/city — painted red when missing.
-                    // Optional fields: phone/email — always neutral (black), never red.
-                    const reqMiss = isRequiredCustomerFieldMissing;
-                    return (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openCustomerEditor()}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCustomerEditor(); } }}
-                        title="Kunde bearbeiten"
-                        aria-label="Kunde bearbeiten"
-                        className="border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                      >
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-sm font-semibold">👤 {cust.customerNumber || ''}{cust.customerNumber ? ' · ' : ''}</span>
-                          <span className={`text-sm font-semibold ${isFallbackCustomerName(cust.name) ? 'text-amber-600 italic' : reqMiss(cust.name) ? 'text-red-500 border-b border-red-400 border-dashed pb-0.5 italic' : ''}`}>{isFallbackCustomerName(cust.name) ? '⚠️ Kunde noch nicht zugeordnet (bitte echten Kunden zuweisen)' : (cust.name || 'Name fehlt')}</span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-1 text-xs">
-                          <div className={`flex items-center gap-1 ${reqMiss(cust.address) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium w-16 shrink-0">Strasse:</span><span className={reqMiss(cust.address) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.address || 'fehlt'}</span></div>
-                          <div className="flex gap-3">
-                            <div className={`flex items-center gap-1 ${reqMiss(cust.plz) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium w-16 shrink-0">PLZ:</span><span className={reqMiss(cust.plz) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.plz || 'fehlt'}</span></div>
-                            <div className={`flex items-center gap-1 ${reqMiss(cust.city) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium shrink-0">Ort:</span><span className={reqMiss(cust.city) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.city || 'fehlt'}</span></div>
-                          </div>
-                          <div className="flex items-center gap-1 text-foreground/70"><span className="font-medium w-16 shrink-0">Tel:</span><span>{cust.phone || '—'}</span></div>
-                          <div className="flex items-center gap-1 text-foreground/70"><span className="font-medium w-16 shrink-0">E-Mail:</span><span>{cust.email || '—'}</span></div>
-                        </div>
+                );
+              })()}
+              {/* Customer Info / Select / Edit */}
+              <div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-1 gap-1">
+                  <div className="flex items-center gap-2">
+                    <Label>Kunde *</Label>
+                    {historicalInvoiceCustomerLocked && (
+                      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        Historischer Kundenstand
+                      </span>
+                    )}
+                  </div>
+                  {!showNewCustomer &&
+                    form.customerId &&
+                    !historicalInvoiceCustomerLocked && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                          onClick={() => openCustomerEditor()}
+                        >
+                          ✏️ Bearbeiten
+                        </button>
+                        <button
+                          className="text-xs text-amber-600 hover:underline flex items-center gap-1"
+                          onClick={() => setDupCheckOpen(true)}
+                        >
+                          🔍 Duplikate prüfen
+                        </button>
                       </div>
-                    );
-                  })() : (
-                    <>
-                      <div className="flex gap-2">
-                        <CustomerSearchCombobox
-                          customers={customers}
-                          value={form.customerId}
-                          onChange={(id) => onCustomerChange(id)}
-                        />
-                        <Button type="button" variant="outline" size="sm" className="shrink-0 text-xs h-[38px]" onClick={() => { setEditingCustomer(false); setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' }); setShowNewCustomer(true); }}>+ Neuer Kunde</Button>
-                      </div>
-                      {form.customerId && (() => {
-                        const cust = customers.find((c: Customer) => c.id === form.customerId);
+                    )}
+                </div>
+                {!showNewCustomer ? (
+                  <>
+                    {editingInvoice && form.customerId ? (
+                      (() => {
+                        const cust = dialogInvoiceCustomer;
                         if (!cust) return null;
+                        // Required fields: name/address/plz/city — painted red when missing.
+                        // Optional fields: phone/email — always neutral (black), never red.
                         const reqMiss = isRequiredCustomerFieldMissing;
                         return (
-                          <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openCustomerEditor()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openCustomerEditor();
+                              }
+                            }}
+                            title="Kunde bearbeiten"
+                            aria-label="Kunde bearbeiten"
+                            className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-emerald-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 dark:border-emerald-800 dark:bg-emerald-950/20"
+                          >
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-sm font-semibold">👤 {cust.customerNumber || ''}{cust.customerNumber ? ' · ' : ''}</span>
-                              <span className={`text-sm font-semibold ${isFallbackCustomerName(cust.name) ? 'text-amber-600 italic' : reqMiss(cust.name) ? 'text-red-500 border-b border-red-400 border-dashed pb-0.5 italic' : ''}`}>{isFallbackCustomerName(cust.name) ? '⚠️ Kunde noch nicht zugeordnet (bitte echten Kunden zuweisen)' : (cust.name || 'Name fehlt')}</span>
+                              <span className="text-sm font-semibold">
+                                👤 {cust.customerNumber || ""}
+                                {cust.customerNumber ? " · " : ""}
+                              </span>
+                              <span
+                                className={`text-sm font-semibold ${isFallbackCustomerName(cust.name) ? "text-amber-600 italic" : reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                              >
+                                {isFallbackCustomerName(cust.name)
+                                  ? "⚠️ Kunde noch nicht zugeordnet (bitte echten Kunden zuweisen)"
+                                  : cust.name || "Name fehlt"}
+                              </span>
                             </div>
                             <div className="grid grid-cols-1 gap-1 text-xs">
-                              <div className={`flex items-center gap-1 ${reqMiss(cust.address) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium w-16 shrink-0">Strasse:</span><span className={reqMiss(cust.address) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.address || 'fehlt'}</span></div>
-                              <div className="flex gap-3">
-                                <div className={`flex items-center gap-1 ${reqMiss(cust.plz) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium w-16 shrink-0">PLZ:</span><span className={reqMiss(cust.plz) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.plz || 'fehlt'}</span></div>
-                                <div className={`flex items-center gap-1 ${reqMiss(cust.city) ? 'text-red-500' : 'text-foreground/70'}`}><span className="font-medium shrink-0">Ort:</span><span className={reqMiss(cust.city) ? 'border-b border-red-400 border-dashed pb-0.5 italic' : ''}>{cust.city || 'fehlt'}</span></div>
+                              <div
+                                className={`flex items-center gap-1 ${reqMiss(cust.address) ? "text-red-500" : "text-foreground/70"}`}
+                              >
+                                <span className="font-medium w-16 shrink-0">
+                                  Strasse:
+                                </span>
+                                <span
+                                  className={
+                                    reqMiss(cust.address)
+                                      ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                      : ""
+                                  }
+                                >
+                                  {cust.address || "fehlt"}
+                                </span>
                               </div>
-                              <div className="flex items-center gap-1 text-foreground/70"><span className="font-medium w-16 shrink-0">Tel:</span><span>{cust.phone || '—'}</span></div>
-                              <div className="flex items-center gap-1 text-foreground/70"><span className="font-medium w-16 shrink-0">E-Mail:</span><span>{cust.email || '—'}</span></div>
+                              <div className="flex gap-3">
+                                <div
+                                  className={`flex items-center gap-1 ${reqMiss(cust.plz) ? "text-red-500" : "text-foreground/70"}`}
+                                >
+                                  <span className="font-medium w-16 shrink-0">
+                                    PLZ:
+                                  </span>
+                                  <span
+                                    className={
+                                      reqMiss(cust.plz)
+                                        ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                        : ""
+                                    }
+                                  >
+                                    {cust.plz || "fehlt"}
+                                  </span>
+                                </div>
+                                <div
+                                  className={`flex items-center gap-1 ${reqMiss(cust.city) ? "text-red-500" : "text-foreground/70"}`}
+                                >
+                                  <span className="font-medium shrink-0">
+                                    Ort:
+                                  </span>
+                                  <span
+                                    className={
+                                      reqMiss(cust.city)
+                                        ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                        : ""
+                                    }
+                                  >
+                                    {cust.city || "fehlt"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 text-foreground/70">
+                                <span className="font-medium w-16 shrink-0">
+                                  Tel:
+                                </span>
+                                <span>{cust.phone || "—"}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-foreground/70">
+                                <span className="font-medium w-16 shrink-0">
+                                  E-Mail:
+                                </span>
+                                <span>{cust.email || "—"}</span>
+                              </div>
                             </div>
                           </div>
                         );
-                      })()}
-                    </>
-                  )}
-                </>
-              ) : (
-                <div ref={customerEditorRef} className="border rounded-lg p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 min-w-0">
-                  <p className="text-xs font-semibold text-muted-foreground">{editingCustomer ? '✏️ Kunde bearbeiten' : '➕ Neuer Kunde erstellen'}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div><Label className="text-xs">Name *</Label><Input placeholder="Name" value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} /></div>
-                    <div><Label className="text-xs">Telefon</Label><Input placeholder="Telefon" value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} /></div>
-                  </div>
-                  <div><Label className="text-xs">Strasse + Hausnr. *</Label><Input placeholder="Strasse + Hausnr." value={newCust.address} onChange={(e) => setNewCust({ ...newCust, address: e.target.value })} /></div>
-                  {/* Paket N + O: shared Land/PLZ/Ort input with country-aware autocomplete. */}
-                  <PlzOrtInput
-                    country={newCust.country}
-                    onCountryChange={(country) => setNewCust({ ...newCust, country })}
-                    plzValue={newCust.plz}
-                    ortValue={newCust.city}
-                    onPlzChange={(plz) => setNewCust({ ...newCust, plz })}
-                    onOrtChange={(city) => setNewCust({ ...newCust, city })}
-                    onBothChange={(plz, city) => setNewCust({ ...newCust, plz, city })}
-                    required
-                    compact
-                  />
-                  <div><Label className="text-xs">E-Mail</Label><Input placeholder="E-Mail" value={newCust.email} onChange={(e) => setNewCust({ ...newCust, email: e.target.value })} /></div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={saveCustomer} disabled={savingCust}>{savingCust ? 'Speichern...' : editingCustomer ? 'Kunde aktualisieren' : 'Kunde erstellen'}</Button>
-                    <Button size="sm" variant="outline" onClick={() => setDupCheckOpen(true)}>🔍 Duplikate prüfen</Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setShowNewCustomer(false); setEditingCustomer(false); }}>Zurück zur Rechnung</Button>
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* Form fields — collapsed when dupCheck open */}
-            {dupCheckOpen ? (
-              <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · CHF {total.toFixed(2)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
-                <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
-              </div>
-            ) : (<>
-            <div><Label>Rechnungsdatum</Label><Input type="date" value={form.invoiceDate} onChange={(e: any) => setForm({ ...form, invoiceDate: e?.target?.value ?? '' })} /></div>
-            {!editingInvoice && <div><Label>Zahlungsziel (Tage)</Label><Input type="number" value={form.paymentDays} onChange={(e: any) => setForm({ ...form, paymentDays: e?.target?.value ?? '30' })} /></div>}
-            {editingInvoice && (
-              <div>
-                <Label>Status</Label>
-                <select className="flex w-full rounded-md border border-input px-3 py-2 text-sm" style={getStatusStyle(INVOICE_STATUS_STYLES, editingInvoice.status)} value={editingInvoice.status} onChange={(e: any) => { setEditingInvoice({ ...editingInvoice, status: e.target.value }); }}>
-                  {invoiceStatuses.map(s => <option key={s} style={getStatusStyle(INVOICE_STATUS_STYLES, s)}>{s}</option>)}
-                </select>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <Label className="text-base font-semibold">Leistungen</Label>
-              {items?.map((item: InvoiceItem, idx: number) => (
-                <div key={idx} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2">
-                  {/* Row 1: Service name – full width */}
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 min-w-0">
-                      <ServiceCombobox
-                        value={item?.description ?? ''}
-                        services={services as ServiceOption[]}
-                        onChange={(name, svc) => onItemServiceSelect(idx, name, svc)}
-                        onServiceCreated={handleServiceCreated}
-                        currentPrice={item?.unitPrice != null ? String(item.unitPrice) : undefined}
-                        currentUnit={item?.unit}
-                        contextLabel="Rechnung"
+                      })()
+                    ) : (
+                      <>
+                        <div className="flex gap-2">
+                          <CustomerSearchCombobox
+                            customers={customers}
+                            value={form.customerId}
+                            onChange={(id) => onCustomerChange(id)}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 text-xs h-[38px]"
+                            onClick={() => {
+                              setEditingCustomer(false);
+                              setNewCust({
+                                name: "",
+                                phone: "",
+                                email: "",
+                                address: "",
+                                plz: "",
+                                city: "",
+                                country: "CH",
+                              });
+                              setShowNewCustomer(true);
+                            }}
+                          >
+                            + Neuer Kunde
+                          </Button>
+                        </div>
+                        {form.customerId &&
+                          (() => {
+                            const cust = dialogInvoiceCustomer;
+                            if (!cust) return null;
+                            const reqMiss = isRequiredCustomerFieldMissing;
+                            return (
+                              <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-emerald-800 dark:bg-emerald-950/20">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-semibold">
+                                    👤 {cust.customerNumber || ""}
+                                    {cust.customerNumber ? " · " : ""}
+                                  </span>
+                                  <span
+                                    className={`text-sm font-semibold ${isFallbackCustomerName(cust.name) ? "text-amber-600 italic" : reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                  >
+                                    {isFallbackCustomerName(cust.name)
+                                      ? "⚠️ Kunde noch nicht zugeordnet (bitte echten Kunden zuweisen)"
+                                      : cust.name || "Name fehlt"}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-1 text-xs">
+                                  <div
+                                    className={`flex items-center gap-1 ${reqMiss(cust.address) ? "text-red-500" : "text-foreground/70"}`}
+                                  >
+                                    <span className="font-medium w-16 shrink-0">
+                                      Strasse:
+                                    </span>
+                                    <span
+                                      className={
+                                        reqMiss(cust.address)
+                                          ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                          : ""
+                                      }
+                                    >
+                                      {cust.address || "fehlt"}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-3">
+                                    <div
+                                      className={`flex items-center gap-1 ${reqMiss(cust.plz) ? "text-red-500" : "text-foreground/70"}`}
+                                    >
+                                      <span className="font-medium w-16 shrink-0">
+                                        PLZ:
+                                      </span>
+                                      <span
+                                        className={
+                                          reqMiss(cust.plz)
+                                            ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                            : ""
+                                        }
+                                      >
+                                        {cust.plz || "fehlt"}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className={`flex items-center gap-1 ${reqMiss(cust.city) ? "text-red-500" : "text-foreground/70"}`}
+                                    >
+                                      <span className="font-medium shrink-0">
+                                        Ort:
+                                      </span>
+                                      <span
+                                        className={
+                                          reqMiss(cust.city)
+                                            ? "border-b border-red-400 border-dashed pb-0.5 italic"
+                                            : ""
+                                        }
+                                      >
+                                        {cust.city || "fehlt"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-foreground/70">
+                                    <span className="font-medium w-16 shrink-0">
+                                      Tel:
+                                    </span>
+                                    <span>{cust.phone || "—"}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-foreground/70">
+                                    <span className="font-medium w-16 shrink-0">
+                                      E-Mail:
+                                    </span>
+                                    <span>{cust.email || "—"}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    ref={customerEditorRef}
+                    className="border rounded-lg p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 min-w-0"
+                  >
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      {editingCustomer
+                        ? "✏️ Kunde bearbeiten"
+                        : "➕ Neuer Kunde erstellen"}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Name *</Label>
+                        <Input
+                          placeholder="Name"
+                          value={newCust.name}
+                          onChange={(e) =>
+                            setNewCust({ ...newCust, name: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Telefon</Label>
+                        <Input
+                          placeholder="Telefon"
+                          value={newCust.phone}
+                          onChange={(e) =>
+                            setNewCust({ ...newCust, phone: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Strasse + Hausnr. *</Label>
+                      <Input
+                        placeholder="Strasse + Hausnr."
+                        value={newCust.address}
+                        onChange={(e) =>
+                          setNewCust({ ...newCust, address: e.target.value })
+                        }
                       />
                     </div>
-                    {items?.length > 1 && (
-                      <Button variant="ghost" size="sm" className="text-destructive shrink-0 mt-1" onClick={() => removeItem(idx)}>
-                        <Trash2 className="w-3 h-3" />
+                    {/* Paket N + O: shared Land/PLZ/Ort input with country-aware autocomplete. */}
+                    <PlzOrtInput
+                      country={newCust.country}
+                      onCountryChange={(country) =>
+                        setNewCust({ ...newCust, country })
+                      }
+                      plzValue={newCust.plz}
+                      ortValue={newCust.city}
+                      onPlzChange={(plz) => setNewCust({ ...newCust, plz })}
+                      onOrtChange={(city) => setNewCust({ ...newCust, city })}
+                      onBothChange={(plz, city) =>
+                        setNewCust({ ...newCust, plz, city })
+                      }
+                      required
+                      compact
+                    />
+                    <div>
+                      <Label className="text-xs">E-Mail</Label>
+                      <Input
+                        placeholder="E-Mail"
+                        value={newCust.email}
+                        onChange={(e) =>
+                          setNewCust({ ...newCust, email: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={saveCustomer}
+                        disabled={savingCust}
+                      >
+                        {savingCust
+                          ? "Speichern..."
+                          : editingCustomer
+                            ? "Kunde aktualisieren"
+                            : "Kunde erstellen"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDupCheckOpen(true)}
+                      >
+                        🔍 Duplikate prüfen
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setShowNewCustomer(false);
+                          setEditingCustomer(false);
+                        }}
+                      >
+                        Zurück zur Rechnung
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {!dupCheckOpen && !editingInvoice && getCurrentInvoiceExecutionSitesV17_90L284().length === 0 && (
+                <div ref={invoiceExecutionSitesRef} className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                  <div
+                    role={newInvoiceExecutionSite ? "button" : undefined}
+                    tabIndex={newInvoiceExecutionSite ? 0 : -1}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (target.closest("button,input,select,textarea,a"))
+                        return;
+                      toggleInvoiceExecutionAddressEditor(
+                        newInvoiceExecutionSite,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        newInvoiceExecutionSite &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        toggleInvoiceExecutionAddressEditor(
+                          newInvoiceExecutionSite,
+                        );
+                      }
+                    }}
+                    className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
+                      newInvoiceExecutionSite
+                        ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-slate-400"
+                        checked={Boolean(newInvoiceExecutionSite)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          setNewInvoiceExecutionAddressEnabled(
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold leading-5">
+                          Ausführungsadresse abweichend von Rechnungsadresse
+                        </span>
+                        <span className="block max-w-2xl text-xs leading-4 text-muted-foreground">
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                          ausgeführt wird.
+                        </span>
+                      </span>
+                    </div>
+                    {newInvoiceExecutionSite && !editingExecutionAddress && (
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
+                          onClick={addInvoiceExecutionSite}
+                          disabled={saving}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Ausführungsort
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 w-full justify-start px-2 text-xs sm:w-auto"
+                          onClick={() => setEditingExecutionAddress(true)}
+                          disabled={saving}
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Bearbeiten
+                        </Button>
+                      </div>
                     )}
                   </div>
-                  {/* Row 2: Unit, Price, Quantity */}
-<div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-  <div>
-    <Label className="text-xs">Einheit</Label>
-    <select className="flex w-full rounded-md border border-input bg-background px-2 py-1.5" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? 'Stunde')}>
-      <option value="Stunde">Stunde</option><option value="Pauschal">Pauschal</option><option value="Meter">Meter</option><option value="Stück">Stück</option>
-    </select>
-  </div>
-  <div>
-    <Label className="text-xs">Preis (CHF)</Label>
-    <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
-  </div>
-  <div>
-    <Label className="text-xs">Menge</Label>
-    <Input type="number" step="0.25" className="h-8" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '1')} />
-  </div>
-</div>
-<div className="text-left sm:text-right text-xs text-muted-foreground">
-  = CHF {(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0)).toFixed(2)}
-</div>
-</div>
-)) ?? []}
-<Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
-  <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
-</Button>
-</div>
-            <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
-              <MwStControl vatRate={vatRate} onChange={setVatRate} />
-              <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">CHF {subtotal.toFixed(2)}</span></div>
-                {vatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">CHF {vatAmount.toFixed(2)}</span></div>
-                )}
-                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">CHF {total.toFixed(2)}</span></div>
-              </div>
-            </div>
 
-            <div><Label>Bemerkungen</Label><textarea className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={form.notes} onChange={(e: any) => setForm({ ...form, notes: e?.target?.value ?? '' })} /></div>
+                  {newInvoiceExecutionSite && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                      {editingExecutionAddress ? (
+                        <div className="space-y-3">
+                          {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                            targetKey: invoiceGroupKeyForSite(
+                              newInvoiceExecutionSite,
+                            ),
+                            value: newInvoiceExecutionSite.siteName || "",
+                            onChange: (value) =>
+                              updateNewInvoiceExecutionSite(
+                                "siteName",
+                                value,
+                              ),
+                          })}
+                          <div>
+                            <Label className="text-xs">
+                              Strasse + Hausnummer
+                            </Label>
+                            <Input
+                              value={newInvoiceExecutionSite.siteAddress || ""}
+                              placeholder="Strasse + Hausnummer"
+                              onChange={(event: any) =>
+                                updateNewInvoiceExecutionSite(
+                                  "siteAddress",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_1fr]">
+                            <div>
+                              <Label className="text-xs">PLZ</Label>
+                              <Input
+                                value={newInvoiceExecutionSite.sitePlz || ""}
+                                placeholder="PLZ"
+                                onChange={(event: any) =>
+                                  updateNewInvoiceExecutionSite(
+                                    "sitePlz",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Ort</Label>
+                              <Input
+                                value={newInvoiceExecutionSite.siteCity || ""}
+                                placeholder="Ort"
+                                onChange={(event: any) =>
+                                  updateNewInvoiceExecutionSite(
+                                    "siteCity",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs">
+                              Hinweis zum Ausführungsort
+                            </Label>
+                            <Input
+                              value={newInvoiceExecutionSite.siteNote || ""}
+                              placeholder="Optionaler interner Hinweis"
+                              onChange={(event: any) =>
+                                updateNewInvoiceExecutionSite(
+                                  "siteNote",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          {renderCustomerExecutionAddressSaveChoiceV17_90L296(
+                            newInvoiceExecutionSite,
+                          )}
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(newInvoiceExecutionSite) && (
+                            <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={saveExecutionAddressInCustomerProfile}
+                                onChange={(event) =>
+                                  setSaveExecutionAddressInCustomerProfile(
+                                    event.target.checked,
+                                  )
+                                }
+                              />
+                              Im Kundenprofil speichern
+                            </label>
+                            )}
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={addInvoiceExecutionSite}
+                                disabled={saving}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Ausführungsort
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void saveInvoiceExecutionAddress()}
+                                disabled={saving}
+                              >
+                                {saving
+                                  ? "Übernehmen..."
+                                  : "Ausführungsort übernehmen"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">
+                              {newInvoiceExecutionSite.siteName ||
+                                "Ausführungsadresse"}
+                            </div>
+                            <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                              <span className="text-muted-foreground">
+                                Strasse:
+                              </span>
+                              <span className="break-words">
+                                {newInvoiceExecutionSite.siteAddress || "–"}
+                              </span>
+                              <span className="text-muted-foreground">
+                                PLZ / Ort:
+                              </span>
+                              <span className="break-words">
+                                {[
+                                  newInvoiceExecutionSite.sitePlz,
+                                  newInvoiceExecutionSite.siteCity,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ") || "–"}
+                              </span>
+                              {newInvoiceExecutionSite.siteNote && (
+                                <>
+                                  <span className="text-muted-foreground">
+                                    Hinweis:
+                                  </span>
+                                  <span className="break-words">
+                                    {newInvoiceExecutionSite.siteNote}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
-            {/* Unified communication block: description + special notes + customer message/media */}
-            {editOrderCtx && (
-              <CommunicationBlock
-                data={editOrderCtx}
-                showDescription
-                descriptionValue={editOrderCtx.description || ''}
-                specialNotesValue={splitSpecialNotes(editOrderCtx.specialNotes).jobHints.join('\n')}
-              />
-            )}
-            </>)}
+              {!dupCheckOpen &&
+                editingInvoice &&
+                getCurrentInvoiceExecutionSitesV17_90L284().length === 0 &&
+                (() => {
+                  const executionSite =
+                    getCurrentInvoiceExecutionSitesV17_90L284()[0] || null;
+                  const hasExecutionSite = Boolean(executionSite);
+                  return (
+                    <div ref={invoiceExecutionSitesRef} className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                      <div
+                        role={hasExecutionSite ? "button" : undefined}
+                        tabIndex={hasExecutionSite ? 0 : -1}
+                        onClick={(event) => {
+                          if (!executionSite) return;
+                          const target = event.target as HTMLElement;
+                          if (target.closest("button,input,select,textarea,a"))
+                            return;
+                          toggleInvoiceExecutionAddressEditor(executionSite);
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            executionSite &&
+                            (event.key === "Enter" || event.key === " ")
+                          ) {
+                            event.preventDefault();
+                            toggleInvoiceExecutionAddressEditor(executionSite);
+                          }
+                        }}
+                        className={`-m-1 grid grid-cols-1 gap-2 rounded-lg p-1.5 outline-none transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start ${
+                          hasExecutionSite
+                            ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                            : ""
+                        }`}
+                      >
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={hasExecutionSite}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              setInvoiceExecutionAddressEnabledV17_90L288(
+                                event.target.checked,
+                                executionSite,
+                              )
+                            }
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                            aria-label="Ausführungsadresse abweichend"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold leading-5">
+                              Ausführungsadresse abweichend von Rechnungsadresse
+                            </div>
+                            <p className="max-w-2xl text-xs leading-4 text-muted-foreground">
+                              Nur aktivieren, wenn die Arbeit an einem anderen
+                              Ort ausgeführt wird.
+                            </p>
+                          </div>
+                        </div>
+                        {executionSite && !editingExecutionAddress && (
+                          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-1">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                addInvoiceExecutionSite();
+                              }}
+                              disabled={saving}
+                              className="inline-flex h-7 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Ausführungsort
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingExecutionAddress(true);
+                              }}
+                              disabled={saving}
+                              className="inline-flex h-7 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Bearbeiten
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
-            {/* Document action buttons — hidden when customer editor OR duplicate panel is open */}
-            {!showNewCustomer && !dupCheckOpen && (
-            <div className="flex flex-wrap justify-center sm:justify-end gap-2">
-              <Button variant="outline" onClick={() => { setDialogOpen(false); setEditingInvoice(null); }}>Abbrechen</Button>
-              <Button onClick={editingInvoice ? saveEdit : save} disabled={saving}>{saving ? 'Speichern...' : editingInvoice ? 'Speichern' : 'Rechnung erstellen'}</Button>
-              {editingInvoice && (
-                <Button variant="secondary" onClick={saveAndArchive} disabled={saving} className="bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200">
-                  <Archive className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />→ Archivieren
-                </Button>
+                      {executionSite && (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                          {editingExecutionAddress ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                                  targetKey:
+                                    invoiceGroupKeyForSite(executionSite),
+                                  value: executionSite.siteName || "",
+                                  onChange: (value) =>
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
+                                      "siteName",
+                                      value,
+                                    ),
+                                })}
+                              </div>
+                              <div className="sm:col-span-2">
+                                <Label className="text-xs">Strasse</Label>
+                                <Input
+                                  value={executionSite.siteAddress || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
+                                      "siteAddress",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">PLZ</Label>
+                                <Input
+                                  value={executionSite.sitePlz || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
+                                      "sitePlz",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Ort</Label>
+                                <Input
+                                  value={executionSite.siteCity || ""}
+                                  onChange={(event: any) =>
+                                    updateInvoiceGroupSite(
+                                      invoiceGroupKeyForSite(executionSite),
+                                      "siteCity",
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
+                                {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(newInvoiceExecutionSite) && (
+                                <label className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-input"
+                                    checked={saveExecutionAddressInCustomerProfile}
+                                    onChange={(event) =>
+                                      setSaveExecutionAddressInCustomerProfile(
+                                        event.target.checked,
+                                      )
+                                    }
+                                    onClick={(event) => event.stopPropagation()}
+                                  />
+                                  Im Kundenprofil speichern
+                                </label>
+                                )}
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      addInvoiceExecutionSite();
+                                    }}
+                                    disabled={saving}
+                                  >
+                                    <Plus className="mr-1 h-3.5 w-3.5" />
+                                    Ausführungsort
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void saveInvoiceExecutionAddress();
+                                    }}
+                                    disabled={saving}
+                                  >
+                                    {saving
+                                      ? "Übernehmen..."
+                                      : "Ausführungsort übernehmen"}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold">
+                                  {executionSite.siteName || "Ausführungsadresse"}
+                                </div>
+                                <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                                  <span className="text-muted-foreground">
+                                    Strasse:
+                                  </span>
+                                  <span className="break-words">
+                                    {executionSite.siteAddress || "–"}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    PLZ / Ort:
+                                  </span>
+                                  <span className="break-words">
+                                    {[
+                                      executionSite.sitePlz,
+                                      executionSite.siteCity,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ") || "–"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              {/* Form fields — collapsed when dupCheck open */}
+              {dupCheckOpen ? (
+                <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
+                  <span>
+                    {items?.filter((i: InvoiceItem) => i.description).length ||
+                      0}{" "}
+                    Position(en) · {formatCurrency(total, currency)} ·{" "}
+                    {form.invoiceDate || "–"} ·{" "}
+                    {editingInvoice?.status || "Neu"}
+                  </span>
+                  <span className="text-[10px] italic">
+                    Duplikat-Prüfung aktiv — Form eingeklappt
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div
+                    ref={serviceItemsRef}
+                    className="scroll-mt-24 space-y-2 rounded-xl border-2 border-slate-300 bg-background p-2.5 sm:p-3 dark:border-slate-600"
+                  >
+                    <div className="space-y-2">
+                      {(() => {
+                        const currentSites =
+                          getCurrentInvoiceExecutionSitesV17_90L284();
+                        const multiSite = currentSites.length > 0;
+                        return (
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <Label className="whitespace-nowrap text-base font-semibold">
+                                {multiSite
+                                  ? "Arbeitsorte & Positionen"
+                                  : `Positionen · ${items.filter((item: InvoiceItem) => String(item?.description || "").trim()).length} *`}
+                              </Label>
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {multiSite && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={toggleAllInvoiceSites}
+                                  >
+                                    {groupInvoiceItemsByExecutionSite(
+                                      items || [],
+                                      currentSites,
+                                    ).every((group) =>
+                                      expandedInvoiceSiteKeys.has(group.key),
+                                    )
+                                      ? "Übersicht"
+                                      : "Alle öffnen"}
+                                  </Button>
+                                )}
+                                {multiSite && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 shrink-0 px-2 text-xs"
+                                    onClick={addInvoiceExecutionSite}
+                                  >
+                                    <Plus className="mr-1 h-3.5 w-3.5" />
+                                    Ausführungsort
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 shrink-0 px-2 text-xs"
+                                  onClick={addItem}
+                                >
+                                  <Plus className="mr-1 h-3.5 w-3.5" />
+                                  Position
+                                </Button>
+                              </div>
+                            </div>
+                            {multiSite ? (
+                              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                <span className="min-w-0 truncate">
+                                  {currentSites.length} Arbeitsorte ·{" "}
+                                  {items.filter((item: InvoiceItem) =>
+                                    String(item?.description || "").trim(),
+                                  ).length} Positionen
+                                </span>
+                                <span className="shrink-0 font-mono font-medium text-foreground">
+                                  {formatCurrency(subtotal, currency)}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Kompakte Übersicht. Zum Bearbeiten die Position
+                                aufklappen.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="space-y-2">
+                      {(() => {
+                        const groups = groupInvoiceItemsByExecutionSite(
+                          items || [],
+                          getCurrentInvoiceExecutionSitesV17_90L284(),
+                        );
+                        const renderEntries = (
+                          entries: Array<{ item: InvoiceItem; index: number }>,
+                        ) =>
+                          entries
+                            .slice()
+                            .sort(smartflowComparePositionEntriesV17_90L371K)
+                            .map(({ item, index: idx }) => {
+                            const quantity = Number(item?.quantity ?? 0);
+                            const unitPrice = Number(item?.unitPrice ?? 0);
+                            const lineTotal = unitPrice * quantity;
+                            const matchedService = services.find(
+                              (service: any) =>
+                                normalizeInvoiceServiceName(service?.name) ===
+                                normalizeInvoiceServiceName(item?.description),
+                            );
+                            const invoiceUnitMissingOrReviewV17_90L371CQ =
+                              !compactInvoiceValue(item?.unit) ||
+                              /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || ""));
+                            const invoiceOnlyUnitMissingV17_90L371CQ = Boolean(
+                              invoiceUnitMissingOrReviewV17_90L371CQ &&
+                                compactInvoiceValue(item?.description) &&
+                                quantity > 0 &&
+                                unitPrice > 0,
+                            );
+                            const hasMissingValues =
+                              !compactInvoiceValue(item?.description) ||
+                              invoiceUnitMissingOrReviewV17_90L371CQ ||
+                              quantity <= 0 ||
+                              unitPrice <= 0;
+                            const catalogMismatch = Boolean(
+                              matchedService &&
+                              (compactInvoiceValue(matchedService.unit) !==
+                                compactInvoiceValue(item?.unit) ||
+                                Math.abs(
+                                  Number(matchedService.defaultPrice || 0) -
+                                    unitPrice,
+                                ) >= 0.001),
+                            );
+                            const itemNeedsReview =
+                              hasMissingValues ||
+                              !matchedService ||
+                              catalogMismatch;
+                            const positionBlockingIssues = getPositionBlockingIssues(item);
+                            const invoiceSourceCorpusForItemV17_90L371AT = [
+                              (item as any)?.sourceDescription,
+                              (item as any)?.sourceText,
+                              (item as any)?.source_text,
+                              (item as any)?.evidence,
+                              linkedOrderData?.notes,
+                              linkedOrderData?.audioTranscript,
+                              form.specialNotes,
+                              form.notes,
+                            ]
+                              .filter(Boolean)
+                              .join("\n");
+                            const itemSourceLineV17_90L371AT =
+                              compactInvoiceValue((item as any)?.sourceDescription || (item as any)?.sourceText || (item as any)?.source_text || (item as any)?.evidence) ||
+                              findInvoicePositionSourceLineV17_90L371AT(
+                                invoiceSourceCorpusForItemV17_90L371AT,
+                                item,
+                              );
+                            const itemSourceContextV17_90L371AU = itemSourceLineV17_90L371AT
+                          ? buildInvoiceSourceContextTooltipV17_90L371AU(
+                              invoiceSourceCorpusForItemV17_90L371AT,
+                              itemSourceLineV17_90L371AT,
+                            )
+                          : "";
+                        const itemReviewReasonV17_90L134 =
+                              (positionBlockingIssues.length > 0 ? positionBlockingIssues.join(", ") : "") ||
+                              getInvoiceServiceReviewReasonV17_90L134(
+                                item,
+                                services || [],
+                              ) || (itemNeedsReview ? "Manuell prüfen" : "");
+                            const isExpanded = expandedItemIndex === idx;
+                            const isRecentlyMovedInvoiceItemV17_90L371CF =
+                              recentlyMovedInvoiceItemIndexV17_90L371CF === idx;
+                            const isMenuOpen = serviceActionMenuIndex === idx;
+                            const hasCatalogActionMenu =
+                              itemNeedsReview && !hasMissingValues;
+                            const positionTypeLabelV17_90L371K = smartflowPositionTypeLabelV17_90L371K(item);
+                            // V17.90L320: Wie bei Aufträgen den Arbeitsort-Selector
+                            // nur anzeigen, wenn eine Leistungszeile wirklich keinem
+                            // Ausführungsort zugeordnet ist. Automatisch unter einem
+                            // neuen Ausführungsort erzeugte Leistungen sind über den
+                            // UI-Key bereits zugeordnet und brauchen keinen zweiten
+                            // "Arbeitsort wählen"-Kasten.
+                            const currentInvoiceSitesV17_90L320 =
+                              getCurrentInvoiceExecutionSitesV17_90L284();
+                            const currentInvoiceMoveSiteV17_90L371BW =
+                              currentInvoiceSitesV17_90L320.find(
+                                (site) => invoiceSiteKey(site) === invoiceSiteKey(item),
+                              ) || null;
+                            const currentInvoiceMoveSiteKeyV17_90L371BW = currentInvoiceMoveSiteV17_90L371BW
+                              ? invoiceGroupKeyForSite(currentInvoiceMoveSiteV17_90L371BW)
+                              : "";
+                            const canMoveInvoiceItemBetweenSitesV17_90L371BW = currentInvoiceSitesV17_90L320.length > 0;
+                            const itemWorkSiteUiKeyV17_90L320 = compactInvoiceValue(
+                              (item as any)._workSiteUiKey,
+                            );
+                            const itemHasCompleteSiteV17_90L320 = Boolean(
+                              compactInvoiceValue((item as InvoiceExecutionSite).siteAddress) &&
+                                compactInvoiceValue((item as InvoiceExecutionSite).sitePlz) &&
+                                compactInvoiceValue((item as InvoiceExecutionSite).siteCity),
+                            );
+                            const itemSourceOrderIdV17_90L320 = compactInvoiceValue(
+                              (item as InvoiceExecutionSite).sourceOrderId,
+                            );
+                            const assignedInvoiceSiteV17_90L320 =
+                              currentInvoiceSitesV17_90L320.find(
+                                (site) =>
+                                  (itemWorkSiteUiKeyV17_90L320 &&
+                                    compactInvoiceValue(site._workSiteUiKey) ===
+                                      itemWorkSiteUiKeyV17_90L320) ||
+                                  (itemHasCompleteSiteV17_90L320 &&
+                                    invoiceSiteKey(site) ===
+                                      invoiceSiteKey(item as InvoiceExecutionSite)) ||
+                                  (itemSourceOrderIdV17_90L320 &&
+                                    compactInvoiceValue(site.sourceOrderId) ===
+                                      itemSourceOrderIdV17_90L320),
+                              );
+                            const shouldShowInvoiceWorkSiteSelectorV17_90L320 =
+                              currentInvoiceSitesV17_90L320.length > 0;
+
+                            return (
+                              <div
+                                key={idx}
+                                data-service-item-index={idx}
+                                className={`relative overflow-visible rounded-xl border transition-all ${
+                                  hasMissingValues
+                                    ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                    : itemNeedsReview
+                                      ? "border-amber-300 bg-amber-50/30"
+                                      : "border-slate-200 bg-background"
+                                } ${
+                                  isRecentlyMovedInvoiceItemV17_90L371CF
+                                    ? "ring-2 ring-cyan-400 ring-offset-2 shadow-lg shadow-cyan-100 dark:ring-cyan-500 dark:shadow-cyan-950/40"
+                                    : ""
+                                }`}
+                              >
+                                <div
+                                  className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
+                                    isExpanded ? "rounded-t-xl" : "rounded-xl"
+                                  } ${
+                                    hasMissingValues
+                                      ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
+                                      : itemNeedsReview
+                                        ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                        : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedItemIndex((current) =>
+                                        current === idx ? null : idx,
+                                      );
+                                      setServiceActionMenuIndex(null);
+                                    }}
+                                    className="min-w-0 text-left"
+                                  >
+                                    <div className="min-w-0">
+                                      <span className="block truncate font-medium">
+                                        {item?.description ||
+                                          (shouldShowInvoiceWorkSiteSelectorV17_90L320
+                                            ? "Ausführungsort und Position auswählen"
+                                            : "Neue Position")}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {positionTypeLabelV17_90L371K} · {quantity > 0 ? quantity : "prüfen"}{" "}
+                                        {item?.unit || "Einheit prüfen"} ×{" "}
+                                        {unitPrice > 0
+                                          ? formatCurrency(unitPrice, currency)
+                                          : "Preis prüfen"}
+                                      </div>
+                                      {itemNeedsReview && (
+                                        <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
+                                          <span
+                                            title={itemReviewReasonV17_90L134}
+                                            className={`relative max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                              hasMissingValues
+                                                ? "border-red-300 bg-red-100 text-red-800"
+                                                : "border-amber-300 bg-amber-100 text-amber-800"
+                                            }`}
+                                          >
+                                            {itemReviewReasonV17_90L134}
+                                            {renderInvoicePositionSourcePopoverV17_90L371AT(
+                                              itemSourceContextV17_90L371AU || itemSourceLineV17_90L371AT,
+                                              itemReviewReasonV17_90L134,
+                                            )}
+                                          </span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedItemIndex((current) =>
+                                        current === idx ? null : idx,
+                                      );
+                                      setServiceActionMenuIndex(null);
+                                    }}
+                                    className="flex items-center gap-2 whitespace-nowrap"
+                                  >
+                                    <span className="font-mono font-semibold">
+                                      {formatCurrency(lineTotal, currency)}
+                                    </span>
+                                    <ChevronDown
+                                      className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                        isExpanded ? "rotate-180" : ""
+                                      }`}
+                                    />
+                                  </button>
+
+                                  {(hasCatalogActionMenu || canMoveInvoiceItemBetweenSitesV17_90L371BW) ? (
+                                    <div
+                                      className="relative shrink-0"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setServiceActionMenuIndex(
+                                            isMenuOpen ? null : idx,
+                                          );
+                                        }}
+                                        className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        title="Positionsaktionen"
+                                        aria-label="Positionsaktionen"
+                                      >
+                                        <MoreVertical className="h-4 w-4" />
+                                      </button>
+                                      {isMenuOpen && (
+                                        <div className="absolute right-0 top-full z-[80] mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                          {canMoveInvoiceItemBetweenSitesV17_90L371BW && (
+                                            <div className="border-b border-slate-200 py-1 dark:border-slate-800">
+                                              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                Zu Ausführungsort verschieben
+                                              </div>
+                                              {currentInvoiceSitesV17_90L320.map((siteOption, siteIndex) => {
+                                                const siteKey = invoiceGroupKeyForSite(siteOption);
+                                                const isCurrentSite = siteKey === currentInvoiceMoveSiteKeyV17_90L371BW;
+                                                if (isCurrentSite) return null;
+                                                return (
+                                                  <button
+                                                    key={`move_invoice_${idx}_${siteKey}_${siteIndex}`}
+                                                    type="button"
+                                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-cyan-50 dark:text-slate-100 dark:hover:bg-cyan-950/30"
+                                                    onClick={(event) => {
+                                                      event.stopPropagation();
+                                                      assignInvoiceItemToSite(idx, siteKey);
+                                                    }}
+                                                  >
+                                                    <MapPin className="h-4 w-4" />
+                                                    {siteIndex + 1}. {siteOption.siteName || siteOption.siteAddress || "Neuer Arbeitsort"}
+                                                  </button>
+                                                );
+                                              })}
+                                              {currentInvoiceMoveSiteKeyV17_90L371BW && (
+                                                <button
+                                                  type="button"
+                                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                                                  onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    clearInvoiceItemSiteAssignmentV17_90L371BW(idx);
+                                                  }}
+                                                >
+                                                  <MapPin className="h-4 w-4" />
+                                                  Rechnungsadresse
+                                                </button>
+                                              )}
+                                            </div>
+                                          )}
+                                          <button
+                                            type="button"
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setServiceActionMenuIndex(null);
+                                              removeItem(idx);
+                                            }}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                            Position löschen
+                                          </button>
+                                          {hasCatalogActionMenu && (
+                                            <button
+                                              type="button"
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-900"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                void saveInvoiceItemToServices(idx);
+                                              }}
+                                            >
+                                              <Plus className="h-4 w-4" />
+                                              In Katalog übernehmen
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        removeItem(idx);
+                                      }}
+                                      className="rounded-md border border-red-200 bg-background p-1.5 text-red-600 hover:bg-red-50"
+                                      title="Position löschen"
+                                      aria-label="Position löschen"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
+                                    {shouldShowInvoiceWorkSiteSelectorV17_90L320 && (
+                                      <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                        <Label className="text-xs">
+                                          Arbeitsort wählen
+                                        </Label>
+                                        <select
+                                          className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                          value={(() => {
+                                            const sites =
+                                              getCurrentInvoiceExecutionSitesV17_90L284();
+                                            const matched = sites.find(
+                                              (site) =>
+                                                invoiceSiteKey(site) ===
+                                                invoiceSiteKey(item),
+                                            );
+                                            return matched
+                                              ? invoiceGroupKeyForSite(matched)
+                                              : "";
+                                          })()}
+                                          onChange={(event) =>
+                                            event.target.value
+                                              ? assignInvoiceItemToSite(
+                                                  idx,
+                                                  event.target.value,
+                                                )
+                                              : clearInvoiceItemSiteAssignmentV17_90L371BW(idx)
+                                          }
+                                        >
+                                          <option value="">
+                                            Rechnungsadresse
+                                          </option>
+                                          {getCurrentInvoiceExecutionSitesV17_90L284().map((site, siteIndex) => {
+                                            const key =
+                                              invoiceGroupKeyForSite(site);
+                                            return (
+                                              <option
+                                                key={`${key}-${siteIndex}`}
+                                                value={key}
+                                              >
+                                                {siteIndex + 1}.{" "}
+                                                {site.siteName ||
+                                                  site.siteAddress ||
+                                                  "Neuer Arbeitsort"}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+                                    )}
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                      <div>
+                                        <Label className="text-xs">Typ *</Label>
+                                        <select
+                                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                          value={normalizePositionType(item?.positionType)}
+                                          onChange={(event: any) => updateItem(idx, "positionType", normalizePositionType(event?.target?.value))}
+                                        >
+                                          {POSITION_TYPE_OPTIONS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </div>
+                                    <ServiceCombobox
+                                      value={item?.description ?? ""}
+                                      services={services as ServiceOption[]}
+                                      onChange={(name, svc) =>
+                                        onItemServiceSelect(idx, name, svc)
+                                      }
+                                      onServiceCreated={handleServiceCreated}
+                                      currentPrice={
+                                        item?.unitPrice != null
+                                          ? String(item.unitPrice)
+                                          : undefined
+                                      }
+                                      currentUnit={item?.unit}
+                                      positionType={item?.positionType}
+                                      onPositionTypeChange={(positionType) => updateItem(idx, "positionType", positionType)}
+                                      contextLabel="Rechnung"
+                                      saveButtonPlacement="none"
+                                    />
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                      <div>
+                                        <Label className="text-xs">
+                                          Einheit
+                                        </Label>
+                                        <Input
+                                          list={`invoice-position-unit-options-${idx}`}
+                                          className={`h-9 ${invoiceUnitMissingOrReviewV17_90L371CQ ? "border-red-500 bg-red-50" : ""}`}
+                                          value={item?.unit ?? ""}
+                                          placeholder="frei eingeben oder Vorschlag wählen"
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "unit",
+                                              event?.target?.value ?? "",
+                                            )
+                                          }
+                                        />
+                                        <datalist id={`invoice-position-unit-options-${idx}`}>
+                                          {POSITION_UNIT_SUGGESTIONS.map((unit) => (
+                                            <option key={unit} value={unit} />
+                                          ))}
+                                        </datalist>
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">Menge</Label>
+                                        <Input
+                                          type="number"
+                                          step="0.25"
+                                          placeholder="prüfen"
+                                          className={`h-9 ${quantity <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                          value={
+                                            quantity <= 0
+                                              ? ""
+                                              : (item?.quantity ?? "")
+                                          }
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "quantity",
+                                              event?.target?.value ?? "0",
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">
+                                          Preis ({currency})
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.05"
+                                          placeholder="prüfen"
+                                          className={`h-9 ${unitPrice <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                          value={
+                                            unitPrice <= 0
+                                              ? ""
+                                              : (item?.unitPrice ?? "")
+                                          }
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "unitPrice",
+                                              event?.target?.value ?? "0",
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+                                    {itemNeedsReview && (
+                                      <div
+                                        className={`rounded-lg border px-3 py-2 text-xs ${
+                                          hasMissingValues
+                                            ? "border-red-300 bg-red-100/70 text-red-900"
+                                            : "border-amber-300 bg-amber-50 text-amber-900"
+                                        }`}
+                                      >
+                                        <div className="font-semibold">
+                                          {invoiceOnlyUnitMissingV17_90L371CQ
+                                            ? "Einheit prüfen"
+                                            : hasMissingValues
+                                              ? "Position prüfen"
+                                              : "Manuell prüfen"}
+                                        </div>
+                                        <div className="mt-0.5">
+                                          {invoiceOnlyUnitMissingV17_90L371CQ
+                                            ? "Einheit fehlt. Bitte Einheit ausfüllen."
+                                            : hasMissingValues
+                                              ? "Position, Einheit, Menge oder Preis vervollständigen."
+                                              : !matchedService
+                                                ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
+                                                : "Preis oder Einheit weicht vom Leistungskatalog ab."}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+
+                        return groups.map((group, groupIndex) => {
+                          const visibleInvoiceWorkSiteNumberV17_90L371CC = groups
+                            .slice(0, groupIndex + 1)
+                            .filter((candidate) => Boolean(candidate.site)).length;
+                          const siteHasRequiredInfo = Boolean(
+                            group.site &&
+                              (compactInvoiceValue(group.site.siteName) ||
+                                compactInvoiceValue(group.site.siteAddress) ||
+                                compactInvoiceValue(group.site.sitePlz) ||
+                                compactInvoiceValue(group.site.siteCity) ||
+                                compactInvoiceValue(group.site.siteNote)),
+                          );
+                          const siteNeedsReview = !siteHasRequiredInfo;
+                          const siteHasNoItems = group.entries.length === 0;
+                          const siteAccentClass = siteNeedsReview
+                            ? "border-cyan-300 bg-cyan-50/70 text-slate-900 hover:bg-cyan-100/80 dark:border-cyan-800 dark:bg-cyan-950/20 dark:text-slate-50 dark:hover:bg-cyan-900/30"
+                            : siteHasNoItems
+                              ? "border-amber-400 bg-amber-100/70 text-amber-900 hover:bg-amber-200/60 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100 dark:hover:bg-amber-900/30"
+                              : "border-cyan-400 bg-cyan-100/70 text-slate-900 hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:text-slate-50 dark:hover:bg-cyan-900/30";
+                          const currentInvoiceSitesForGroupV17_90L371CH =
+                            getCurrentInvoiceExecutionSitesV17_90L284();
+                          const isStandardBillingRootGroupV17_90L371CH =
+                            currentInvoiceSitesForGroupV17_90L371CH.length === 0 && !group.site;
+                          const groupExpanded =
+                            isStandardBillingRootGroupV17_90L371CH ||
+                            expandedInvoiceSiteKeys.has(group.key);
+                          const isEditingSite = editingInvoiceSiteKey === group.key;
+                          const isActiveSite =
+                            newInvoiceItemSiteKey === group.key || isEditingSite;
+
+                          if (!group.site) {
+                            return (
+                              <details
+                                key={group.key}
+                                open={groupExpanded}
+                                onToggle={(event) => {
+                                  if (isStandardBillingRootGroupV17_90L371CH) return;
+                                  const open = event.currentTarget.open;
+                                  setExpandedInvoiceSiteKeys((current) => {
+                                    const next = new Set(current);
+                                    if (open) next.add(group.key);
+                                    else next.delete(group.key);
+                                    return next;
+                                  });
+                                }}
+                                className="overflow-visible space-y-1.5"
+                              >
+                                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl border-2 border-emerald-400 bg-emerald-100/70 px-3 py-2 text-emerald-950 shadow-sm transition-colors hover:bg-emerald-200/60 [&::-webkit-details-marker]:hidden dark:border-emerald-800 dark:bg-emerald-950/25 dark:text-emerald-100 dark:hover:bg-emerald-900/30">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                      <span className="shrink-0 text-base leading-none">{groupExpanded ? "▾" : "▸"}</span>
+                                      <span>🧾 Rechnungsadresse</span>
+                                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                        {group.entries.length} Position{group.entries.length === 1 ? "" : "en"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                      {isStandardBillingRootGroupV17_90L371CH
+                                        ? "Standard-Ausführungsort"
+                                        : "Positionen an der Rechnungsadresse"}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <div className="text-[10px] text-muted-foreground">Zwischensumme</div>
+                                    <div className="font-mono text-sm font-semibold">{formatCurrency(group.subtotal, currency)}</div>
+                                  </div>
+                                </summary>
+                                {groupExpanded && (
+                                  <div className="space-y-2 rounded-b-xl border-x-2 border-b-2 border-emerald-400 bg-emerald-50/20 p-2 dark:border-emerald-800 dark:bg-emerald-950/10">
+                                    {renderEntries(group.entries)}
+                                  </div>
+                                )}
+                              </details>
+                            );
+                          }
+
+                          return (
+                          <details
+                            key={group.key}
+                            open={groupExpanded}
+                            onToggle={(event) => {
+                              const open = event.currentTarget.open;
+                              setExpandedInvoiceSiteKeys((current) => {
+                                const next = new Set(current);
+                                if (open) next.add(group.key);
+                                else next.delete(group.key);
+                                return next;
+                              });
+                            }}
+                            className="overflow-visible space-y-1.5"
+                          >
+                            <summary
+                              className={`flex cursor-pointer list-none items-start justify-between gap-3 border-2 px-3 py-2 shadow-sm transition-colors [&::-webkit-details-marker]:hidden ${siteAccentClass} ${
+                                groupExpanded
+                                  ? "rounded-t-xl rounded-b-none border-b-0"
+                                  : "rounded-xl"
+                              } ${isActiveSite ? "ring-2 ring-offset-1 ring-cyan-300" : ""}`}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                  <span className="shrink-0 text-base leading-none">
+                                    {groupExpanded ? "▾" : "▸"}
+                                  </span>
+                                  <span>
+                                    📍 {visibleInvoiceWorkSiteNumberV17_90L371CC}.{" "}
+                                    {group.site?.siteName ||
+                                      group.site?.siteAddress ||
+                                      "Ausführungsort"}
+                                  </span>
+                                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                    {group.entries.length} Position{group.entries.length === 1 ? "" : "en"}
+                                  </span>
+                                  {isActiveSite && (
+                                    <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
+                                      aktiv
+                                    </span>
+                                  )}
+                                  {siteNeedsReview && (
+                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
+                                      Arbeitsort prüfen
+                                    </span>
+                                  )}
+                                  {siteHasNoItems && !siteNeedsReview && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                      Keine Positionen
+                                    </span>
+                                  )}
+                                </div>
+                                {(() => {
+                                  const groupReviewEntries =
+                                    buildInvoiceServiceReviewEntriesV17_90L135G(
+                                      group.entries.map((entry) => entry.item),
+                                      services || [],
+                                      currency,
+                                    );
+                                  const groupBlockerEntries =
+                                    groupReviewEntries.filter(
+                                      (entry) => entry.category === "blocker",
+                                    );
+                                  const groupYellowEntries =
+                                    groupReviewEntries.filter(
+                                      (entry) => entry.category !== "blocker",
+                                    );
+                                  if (
+                                    groupYellowEntries.length === 0 &&
+                                    groupBlockerEntries.length === 0
+                                  )
+                                    return null;
+                                  return (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {groupYellowEntries.length > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                        >
+                                          <span className="truncate whitespace-nowrap">
+                                            Positionen prüfen ·{" "}
+                                            {groupYellowEntries.length}
+                                          </span>
+                                          <InvoiceViewportTooltip
+                                            preferredWidth={432}
+                                            autoClose={false}
+                                          >
+                                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                                              total={groupYellowEntries.length}
+                                              entries={groupYellowEntries}
+                                              title={`Positionen prüfen · ${groupYellowEntries.length}`}
+                                            />
+                                          </InvoiceViewportTooltip>
+                                        </span>
+                                      )}
+                                      {groupBlockerEntries.length > 0 && (
+                                        <span
+                                          className="relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                        >
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          <span className="truncate whitespace-nowrap">
+                                            Rechnung prüfen ·{" "}
+                                            {groupBlockerEntries.length}
+                                          </span>
+                                          <InvoiceViewportTooltip
+                                            preferredWidth={432}
+                                            autoClose={false}
+                                          >
+                                            <InvoiceServiceReviewTooltipContentV17_90L135G
+                                              total={groupBlockerEntries.length}
+                                              entries={groupBlockerEntries}
+                                              title={`Rechnung prüfen · ${groupBlockerEntries.length}`}
+                                            />
+                                          </InvoiceViewportTooltip>
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                  {[
+                                    group.site?.siteAddress,
+                                    [group.site?.sitePlz, group.site?.siteCity]
+                                      .filter(Boolean)
+                                      .join(" "),
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ") || "Adresse prüfen"}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-[10px] text-muted-foreground">
+                                  Zwischensumme
+                                </div>
+                                <div className="font-mono text-sm font-semibold">
+                                  {formatCurrency(group.subtotal, currency)}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="mt-1 text-xs text-primary hover:underline"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setEditingInvoiceSiteKey((current) =>
+                                      current === group.key ? null : group.key,
+                                    );
+                                    setExpandedInvoiceSiteKeys(
+                                      (current) =>
+                                        new Set([...current, group.key]),
+                                    );
+                                  }}
+                                >
+                                  {isEditingSite
+                                    ? "Arbeitsort schließen"
+                                    : "Arbeitsort bearbeiten"}
+                                </button>
+                              </div>
+                            </summary>
+                            {isEditingSite && group.site && (
+                              <div
+                                data-invoice-work-site-editor={group.key}
+                                className={`rounded-b-xl border-2 border-t-0 p-2 ${
+                                  siteNeedsReview
+                                    ? "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
+                                    : siteHasNoItems
+                                      ? "border-amber-400 bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950/25"
+                                      : "border-cyan-400 bg-cyan-100/70 dark:border-cyan-700 dark:bg-cyan-950/25"
+                                }`}
+                              >
+                                <div className="rounded-md border bg-background/80 p-2 space-y-2">
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {renderInvoiceExecutionAddressAutocompleteV17_90L291({
+                                      targetKey: group.key,
+                                      value: group.site.siteName || "",
+                                      onChange: (value) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteName",
+                                          value,
+                                        ),
+                                      labelClassName: "text-[10px]",
+                                      inputClassName: "h-8 text-xs",
+                                      placeholder: "z. B. Haus A, EG rechts",
+                                    })}
+                                    <div>
+                                      <Label className="text-[10px]">Strasse</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.siteAddress || ""}
+                                        placeholder="Strasse + Hausnr."
+                                        onChange={(event) =>
+                                          updateInvoiceGroupSite(
+                                            group.key,
+                                            "siteAddress",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr]">
+                                    <div>
+                                      <Label className="text-[10px]">PLZ</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.sitePlz || ""}
+                                        placeholder="PLZ"
+                                        onChange={(event) =>
+                                          updateInvoiceGroupSite(
+                                            group.key,
+                                            "sitePlz",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px]">Ort</Label>
+                                      <Input
+                                        className="h-8 text-xs"
+                                        value={group.site.siteCity || ""}
+                                        placeholder="Ort"
+                                        onChange={(event) =>
+                                          updateInvoiceGroupSite(
+                                            group.key,
+                                            "siteCity",
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px]">Hinweis</Label>
+                                    <Input
+                                      className="h-8 text-xs"
+                                      value={group.site.siteNote || ""}
+                                      placeholder="z. B. Eingang hinten, Rampe 2"
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteNote",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  {renderCustomerExecutionAddressSaveChoiceV17_90L296(group.site)}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Zugeordnet: {group.entries.length} Position(en)
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      {!group.site.sourceOrderId && (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-red-600 hover:text-red-700"
+                                          onClick={() =>
+                                            removeInvoiceExecutionSite(group.key)
+                                          }
+                                        >
+                                          Löschen
+                                        </Button>
+                                      )}
+                                      {shouldShowCustomerExecutionAddressSaveCheckboxV17_90L298(group.site) && (
+                                      <label className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                                        <input
+                                          type="checkbox"
+                                          className="h-4 w-4 rounded border-input"
+                                          checked={saveExecutionAddressInCustomerProfile}
+                                          onChange={(event) =>
+                                            setSaveExecutionAddressInCustomerProfile(
+                                              event.target.checked,
+                                            )
+                                          }
+                                        />
+                                        Im Kundenprofil speichern
+                                      </label>
+                                      )}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          void persistAndAcceptInvoiceExecutionSiteV17_90L295(
+                                            group.key,
+                                          ).catch((error) =>
+                                            toast.error(
+                                              error instanceof Error
+                                                ? error.message
+                                                : "Ausführungsort konnte nicht übernommen werden.",
+                                            ),
+                                          )
+                                        }
+                                        disabled={saving}
+                                      >
+                                        {saving
+                                          ? "Übernehmen..."
+                                          : "Ausführungsort übernehmen"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            <div className="ml-2 space-y-2 bg-background pt-1">
+                              {group.entries.length > 0 ? (
+                                renderEntries(group.entries)
+                              ) : (
+                                <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/40 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/10 dark:text-amber-200">
+                                  <div className="font-semibold">
+                                    Noch keine Position für diesen Arbeitsort.
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        group.site &&
+                                        addInvoiceItemToSiteV17_90L284(group.site)
+                                      }
+                                    >
+                                      <Plus className="mr-1 h-3.5 w-3.5" />
+                                      Position hier hinzufügen
+                                    </Button>
+                                    {group.site && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                        onClick={() => removeInvoiceExecutionSite(group.key)}
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Ausführungsort löschen
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 border-t-4 border-slate-300 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-base font-semibold">
+                        Rechnungsdaten & Betrag
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        Klar getrennt von den Positionen
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <Label>Rechnungsdatum</Label>
+                        <Input
+                          type="date"
+                          value={form.invoiceDate}
+                          onChange={(e: any) => {
+                            const invoiceDate = e?.target?.value ?? "";
+                            setForm((current) => ({
+                              ...current,
+                              invoiceDate,
+                              dueDate: addDaysToInvoiceDate(
+                                invoiceDate,
+                                defaultPaymentDays,
+                              ),
+                              paymentDays: String(defaultPaymentDays),
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Fälligkeitsdatum</Label>
+                        <Input
+                          type="date"
+                          min={form.invoiceDate || undefined}
+                          value={form.dueDate}
+                          onChange={(e: any) =>
+                            setForm((current) => ({
+                              ...current,
+                              dueDate: e?.target?.value ?? "",
+                            }))
+                          }
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Standardmäßig {defaultPaymentDays} Tage. Für diese
+                          Rechnung frei änderbar.
+                        </p>
+                      </div>
+                      {editingInvoice && (
+                        <div>
+                          <Label>Status</Label>
+                          <select
+                            id="invoice-status-select"
+                            className="flex h-10 w-full rounded-md border border-input px-3 text-sm"
+                            style={getStatusStyle(
+                              INVOICE_STATUS_STYLES,
+                              editingInvoice.status,
+                            )}
+                            value={editingInvoice.status}
+                            onChange={(e: any) =>
+                              setEditingInvoice({
+                                ...editingInvoice,
+                                status: e.target.value,
+                              })
+                            }
+                          >
+                            {invoiceStatuses.map((status) => (
+                              <option
+                                key={status}
+                                style={getStatusStyle(
+                                  INVOICE_STATUS_STYLES,
+                                  status,
+                                )}
+                              >
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <Label>Währung</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          value={currency}
+                          onChange={(e: any) =>
+                            setCurrency(
+                              e?.target?.value === "EUR" ? "EUR" : "CHF",
+                            )
+                          }
+                        >
+                          <option value="CHF">CHF</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 space-y-3 rounded-xl border-2 border-slate-400 bg-slate-100/90 p-2 sm:p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                      <MwStControl vatRate={vatRate} onChange={setVatRate} />
+                      <div className="min-w-0 space-y-1 border-t border-slate-300 pt-2 text-xs sm:text-sm">
+                        <div className="flex min-w-0 justify-between">
+                          <span className="shrink-0">Netto</span>
+                          <span className="font-mono">
+                            {formatCurrency(subtotal, currency)}
+                          </span>
+                        </div>
+                        {vatRate > 0 && (
+                          <div className="flex min-w-0 justify-between">
+                            <span className="shrink-0">MwSt. {vatRate}%</span>
+                            <span className="font-mono">
+                              {formatCurrency(vatAmount, currency)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-sm font-bold sm:text-base">
+                          <span className="shrink-0">Total</span>
+                          <span className="font-mono text-primary">
+                            {formatCurrency(total, currency)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border bg-background p-2 sm:p-3">
+                      <div
+                        className={
+                          editingInvoice
+                            ? "grid grid-cols-1 gap-2 sm:grid-cols-3"
+                            : "grid grid-cols-1 gap-2 sm:grid-cols-2"
+                        }
+                      >
+                        {editingInvoice ? (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={() => saveEdit(false)}
+                              disabled={saving}
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              {saving ? "Speichern..." : "Speichern"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => saveEdit(true)}
+                              disabled={saving}
+                              className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              {saving
+                                ? "Speichern..."
+                                : "Speichern & schließen"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={saveAndArchive}
+                              disabled={saving}
+                              className="w-full border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            >
+                              <Archive className="mr-1 h-4 w-4" /> Archivieren
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={() => save(false)}
+                              disabled={saving}
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              {saving ? "Speichern..." : "Speichern"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => save(true)}
+                              disabled={saving}
+                              className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              {saving
+                                ? "Speichern..."
+                                : "Speichern & schließen"}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setDialogOpen(false);
+                          setEditingInvoice(null);
+                        }}
+                        disabled={saving}
+                        className="mt-2 w-full"
+                      >
+                        Abbrechen
+                      </Button>
+                    </div>
+
+                  <div className="rounded-xl border p-3 sm:p-4">
+                    <h3 className="text-base font-semibold">
+                      Text für Rechnung / PDF
+                    </h3>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Nur für den Kunden sichtbar. Beide Felder sind optional.
+                    </p>
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-xs">
+                          Titel im Rechnungs-PDF
+                        </Label>
+                        <Input
+                          placeholder="z. B. Zusätzliche Informationen"
+                          value={form.pdfTitle}
+                          onChange={(event: any) =>
+                            setForm({
+                              ...form,
+                              pdfTitle: event?.target?.value ?? "",
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Text im Rechnungs-PDF</Label>
+                        <textarea
+                          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          rows={4}
+                          placeholder="Optionaler Hinweis oder Zusatztext für das Rechnungs-PDF..."
+                          value={form.notes}
+                          onChange={(event: any) =>
+                            setForm({
+                              ...form,
+                              notes: event?.target?.value ?? "",
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {!editOrderCtx && editingInvoice && (
+                    <div
+                      ref={invoiceSpecialNotesRef}
+                      className="scroll-mt-24 rounded-xl border p-3 sm:p-4"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-base font-semibold">
+                          Besonderheiten
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          Intern – nicht automatisch im Kunden-PDF
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
+                        <Label className="text-xs font-semibold">
+                          Besonderheiten in der Rechnung
+                        </Label>
+                        <textarea
+                          className="flex min-h-[82px] w-full resize-y rounded-md border border-blue-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300/60 dark:border-blue-900 dark:bg-slate-950"
+                          rows={3}
+                          placeholder="Optionaler interner Rechnungshinweis..."
+                          value={form.specialNotes}
+                          onChange={(event) =>
+                            setForm({ ...form, specialNotes: event.target.value })
+                          }
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          Intern. Auf der Rechnungskarte erscheint dafür nur der Info-Chip.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!editOrderCtx && renderInvoiceServiceOverview()}
+
+                  {editOrderCtx &&
+                    (() => {
+                      const editingInvoiceSourceOfferInternalNotesV17_90L319 =
+                        sourceOfferInternalNotesByIdV17_90L319[
+                          compactInvoiceValue(editingInvoice?.sourceOfferId)
+                        ] || "";
+                      const editingInvoiceSpecialNotesSourceV17_90L319 =
+                        buildInvoiceSpecialNotesSourceV17_90L319(
+                          editingInvoice,
+                          editingInvoiceSourceOfferInternalNotesV17_90L319 ||
+                            editOrderCtx.specialNotes,
+                          form.specialNotes,
+                        );
+                      const {
+                        hazards,
+                        primaryHints: rawPrimaryHintsV17_90L378,
+                        otherHints: rawOtherHintsV17_90L378,
+                      } = buildInvoiceCanonicalWorkflowSummaryV17_90L274(
+                        editingInvoice,
+                        editingInvoiceSpecialNotesSourceV17_90L319,
+                      );
+                      const unifiedInvoiceEditorInfoV17_90L378 =
+                        buildUnifiedWorksiteInfoDisplayV17_90L378(
+                          rawPrimaryHintsV17_90L378,
+                          rawOtherHintsV17_90L378,
+                        );
+                      const primaryHints =
+                        unifiedInvoiceEditorInfoV17_90L378.primary;
+                      const otherHints =
+                        unifiedInvoiceEditorInfoV17_90L378.additional;
+                      const customerMessageBlocks = (
+                        editingInvoice?.orders || []
+                      )
+                        .map((order, index) => {
+                          const sites = Array.isArray(order?.workSites)
+                            ? [...order.workSites].sort(
+                                (a, b) =>
+                                  Number(Boolean(b?.isPrimary)) -
+                                    Number(Boolean(a?.isPrimary)) ||
+                                  Number(a?.sortOrder || 0) -
+                                    Number(b?.sortOrder || 0),
+                              )
+                            : [];
+                          const completeSites = sites.filter(
+                            (site) =>
+                              Boolean(
+                                compactInvoiceValue(site?.siteAddress) &&
+                                  compactInvoiceValue(site?.sitePlz) &&
+                                  compactInvoiceValue(site?.siteCity),
+                              ),
+                          );
+                          const primarySite = completeSites[0] || null;
+                          const flatSiteIsComplete = Boolean(
+                            order?.siteAddressDifferent &&
+                              compactInvoiceValue(order?.siteAddress) &&
+                              compactInvoiceValue(order?.sitePlz) &&
+                              compactInvoiceValue(order?.siteCity),
+                          );
+                          const title =
+                            cleanInvoiceExecutionSiteLabelV17_90L281(
+                              primarySite?.siteName,
+                            ) ||
+                            compactInvoiceValue(primarySite?.siteAddress) ||
+                            (flatSiteIsComplete
+                              ? cleanInvoiceExecutionSiteLabelV17_90L281(
+                                  order?.siteName,
+                                ) || compactInvoiceValue(order?.siteAddress)
+                              : "") ||
+                            `Quellauftrag ${index + 1}`;
+                          const message = String(
+                            order?.notes || order?.audioTranscript || "",
+                          ).trim();
+                          return {
+                            title,
+                            message,
+                            transcript: order?.audioTranscript || "",
+                            order,
+                          };
+                        })
+                        .filter(
+                          (entry) =>
+                            entry.message ||
+                            entry.order?.mediaUrl ||
+                            (entry.order?.imageUrls || []).length > 0,
+                        );
+
+                      return (
+                        <div className="space-y-3">
+                          {editingInvoice && (
+                            <div
+                              ref={invoiceSpecialNotesRef}
+                              className="scroll-mt-24 rounded-xl border p-3 sm:p-4"
+                            >
+                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="text-base font-semibold">
+                                  Besonderheiten
+                                </h3>
+                                <span className="text-xs text-muted-foreground">
+                                  Intern – nicht automatisch im Kunden-PDF
+                                </span>
+                              </div>
+                              <div className="mb-3 space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/40 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
+                                <Label className="text-xs font-semibold">
+                                  Besonderheiten in der Rechnung
+                                </Label>
+                                <textarea
+                                  className="flex min-h-[82px] w-full resize-y rounded-md border border-blue-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300/60 dark:border-blue-900 dark:bg-slate-950"
+                                  rows={3}
+                                  placeholder="Optionaler interner Rechnungshinweis..."
+                                  value={form.specialNotes}
+                                  onChange={(event) =>
+                                    setForm({
+                                      ...form,
+                                      specialNotes: event.target.value,
+                                    })
+                                  }
+                                />
+                                <div className="text-xs text-muted-foreground">
+                                  Intern. Auf der Rechnungskarte erscheint dafür nur der Info-Chip.
+                                </div>
+                              </div>
+                              <div className="space-y-3">
+                                {primaryHints.length > 0 && (
+                                  <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 text-blue-950">
+                                    <div className="font-semibold">
+                                      Wichtige Informationen
+                                    </div>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        primaryHints,
+                                        "invoice-edit-primary",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {hazards.length > 0 && (
+                                  <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-red-950">
+                                    <div className="font-semibold">
+                                      Wichtige Gefahren / Warnhinweise
+                                    </div>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        hazards,
+                                        "invoice-edit-hazard",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {otherHints.length > 0 && (
+                                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                                    <div className="font-semibold">
+                                      Weitere Besonderheiten
+                                    </div>
+                                    <div className="mt-1.5 text-sm">
+                                      {renderInvoiceGroupedWorksiteLinesV17_90L376(
+                                        otherHints,
+                                        "invoice-edit-hint",
+                                        { bullet: true, compact: true },
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {renderInvoiceServiceOverview()}
+
+                          <details
+                            className="rounded-xl border p-3 sm:p-4"
+                            open
+                          >
+                            <summary className="cursor-pointer list-none text-base font-semibold [&::-webkit-details-marker]:hidden">
+                              Kundennachrichten · {customerMessageBlocks.length}
+                            </summary>
+                            <div className="mt-3 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                              {customerMessageBlocks.length > 0 ? (
+                                customerMessageBlocks.map((entry, index) => (
+                                  <div
+                                    key={`invoice-customer-message-${index}`}
+                                    className="rounded-lg border bg-muted/20 p-3 text-sm"
+                                  >
+                                    <div className="mb-2 font-semibold text-sky-800">
+                                      {index + 1}. {entry.title}
+                                    </div>
+                                    <CommunicationBlock
+                                      data={entry.order as any}
+                                      showChips={false}
+                                      showSpecialNotes={false}
+                                      showCustomerMessage
+                                    />
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-sm text-muted-foreground">
+                                  Keine Kundennachricht vorhanden.
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                        </div>
+                      );
+                    })()}
+                </>
               )}
             </div>
-            )}
-          </div>
-          {/* Duplicate Check Panel (right column) */}
-          {dupCheckOpen && form.customerId && (() => {
-            const cust = customers.find((c: Customer) => c.id === form.customerId);
-            if (!cust) return null;
-            return (
-              <DuplicateCheckPanel
-                customer={{ id: cust.id, customerNumber: cust.customerNumber, name: cust.name, address: cust.address, plz: cust.plz, city: cust.city, phone: cust.phone, email: cust.email, country: cust.country }}
-                onClose={() => setDupCheckOpen(false)}
-                activeFormName={newCust.name}
-                activeFormAddress={newCust.address}
-                activeFormCity={newCust.city}
-                activeFormPlz={newCust.plz}
-                onApplyPlzSuggestion={(plz) => setNewCust((p: any) => ({ ...p, plz: plz ?? '' }))}
-                onTakeoverCustomer={async (match: DuplicateMatch) => {
-                  if (!editingInvoice) return;
-                  const oldCustomerId = form.customerId; // capture before overwrite
-                  const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customerId: match.id }),
-                  });
-                  if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    toast.error(err?.error || 'Fehler beim Kunden-Wechsel');
-                    return;
-                  }
-                  setForm((f: any) => ({ ...f, customerId: match.id }));
-                  setNewCust({
-                    name: (match.name ?? '') as string,
-                    address: (match.address ?? '') as string,
-                    plz: (match.plz ?? '') as string,
-                    city: (match.city ?? '') as string,
-                    phone: (match.phone ?? '') as string,
-                    email: (match.email ?? '') as string,
-                    country: 'CH',
-                  });
-                  setCustomers((prev: Customer[]) => {
-                    const exists = prev.some((c) => c.id === match.id);
-                    if (exists) return prev;
-                    return [...prev, { id: match.id, name: match.name, customerNumber: match.customerNumber ?? null, address: match.address ?? null, plz: match.plz ?? null, city: match.city ?? null, phone: match.phone ?? null, email: match.email ?? null } as Customer];
-                  });
-                  setInvoices((prev: Invoice[]) => prev.map((inv) =>
-                    inv.id === editingInvoice.id ? { ...inv, customerId: match.id, customer: { name: match.name, customerNumber: match.customerNumber, address: match.address, plz: match.plz, city: match.city, phone: match.phone, email: match.email } } : inv
-                  ));
-                  setShowNewCustomer(false);
-                  setEditingCustomer(false);
-                  setDupCheckOpen(false);
-                  toast.success(`Kunde übernommen: ${match.customerNumber ? match.customerNumber + ' · ' : ''}${match.name}`);
-                  // Fire-and-forget: cleanup old customer if it has no remaining active docs
-                  if (oldCustomerId && oldCustomerId !== match.id) {
-                    fetch(`/api/customers/${oldCustomerId}/cleanup-after-takeover`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ keptCustomerId: match.id }),
-                    }).then(r => r.json()).then(res => {
-                      if (res?.cleaned) {
-                        setCustomers((prev: Customer[]) => prev.filter((c) => c.id !== oldCustomerId));
+            {/* Duplicate Check Panel (right column) */}
+            {dupCheckOpen &&
+              form.customerId &&
+              (() => {
+                const cust = customers.find(
+                  (c: Customer) => c.id === form.customerId,
+                );
+                if (!cust) return null;
+                return (
+                  <DuplicateCheckPanel
+                    customer={{
+                      id: cust.id,
+                      customerNumber: cust.customerNumber,
+                      name: cust.name,
+                      address: cust.address,
+                      plz: cust.plz,
+                      city: cust.city,
+                      phone: cust.phone,
+                      email: cust.email,
+                      country: cust.country,
+                    }}
+                    onClose={() => setDupCheckOpen(false)}
+                    activeFormName={newCust.name}
+                    activeFormAddress={newCust.address}
+                    activeFormCity={newCust.city}
+                    activeFormPlz={newCust.plz}
+                    onApplyPlzSuggestion={(plz) =>
+                      setNewCust((p: any) => ({ ...p, plz: plz ?? "" }))
+                    }
+                    onTakeoverCustomer={async (match: DuplicateMatch) => {
+                      if (!editingInvoice) return;
+                      const oldCustomerId = form.customerId; // capture before overwrite
+                      const res = await fetch(
+                        `/api/invoices/${editingInvoice.id}`,
+                        {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ customerId: match.id }),
+                        },
+                      );
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        toast.error(err?.error || "Fehler beim Kunden-Wechsel");
+                        return;
                       }
-                    }).catch(() => { /* silent — non-critical */ });
-                  }
-                }}
-                onMergeComplete={async (r) => {
-                  setForm((f: any) => ({ ...f, customerId: r.survivingCustomerId }));
-                  // Stage F – Critical bug fix:
-                  // Replace local `newCust` form state with the freshly
-                  // merged customer so the visible "Kunde bearbeiten" form
-                  // shows the user-selected values immediately.
-                  if (r.mergedCustomer) {
-                    const m = r.mergedCustomer;
-                    setNewCust({
-                      name:    (m.name    ?? '') as string,
-                      phone:   (m.phone   ?? '') as string,
-                      email:   (m.email   ?? '') as string,
-                      address: (m.address ?? '') as string,
-                      plz:     (m.plz     ?? '') as string,
-                      city:    (m.city    ?? '') as string,
-                      country: (m.country ?? 'CH') as string,
-                    });
-                    setCustomers(prev => {
-                      const exists = prev.some((c: Customer) => c.id === m.id);
-                      const merged = { ...m } as any;
-                      if (exists) return prev.map((c: Customer) => c.id === m.id ? { ...c, ...merged } : c);
-                      return [...prev, merged as Customer];
-                    });
-                    setInvoices(prev => prev.map((inv: any) => inv.customerId === m.id
-                      ? { ...inv, customer: { ...inv.customer, ...m } }
-                      : inv));
-                    setEditingCustomer(true);
-                    setShowNewCustomer(true);
-                  }
-                  await load();
-                }}
-              />
-            );
-          })()}
+                      setForm((f: any) => ({ ...f, customerId: match.id }));
+                      setNewCust({
+                        name: (match.name ?? "") as string,
+                        address: (match.address ?? "") as string,
+                        plz: (match.plz ?? "") as string,
+                        city: (match.city ?? "") as string,
+                        phone: (match.phone ?? "") as string,
+                        email: (match.email ?? "") as string,
+                        country: "CH",
+                      });
+                      setCustomers((prev: Customer[]) => {
+                        const exists = prev.some((c) => c.id === match.id);
+                        if (exists) return prev;
+                        return [
+                          ...prev,
+                          {
+                            id: match.id,
+                            name: match.name,
+                            customerNumber: match.customerNumber ?? null,
+                            address: match.address ?? null,
+                            plz: match.plz ?? null,
+                            city: match.city ?? null,
+                            phone: match.phone ?? null,
+                            email: match.email ?? null,
+                          } as Customer,
+                        ];
+                      });
+                      setInvoices((prev: Invoice[]) =>
+                        prev.map((inv) =>
+                          inv.id === editingInvoice.id
+                            ? {
+                                ...inv,
+                                customerId: match.id,
+                                customer: {
+                                  name: match.name,
+                                  customerNumber: match.customerNumber,
+                                  address: match.address,
+                                  plz: match.plz,
+                                  city: match.city,
+                                  phone: match.phone,
+                                  email: match.email,
+                                },
+                              }
+                            : inv,
+                        ),
+                      );
+                      setShowNewCustomer(false);
+                      setEditingCustomer(false);
+                      setDupCheckOpen(false);
+                      toast.success(
+                        `Kunde übernommen: ${match.customerNumber ? match.customerNumber + " · " : ""}${match.name}`,
+                      );
+                      // Fire-and-forget: cleanup old customer if it has no remaining active docs
+                      if (oldCustomerId && oldCustomerId !== match.id) {
+                        fetch(
+                          `/api/customers/${oldCustomerId}/cleanup-after-takeover`,
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ keptCustomerId: match.id }),
+                          },
+                        )
+                          .then((r) => r.json())
+                          .then((res) => {
+                            if (res?.cleaned) {
+                              setCustomers((prev: Customer[]) =>
+                                prev.filter((c) => c.id !== oldCustomerId),
+                              );
+                            }
+                          })
+                          .catch(() => {
+                            /* silent — non-critical */
+                          });
+                      }
+                    }}
+                    onMergeComplete={async (r) => {
+                      setForm((f: any) => ({
+                        ...f,
+                        customerId: r.survivingCustomerId,
+                      }));
+                      // Stage F – Critical bug fix:
+                      // Replace local `newCust` form state with the freshly
+                      // merged customer so the visible "Kunde bearbeiten" form
+                      // shows the user-selected values immediately.
+                      if (r.mergedCustomer) {
+                        const m = r.mergedCustomer;
+                        setNewCust({
+                          name: (m.name ?? "") as string,
+                          phone: (m.phone ?? "") as string,
+                          email: (m.email ?? "") as string,
+                          address: (m.address ?? "") as string,
+                          plz: (m.plz ?? "") as string,
+                          city: (m.city ?? "") as string,
+                          country: (m.country ?? "CH") as string,
+                        });
+                        setCustomers((prev) => {
+                          const exists = prev.some(
+                            (c: Customer) => c.id === m.id,
+                          );
+                          const merged = { ...m } as any;
+                          if (exists)
+                            return prev.map((c: Customer) =>
+                              c.id === m.id ? { ...c, ...merged } : c,
+                            );
+                          return [...prev, merged as Customer];
+                        });
+                        setInvoices((prev) =>
+                          prev.map((inv: any) =>
+                            inv.customerId === m.id
+                              ? { ...inv, customer: { ...inv.customer, ...m } }
+                              : inv,
+                          ),
+                        );
+                        setEditingCustomer(true);
+                        setShowNewCustomer(true);
+                      }
+                      await load();
+                    }}
+                  />
+                );
+              })()}
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Media / Gallery Dialog */}
       {/* Audio dialog */}
-      <Dialog open={mediaDialogOpen && mediaType === 'audio'} onOpenChange={setMediaDialogOpen}>
+      <Dialog
+        open={mediaDialogOpen && mediaType === "audio"}
+        onOpenChange={setMediaDialogOpen}
+      >
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Sprachnachricht</DialogTitle></DialogHeader>
-          {mediaUrl && <audio controls className="w-full" src={mediaUrl}><track kind="captions" /></audio>}
+          <DialogHeader>
+            <DialogTitle>Sprachnachricht</DialogTitle>
+          </DialogHeader>
+          {mediaUrl && (
+            <audio controls className="w-full" src={mediaUrl}>
+              <track kind="captions" />
+            </audio>
+          )}
         </DialogContent>
       </Dialog>
       {/* Image viewer with touch zoom/pan */}
       <TouchImageViewer
-        open={mediaDialogOpen && mediaType === 'image'}
+        open={mediaDialogOpen && mediaType === "image"}
         onOpenChange={setMediaDialogOpen}
         urls={galleryUrls}
         initialIndex={galleryIdx}
       />
 
       {/* Confirm action dialog */}
-      <Dialog open={!!confirmDialog} onOpenChange={(open) => { if (!open) setConfirmDialog(null); }}>
+      <Dialog
+        open={!!confirmDialog}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDialog(null);
+        }}
+      >
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>{confirmDialog?.title}</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">{confirmDialog?.message}</p>
+          <DialogHeader>
+            <DialogTitle>{confirmDialog?.title}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {confirmDialog?.message}
+          </p>
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" size="sm" onClick={() => setConfirmDialog(null)}>Abbrechen</Button>
-            <Button variant="destructive" size="sm" onClick={async () => { await confirmDialog?.action(); setConfirmDialog(null); }}>Bestätigen</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDialog(null)}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={async () => {
+                const action = confirmDialog?.action;
+                setConfirmDialog(null);
+                await action?.();
+              }}
+            >
+              Bestätigen
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

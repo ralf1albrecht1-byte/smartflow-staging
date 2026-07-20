@@ -3,9 +3,9 @@ import { useEffect, useState, useRef } from 'react';
 import {
   Settings, Save, Loader2, Sparkles, Building2, CreditCard, ChevronDown, ChevronUp,
   FlaskConical, RotateCcw, AlertTriangle, Phone, LifeBuoy, Trash2, LogOut, KeyRound,
-  Eye, EyeOff, FileText, Languages, User2, ShieldCheck, UploadCloud, Image as ImageIcon,
+  Eye, EyeOff, FileText, User2, ShieldCheck, UploadCloud, Image as ImageIcon,
   CheckCircle2, XCircle, Palette, ScrollText, Database, Send, FileX, Lock, Globe, Info,
-  Download, Clock, AlertCircle, ExternalLink,
+  Download, Clock, AlertCircle, ExternalLink, Rocket,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ interface CompanyData {
   testModus: boolean;
   branche: string;
   hauptsprache: string;
+currency: 'CHF' | 'EUR';
   // Settings/Templates/Import paket additions
   documentTemplate: string;
   letterheadUrl: string | null;
@@ -69,6 +70,7 @@ const emptyData: CompanyData = {
   testModus: true,
   branche: 'Gartenbau',
   hauptsprache: 'Deutsch',
+currency: 'CHF',
   documentTemplate: 'classic',
   whatsappIntakeNumber: null,
   letterheadUrl: null,
@@ -77,8 +79,6 @@ const emptyData: CompanyData = {
 };
 
 const branchenOptionen = ['Gartenbau', 'Maler', 'Elektriker', 'Bau', 'Reinigung', 'Sonstiges'];
-const sprachOptionen = ['Deutsch', 'Englisch', 'Französisch', 'Italienisch', 'Türkisch', 'Russisch', 'Spanisch', 'Portugiesisch', 'Arabisch'];
-
 const TEMPLATES: Array<{ key: string; label: string; tagline: string; swatch: string }> = [
   { key: 'classic', label: 'Klassisch', tagline: 'Grüner Akzent · aktuelles Standard-Layout', swatch: '#059669' },
   { key: 'modern',  label: 'Modern',    tagline: 'Dunkler Kopfbalken · sachlich',              swatch: '#0f172a' },
@@ -90,15 +90,50 @@ const SECTIONS = [
   { key: 'daten',           label: 'Meine Daten',                icon: User2 },
   { key: 'telefon',         label: 'WhatsApp Eingang',           icon: Phone },
   { key: 'dokumente',       label: 'Dokumente & Rechnungen',     icon: FileText },
-  { key: 'sprache',         label: 'Sprache & Kommunikation',    icon: Languages },
   { key: 'support',         label: 'Tool-Support',               icon: LifeBuoy },
-  { key: 'nummern',         label: 'Nummern & Testmodus',        icon: FlaskConical },
+  { key: 'nummern',         label: 'Testmodus & Livebetrieb',      icon: FlaskConical },
   { key: 'konto',           label: 'Konto & Sicherheit',         icon: ShieldCheck },
   { key: 'datenschutz',     label: 'Rechtliches & Datenschutz',  icon: ScrollText },
   { key: 'daten_kuendigung', label: 'Daten & Kündigung',         icon: Database },
 ] as const;
 
 type SectionKey = typeof SECTIONS[number]['key'];
+
+type LivePrepCustomer = {
+  id: string;
+  customerNumber: string | null;
+  name: string;
+  address: string | null;
+  plz: string | null;
+  city: string | null;
+  phone?: string | null;
+  email?: string | null;
+  canKeep: boolean;
+  counts: {
+    orders: number;
+    offers: number;
+    invoices: number;
+    executionAddresses: number;
+  };
+};
+
+type LivePrepPreview = {
+  testModus: boolean;
+  liveStarted: boolean;
+  liveNeedsRepair: boolean;
+  counts: {
+    testCustomers: number;
+    liveCustomers: number;
+    testOrders: number;
+    liveOrders: number;
+    testOffers: number;
+    liveOffers: number;
+    testInvoices: number;
+    liveInvoices: number;
+  };
+  customers: LivePrepCustomer[];
+  warnings: string[];
+};
 
 /**
  * Paket A: UI-side normalization is a THIN wrapper around the shared
@@ -118,7 +153,19 @@ export default function EinstellungenPage() {
 
   const [hasChanges, setHasChanges] = useState(false);
   const [savedData, setSavedData] = useState<CompanyData>(emptyData);
+  const [invoicePaymentDays, setInvoicePaymentDays] = useState(14);
+  const [savedInvoicePaymentDays, setSavedInvoicePaymentDays] = useState(14);
   const [resetting, setResetting] = useState(false);
+
+  const [livePrepLoading, setLivePrepLoading] = useState(false);
+  const [livePrepExecuting, setLivePrepExecuting] = useState(false);
+  const [livePrepPreview, setLivePrepPreview] = useState<LivePrepPreview | null>(null);
+  const [livePrepKeepIds, setLivePrepKeepIds] = useState<string[]>([]);
+  const [showTestDataTools, setShowTestDataTools] = useState(false);
+  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+  const [liveConfirmText, setLiveConfirmText] = useState('');
+  const [switchingMode, setSwitchingMode] = useState<'live' | 'test' | null>(null);
+  const [existingLiveStateChecked, setExistingLiveStateChecked] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showDeleteSection, setShowDeleteSection] = useState(false);
@@ -138,7 +185,7 @@ export default function EinstellungenPage() {
   // Section navigation (desktop: side-nav; mobile: accordion)
   const [activeSection, setActiveSection] = useState<SectionKey>('daten');
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
-    daten: true, telefon: false, dokumente: false, nummern: false, sprache: false, support: false, konto: false,
+    daten: false, telefon: false, dokumente: false, nummern: false, support: false, konto: false,
     datenschutz: false, daten_kuendigung: false,
   });
 // Letterhead upload state
@@ -158,7 +205,254 @@ export default function EinstellungenPage() {
   useEffect(() => {
     loadSettings();
     loadCompliance();
+
+    const requestedSection = new URLSearchParams(window.location.search).get('section');
+    if (requestedSection === 'nummern') {
+      setActiveSection('nummern');
+      setOpenSections(prev => ({ ...prev, nummern: true }));
+      window.setTimeout(() => {
+        document.getElementById('nummern')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!form.testModus) {
+      setExistingLiveStateChecked(false);
+      return;
+    }
+    if (existingLiveStateChecked || livePrepPreview?.liveStarted) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Wichtig: Derselbe Status-Endpunkt entscheidet über Anzeige UND
+        // tatsächlichen Moduswechsel. Dadurch kann die UI einen vorhandenen
+        // Livebestand nicht mehr fälschlich als neuen Erststart darstellen.
+        const res = await fetch('/api/settings/mode', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => null);
+
+        if (cancelled) return;
+
+        if (res.ok && data?.liveStarted) {
+          setLivePrepPreview(data);
+          setLivePrepKeepIds([]);
+          setShowLiveConfirm(false);
+          setLiveConfirmText('');
+        }
+
+        // Erst NACH abgeschlossener Antwort markieren. Vorher führte diese
+        // State-Änderung zum Cleanup des Effects und verwarf die gültige
+        // API-Antwort, obwohl liveStarted=true geliefert wurde.
+        setExistingLiveStateChecked(true);
+      } catch {
+        if (!cancelled) {
+          setExistingLiveStateChecked(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, form.testModus, existingLiveStateChecked, livePrepPreview?.liveStarted]);
+
+
+  async function loadLivePrepPreview() {
+    setLivePrepLoading(true);
+    try {
+      // Erste Schutzstufe: Ist LIVE bereits vorhanden, wird niemals erneut
+      // die Kundenauswahl oder ein zweiter Echtstart angeboten.
+      const modeRes = await fetch('/api/settings/mode', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const modeData = await modeRes.json().catch(() => null);
+
+      if (modeRes.ok && modeData?.liveStarted) {
+        setLivePrepPreview(modeData);
+        setLivePrepKeepIds([]);
+        setShowLiveConfirm(false);
+        setLiveConfirmText('');
+        return;
+      }
+
+      // Nur bei einem echten, noch nie gestarteten Account wird die optionale
+      // Kundenauswahl für den ersten Echtstart geladen.
+      const res = await fetch('/api/settings/prepare-live', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        toast({
+          title: 'Fehler',
+          description: data?.error || 'Vorschau konnte nicht geladen werden.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setLivePrepPreview(data);
+      setLivePrepKeepIds([]);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
+    } catch {
+      toast({
+        title: 'Fehler',
+        description: 'Netzwerkfehler beim Laden der Vorschau.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLivePrepLoading(false);
+    }
+  }
+
+  function toggleLivePrepCustomer(customerId: string) {
+    setLivePrepKeepIds(prev => prev.includes(customerId) ? prev.filter(id => id !== customerId) : [...prev, customerId]);
+    setShowLiveConfirm(false);
+    setLiveConfirmText('');
+  }
+
+  function toggleAllLivePrepCustomers() {
+    if (!livePrepPreview || livePrepExecuting) return;
+    const selectableIds = livePrepPreview.customers
+      .filter((customer: LivePrepCustomer) => customer.canKeep)
+      .map((customer: LivePrepCustomer) => customer.id);
+
+    setLivePrepKeepIds(prev =>
+      selectableIds.length > 0 && prev.length === selectableIds.length ? [] : selectableIds,
+    );
+    setShowLiveConfirm(false);
+    setLiveConfirmText('');
+  }
+
+  async function executeLivePreparation() {
+    if (!livePrepPreview) {
+      toast({ title: 'Zuerst Vorschau laden', description: 'Bitte lade zuerst die Kundenliste.' });
+      return;
+    }
+    const repairMode = livePrepPreview.liveStarted && livePrepPreview.liveNeedsRepair;
+    if (livePrepPreview.liveStarted && !repairMode) {
+      toast({ title: 'Livebetrieb vorhanden', description: 'Der bestehende Livebetrieb kann direkt geöffnet werden.' });
+      return;
+    }
+    const expectedWord = repairMode ? 'LIVE_REPARATUR' : 'ECHTSTART';
+    if (liveConfirmText.trim() !== expectedWord) {
+      toast({
+        title: 'Bestätigung fehlt',
+        description: `Bitte ${expectedWord} exakt eingeben.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (repairMode && livePrepKeepIds.length === 0) {
+      toast({
+        title: 'Kunde fehlt',
+        description: 'Für die Live-Reparatur muss mindestens ein vollständiger TEST-Kunde ausgewählt werden.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setLivePrepExecuting(true);
+    try {
+      const res = await fetch('/api/settings/prepare-live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmText: expectedWord,
+          repairExistingLive: repairMode,
+          keepCustomerIds: livePrepKeepIds,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: data?.error || 'Livebestand konnte nicht vorbereitet werden.', variant: 'destructive' });
+        return;
+      }
+      toast({ title: repairMode ? 'Livebestand repariert' : 'Livebetrieb vorbereitet', description: data?.message || 'Vorgang abgeschlossen.' });
+      setLivePrepPreview(null);
+      setLivePrepKeepIds([]);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
+      setForm(prev => ({ ...prev, testModus: false }));
+      setSavedData(prev => ({ ...prev, testModus: false }));
+      setHasChanges(false);
+      window.dispatchEvent(new CustomEvent('smartflow-mode-changed', {
+        detail: { testModus: false },
+      }));
+      loadSettings();
+    } catch {
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des Livebetriebs.', variant: 'destructive' });
+    } finally {
+      setLivePrepExecuting(false);
+    }
+  }
+
+  async function switchTestMode(nextTestModus: boolean) {
+    const targetMode = nextTestModus ? 'test' : 'live';
+    setSwitchingMode(targetMode);
+
+    try {
+      // Der Moduswechsel läuft absichtlich über einen eigenen Endpoint.
+      // Dadurch werden keine Firmendaten, Telefonnummern oder sonstigen
+      // Einstellungen erneut gespeichert oder validiert.
+      const res = await fetch('/api/settings/mode', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testModus: nextTestModus }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        toast({
+          title: 'Fehler',
+          description: data?.error || 'Modus konnte nicht gewechselt werden.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const persistedTestModus = data?.testModus === true;
+
+      // Nur den Modus im lokalen Formular aktualisieren. Ungespeicherte
+      // Änderungen an anderen Einstellungen bleiben vollständig erhalten.
+      setForm(prev => ({ ...prev, testModus: persistedTestModus }));
+      setSavedData(prev => ({ ...prev, testModus: persistedTestModus }));
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
+      setLivePrepPreview(prev =>
+        prev ? { ...prev, testModus: persistedTestModus } : prev,
+      );
+      setExistingLiveStateChecked(false);
+
+      window.dispatchEvent(new CustomEvent('smartflow-mode-changed', {
+        detail: { testModus: persistedTestModus },
+      }));
+
+      toast({
+        title: persistedTestModus ? 'Testmodus aktiv' : 'Livebetrieb aktiv',
+        description: persistedTestModus
+          ? 'Neue Angebote und Rechnungen erhalten TEST-Nummern. Der bestehende Livebetrieb bleibt erhalten.'
+          : 'Du bist wieder im bereits gestarteten Livebetrieb. Es wurden keine Kunden neu übernommen und keine Testdaten gelöscht.',
+      });
+    } catch {
+      toast({
+        title: 'Fehler',
+        description: 'Netzwerkfehler beim Wechseln des Modus.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSwitchingMode(null);
+    }
+  }
 
   async function loadCompliance() {
     try {
@@ -357,12 +651,25 @@ if (type === 'data_export') {
 
   async function loadSettings() {
     try {
-      const res = await fetch('/api/settings', { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
+      const [settingsRes, paymentTermsRes] = await Promise.all([
+        fetch('/api/settings', { cache: 'no-store' }),
+        fetch('/api/settings/invoice-payment-terms', { cache: 'no-store' }).catch(() => null),
+      ]);
+
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
         const mapped: CompanyData = mapSettingsData(data);
         setForm(mapped);
         setSavedData(mapped);
+      }
+
+      if (paymentTermsRes?.ok) {
+        const paymentTerms = await paymentTermsRes.json();
+        const days = Number(paymentTerms?.paymentDays);
+        const normalizedDays =
+          Number.isInteger(days) && days >= 1 && days <= 365 ? days : 14;
+        setInvoicePaymentDays(normalizedDays);
+        setSavedInvoicePaymentDays(normalizedDays);
       }
     } catch (e) {
       console.error('Fehler beim Laden:', e);
@@ -374,7 +681,10 @@ if (type === 'data_export') {
   function updateField(field: keyof CompanyData, value: any) {
     setForm(prev => {
       const next = { ...prev, [field]: value };
-      setHasChanges(JSON.stringify(next) !== JSON.stringify(savedData));
+      setHasChanges(
+        JSON.stringify(next) !== JSON.stringify(savedData) ||
+          invoicePaymentDays !== savedInvoicePaymentDays,
+      );
       return next;
     });
   }
@@ -397,18 +707,50 @@ if (type === 'data_export') {
       // Send raw values — server is the source of truth for normalization & validation.
       const payload = { ...form };
 
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
+      const normalizedPaymentDays = Number(invoicePaymentDays);
+      if (
+        !Number.isInteger(normalizedPaymentDays) ||
+        normalizedPaymentDays < 1 ||
+        normalizedPaymentDays > 365
+      ) {
+        toast({
+          title: 'Fehler',
+          description: 'Die Standard-Zahlungsfrist muss zwischen 1 und 365 Tagen liegen.',
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
+
+      const [res, paymentTermsRes] = await Promise.all([
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+        fetch('/api/settings/invoice-payment-terms', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentDays: normalizedPaymentDays }),
+        }),
+      ]);
+
+      if (res.ok && paymentTermsRes.ok) {
         const data = await res.json();
         const mapped: CompanyData = mapSettingsData(data);
         setForm(mapped);
         setSavedData(mapped);
+        setInvoicePaymentDays(normalizedPaymentDays);
+        setSavedInvoicePaymentDays(normalizedPaymentDays);
         setHasChanges(false);
         toast({ title: '✅ Gespeichert', description: 'Einstellungen wurden aktualisiert.' });
+      } else if (!paymentTermsRes.ok) {
+        const paymentError = await paymentTermsRes.json().catch(() => null);
+        toast({
+          title: 'Fehler',
+          description: paymentError?.error || 'Zahlungsfrist konnte nicht gespeichert werden.',
+          variant: 'destructive',
+        });
       } else {
         let errorJson: any = null;
         try { errorJson = await res.json(); } catch { /* ignore non-JSON */ }
@@ -449,6 +791,7 @@ if (type === 'data_export') {
       testModus: data.testModus ?? true,
       branche: data.branche || 'Gartenbau',
       hauptsprache: data.hauptsprache || 'Deutsch',
+currency: data.currency || 'CHF',
       documentTemplate: data.documentTemplate || 'classic',
       whatsappIntakeNumber: data.whatsappIntakeNumber || null,
       letterheadUrl: data.letterheadUrl || data.logoUrl || data.companyLogo || data.companyLogoUrl || null,
@@ -702,8 +1045,10 @@ const storedValue = finalUrl;
                 <button
                   key={s.key}
                   onClick={() => gotoSection(s.key)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
-                    active ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-muted-foreground'
+                  className={`w-full flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    active
+                      ? 'bg-primary/10 text-primary font-medium hover:bg-primary/20'
+                      : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -760,9 +1105,30 @@ const storedValue = finalUrl;
                   value={form.branche}
                   onChange={(e) => updateField('branche', e.target.value)}
                 >
-                  {branchenOptionen.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </div>
+                 {branchenOptionen.map(b => <option key={b} value={b}>{b}</option>)}
+</select>
+</div>
+
+<div className="space-y-2">
+  <Label>Standardwährung</Label>
+
+  <select
+    value={form.currency}
+    onChange={(e) => updateField('currency', e.target.value as 'CHF' | 'EUR')}
+    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+  >
+    <option value="CHF">CHF</option>
+    <option value="EUR">EUR</option>
+  </select>
+
+  <p className="text-xs text-muted-foreground">
+    Diese Währung wird für Angebote, Rechnungen und Beträge verwendet.
+  </p>
+</div>
+
+
+
+
 
               {/* Adresse */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -989,6 +1355,39 @@ const storedValue = finalUrl;
                   Hinweis auf Rechnungen: &quot;{form.mwstHinweis || 'Nicht MWST-pflichtig'}&quot;
                 </p>
               )}
+            </div>
+
+            {/* Standard-Zahlungsfrist */}
+            <div className="border rounded-lg p-4 mt-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock className="w-4 h-4 text-primary" />
+                <h4 className="text-sm font-semibold">Standard-Zahlungsfrist</h4>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Wird bei neuen Rechnungen automatisch zum Rechnungsdatum addiert. Das konkrete Fälligkeitsdatum kann in jeder Rechnung einmalig über den Kalender geändert werden.
+              </p>
+              <div className="max-w-xs">
+                <Label htmlFor="invoice-payment-days">Zahlungsfrist in Tagen</Label>
+                <Input
+                  id="invoice-payment-days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  value={invoicePaymentDays}
+                  onChange={e => {
+                    const next = Number(e.target.value);
+                    setInvoicePaymentDays(Number.isFinite(next) ? next : 14);
+                    setHasChanges(
+                      JSON.stringify(form) !== JSON.stringify(savedData) ||
+                      next !== savedInvoicePaymentDays,
+                    );
+                  }}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Standard: 14 Tage. Gilt für künftig neu erstellte Rechnungen.
+                </p>
+              </div>
             </div>
 
             {/* Dokument-Vorlage (Template picker) */}
@@ -1219,26 +1618,6 @@ const storedValue = finalUrl;
   </div>
 </div>
           </SectionShell>
-          {/* SECTION: SPRACHE & KOMMUNIKATION */}
-          <SectionShell id="sprache" sectionKey="sprache" activeSection={activeSection} open={openSections.sprache} toggle={() => setOpenSections(p => ({ ...p, sprache: !p.sprache }))} title="Sprache &amp; Kommunikation" icon={Languages}>
-            <div>
-              <Label>Hauptsprache</Label>
-              <p className="text-xs text-muted-foreground mb-1.5">
-                Eingehende Nachrichten in anderen Sprachen werden automatisch in diese Sprache übersetzt.
-              </p>
-              <select
-                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={form.hauptsprache}
-                onChange={(e) => updateField('hauptsprache', e.target.value)}
-              >
-                {sprachOptionen.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="mt-4 text-[11px] text-muted-foreground bg-muted/40 rounded p-3">
-              Weitere Sprach-Einstellungen (mehrsprachige Dokumente, automatische Übersetzungen pro Kunde) folgen in einem späteren Update.
-            </div>
-          </SectionShell>
-
           {/* SECTION: SUPPORT */}
           <SectionShell id="support" sectionKey="support" activeSection={activeSection} open={openSections.support} toggle={() => setOpenSections(p => ({ ...p, support: !p.support }))} title="Tool-Support" icon={LifeBuoy}>
             <p className="text-xs text-muted-foreground">
@@ -1262,93 +1641,397 @@ const storedValue = finalUrl;
             )}
           </SectionShell>
 
-          {/* SECTION: NUMMERN & TESTMODUS */}
-          <SectionShell id="nummern" sectionKey="nummern" activeSection={activeSection} open={openSections.nummern} toggle={() => setOpenSections(p => ({ ...p, nummern: !p.nummern }))} title="Nummern-System &amp; Testmodus" icon={FlaskConical}>
-            <div className={form.testModus ? 'border border-amber-300 bg-amber-50/50 dark:bg-amber-900/10 rounded-lg p-4' : 'border rounded-lg p-4'}>
-              <div className="text-xs text-muted-foreground space-y-1 mb-3">
-                <p>Angebote: <span className="font-mono">{form.testModus ? 'TEST-' : ''}ANG-JJJJ-001</span></p>
-                <p>Rechnungen: <span className="font-mono">{form.testModus ? 'TEST-' : ''}RE-JJJJ-001</span></p>
-                <p className="pt-1">Jedes Jahr startet die Nummerierung automatisch neu bei 001.</p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (form.testModus) {
-                      if (!confirm('⚠️ Wirklich auf Live-Betrieb umstellen?\n\nNeue Dokumente erhalten dann echte Nummern ohne TEST-Prefix.\n\nBestehende TEST-Dokumente bleiben erhalten.')) return;
-                    }
-                    updateField('testModus', !form.testModus);
-                  }}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.testModus ? 'bg-amber-500' : 'bg-green-600'}`}
-                >
-                  <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${form.testModus ? 'translate-x-1' : 'translate-x-6'}`} />
-                </button>
-                <div>
-                  <p className="text-sm font-medium">
-                    {form.testModus ? (
-                      <span className="text-amber-700 dark:text-amber-400">🧪 Testmodus aktiv</span>
-                    ) : (
-                      <span className="text-green-700 dark:text-green-400">✅ Live-Betrieb</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {form.testModus
-                      ? 'Neue Dokumente erhalten das Prefix TEST- (z.B. TEST-ANG-2026-001)'
-                      : 'Neue Dokumente erhalten echte Nummern (z.B. ANG-2026-001)'}
-                  </p>
-                </div>
-              </div>
-
-              {form.testModus && (
-                <div className="pt-3 mt-3 border-t">
+          {/* SECTION: TESTMODUS & ECHTSTART */}
+          <SectionShell id="nummern" sectionKey="nummern" activeSection={activeSection} open={openSections.nummern} toggle={() => setOpenSections(p => ({ ...p, nummern: !p.nummern }))} title="Testmodus &amp; Livebetrieb" icon={FlaskConical}>
+            <div className="space-y-4">
+              {/* Status */}
+              <div className={form.testModus ? 'rounded-xl border border-blue-200 bg-blue-50/70 dark:bg-blue-900/10 dark:border-blue-900 p-4' : 'rounded-xl border border-green-200 bg-green-50/70 dark:bg-green-900/10 dark:border-green-900 p-4'}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium flex items-center gap-1.5">
-                        <RotateCcw className="w-3.5 h-3.5" />Test-Daten zurücksetzen
+                    <div className={form.testModus ? 'w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0' : 'w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center shrink-0'}>
+                      {form.testModus ? <FlaskConical className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <p className={form.testModus ? 'text-sm font-bold text-blue-800 dark:text-blue-200' : 'text-sm font-bold text-green-800 dark:text-green-200'}>
+                        {form.testModus ? 'TESTMODUS AKTIV' : 'LIVEBETRIEB AKTIV'}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Verschiebt alle TEST-Angebote und TEST-Rechnungen in den Papierkorb.
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {form.testModus
+                          ? 'Du testest aktuell mit TEST-Nummern. Der Livebetrieb wird nicht verändert.'
+                          : 'Neue Angebote und Rechnungen erhalten echte Nummern.'}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0"
-                      disabled={resetting}
-                      onClick={async () => {
-                        if (!confirm('Alle TEST-Dokumente in den Papierkorb verschieben?')) return;
-                        setResetting(true);
-                        try {
-                          const res = await fetch('/api/settings/reset-test', { method: 'POST' });
-                          if (res.ok) {
-                            const data = await res.json();
-                            toast({ title: '🔄 Zurückgesetzt', description: data.message });
-                          } else {
-                            const err = await res.json();
-                            toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
-                          }
-                        } catch {
-                          toast({ title: 'Fehler', description: 'Netzwerkfehler', variant: 'destructive' });
-                        } finally {
-                          setResetting(false);
-                        }
-                      }}
-                    >
-                      {resetting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}
-                      Zurücksetzen
-                    </Button>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {!form.testModus && (
-                <div className="flex items-start gap-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-xs mt-3">
-                  <AlertTriangle className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
-                  <p className="text-green-700 dark:text-green-400">
-                    Im Live-Betrieb werden echte Dokumentnummern vergeben. Ein Zurücksetzen ist nicht möglich.
-                  </p>
-                </div>
+              {form.testModus ? (
+                <>
+                  {/* Step 1 */}
+                  <div className="rounded-xl border bg-card p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                          <span className="text-sm font-bold">1</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">
+                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand sicher reparieren' : livePrepPreview?.liveStarted ? 'Kundenübernahme abgeschlossen' : 'Livebetrieb vorbereiten'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {livePrepPreview?.liveNeedsRepair
+                              ? 'Der Livebestand ist leer. Wähle die TEST-Kunden aus, die als neue Live-Kunden kopiert werden sollen.'
+                              : livePrepPreview?.liveStarted
+                                ? 'Der Livebetrieb wurde bereits gestartet. Es werden keine Kunden mehr übernommen.'
+                                : 'Wähle optional aus, welche echten Kunden in den Livebetrieb kopiert werden.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {(!livePrepPreview?.liveStarted || livePrepPreview?.liveNeedsRepair) && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="shrink-0 gap-2"
+                          disabled={livePrepLoading || livePrepExecuting}
+                          onClick={loadLivePrepPreview}
+                        >
+                          {livePrepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <User2 className="w-4 h-4" />}
+                          Kunden für Livebetrieb auswählen
+                        </Button>
+                      )}
+                    </div>
+
+                    {livePrepPreview && (
+                      <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                        {livePrepPreview.liveStarted && !livePrepPreview.liveNeedsRepair ? (
+                          <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800 space-y-1">
+                            <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
+                            <p>Kundenübernahme ist abgeschlossen und gesperrt.</p>
+                            <p className="text-green-700/90">
+                              Du kannst nur noch in den bestehenden Livebetrieb wechseln. Es werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                                <div>
+                                  <p className="text-xs font-semibold">Echte Kunden auswählen</p>
+                                  <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                                </div>
+                                <label className="inline-flex items-center gap-2 text-xs cursor-pointer select-none rounded-md border px-2 py-1 bg-background hover:bg-muted/40">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length > 0 &&
+                                      livePrepKeepIds.length === livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length
+                                    }
+                                    disabled={livePrepExecuting || livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length === 0}
+                                    onChange={toggleAllLivePrepCustomers}
+                                  />
+                                  Alle auswählen
+                                </label>
+                              </div>
+
+                              <div className="max-h-64 overflow-auto rounded border divide-y bg-background">
+                                {livePrepPreview.customers.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
+                                ) : livePrepPreview.customers.map(customer => (
+                                  <label key={customer.id} className={`flex items-start gap-3 p-3 text-xs ${customer.canKeep ? 'cursor-pointer hover:bg-muted/40' : 'opacity-60'}`}>
+                                    <input
+                                      type="checkbox"
+                                      className="mt-1"
+                                      checked={livePrepKeepIds.includes(customer.id)}
+                                      disabled={!customer.canKeep || livePrepExecuting}
+                                      onChange={() => toggleLivePrepCustomer(customer.id)}
+                                    />
+                                    <span className="flex-1 min-w-0">
+                                      <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
+                                      <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
+                                      {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-800 flex items-start gap-2">
+                              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <p>Hier wird noch nichts geändert. Ausgewählte TEST-Kunden werden später als getrennte LIVE-Kopien angelegt; TEST-Daten bleiben bestehen.</p>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="rounded-xl border bg-card p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                          <span className="text-sm font-bold">2</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">
+                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand reparieren' : livePrepPreview?.liveStarted ? 'Bestehenden Livebetrieb öffnen' : 'Livebetrieb starten'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {livePrepPreview?.liveNeedsRepair
+                              ? 'Nur der leere/fehlerhafte LIVE-Bestand wird neu aufgebaut. TEST bleibt unverändert.'
+                              : livePrepPreview?.liveStarted
+                                ? 'Livebetrieb wurde bereits gestartet. Jetzt wird nur der Modus gewechselt.'
+                                : 'Kundenauswahl ist optional. Das Sicherheitswort ECHTSTART ist erforderlich.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={livePrepPreview ? 'default' : 'outline'}
+                        disabled={
+                          !livePrepPreview ||
+                          livePrepExecuting ||
+                          livePrepLoading ||
+                          switchingMode !== null ||
+                          (
+                            livePrepPreview.liveNeedsRepair &&
+                            livePrepKeepIds.length === 0
+                          )
+                        }
+                        onClick={() => {
+                          if (livePrepPreview?.liveStarted && !livePrepPreview?.liveNeedsRepair) {
+                            if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
+                            switchTestMode(false);
+                            return;
+                          }
+                          setShowLiveConfirm(prev => !prev);
+                          setLiveConfirmText('');
+                        }}
+                        className="shrink-0 gap-2"
+                      >
+                        {switchingMode === 'live' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                        {livePrepPreview?.liveNeedsRepair
+                          ? (showLiveConfirm ? 'Bestätigung schließen' : 'Weiter zur Reparatur')
+                          : livePrepPreview?.liveStarted
+                          ? 'Zum bestehenden Livebetrieb wechseln'
+                          : showLiveConfirm
+                            ? 'Bestätigung schließen'
+                            : livePrepPreview
+                              ? (
+                                  livePrepPreview.liveNeedsRepair && livePrepKeepIds.length === 0
+                                    ? 'Kunde auswählen'
+                                    : 'Weiter zur Bestätigung'
+                                )
+                              : 'Noch nicht bereit'}
+                      </Button>
+                    </div>
+
+                    {!livePrepPreview && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {livePrepLoading ? 'Livebetrieb-Status wird geprüft…' : 'Zuerst oben „Kunden für Livebetrieb auswählen" öffnen.'}
+                      </p>
+                    )}
+
+                    {livePrepPreview && (!livePrepPreview.liveStarted || livePrepPreview.liveNeedsRepair) && showLiveConfirm && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-3">
+                        <div className="flex items-start gap-2 text-xs text-red-800">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-semibold">Letzte Bestätigung</p>
+                            <p>
+                              {livePrepKeepIds.length === 0
+                                ? 'Es wurden keine Kunden ausgewählt. Der neue Livebetrieb startet mit einem leeren Kundenbestand.'
+                                : `Übernommen werden nur die ausgewählten Kunden: ${livePrepKeepIds.length} Kunde(n).`}
+                            </p>
+                            <p>Nur ausgewählte Kunden werden als LIVE-Kopien angelegt. TEST-Kunden, TEST-Aufträge und TEST-Belege werden nicht gelöscht oder verschoben.</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs">Exakt {livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART'} eingeben</Label>
+                          <Input
+                            value={liveConfirmText}
+                            onChange={e => setLiveConfirmText(e.target.value)}
+                            placeholder={livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART'}
+                            disabled={livePrepExecuting}
+                            className="mt-1 bg-background"
+                          />
+                        </div>
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          disabled={livePrepExecuting || liveConfirmText.trim() !== (livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART')}
+                          onClick={executeLivePreparation}
+                          className="gap-2"
+                        >
+                          {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                          {livePrepPreview.liveNeedsRepair ? 'Livebestand sicher reparieren' : 'Livebetrieb endgültig starten'}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional tools */}
+                  <div className="pt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Weitere Optionen</p>
+                    <div className="rounded-xl border bg-card overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setShowTestDataTools(prev => !prev)}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-muted/30"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            <Database className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">Testmodus &amp; Testdaten verwalten</p>
+                            <p className="text-xs text-muted-foreground mt-1">Optional — nicht nötig für den Livebetrieb.</p>
+                          </div>
+                        </div>
+                        {showTestDataTools ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      </button>
+
+                      {showTestDataTools && (
+                        <div className="border-t p-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Verschiebt alle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen in den Papierkorb. Ausführungsorte werden mit ihren Kunden ausgeblendet. Der Livebetrieb wird nicht verändert.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
+                              disabled={resetting}
+                              onClick={async () => {
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nAlle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen werden in den Papierkorb verschoben. Ausführungsorte werden mit ihren Kunden ausgeblendet.\n\nLIVE-Daten bleiben unverändert.')) return;
+                                setResetting(true);
+                                try {
+                                  const res = await fetch('/api/settings/reset-test', { method: 'POST' });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    toast({ title: 'Testdaten in Papierkorb verschoben', description: data.message });
+                                  } else {
+                                    const err = await res.json();
+                                    toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
+                                  }
+                                } catch {
+                                  toast({ title: 'Fehler', description: 'Netzwerkfehler', variant: 'destructive' });
+                                } finally {
+                                  setResetting(false);
+                                }
+                              }}
+                            >
+                              {resetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              In Papierkorb verschieben
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-green-200 bg-green-50/70 dark:bg-green-900/10 dark:border-green-900 p-4">
+                    <p className="text-sm font-semibold text-green-800 dark:text-green-200">Livebetrieb läuft.</p>
+                    <p className="text-xs text-green-700/90 dark:text-green-300/90 mt-1">
+                      Neue Angebote und Rechnungen erhalten echte Nummern. Kundenübernahme ist abgeschlossen.
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Weitere Optionen</p>
+                    <div className="rounded-xl border bg-card overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setShowTestDataTools(prev => !prev)}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-muted/30"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            <Database className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">Testmodus &amp; Testdaten verwalten</p>
+                            <p className="text-xs text-muted-foreground mt-1">Zum Ausprobieren oder zum Aufräumen von TEST-Daten.</p>
+                          </div>
+                        </div>
+                        {showTestDataTools ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      </button>
+
+                      {showTestDataTools && (
+                        <div className="border-t p-4 space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">In Testmodus wechseln</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Neue Angebote und Rechnungen erhalten danach TEST-Nummern. Der Livebetrieb bleibt erhalten.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 gap-2"
+                              disabled={switchingMode !== null}
+                              onClick={() => {
+                                if (!confirm('In Testmodus wechseln?\n\nNeue Angebote und Rechnungen erhalten danach TEST-Nummern.\n\nDer Livebetrieb bleibt erhalten.')) return;
+                                switchTestMode(true);
+                              }}
+                            >
+                              {switchingMode === 'test' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
+                              In Testmodus wechseln
+                            </Button>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Verschiebt alle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen in den Papierkorb. Ausführungsorte werden mit ihren Kunden ausgeblendet. Der Livebetrieb wird nicht verändert.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
+                              disabled={resetting}
+                              onClick={async () => {
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nAlle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen werden in den Papierkorb verschoben. Ausführungsorte werden mit ihren Kunden ausgeblendet.\n\nLIVE-Daten bleiben unverändert.')) return;
+                                setResetting(true);
+                                try {
+                                  const res = await fetch('/api/settings/reset-test', { method: 'POST' });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    toast({ title: 'Testdaten in Papierkorb verschoben', description: data.message });
+                                  } else {
+                                    const err = await res.json();
+                                    toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
+                                  }
+                                } catch {
+                                  toast({ title: 'Fehler', description: 'Netzwerkfehler', variant: 'destructive' });
+                                } finally {
+                                  setResetting(false);
+                                }
+                              }}
+                            >
+                              {resetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              In Papierkorb verschieben
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </SectionShell>
@@ -1963,12 +2646,12 @@ function SectionShell({
   return (
     <section id={`sec-${id}`} className={outerClass}>
       <Card>
-        <CardHeader className="pb-3">
-          {/* Desktop: always visible heading. Mobile: clickable accordion trigger. */}
+        <CardHeader className="p-0">
+          {/* Desktop: heading only. Mobile/tablet: the complete tab header is clickable. */}
           <button
             type="button"
             onClick={toggle}
-            className="w-full flex items-center justify-between lg:cursor-default lg:pointer-events-none"
+            className="flex w-full cursor-pointer items-center justify-between rounded-t-lg px-6 py-4 text-left transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:pointer-events-none lg:cursor-default lg:hover:bg-transparent"
             aria-expanded={open}
           >
             <CardTitle className="flex items-center gap-2 text-base">

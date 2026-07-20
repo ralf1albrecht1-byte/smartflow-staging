@@ -68,10 +68,47 @@ export function normalizeForMatch(s: string | null | undefined): string {
     .trim();
 }
 
-/** Normalize a phone string to a bare-digit form for substring comparison. */
+/** Normalize a phone string to a bare-digit form for comparison. */
 function normalizePhoneDigits(s: string | null | undefined): string {
   if (!s) return '';
   return s.replace(/\D+/g, '');
+}
+
+// V17.90L194: Phone validation must stay line-local. Concatenating every digit
+// from the complete message allowed dates, house numbers and postal codes to
+// form a fake "phone" such as 22.06.2026 or 118 5400. Extract real candidates
+// individually and compare only those candidates with the structured AI field.
+function extractPhoneCandidatesFromRawText(rawText: string): string[] {
+  const candidates: string[] = [];
+  const pattern = /\+?\d[\d\s()./-]{6,}\d/g;
+
+  for (const match of rawText.matchAll(pattern)) {
+    const raw = String(match[0] || '').replace(/\s+/g, ' ').trim();
+    if (!raw) continue;
+
+    // Pure calendar dates and time/date combinations are never phone numbers.
+    if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(raw)) continue;
+    if (/^\d{1,2}[.:]\d{2}(?:\s*[-–]\s*\d{1,2}[.:]\d{2})?$/.test(raw)) continue;
+
+    const digits = normalizePhoneDigits(raw);
+    // Smartflow currently targets Swiss/business phone data. Requiring at least
+    // nine digits prevents house-number + PLZ fragments from being accepted.
+    if (digits.length < 9 || digits.length > 15) continue;
+    candidates.push(digits);
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+function phoneCandidatesEquivalent(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  // Accept common international/domestic prefix differences only when a long,
+  // unambiguous suffix matches. Never accept a six-digit overlap.
+  const minTail = Math.min(left.length, right.length, 9);
+  if (minTail < 9) return false;
+  return left.slice(-minTail) === right.slice(-minTail);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -181,14 +218,12 @@ export function sanitizeNewCustomerFields(input: SanitizeInput): SanitizeResult 
 
   // ── phone ──
   if (input.phone && input.phone.trim()) {
-    const rawDigits = normalizePhoneDigits(raw);
     const pDigits = normalizePhoneDigits(input.phone);
-    // Require at least a 6-digit contiguous overlap (tail of the phone number)
-    // to count as "present in the message". 6 digits is short enough to allow
-    // different prefix formats (+41 / 0041 / 0), long enough to avoid matching
-    // PLZ or house-number sequences.
-    const tail = pDigits.length >= 6 ? pDigits.slice(-6) : pDigits;
-    if (hasRaw && tail.length >= 6 && rawDigits.includes(tail)) {
+    const rawCandidates = hasRaw ? extractPhoneCandidatesFromRawText(raw) : [];
+    if (
+      pDigits.length >= 9 &&
+      rawCandidates.some((candidate) => phoneCandidatesEquivalent(candidate, pDigits))
+    ) {
       out.phone = input.phone.trim();
     } else {
       dropped.push('phone');

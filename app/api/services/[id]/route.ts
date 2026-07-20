@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+import { normalizePositionType } from '@/lib/position-types';
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -13,7 +14,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
 
     const data = await request.json();
-    const service = await prisma.service.update({ where: { id: params?.id }, data: { name: data?.name, defaultPrice: Number(data?.defaultPrice ?? 0), unit: data?.unit } });
+    const service = await prisma.service.update({ where: { id: params?.id }, data: { name: data?.name, defaultPrice: Number(data?.defaultPrice ?? 0), unit: data?.unit, positionType: normalizePositionType(data?.positionType) } });
     const su = await getSessionUser();
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SERVICE_UPDATE', area: 'SERVICES', targetType: 'Service', targetId: params?.id, request });
     return NextResponse.json(service);

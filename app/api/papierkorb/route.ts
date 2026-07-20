@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
 import { getCustomerDeleteBlockerCounts, isCustomerDeleteBlocked, formatCustomerDeleteBlockerMessage } from '@/lib/customer-links';
@@ -10,6 +11,7 @@ export async function GET() {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     // Auto-cleanup: delete items older than 6 months (strict FK-safe order)
     // Same strategy as "empty": collect linked orders via offerId/invoiceId,
@@ -18,17 +20,17 @@ export async function GET() {
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
     const oldOrderIds = (await prisma.order.findMany({
-      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId },
+      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId, dataScope },
       select: { id: true },
     })).map((o: any) => o.id);
 
     const oldOfferIds = (await prisma.offer.findMany({
-      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId },
+      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId, dataScope },
       select: { id: true },
     })).map((o: any) => o.id);
 
     const oldInvoiceIds = (await prisma.invoice.findMany({
-      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId },
+      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId, dataScope },
       select: { id: true },
     })).map((o: any) => o.id);
 
@@ -40,7 +42,7 @@ export async function GET() {
     let autoLinkedOrderIds: string[] = [];
     if (autoLinkedConds.length > 0) {
       autoLinkedOrderIds = (await prisma.order.findMany({
-        where: { userId, OR: autoLinkedConds },
+        where: { userId, dataScope, OR: autoLinkedConds },
         select: { id: true },
       })).map((o: any) => o.id);
     }
@@ -52,59 +54,59 @@ export async function GET() {
         // 1. Orders first (items then orders)
         if (allOldOrderIds.length > 0) {
           await tx.orderItem.deleteMany({ where: { orderId: { in: allOldOrderIds } } });
-          await tx.order.deleteMany({ where: { id: { in: allOldOrderIds }, userId } });
+          await tx.order.deleteMany({ where: { id: { in: allOldOrderIds }, userId, dataScope } });
         }
         // 2. Invoices
         if (oldInvoiceIds.length > 0) {
           await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: oldInvoiceIds } } });
-          await tx.invoice.deleteMany({ where: { id: { in: oldInvoiceIds }, userId, deletedAt: { not: null } } });
+          await tx.invoice.deleteMany({ where: { id: { in: oldInvoiceIds }, userId, dataScope, deletedAt: { not: null } } });
         }
         // 3. Offers
         if (oldOfferIds.length > 0) {
           await tx.offerItem.deleteMany({ where: { offerId: { in: oldOfferIds } } });
-          await tx.offer.deleteMany({ where: { id: { in: oldOfferIds }, userId, deletedAt: { not: null } } });
+          await tx.offer.deleteMany({ where: { id: { in: oldOfferIds }, userId, dataScope, deletedAt: { not: null } } });
         }
       }, { timeout: 20000 });
     }
 
     // Auto-cleanup customers (canonical blocker check)
     const oldCustomers = await prisma.customer.findMany({
-      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId },
+      where: { deletedAt: { not: null, lt: sixMonthsAgo }, userId, dataScope },
       select: { id: true },
     });
     for (const c of oldCustomers) {
-      const counts = await getCustomerDeleteBlockerCounts(prisma, c.id, userId);
+      const counts = await getCustomerDeleteBlockerCounts(prisma, c.id, userId, dataScope);
       if (!isCustomerDeleteBlocked(counts)) {
         await prisma.$transaction(async (tx: any) => {
-          await tx.orderItem.deleteMany({ where: { order: { customerId: c.id, userId } } });
-          await tx.order.deleteMany({ where: { customerId: c.id, userId } });
-          await tx.offerItem.deleteMany({ where: { offer: { customerId: c.id, userId } } });
-          await tx.offer.deleteMany({ where: { customerId: c.id, userId } });
-          await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: c.id, userId } } });
-          await tx.invoice.deleteMany({ where: { customerId: c.id, userId } });
-          await tx.customer.deleteMany({ where: { id: c.id, userId, deletedAt: { not: null } } });
+          await tx.orderItem.deleteMany({ where: { order: { customerId: c.id, userId, dataScope } } });
+          await tx.order.deleteMany({ where: { customerId: c.id, userId, dataScope } });
+          await tx.offerItem.deleteMany({ where: { offer: { customerId: c.id, userId, dataScope } } });
+          await tx.offer.deleteMany({ where: { customerId: c.id, userId, dataScope } });
+          await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: c.id, userId, dataScope } } });
+          await tx.invoice.deleteMany({ where: { customerId: c.id, userId, dataScope } });
+          await tx.customer.deleteMany({ where: { id: c.id, userId, dataScope, deletedAt: { not: null } } });
         }, { timeout: 15000 });
       }
     }
 
     const [orders, offers, invoices, customers] = await Promise.all([
       prisma.order.findMany({
-        where: { deletedAt: { not: null }, userId },
+        where: { deletedAt: { not: null }, userId, dataScope },
         include: { customer: { select: { name: true } }, items: true },
         orderBy: { deletedAt: 'desc' },
       }),
       prisma.offer.findMany({
-        where: { deletedAt: { not: null }, userId },
+        where: { deletedAt: { not: null }, userId, dataScope },
         include: { customer: { select: { name: true } }, items: true },
         orderBy: { deletedAt: 'desc' },
       }),
       prisma.invoice.findMany({
-        where: { deletedAt: { not: null }, userId },
+        where: { deletedAt: { not: null }, userId, dataScope },
         include: { customer: { select: { name: true } }, items: true },
         orderBy: { deletedAt: 'desc' },
       }),
       prisma.customer.findMany({
-        where: { deletedAt: { not: null }, userId },
+        where: { deletedAt: { not: null }, userId, dataScope },
         orderBy: { deletedAt: 'desc' },
       }),
     ]);
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     const { action, type, id } = await request.json();
 
@@ -142,19 +145,19 @@ export async function POST(request: Request) {
       try {
         switch (type) {
           case 'order': {
-            const r = await prisma.order.updateMany({ where: { id, userId, deletedAt: { not: null } }, data: { deletedAt: null } });
+            const r = await prisma.order.updateMany({ where: { id, userId, dataScope, deletedAt: { not: null } }, data: { deletedAt: null } });
             affected = r.count; break;
           }
           case 'offer': {
-            const r = await prisma.offer.updateMany({ where: { id, userId, deletedAt: { not: null } }, data: { deletedAt: null } });
+            const r = await prisma.offer.updateMany({ where: { id, userId, dataScope, deletedAt: { not: null } }, data: { deletedAt: null } });
             affected = r.count; break;
           }
           case 'invoice': {
-            const r = await prisma.invoice.updateMany({ where: { id, userId, deletedAt: { not: null } }, data: { deletedAt: null } });
+            const r = await prisma.invoice.updateMany({ where: { id, userId, dataScope, deletedAt: { not: null } }, data: { deletedAt: null } });
             affected = r.count; break;
           }
           case 'customer': {
-            const r = await prisma.customer.updateMany({ where: { id, userId, deletedAt: { not: null } }, data: { deletedAt: null } });
+            const r = await prisma.customer.updateMany({ where: { id, userId, dataScope, deletedAt: { not: null } }, data: { deletedAt: null } });
             affected = r.count; break;
           }
           default:
@@ -182,7 +185,7 @@ export async function POST(request: Request) {
             // Single order: delete items → order in one transaction
             const result = await prisma.$transaction(async (tx: any) => {
               const dItems = await tx.orderItem.deleteMany({ where: { orderId: id } });
-              const dOrder = await tx.order.deleteMany({ where: { id, userId, deletedAt: { not: null } } });
+              const dOrder = await tx.order.deleteMany({ where: { id, userId, dataScope, deletedAt: { not: null } } });
               return { orderItems: dItems.count, orders: dOrder.count };
             }, { timeout: 15000 });
             if (result.orders === 0) {
@@ -194,7 +197,7 @@ export async function POST(request: Request) {
           case 'offer': {
             // Collect ALL orders linked via offerId (trashed or not), then cascade-delete everything
             const linkedOrderIds = (await prisma.order.findMany({
-              where: { offerId: id, userId },
+              where: { offerId: id, userId, dataScope },
               select: { id: true },
             })).map((o: any) => o.id);
 
@@ -205,15 +208,15 @@ export async function POST(request: Request) {
                 : { count: 0 };
               // 2. Linked orders
               const dOrders = linkedOrderIds.length > 0
-                ? await tx.order.deleteMany({ where: { id: { in: linkedOrderIds }, userId } })
+                ? await tx.order.deleteMany({ where: { id: { in: linkedOrderIds }, userId, dataScope } })
                 : { count: 0 };
               // 3. Offer items
               const dOfferItems = await tx.offerItem.deleteMany({ where: { offerId: id } });
               // 4. Offer itself (must be trashed + owned)
-              const dOffer = await tx.offer.deleteMany({ where: { id, userId, deletedAt: { not: null } } });
+              const dOffer = await tx.offer.deleteMany({ where: { id, userId, dataScope, deletedAt: { not: null } } });
               // 5. Verify no straggler orders still reference this offer
               if (dOffer.count > 0) {
-                const stragglers = await tx.order.count({ where: { offerId: id, userId } });
+                const stragglers = await tx.order.count({ where: { offerId: id, userId, dataScope } });
                 if (stragglers > 0) {
                   throw new Error(`STRAGGLER_ORDERS: ${stragglers} orders still reference deleted offer ${id}`);
                 }
@@ -229,7 +232,7 @@ export async function POST(request: Request) {
           case 'invoice': {
             // Collect ALL orders linked via invoiceId (trashed or not), then cascade-delete everything
             const linkedOrderIds = (await prisma.order.findMany({
-              where: { invoiceId: id, userId },
+              where: { invoiceId: id, userId, dataScope },
               select: { id: true },
             })).map((o: any) => o.id);
 
@@ -240,15 +243,15 @@ export async function POST(request: Request) {
                 : { count: 0 };
               // 2. Linked orders
               const dOrders = linkedOrderIds.length > 0
-                ? await tx.order.deleteMany({ where: { id: { in: linkedOrderIds }, userId } })
+                ? await tx.order.deleteMany({ where: { id: { in: linkedOrderIds }, userId, dataScope } })
                 : { count: 0 };
               // 3. Invoice items
               const dInvItems = await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
               // 4. Invoice itself (must be trashed + owned)
-              const dInvoice = await tx.invoice.deleteMany({ where: { id, userId, deletedAt: { not: null } } });
+              const dInvoice = await tx.invoice.deleteMany({ where: { id, userId, dataScope, deletedAt: { not: null } } });
               // 5. Verify no straggler orders still reference this invoice
               if (dInvoice.count > 0) {
-                const stragglers = await tx.order.count({ where: { invoiceId: id, userId } });
+                const stragglers = await tx.order.count({ where: { invoiceId: id, userId, dataScope } });
                 if (stragglers > 0) {
                   throw new Error(`STRAGGLER_ORDERS: ${stragglers} orders still reference deleted invoice ${id}`);
                 }
@@ -263,7 +266,7 @@ export async function POST(request: Request) {
           }
           case 'customer': {
             // Customer must be in trash AND belong to user
-            const item = await prisma.customer.findFirst({ where: { id, userId, deletedAt: { not: null } } });
+            const item = await prisma.customer.findFirst({ where: { id, userId, dataScope, deletedAt: { not: null } } });
             if (!item) {
               return NextResponse.json({ error: 'Kunde nicht im Papierkorb (bereits wiederhergestellt oder gelöscht). Bitte Papierkorb neu laden.' }, { status: 404 });
             }
@@ -283,13 +286,13 @@ export async function POST(request: Request) {
             }
             // Transactional: delete all linked items + records + customer
             const result = await prisma.$transaction(async (tx: any) => {
-              const dOrdItems = await tx.orderItem.deleteMany({ where: { order: { customerId: id, userId } } });
-              const dOrders = await tx.order.deleteMany({ where: { customerId: id, userId } });
-              const dOffItems = await tx.offerItem.deleteMany({ where: { offer: { customerId: id, userId } } });
-              const dOffers = await tx.offer.deleteMany({ where: { customerId: id, userId } });
-              const dInvItems = await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: id, userId } } });
-              const dInvoices = await tx.invoice.deleteMany({ where: { customerId: id, userId } });
-              const dCustomer = await tx.customer.deleteMany({ where: { id, userId, deletedAt: { not: null } } });
+              const dOrdItems = await tx.orderItem.deleteMany({ where: { order: { customerId: id, userId, dataScope } } });
+              const dOrders = await tx.order.deleteMany({ where: { customerId: id, userId, dataScope } });
+              const dOffItems = await tx.offerItem.deleteMany({ where: { offer: { customerId: id, userId, dataScope } } });
+              const dOffers = await tx.offer.deleteMany({ where: { customerId: id, userId, dataScope } });
+              const dInvItems = await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: id, userId, dataScope } } });
+              const dInvoices = await tx.invoice.deleteMany({ where: { customerId: id, userId, dataScope } });
+              const dCustomer = await tx.customer.deleteMany({ where: { id, userId, dataScope, deletedAt: { not: null } } });
               return {
                 orderItems: dOrdItems.count, orders: dOrders.count,
                 offerItems: dOffItems.count, offers: dOffers.count,
@@ -325,22 +328,22 @@ export async function POST(request: Request) {
       try {
         // ── Pre-flight: gather IDs of ALL trashed records ──────────────────
         const trashedOrderIds = (await prisma.order.findMany({
-          where: { deletedAt: { not: null }, userId },
+          where: { deletedAt: { not: null }, userId, dataScope },
           select: { id: true },
         })).map((o: any) => o.id);
 
         const trashedOfferIds = (await prisma.offer.findMany({
-          where: { deletedAt: { not: null }, userId },
+          where: { deletedAt: { not: null }, userId, dataScope },
           select: { id: true },
         })).map((o: any) => o.id);
 
         const trashedInvoiceIds = (await prisma.invoice.findMany({
-          where: { deletedAt: { not: null }, userId },
+          where: { deletedAt: { not: null }, userId, dataScope },
           select: { id: true },
         })).map((o: any) => o.id);
 
         const trashedCustomerRows = await prisma.customer.findMany({
-          where: { deletedAt: { not: null }, userId },
+          where: { deletedAt: { not: null }, userId, dataScope },
           select: { id: true },
         });
 
@@ -358,7 +361,7 @@ export async function POST(request: Request) {
         let linkedOrderIds: string[] = [];
         if (linkedOrderConditions.length > 0) {
           linkedOrderIds = (await prisma.order.findMany({
-            where: { userId, OR: linkedOrderConditions },
+            where: { userId, dataScope, OR: linkedOrderConditions },
             select: { id: true },
           })).map((o: any) => o.id);
         }
@@ -369,7 +372,7 @@ export async function POST(request: Request) {
         // Determine which customers are safe to delete (canonical blocker check)
         const safeCustomerIds: string[] = [];
         for (const c of trashedCustomerRows) {
-          const counts = await getCustomerDeleteBlockerCounts(prisma, c.id, userId);
+          const counts = await getCustomerDeleteBlockerCounts(prisma, c.id, userId, dataScope);
           if (!isCustomerDeleteBlocked(counts)) safeCustomerIds.push(c.id);
         }
 
@@ -398,7 +401,7 @@ export async function POST(request: Request) {
             : { count: 0 };
 
           const dOrders = allOrderIdsToDelete.length > 0
-            ? await tx.order.deleteMany({ where: { id: { in: allOrderIdsToDelete }, userId } })
+            ? await tx.order.deleteMany({ where: { id: { in: allOrderIdsToDelete }, userId, dataScope } })
             : { count: 0 };
 
           // ─ Step 2: Delete trashed invoices (now unblocked) ──────────────
@@ -407,7 +410,7 @@ export async function POST(request: Request) {
             : { count: 0 };
 
           const dInvoices = trashedInvoiceIds.length > 0
-            ? await tx.invoice.deleteMany({ where: { id: { in: trashedInvoiceIds }, userId, deletedAt: { not: null } } })
+            ? await tx.invoice.deleteMany({ where: { id: { in: trashedInvoiceIds }, userId, dataScope, deletedAt: { not: null } } })
             : { count: 0 };
 
           // ─ Step 3: Delete trashed offers (now unblocked) ────────────────
@@ -416,7 +419,7 @@ export async function POST(request: Request) {
             : { count: 0 };
 
           const dOffers = trashedOfferIds.length > 0
-            ? await tx.offer.deleteMany({ where: { id: { in: trashedOfferIds }, userId, deletedAt: { not: null } } })
+            ? await tx.offer.deleteMany({ where: { id: { in: trashedOfferIds }, userId, dataScope, deletedAt: { not: null } } })
             : { count: 0 };
 
           // ─ Step 4: Validation — no straggler orders should remain ───────
@@ -425,7 +428,7 @@ export async function POST(request: Request) {
             if (trashedOfferIds.length > 0) stragglerConditions.push({ offerId: { in: trashedOfferIds } });
             if (trashedInvoiceIds.length > 0) stragglerConditions.push({ invoiceId: { in: trashedInvoiceIds } });
             const stragglers = await tx.order.count({
-              where: { userId, OR: stragglerConditions },
+              where: { userId, dataScope, OR: stragglerConditions },
             });
             if (stragglers > 0) {
               throw new Error(`STRAGGLER_ORDERS: ${stragglers} orders still reference deleted offers/invoices`);
@@ -435,13 +438,13 @@ export async function POST(request: Request) {
           // ─ Step 5: Customers — clear residual history then delete ───────
           let customerCount = 0;
           for (const cid of safeCustomerIds) {
-            await tx.orderItem.deleteMany({ where: { order: { customerId: cid, userId } } });
-            await tx.order.deleteMany({ where: { customerId: cid, userId } });
-            await tx.offerItem.deleteMany({ where: { offer: { customerId: cid, userId } } });
-            await tx.offer.deleteMany({ where: { customerId: cid, userId } });
-            await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: cid, userId } } });
-            await tx.invoice.deleteMany({ where: { customerId: cid, userId } });
-            const rc = await tx.customer.deleteMany({ where: { id: cid, userId, deletedAt: { not: null } } });
+            await tx.orderItem.deleteMany({ where: { order: { customerId: cid, userId, dataScope } } });
+            await tx.order.deleteMany({ where: { customerId: cid, userId, dataScope } });
+            await tx.offerItem.deleteMany({ where: { offer: { customerId: cid, userId, dataScope } } });
+            await tx.offer.deleteMany({ where: { customerId: cid, userId, dataScope } });
+            await tx.invoiceItem.deleteMany({ where: { invoice: { customerId: cid, userId, dataScope } } });
+            await tx.invoice.deleteMany({ where: { customerId: cid, userId, dataScope } });
+            const rc = await tx.customer.deleteMany({ where: { id: cid, userId, dataScope, deletedAt: { not: null } } });
             customerCount += rc.count;
           }
 

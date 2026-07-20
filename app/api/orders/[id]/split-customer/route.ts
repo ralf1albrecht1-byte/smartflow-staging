@@ -22,6 +22,7 @@ import { prisma } from '@/lib/prisma';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
 import { generateCustomerNumber } from '@/lib/customer-number';
+import { getActiveDataScope } from '@/lib/data-scope';
 
 export async function POST(
   _request: Request,
@@ -34,9 +35,10 @@ export async function POST(
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
 
     const order = await prisma.order.findFirst({
-      where: { id: params.id, userId },
+      where: { id: params.id, userId, dataScope },
       include: { customer: true },
     });
     if (!order) {
@@ -108,6 +110,7 @@ export async function POST(
       country: string;
       notes: null;
       userId: string | null;
+      dataScope: string;
     } = {
       customerNumber: '', // set below
       name: sourceCustomer.name || '',
@@ -119,6 +122,7 @@ export async function POST(
       country: sourceCustomer.country || 'CH',
       notes: null,
       userId,
+      dataScope,
     };
 
     if (tagType === 'AUTO_REUSED') {
@@ -140,7 +144,7 @@ export async function POST(
       }
     }
 
-    const newCustomerNumber = await generateCustomerNumber();
+    const newCustomerNumber = await generateCustomerNumber(userId, dataScope);
     newCustomerData.customerNumber = newCustomerNumber;
     const newCustomer = await prisma.customer.create({
       data: newCustomerData,

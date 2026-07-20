@@ -31,6 +31,8 @@ export interface AccountStatusUserShape {
   blockedAt?: Date | string | null;
   blockedReason?: string | null;
   anonymizedAt?: Date | string | null;
+  subscriptionStatus?: string | null;
+  currentPeriodEnd?: Date | string | null;
 }
 
 /** Synchroner Status-Evaluator. Übergeben wird ein bereits geladener User. */
@@ -46,6 +48,15 @@ export function evaluateAccountStatus(
     return { status: 'anonymized', canAccess: false, reason: 'anonymized' };
   }
   const raw = (user.accountStatus || 'active') as RawAccountStatus;
+  const subscriptionStatus = user.subscriptionStatus || null;
+
+  if (subscriptionStatus === 'canceled') {
+    return { status: 'cancelled_expired', canAccess: false, reason: 'subscription_canceled' };
+  }
+
+  if (subscriptionStatus === 'active' || subscriptionStatus === 'trialing') {
+    return { status: 'active', canAccess: true };
+  }
   if (raw === 'anonymized') {
     return { status: 'anonymized', canAccess: false, reason: 'anonymized' };
   }
@@ -113,8 +124,9 @@ export const ACCOUNT_STATUS_USER_SELECT = {
   blockedAt: true,
   blockedReason: true,
   anonymizedAt: true,
+  subscriptionStatus: true,
+  currentPeriodEnd: true,
 } as const;
-
 /**
  * Liest den User aus der DB und wertet den Status aus. Wird vom Layout
  * und von `requireUserId` benutzt. Gibt null zurück wenn der User nicht

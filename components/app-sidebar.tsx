@@ -1,15 +1,32 @@
 'use client';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
-import { FileStack, LayoutDashboard, Users, ClipboardList, Wrench, FileText, FileCheck, LogOut, Menu, X, Trash2, Settings, ShieldCheck } from 'lucide-react';
+import {
+  FileStack,
+  LayoutDashboard,
+  Users,
+  ClipboardList,
+  Wrench,
+  FileText,
+  FileCheck,
+  LogOut,
+  Menu,
+  X,
+  Trash2,
+  Settings,
+  ShieldCheck,
+  FlaskConical,
+  CheckCircle2,
+} from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/auftraege', label: 'Auftr\u00e4ge', icon: ClipboardList },
+  { href: '/auftraege', label: 'Aufträge', icon: ClipboardList },
   { href: '/angebote', label: 'Angebote', icon: FileCheck },
   { href: '/rechnungen', label: 'Rechnungen', icon: FileText },
   { href: '/archiv', label: 'Archivierte Rechnungen', icon: FileText, sub: true },
@@ -25,16 +42,31 @@ export default function AppSidebar() {
   const [open, setOpen] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [envLabel, setEnvLabel] = useState<string | null>(null);
+  const [testModus, setTestModus] = useState<boolean | null>(null);
 
-  // Fetch company name once on mount (not on every route change to avoid DB pressure)
+  // Fetch company name and current TEST/LIVE mode once on mount.
   useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.ok ? r.json() : null)
+    fetch('/api/settings', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data?.firmenname) setCompanyName(data.firmenname);
         if (data?.envLabel) setEnvLabel(data.envLabel);
+        if (typeof data?.testModus === 'boolean') setTestModus(data.testModus);
       })
       .catch(() => {});
+  }, []);
+
+  // Keep the global badge current when the mode is changed on the settings page.
+  useEffect(() => {
+    const handleModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ testModus?: boolean }>).detail;
+      if (typeof detail?.testModus === 'boolean') {
+        setTestModus(detail.testModus);
+      }
+    };
+
+    window.addEventListener('smartflow-mode-changed', handleModeChanged);
+    return () => window.removeEventListener('smartflow-mode-changed', handleModeChanged);
   }, []);
 
   // Split company name into two lines: first word + rest
@@ -44,6 +76,32 @@ export default function AppSidebar() {
 
   return (
     <>
+      {/* Global mode badge — always visible on desktop and mobile. */}
+      {testModus !== null && (
+        <Link
+          href="/einstellungen?section=nummern"
+          onClick={() => setOpen(false)}
+          title={
+            testModus
+              ? 'TESTMODUS AKTIV – Du arbeitest mit Testdaten. Der Livebetrieb wird nicht verändert.'
+              : 'LIVEBETRIEB AKTIV – Du arbeitest mit echten Live-Daten.'
+          }
+          className={cn(
+            'fixed top-4 right-4 z-50 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold shadow-md transition-colors',
+            testModus
+              ? 'border-blue-300 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200'
+              : 'border-green-300 bg-green-100 text-green-800 hover:bg-green-200 dark:border-green-700 dark:bg-green-950 dark:text-green-200',
+          )}
+        >
+          {testModus ? (
+            <FlaskConical className="h-4 w-4" aria-hidden />
+          ) : (
+            <CheckCircle2 className="h-4 w-4" aria-hidden />
+          )}
+          <span>{testModus ? 'TESTMODUS' : 'LIVEBETRIEB'}</span>
+        </Link>
+      )}
+
       {/* Mobile toggle */}
       <button
         className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-primary text-primary-foreground rounded-lg"
@@ -54,15 +112,26 @@ export default function AppSidebar() {
       </button>
 
       {/* Overlay */}
-      {open && <div className="lg:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setOpen(false)} />}
+      {open && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 z-40"
+          onClick={() => setOpen(false)}
+        />
+      )}
 
       {/* Sidebar */}
-      <aside className={cn(
-        'fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-card border-r border-border flex flex-col transition-transform duration-300',
-        open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-      )}>
+      <aside
+        className={cn(
+          'fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-card border-r border-border flex flex-col transition-transform duration-300',
+          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        )}
+      >
         <div className="p-6 border-b border-border">
-          <Link href="/dashboard" className="flex items-center gap-3" onClick={() => setOpen(false)}>
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-3"
+            onClick={() => setOpen(false)}
+          >
             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
               <FileStack className="w-6 h-6 text-primary-foreground" />
             </div>
@@ -77,13 +146,18 @@ export default function AppSidebar() {
                   <h1 className="font-display font-bold text-base tracking-tight">{line1}</h1>
                 )
               ) : (
-                <h1 className="font-display font-bold text-base tracking-tight text-muted-foreground">Firma</h1>
+                <h1 className="font-display font-bold text-base tracking-tight text-muted-foreground">
+                  Firma
+                </h1>
               )}
             </div>
           </Link>
+
           {envLabel && (
             <div className="mt-3 px-3 py-1.5 rounded-md bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 text-center">
-              <span className="text-xs font-bold tracking-widest text-amber-800 dark:text-amber-300">{envLabel}</span>
+              <span className="text-xs font-bold tracking-widest text-amber-800 dark:text-amber-300">
+                {envLabel}
+              </span>
             </div>
           )}
         </div>
@@ -101,7 +175,7 @@ export default function AppSidebar() {
                   (item as any).sub && 'pl-8 py-1.5',
                   isActive
                     ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                 )}
               >
                 <item.icon className={cn('w-5 h-5', (item as any).sub && 'w-4 h-4')} />
@@ -120,13 +194,14 @@ export default function AppSidebar() {
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
                 pathname === '/admin'
                   ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
               )}
             >
               <ShieldCheck className="w-5 h-5" />
               Admin
             </Link>
           )}
+
           <Link
             href="/papierkorb"
             onClick={() => setOpen(false)}
@@ -134,12 +209,13 @@ export default function AppSidebar() {
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
               pathname === '/papierkorb'
                 ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
             )}
           >
             <Trash2 className="w-5 h-5" />
             Papierkorb
           </Link>
+
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive"

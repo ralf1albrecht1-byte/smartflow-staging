@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
@@ -118,75 +119,109 @@ Wenn false:
 - mwst_satz = null
 - mwst_hinweis = "Nicht MWST-pflichtig"`;
 
+function getOpenAiApiKey(): string | null {
+  return process.env.OPENAI_API_KEY || null;
+}
+
+function mapParsedSettings(parsed: any) {
+  return {
+    firmenname: parsed?.firmenname || '',
+    firmaRechtlich: parsed?.firma_rechtlich || null,
+    ansprechpartner: parsed?.ansprechpartner || null,
+    telefon: parsed?.telefon || null,
+    email: parsed?.email || null,
+    webseite: parsed?.webseite || null,
+    strasse: parsed?.adresse?.strasse || null,
+    hausnummer: parsed?.adresse?.hausnummer || null,
+    plz: parsed?.adresse?.plz || null,
+    ort: parsed?.adresse?.ort || null,
+    iban: parsed?.rechnungsdaten?.iban || null,
+    bank: parsed?.rechnungsdaten?.bank || null,
+    mwstAktiv: parsed?.rechnungsdaten?.mwst_aktiv ?? false,
+    mwstNummer: parsed?.rechnungsdaten?.mwst_nummer || null,
+    mwstSatz: parsed?.rechnungsdaten?.mwst_satz ?? null,
+    mwstHinweis: parsed?.rechnungsdaten?.mwst_hinweis || null,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const { text } = await request.json();
+
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Kein Text angegeben' }, { status: 400 });
     }
 
-    const llmResponse = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+    const apiKey = getOpenAiApiKey();
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'KI-Analyse ist aktuell nicht konfiguriert' },
+        { status: 503 }
+      );
+    }
+
+    const llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: process.env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: text },
         ],
         response_format: { type: 'json_object' },
         max_tokens: 1000,
+        temperature: 0,
       }),
     });
 
     if (!llmResponse.ok) {
-      console.error('LLM API error:', await llmResponse.text());
-      return NextResponse.json({ error: 'KI-Analyse fehlgeschlagen' }, { status: 500 });
+      const errorText = await llmResponse.text();
+      console.error('OpenAI API error:', errorText);
+
+      return NextResponse.json(
+        { error: 'KI-Analyse fehlgeschlagen' },
+        { status: 500 }
+      );
     }
 
     const llmResult = await llmResponse.json();
     const content = llmResult?.choices?.[0]?.message?.content;
+
     if (!content) {
       return NextResponse.json({ error: 'Keine Antwort von KI' }, { status: 500 });
     }
 
     let parsed: any;
+
     try {
       parsed = JSON.parse(content);
     } catch {
-      console.error('Failed to parse LLM response:', content);
-      return NextResponse.json({ error: 'KI-Antwort ungültig' }, { status: 500 });
+      console.error('Failed to parse OpenAI response:', content);
+
+      return NextResponse.json(
+        { error: 'KI-Antwort ungültig' },
+        { status: 500 }
+      );
     }
 
-    // Map LLM output to our flat field structure
-    const result = {
-      firmenname: parsed.firmenname || '',
-      firmaRechtlich: parsed.firma_rechtlich || null,
-      ansprechpartner: parsed.ansprechpartner || null,
-      telefon: parsed.telefon || null,
-      email: parsed.email || null,
-      webseite: parsed.webseite || null,
-      strasse: parsed.adresse?.strasse || null,
-      hausnummer: parsed.adresse?.hausnummer || null,
-      plz: parsed.adresse?.plz || null,
-      ort: parsed.adresse?.ort || null,
-      iban: parsed.rechnungsdaten?.iban || null,
-      bank: parsed.rechnungsdaten?.bank || null,
-      mwstAktiv: parsed.rechnungsdaten?.mwst_aktiv ?? false,
-      mwstNummer: parsed.rechnungsdaten?.mwst_nummer || null,
-      mwstSatz: parsed.rechnungsdaten?.mwst_satz ?? null,
-      mwstHinweis: parsed.rechnungsdaten?.mwst_hinweis || null,
-    };
-
-    return NextResponse.json(result);
+    return NextResponse.json(mapParsedSettings(parsed));
   } catch (error) {
     console.error('POST /api/settings/parse error:', error);
-    return NextResponse.json({ error: 'Fehler beim Parsen' }, { status: 500 });
+
+    return NextResponse.json(
+      { error: 'Fehler beim Parsen' },
+      { status: 500 }
+    );
   }
 }

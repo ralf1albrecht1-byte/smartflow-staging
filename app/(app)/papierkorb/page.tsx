@@ -187,7 +187,7 @@ export default function PapierkorbPage() {
         <div className="text-center py-16">
           <Trash2 className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
           <p className="text-muted-foreground text-lg">Papierkorb ist leer</p>
-          <p className="text-muted-foreground text-sm mt-1">Gelöschte Elemente werden hier angezeigt</p>
+          <p className="text-muted-foreground text-sm mt-1">Neueste Löschungen zuerst · getrennt nach aktuellem TEST-/LIVE-Modus</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -205,7 +205,7 @@ export default function PapierkorbPage() {
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs">
                         <span className="text-muted-foreground">{item.subtitle}</span>
-                        <span className="text-muted-foreground">{"Gelöscht: "}{new Date(item.deletedAt).toLocaleDateString('de-CH')}</span>
+                        <span className="text-muted-foreground">{"Gelöscht: "}{new Date(item.deletedAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

@@ -1,0 +1,94 @@
+SMARTFLOW V17.90L195 – STRICT CONTACT / CUSTOMER ROLE LOCK
+==========================================================
+
+ZIEL
+----
+1. Vor-Ort-Telefon darf niemals Kundentelefon werden.
+2. Kundentelefon wird nur aus dem begrenzten Rechnungskundenblock gelesen.
+3. Kein Fallback zwischen Rechnungs-Kunde und Vor-Ort-Kontakt.
+4. Canonical Intake Snapshot ist nach dem Intake die Anzeigequelle für Kontakt,
+   Termin, Zugang, Code, Parkplatz und Hinweise.
+5. Legacy-Auto-Fill aus Auftragsnotizen wird für Canonical-Aufträge gesperrt.
+6. Keller-Fall: 044 555 18 90 bleibt Kundentelefon; kein erfundener
+   Vor-Ort-Kontakt; Termin/Anrufhinweis und Schlüssel/Code bleiben getrennt.
+
+ENTHALTENE DATEIEN
+------------------
+lib/order-intake.ts
+tools/apply-v17-90-l195.mjs
+APPLY_L195.cmd
+L195_INSTALLATION_UND_RETEST.txt
+
+NICHT GEÄNDERT
+--------------
+- Leistungen
+- Mengen, Einheiten, Preise und Summen
+- Währungsprüfung
+- Ausführungsadressen
+- Angebots-/Rechnungslogik
+- PDF
+- Kartenlayout und Responsive-Verhalten
+- Prisma-Schema / Datenbankmigration
+
+EINBAU
+------
+ZIP direkt in den Projektordner entpacken:
+C:\Users\smile\Documents\GitHub\smartflow-staging-clean\smartflow-staging
+
+Danach in PowerShell:
+
+cd "C:\Users\smile\Documents\GitHub\smartflow-staging-clean\smartflow-staging"
+.\APPLY_L195.cmd
+npx.cmd prisma generate
+npx.cmd tsc --noEmit --pretty false
+npm.cmd run build
+
+Nur bei grünem TypeScript und grünem Build committen/pushen:
+
+git add "lib/order-intake.ts" "app/(app)/auftraege/page.tsx" "tools/apply-v17-90-l195.mjs" "APPLY_L195.cmd" "L195_INSTALLATION_UND_RETEST.txt"
+git commit -m "Lock billing and onsite contact roles to canonical intake"
+git push origin test
+
+WICHTIG ZUM RETEST
+------------------
+L195 repariert den neuen Intake und verhindert weitere Legacy-Auto-Fill-
+Verschmutzung. Bereits durch L194/ältere Auto-Fill-Aufrufe veränderte
+Kundenstammdaten werden nicht automatisch rückwirkend überschrieben.
+
+Darum für den eindeutigen Retest im TESTMODUS entweder:
+- frische Testkunden/Firmennamen verwenden, oder
+- nur die alten fünf L194-Testkunden und ihre Testaufträge vorher entfernen.
+LIVE nicht anfassen.
+
+ERWARTUNG NEUER TESTAUFTRÄGE
+----------------------------
+Nordpark:
+- Kundentelefon 044 771 28 10
+- Vor-Ort-Kontakt Nadine Keller 079 445 18 72 nur WhatsApp
+
+Keller:
+- Kundentelefon 044 555 18 90
+- kein Vor-Ort-Kontaktname aus Datum/Termin
+- Termin/Anrufhinweis getrennt
+- Zugang: Schlüssel liegt beim Hauswart im Büro · Code 1842
+
+Nettoyage Riviera:
+- Kundentelefon 021 555 77 21
+- Vor-Ort-Kontakt Sophie Martin 078 611 40 25 nur SMS
+
+BauFix:
+- Kundentelefon 056 441 90 20
+- Vor-Ort-Kontakt Marco Rossi 076 333 48 12
+
+Alpina:
+- Kundentelefon leer
+- Vor-Ort-Kontakt Daniel Frei 079 681 22 04 nur SMS
+
+TECHNISCHE PRÜFUNG DIESES PAKETS
+--------------------------------
+- TypeScript-Parserdiagnostik für lib/order-intake.ts: 0 Fehler.
+- Node-Syntaxprüfung für tools/apply-v17-90-l195.mjs: bestanden.
+- Billing-Phone-Funktion mit Nordpark, Keller, Nettoyage, BauFix und Alpina
+  lokal als isolierte Logik geprüft: alle fünf Erwartungen bestanden.
+- Vollständiger Projekt-Build kann nur im echten Smartflow-Projekt ausgeführt
+  werden und ist daher vor Commit zwingend lokal auszuführen.

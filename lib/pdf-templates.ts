@@ -1,4 +1,8 @@
-export type DocumentTemplate = 'classic' | 'modern' | 'minimal' | 'elegant';
+// SMARTFLOW_V17_90L371I_PDF_POSITION_GROUPS_FIX
+// SMARTFLOW_V17_90L339_INVOICE_PDF_META_AND_CONTACT_CHANNEL_FIX
+import { getPositionTypeLabel, inferPositionTypeFromItem, normalizePositionType } from "@/lib/position-types";
+
+export type DocumentTemplate = "classic" | "modern" | "minimal" | "elegant";
 
 export interface CompanyInfo {
   firmenname: string;
@@ -29,29 +33,248 @@ export interface CompanyInfo {
   companyLogoUrl?: string | null;
   logoVisible?: boolean | null;
   showLogo?: boolean | null;
+  currency?: string | null;
 }
 
 const DEFAULT_COMPANY: CompanyInfo = {
-  firmenname: 'Mein Unternehmen',
-  ansprechpartner: 'Ralf Albrecht',
-  strasse: 'Schartenstrasse',
-  hausnummer: '127',
-  plz: '5430',
-  ort: 'Wettingen',
-  email: 'smiley.albi@web.de',
+  firmenname: "Mein Unternehmen",
+  ansprechpartner: "Ralf Albrecht",
+  strasse: "Schartenstrasse",
+  hausnummer: "127",
+  plz: "5430",
+  ort: "Wettingen",
+  email: "smiley.albi@web.de",
+};
+const getCurrency = (c?: CompanyInfo | null): "CHF" | "EUR" =>
+  c?.currency === "EUR" ? "EUR" : "CHF";
+
+const roundMoneyForPdf = (amount: number): number =>
+  Math.round((Number(amount ?? 0) + Number.EPSILON) * 100) / 100;
+
+const formatMoney = (amount: number, c?: CompanyInfo | null) =>
+  `${getCurrency(c)} ${roundMoneyForPdf(amount).toFixed(2)}`;
+const formatDate = (date: string | Date | null | undefined) => {
+  if (!date) return "";
+  const d = new Date(date);
+  return d.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 };
 
-const formatCHF = (amount: number) => `CHF ${(amount ?? 0).toFixed(2)}`;
-const formatDate = (date: string | Date | null | undefined) => {
-  if (!date) return '';
-  const d = new Date(date);
-  return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
+
+type OfferPdfMeta = {
+  title: string;
+  text: string;
 };
+
+function decodeOfferPdfMeta(value: unknown): OfferPdfMeta {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { title: "", text: "" };
+  if (!raw.startsWith(OFFER_PDF_META_PREFIX)) {
+    return { title: "", text: raw };
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(OFFER_PDF_META_PREFIX.length));
+    return {
+      title: String(parsed?.title ?? "").trim(),
+      text: String(parsed?.text ?? "").trim(),
+    };
+  } catch {
+    return { title: "", text: raw };
+  }
+}
+
+function renderOfferPdfTextBlock(offer: any): string {
+  const raw = String(offer?.notes ?? "").trim();
+  // V17.90L61: Only text explicitly entered in the dedicated offer-PDF fields
+  // may appear in the customer PDF. Legacy/plain notes can contain generated
+  // service summaries or internal order text and must not become a Bemerkungen
+  // block automatically.
+  if (!raw.startsWith(OFFER_PDF_META_PREFIX)) return "";
+  const meta = decodeOfferPdfMeta(raw);
+  if (!meta.title && !meta.text) return "";
+  const body = meta.text ? meta.text.replace(/\n/g, "<br/>") : "";
+  if (meta.title) {
+    return `<div class="notes"><strong>${meta.title}</strong>${body ? `<br/>${body}` : ""}</div>`;
+  }
+  return `<div class="notes">${body}</div>`;
+}
+
+type InvoicePdfMeta = {
+  title: string;
+  text: string;
+};
+
+const INVOICE_PDF_META_PREFIX = "[[SMARTFLOW_INVOICE_PDF_V1]]";
+
+function decodeInvoicePdfMeta(value: unknown): InvoicePdfMeta {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { title: "", text: "" };
+
+  // SMARTFLOW_V17_90L339: Rechnungs-Besonderheiten sind intern. Das
+  // technische Meta-JSON darf nie im Kunden-PDF erscheinen. Nur explizite
+  // PDF-Felder (pdfTitle/notes bzw. title/text) werden gerendert.
+  if (raw.startsWith(INVOICE_PDF_META_PREFIX)) {
+    try {
+      const parsed = JSON.parse(raw.slice(INVOICE_PDF_META_PREFIX.length));
+      return {
+        title: String(parsed?.pdfTitle ?? parsed?.title ?? "").trim(),
+        text: String(parsed?.notes ?? parsed?.text ?? "").trim(),
+      };
+    } catch {
+      return { title: "", text: "" };
+    }
+  }
+
+  const marker = "Titel: ";
+  if (!raw.startsWith(marker)) return { title: "", text: raw };
+  const [firstLine, ...rest] = raw.split(/\r?\n/);
+  return {
+    title: firstLine.slice(marker.length).trim(),
+    text: rest.join("\n").trim(),
+  };
+}
+
+function renderInvoicePdfTextBlock(invoice: any): string {
+  const meta = decodeInvoicePdfMeta(invoice?.notes);
+  if (!meta.title && !meta.text) return "";
+  const body = meta.text ? meta.text.replace(/\n/g, "<br/>") : "";
+  if (meta.title) {
+    return `<div class="notes"><strong>${meta.title}</strong>${body ? `<br/>${body}` : ""}</div>`;
+  }
+  return `<div class="notes">${body}</div>`;
+}
+
+const offerDocumentStyles = `
+  body.offer-document { box-sizing: border-box; padding-bottom: 34px !important; }
+  body.offer-document .container,
+  body.offer-document .wrap { padding-bottom: 34px !important; }
+  body.offer-document .footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0 !important;
+    padding-top: 8px !important;
+    background: white;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.offer-document .notes,
+  body.offer-document .execution-address {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.offer-document .execution-address {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(100, 116, 139, 0.24);
+  }
+  body.offer-document .execution-address-title {
+    margin: 0 0 5px 0;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  body.offer-document .execution-address p { margin: 2px 0; }
+
+  /* Offer pages are intentionally slightly tighter so a footer never becomes
+     the only content on a second page. Invoice layouts remain unchanged. */
+  body.offer-document .brand { padding-bottom: 10px; margin-bottom: 14px; }
+  body.offer-document .brand .logo { margin-bottom: 6px; }
+  body.offer-document .center-title { margin: 6px 0 18px 0; }
+  body.offer-document .two-col { margin-bottom: 18px; }
+  body.offer-document table { margin-bottom: 14px; }
+  body.offer-document th { padding-top: 8px; padding-bottom: 8px; }
+  body.offer-document td { padding-top: 7px; padding-bottom: 7px; }
+  body.offer-document .totals-row { padding-top: 5px; padding-bottom: 5px; }
+  body.offer-document .notes { margin-top: 18px; padding-top: 11px; padding-bottom: 11px; }
+  body.offer-document .offer-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+  body.offer-document .offer-continuation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 0 0 10px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.32);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+  body.offer-document .offer-continuation-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+  body.offer-document .offer-continuation-logo {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+  body.offer-document .offer-continuation-logo img {
+    max-height: 40px !important;
+    max-width: 110px !important;
+  }
+  body.offer-document .offer-continuation-company {
+    min-width: 0;
+    font-size: 8.5px;
+    line-height: 1.35;
+    color: #64748b;
+  }
+  body.offer-document .offer-continuation-company strong {
+    display: block;
+    color: #1f2937;
+    font-size: 10px;
+  }
+  body.offer-document .offer-continuation-meta {
+    flex: 0 0 auto;
+    text-align: right;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 8.5px;
+    line-height: 1.45;
+    color: #64748b;
+  }
+  body.offer-document .offer-continuation-meta strong {
+    display: block;
+    color: #1f2937;
+    font-size: 10px;
+  }
+  body.offer-document .offer-continuation-title {
+    margin: 0 0 9px 0;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+  }
+  body.offer-document .offer-summary-clear { clear: both; }
+  body.offer-document .offer-summary-clear::after {
+    content: '';
+    display: block;
+    clear: both;
+  }
+  @media print {
+    body.offer-document thead { display: table-header-group; }
+    body.offer-document tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
+`;
 
 function pickTemplate(company?: CompanyInfo | null): DocumentTemplate {
-  const raw = (company?.documentTemplate || '').toLowerCase();
-  if (raw === 'modern' || raw === 'minimal' || raw === 'elegant') return raw as DocumentTemplate;
-  return 'classic';
+  const raw = (company?.documentTemplate || "").toLowerCase();
+  if (raw === "modern" || raw === "minimal" || raw === "elegant")
+    return raw as DocumentTemplate;
+  return "classic";
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -86,74 +309,73 @@ const classicStyles = `
 `;
 
 function buildClassicCompanyBlock(c: CompanyInfo): string {
-  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(' ');
-  const plzLine = [c.plz, c.ort].filter(Boolean).join(' ');
+  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(" ");
+  const plzLine = [c.plz, c.ort].filter(Boolean).join(" ");
   const showLogo = letterheadVisible(c);
   return `
   <div class="company">
-    ${showLogo
-      ? `<div style="margin-bottom:6px;">${letterheadImg(c, 'lg')}</div>`
-      : `<div class="company-name">${c.firmenname || ''}</div>`
+    ${
+      showLogo
+        ? `<div style="margin-bottom:6px;">${letterheadImg(c, "lg")}</div>`
+        : `<div class="company-name">${c.firmenname || ""}</div>`
     }
-    ${c.ansprechpartner ? `<div>${c.ansprechpartner}</div>` : ''}
-    ${addrLine ? `<div>${addrLine}</div>` : ''}
-    ${plzLine ? `<div>${plzLine}, Schweiz</div>` : ''}
-    ${c.email ? `<div>${c.email}</div>` : ''}
-    ${c.telefon ? `<div>Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ''}</div>` : ''}
-    ${c.mwstAktiv && c.mwstNummer ? `<div>${c.mwstNummer}</div>` : ''}
+    ${c.ansprechpartner ? `<div>${c.ansprechpartner}</div>` : ""}
+    ${addrLine ? `<div>${addrLine}</div>` : ""}
+    ${plzLine ? `<div>${plzLine}, Schweiz</div>` : ""}
+    ${c.email ? `<div>${c.email}</div>` : ""}
+    ${c.telefon ? `<div>Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ""}</div>` : ""}
+    ${c.mwstAktiv && c.mwstNummer ? `<div>${c.mwstNummer}</div>` : ""}
   </div>`;
 }
 
 function buildClassicFooterBlock(c: CompanyInfo): string {
-  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(' ');
-  const plzLine = [c.plz, c.ort].filter(Boolean).join(' ');
-  const parts = [c.firmenname, c.ansprechpartner, [addrLine, plzLine].filter(Boolean).join(', '), c.email].filter(Boolean);
-  return `<div class="footer">${parts.join(' &middot; ')}</div>`;
+  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(" ");
+  const plzLine = [c.plz, c.ort].filter(Boolean).join(" ");
+  const parts = [
+    c.firmenname,
+    c.ansprechpartner,
+    [addrLine, plzLine].filter(Boolean).join(", "),
+    c.email,
+  ].filter(Boolean);
+  return `<div class="footer">${parts.join(" &middot; ")}</div>`;
 }
 
 function buildClassicBankBlock(c: CompanyInfo): string {
-  if (!c.iban && !c.bank) return '';
+  if (!c.iban && !c.bank) return "";
   const parts: string[] = [];
   if (c.iban) parts.push(`IBAN: ${c.iban}`);
   if (c.bank) parts.push(`Bank: ${c.bank}`);
-  return `<div class="bank-info"><strong>Bankverbindung:</strong> ${parts.join(' &middot; ')}</div>`;
+  return `<div class="bank-info"><strong>Bankverbindung:</strong> ${parts.join(" &middot; ")}</div>`;
 }
 
 function buildClassicMwstNote(c: CompanyInfo): string {
-  if (c.mwstAktiv) return '';
-  const hint = c.mwstHinweis || 'Nicht MWST-pflichtig';
+  if (c.mwstAktiv) return "";
+  const hint = c.mwstHinweis || "Nicht MWST-pflichtig";
   return `<div style="font-size:9px;color:#888;margin-top:5px;">${hint}</div>`;
 }
 
 function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
   const items = invoice?.items ?? [];
+  const itemsHtml = buildItemsRows(items, c);
   const customer = invoice?.customer ?? {};
-  const itemsHtml = items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
-    </tr>
-  `).join('');
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
 
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-
-  return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${classicStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="header">
       <div>
         <div class="doc-title">Rechnung</div>
-        <div class="doc-number">${invoice?.invoiceNumber ?? ''}</div>
+        <div class="doc-number">${invoice?.invoiceNumber ?? ""}</div>
       </div>
       ${buildClassicCompanyBlock(c)}
     </div>
     <div class="customer-box">
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+      ${renderInvoiceExecutionAddress(invoice)}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Rechnungsdatum:</span> ${formatDate(invoice?.invoiceDate)}</div>
@@ -164,66 +386,50 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
       <tbody>${itemsHtml}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+
+ ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
+
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
     ${buildClassicBankBlock(c)}
     ${buildClassicMwstNote(c)}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
+    ${renderInvoicePdfTextBlock(invoice)}
     ${buildClassicFooterBlock(c)}
   </body></html>`;
 }
 
 function renderClassicOffer(offer: any, c: CompanyInfo): string {
-  const items = offer?.items ?? [];
   const customer = offer?.customer ?? {};
-  const itemsHtml = items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
-    </tr>
-  `).join('');
 
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
 
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
 
-  return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${classicStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="header">
       <div>
         <div class="doc-title">Angebot</div>
-        <div class="doc-number">${offer?.offerNumber ?? ''}</div>
+        <div class="doc-number">${offer?.offerNumber ?? ""}</div>
       </div>
       ${buildClassicCompanyBlock(c)}
     </div>
     <div class="customer-box">
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+      ${renderOfferExecutionAddress(offer)}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Angebotsdatum:</span> ${formatDate(offer?.offerDate)}</div>
       <div class="meta-item"><span class="meta-label">Gültig bis:</span> ${formatDate(offer?.validUntil)}</div>
     </div>
-    <table>
-      <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${itemsHtml}</tbody>
-    </table>
-    <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
-    </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
-    <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+    ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
     ${buildClassicFooterBlock(c)}
   </body></html>`;
 }
@@ -233,10 +439,10 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function addrLineHelper(c: CompanyInfo) {
-  return [c.strasse, c.hausnummer].filter(Boolean).join(' ');
+  return [c.strasse, c.hausnummer].filter(Boolean).join(" ");
 }
 function plzLineHelper(c: CompanyInfo) {
-  return [c.plz, c.ort].filter(Boolean).join(' ');
+  return [c.plz, c.ort].filter(Boolean).join(" ");
 }
 function buildCompanyLines(c: CompanyInfo): string[] {
   const lines: string[] = [];
@@ -245,25 +451,273 @@ function buildCompanyLines(c: CompanyInfo): string[] {
   if (addrLine) lines.push(addrLine);
   const plzLine = plzLineHelper(c);
   if (plzLine) lines.push(plzLine);
-  if (c.telefon) lines.push(`Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ''}`);
+  if (c.telefon)
+    lines.push(`Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ""}`);
   if (c.email) lines.push(c.email);
   if (c.webseite) lines.push(c.webseite);
   if (c.mwstAktiv && c.mwstNummer) lines.push(c.mwstNummer);
   return lines;
 }
-function buildItemsRows(items: any[]): string {
-  return items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
-    </tr>
-  `).join('');
+function cleanWorkSiteValue(value?: string | null): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
+
+function getItemWorkSiteKey(item: any): string {
+  return [item?.siteName, item?.siteAddress, item?.sitePlz, item?.siteCity]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join("|")
+    .toLowerCase();
+}
+
+function getItemWorkSiteLabel(item: any): string {
+  const title = [item?.siteName, item?.siteAddress]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join(" · ");
+  const cityLine = [item?.sitePlz, item?.siteCity]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join(" ");
+  const note = cleanWorkSiteValue(item?.siteNote);
+  return [title || "Ausführungsort", cityLine, note]
+    .filter(Boolean)
+    .join("<br/>");
+}
+
+function hasMultipleItemWorkSites(items: any[]): boolean {
+  const keys = new Set((items || []).map(getItemWorkSiteKey).filter(Boolean));
+  return keys.size > 1;
+}
+
+function normalizeAddressCompare(value: unknown): string {
+  return cleanWorkSiteValue(String(value ?? ""))
+    .toLocaleLowerCase("de-CH")
+    .replace(/[^a-z0-9äöüß]+/g, "");
+}
+
+function getUniqueOfferWorkSites(offer: any): any[] {
+  const unique = new Map<string, any>();
+  for (const item of offer?.items ?? []) {
+    const key = getItemWorkSiteKey(item);
+    if (!key || unique.has(key)) continue;
+    unique.set(key, item);
+  }
+  return Array.from(unique.values());
+}
+
+function offerWorkSiteDiffersFromBilling(item: any, customer: any): boolean {
+  const hasNameOrNote = Boolean(
+    cleanWorkSiteValue(item?.siteName) || cleanWorkSiteValue(item?.siteNote),
+  );
+  const siteStreet = normalizeAddressCompare(item?.siteAddress);
+  const billingStreet = normalizeAddressCompare(customer?.address);
+  const sitePlace = normalizeAddressCompare(
+    [item?.sitePlz, item?.siteCity].filter(Boolean).join(" "),
+  );
+  const billingPlace = normalizeAddressCompare(
+    [customer?.plz, customer?.city].filter(Boolean).join(" "),
+  );
+  return (
+    hasNameOrNote ||
+    (siteStreet.length > 0 && siteStreet !== billingStreet) ||
+    (sitePlace.length > 0 && sitePlace !== billingPlace)
+  );
+}
+
+function getUniqueInvoiceWorkSites(invoice: any): any[] {
+  const unique = new Map<string, any>();
+  const candidates = [
+    ...(Array.isArray(invoice?.items) ? invoice.items : []),
+    ...(Array.isArray(invoice?.orders) ? invoice.orders : []),
+  ];
+  for (const candidate of candidates) {
+    const key = getItemWorkSiteKey(candidate);
+    if (!key || unique.has(key)) continue;
+    unique.set(key, candidate);
+  }
+  return Array.from(unique.values());
+}
+
+function renderInvoiceExecutionAddress(invoice: any): string {
+  const customer = invoice?.customer ?? {};
+  const sites = getUniqueInvoiceWorkSites(invoice).filter((item) =>
+    offerWorkSiteDiffersFromBilling(item, customer),
+  );
+  if (sites.length === 0) return "";
+
+  const rows = sites
+    .map((item, index) => {
+      const name = cleanWorkSiteValue(item?.siteName);
+      const street = cleanWorkSiteValue(item?.siteAddress);
+      const place = [item?.sitePlz, item?.siteCity]
+        .map(cleanWorkSiteValue)
+        .filter(Boolean)
+        .join(" ");
+      const note = cleanWorkSiteValue(item?.siteNote);
+      const title =
+        name || (sites.length > 1 ? `Ausführungsort ${index + 1}` : "");
+      return `
+        <div${index > 0 ? ' style="margin-top:7px;"' : ""}>
+          ${title ? `<p><strong>${title}</strong></p>` : ""}
+          ${street ? `<p>${street}</p>` : ""}
+          ${place ? `<p>${place}</p>` : ""}
+          ${note && note !== name ? `<p>${note}</p>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="execution-address"><div class="execution-address-title">Ausführungsadresse</div>${rows}</div>`;
+}
+
+function renderOfferExecutionAddress(offer: any): string {
+  const customer = offer?.customer ?? {};
+  const sites = getUniqueOfferWorkSites(offer).filter((item) =>
+    offerWorkSiteDiffersFromBilling(item, customer),
+  );
+  if (sites.length === 0) return "";
+
+  const rows = sites
+    .map((item, index) => {
+      const name = cleanWorkSiteValue(item?.siteName);
+      const street = cleanWorkSiteValue(item?.siteAddress);
+      const place = [item?.sitePlz, item?.siteCity]
+        .map(cleanWorkSiteValue)
+        .filter(Boolean)
+        .join(" ");
+      const note = cleanWorkSiteValue(item?.siteNote);
+      const title = name || (sites.length > 1 ? `Ausführungsort ${index + 1}` : "");
+      return `
+        <div${index > 0 ? ' style="margin-top:7px;"' : ""}>
+          ${title ? `<p><strong>${title}</strong></p>` : ""}
+          ${street ? `<p>${street}</p>` : ""}
+          ${place ? `<p>${place}</p>` : ""}
+          ${note && note !== name ? `<p>${note}</p>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="execution-address"><div class="execution-address-title">Ausführungsadresse</div>${rows}</div>`;
+}
+
+function buildPlainItemRow(item: any, c: CompanyInfo): string {
+  return `
+    <tr>
+      <td>${item?.description ?? ""}</td>
+      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
+      <td>${item?.unit ?? ""}</td>
+      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
+      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
+    </tr>
+  `;
+}
+
+function normalizePdfGroupText(value: unknown): string {
+  return String(value ?? "")
+    .toLocaleLowerCase("de-CH")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getPdfPositionGroupType(item: any): string {
+  // SMARTFLOW_V17_90L371AN: Rechnungs-PDF muss dieselbe Typauflösung wie die
+  // Karten/Editoren nutzen. Falls ältere Invoice-Items positionType nicht
+  // sauber im PDF-Payload tragen, wird nur für die PDF-Gruppierung derselbe
+  // sichere Resolver verwendet; gespeicherte Positionen/Summen bleiben unverändert.
+  const rawType = normalizePositionType(
+    inferPositionTypeFromItem(item) || item?.positionType,
+  );
+  const label = normalizePdfGroupText(
+    [item?.description, item?.serviceName].filter(Boolean).join(" "),
+  );
+
+  if (/\b(?:anfahrt|fahrtkosten|reisekosten|deplacement|travel|transport)\b/.test(label)) {
+    return "expense";
+  }
+
+  if (rawType === "flat_fee" || rawType === "disposal") return "expense";
+  return rawType;
+}
+
+function getPdfPositionGroupLabel(type: string): string {
+  if (type === "expense") return "Anfahrt / Zusatzkosten";
+  return getPositionTypeLabel(type);
+}
+
+function buildItemsRows(items: any[], c: CompanyInfo): string {
+  const source = items || [];
+  const renderTypeGroupedRows = (entries: any[]) => {
+    const order = ["service", "expense", "material", "equipment", "disposal", "other"];
+    const groups = new Map<string, any[]>();
+    for (const item of entries) {
+      const type = getPdfPositionGroupType(item);
+      const bucket = groups.get(type) || [];
+      bucket.push(item);
+      groups.set(type, bucket);
+    }
+    return order
+      .filter((type) => groups.has(type))
+      .map((type) => {
+        const label = getPdfPositionGroupLabel(type);
+        const header = type === "service" && groups.size === 1
+          ? ""
+          : `<tr><td colspan="5" style="background:#f8fafc;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.45px;color:#475569;"><strong>${label}</strong></td></tr>`;
+        return header + (groups.get(type) || []).map((item) => buildPlainItemRow(item, c)).join("");
+      })
+      .join("");
+  };
+
+  if (!hasMultipleItemWorkSites(source)) {
+    return renderTypeGroupedRows(source);
+  }
+
+  const groups = new Map<string, { label: string; items: any[] }>();
+  for (const item of source) {
+    const key = getItemWorkSiteKey(item) || "without-site";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        label: getItemWorkSiteLabel(item),
+        items: [],
+      });
+    }
+    groups.get(key)!.items.push(item);
+  }
+
+  return Array.from(groups.values())
+    .map((group, index) => {
+      const siteTotal = group.items.reduce(
+        (sum, item) => sum + Number(item?.totalPrice ?? 0),
+        0,
+      );
+      const header = `
+        <tr>
+          <td colspan="5" style="background:#eefbf6;border-top:1px solid #b7e4cf;border-bottom:1px solid #b7e4cf;padding:9px 8px;text-align:left;">
+            <strong>Ausführungsort ${index + 1}</strong><br/>
+            <span style="font-size:9px;color:#475569;">${group.label}</span>
+            <span style="float:right;font-size:9px;color:#475569;">${formatMoney(siteTotal, c)}</span>
+          </td>
+        </tr>
+      `;
+      return header + renderTypeGroupedRows(group.items);
+    })
+    .join("");
+}
+
 function resolveLetterheadUrl(c: CompanyInfo): string | null {
-  return c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null;
+  return (
+    c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null
+  );
 }
 
 function resolveLetterheadVisible(c: CompanyInfo): boolean {
@@ -284,14 +738,116 @@ function letterheadVisible(c: CompanyInfo): boolean {
   const resolvedVisible = resolveLetterheadVisible(c);
   return !!resolvedUrl && resolvedVisible;
 }
-function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string {
+function letterheadImg(
+  c: CompanyInfo,
+  size: "sm" | "md" | "lg" = "md",
+): string {
   const url = resolveLetterheadUrl(c);
   const show = letterheadVisible(c);
   if (!url || !show) {
-    return '';
+    return "";
   }
-  const h = size === 'sm' ? '65px' : size === 'lg' ? '145px' : '105px';
-  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
+  const h = size === "sm" ? "65px" : size === "lg" ? "145px" : "105px";
+  return `<img src="${url}" alt="${c.firmenname || "Logo"}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
+}
+
+
+function renderOfferTableHead(): string {
+  return `<thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>`;
+}
+
+function renderOfferContinuationHeader(
+  offer: any,
+  c: CompanyInfo,
+  pageNumber: number,
+  totalPages: number,
+): string {
+  const customerName = cleanWorkSiteValue(offer?.customer?.name) || "–";
+  const companyAddress = [addrLineHelper(c), plzLineHelper(c)]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <div class="offer-continuation-header">
+      <div class="offer-continuation-brand">
+        ${letterheadVisible(c) ? `<div class="offer-continuation-logo">${letterheadImg(c, "sm")}</div>` : ""}
+        <div class="offer-continuation-company">
+          <strong>${c.firmenname || ""}</strong>
+          ${companyAddress ? `<div>${companyAddress}</div>` : ""}
+          ${c.telefon ? `<div>Tel. ${c.telefon}</div>` : ""}
+        </div>
+      </div>
+      <div class="offer-continuation-meta">
+        <strong>Angebot ${offer?.offerNumber ?? ""}</strong>
+        <div>Kunde: ${customerName}</div>
+        <div>Seite ${pageNumber} von ${totalPages}</div>
+      </div>
+    </div>
+    <div class="offer-continuation-title">Leistungen – Fortsetzung</div>
+  `;
+}
+
+function renderOfferTotalsAndNotes(
+  offer: any,
+  c: CompanyInfo,
+  vatLabel: string,
+  priceNote: string,
+): string {
+  return `
+    <div class="offer-summary-clear">
+      <div class="totals">
+        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
+        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
+      </div>
+    </div>
+    ${renderOfferPdfTextBlock(offer)}
+    <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+  `;
+}
+
+function renderOfferItemsAndSummary(
+  offer: any,
+  c: CompanyInfo,
+  vatLabel: string,
+  priceNote: string,
+): string {
+  const items = Array.isArray(offer?.items) ? offer.items : [];
+
+  // A normal offer stays on one page. For long offers we deliberately reserve
+  // enough content for the continuation page instead of leaving only one line
+  // plus totals on page two.
+  if (items.length <= 14) {
+    return `
+      <table>
+        ${renderOfferTableHead()}
+        <tbody>${buildItemsRows(items, c)}</tbody>
+      </table>
+      ${renderOfferTotalsAndNotes(offer, c, vatLabel, priceNote)}
+    `;
+  }
+
+  const pageSize = 12;
+  const chunks: any[][] = [];
+  for (let index = 0; index < items.length; index += pageSize) {
+    chunks.push(items.slice(index, index + pageSize));
+  }
+  const totalPages = chunks.length;
+
+  return chunks
+    .map((chunk, index) => {
+      const pageNumber = index + 1;
+      const isFirstPage = index === 0;
+      const isLastPage = index === chunks.length - 1;
+      return `
+        ${isFirstPage ? "" : `<div class="offer-page-break"></div>${renderOfferContinuationHeader(offer, c, pageNumber, totalPages)}`}
+        <table>
+          ${renderOfferTableHead()}
+          <tbody>${buildItemsRows(chunk, c)}</tbody>
+        </table>
+        ${isLastPage ? renderOfferTotalsAndNotes(offer, c, vatLabel, priceNote) : ""}
+      `;
+    })
+    .join("");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -324,14 +880,18 @@ const modernStyles = `
   .clearfix::after { content: ''; display: block; clear: both; }
 `;
 
-function renderModernHeader(title: string, docNumber: string, c: CompanyInfo): string {
+function renderModernHeader(
+  title: string,
+  docNumber: string,
+  c: CompanyInfo,
+): string {
   return `
   <div class="band">
     <div>
       <div class="title">${title}</div>
       <div class="subtitle">${docNumber}</div>
     </div>
-    ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, 'md')}</div>` : `<div style="font-size:15px;font-weight:700;">${c.firmenname || ''}</div>`}
+    ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, "md")}</div>` : `<div style="font-size:15px;font-weight:700;">${c.firmenname || ""}</div>`}
   </div>`;
 }
 
@@ -340,8 +900,8 @@ function renderModernCompanyBlock(c: CompanyInfo): string {
   return `
     <div class="block">
       <h4>Absender</h4>
-      <p><strong>${c.firmenname || ''}</strong></p>
-      ${lines.map(l => `<p>${l}</p>`).join('')}
+      <p><strong>${c.firmenname || ""}</strong></p>
+      ${lines.map((l) => `<p>${l}</p>`).join("")}
     </div>`;
 }
 
@@ -349,23 +909,26 @@ function renderModernCustomerBlock(customer: any): string {
   return `
     <div class="block">
       <h4>Rechnungsempfänger</h4>
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
     </div>`;
 }
 
 function renderModernInvoice(invoice: any, c: CompanyInfo): string {
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
-  return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
-    ${renderModernHeader('RECHNUNG', invoice?.invoiceNumber ?? '', c)}
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
+  return `<!DOCTYPE html><html><head><style>${modernStyles}${offerDocumentStyles}</style></head><body class="offer-document">
+    ${renderModernHeader("RECHNUNG", invoice?.invoiceNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
-        ${renderModernCustomerBlock(invoice?.customer ?? {})}
+        <div>${renderModernCustomerBlock(invoice?.customer ?? {})}${renderInvoiceExecutionAddress(invoice)}</div>
       </div>
       <div class="meta-row">
         <div><span class="label">Rechnungsdatum:</span>${formatDate(invoice?.invoiceDate)}</div>
@@ -373,55 +936,44 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
       </table>
       <div class="clearfix">
         <div class="totals">
-          <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-          <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+          <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
+          <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
         </div>
       </div>
-      ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
-      ${!c.mwstAktiv ? `<div class="vat-note">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
+      ${!c.mwstAktiv ? `<div class="vat-note">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+      ${renderInvoicePdfTextBlock(invoice)}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
 
 function renderModernOffer(offer: any, c: CompanyInfo): string {
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
-  return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
-    ${renderModernHeader('ANGEBOT', offer?.offerNumber ?? '', c)}
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
+  return `<!DOCTYPE html><html><head><style>${modernStyles}${offerDocumentStyles}</style></head><body class="offer-document">
+    ${renderModernHeader("ANGEBOT", offer?.offerNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
-        ${renderModernCustomerBlock(offer?.customer ?? {})}
+        <div>${renderModernCustomerBlock(offer?.customer ?? {})}${renderOfferExecutionAddress(offer)}</div>
       </div>
       <div class="meta-row">
         <div><span class="label">Angebotsdatum:</span>${formatDate(offer?.offerDate)}</div>
         <div><span class="label">Gültig bis:</span>${formatDate(offer?.validUntil)}</div>
       </div>
-      <table>
-        <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
-      </table>
-      <div class="clearfix">
-        <div class="totals">
-          <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-          <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
-        </div>
-      </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
-      <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
@@ -452,7 +1004,11 @@ const minimalStyles = `
   .footer { clear: both; margin-top: 46px; padding-top: 14px; border-top: 1px solid #eee; text-align: center; font-size: 9px; color: #999; letter-spacing: 0.5px; }
 `;
 
-function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): string {
+function renderMinimalHeader(
+  title: string,
+  docNumber: string,
+  c: CompanyInfo,
+): string {
   const lines = buildCompanyLines(c);
   return `
     <div class="head">
@@ -461,9 +1017,9 @@ function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): 
         <div class="num">${docNumber}</div>
       </div>
       <div>
-        ${letterheadVisible(c) ? `<div style="text-align:right;margin-bottom:6px;">${letterheadImg(c, 'sm')}</div>` : ''}
-        <div class="company-name">${c.firmenname || ''}</div>
-        <div class="company-lines">${lines.join('<br/>')}</div>
+        ${letterheadVisible(c) ? `<div style="text-align:right;margin-bottom:6px;">${letterheadImg(c, "sm")}</div>` : ""}
+        <div class="company-name">${c.firmenname || ""}</div>
+        <div class="company-lines">${lines.join("<br/>")}</div>
       </div>
     </div>
     <div class="divider"></div>`;
@@ -471,18 +1027,22 @@ function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): 
 
 function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
   const customer = invoice?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
-  return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
-    ${renderMinimalHeader('Rechnung', invoice?.invoiceNumber ?? '', c)}
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
+  return `<!DOCTYPE html><html><head><style>${minimalStyles}${offerDocumentStyles}</style></head><body class="offer-document">
+    ${renderMinimalHeader("Rechnung", invoice?.invoiceNumber ?? "", c)}
     <div class="columns">
       <div>
         <h5>Rechnungsempfänger</h5>
-        <p><strong>${customer?.name ?? ''}</strong></p>
-        ${customer?.address ? `<p>${customer.address}</p>` : ''}
-        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+        <p><strong>${customer?.name ?? ""}</strong></p>
+        ${customer?.address ? `<p>${customer.address}</p>` : ""}
+        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+        ${renderInvoiceExecutionAddress(invoice)}
       </div>
       <div>
         <h5>Details</h5>
@@ -492,36 +1052,37 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
     </div>
     <table>
       <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+      <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
-    ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ''}
-    ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${invoice.notes}</div>` : ''}
-    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+    ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ""}
+    ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+    ${renderInvoicePdfTextBlock(invoice)}
+    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
-
 function renderMinimalOffer(offer: any, c: CompanyInfo): string {
   const customer = offer?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
-  return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
-    ${renderMinimalHeader('Angebot', offer?.offerNumber ?? '', c)}
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
+  return `<!DOCTYPE html><html><head><style>${minimalStyles}${offerDocumentStyles}</style></head><body class="offer-document">
+    ${renderMinimalHeader("Angebot", offer?.offerNumber ?? "", c)}
     <div class="columns">
       <div>
         <h5>Angebotsempfänger</h5>
-        <p><strong>${customer?.name ?? ''}</strong></p>
-        ${customer?.address ? `<p>${customer.address}</p>` : ''}
-        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+        <p><strong>${customer?.name ?? ""}</strong></p>
+        ${customer?.address ? `<p>${customer.address}</p>` : ""}
+        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+        ${renderOfferExecutionAddress(offer)}
       </div>
       <div>
         <h5>Details</h5>
@@ -529,18 +1090,8 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
         <p><strong>Gültig bis</strong> ${formatDate(offer?.validUntil)}</p>
       </div>
     </div>
-    <table>
-      <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
-    </table>
-    <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
-    </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${offer.notes}</div>` : ''}
-    <div class="notes"><strong>Hinweis</strong><br/>Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+    ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
+    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
 
@@ -575,80 +1126,93 @@ const elegantStyles = `
 function renderElegantHead(c: CompanyInfo): string {
   const addrLine = addrLineHelper(c);
   const plzLine = plzLineHelper(c);
-  const addr = [addrLine, plzLine, c.email, c.telefon ? `Tel. ${c.telefon}` : ''].filter(Boolean).join(' · ');
+  const addr = [
+    addrLine,
+    plzLine,
+    c.email,
+    c.telefon ? `Tel. ${c.telefon}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return `
     <div class="brand">
-      ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, 'md')}</div>` : ''}
-      <div class="firm">${c.firmenname || ''}</div>
-      ${addr ? `<div class="addr">${addr}</div>` : ''}
+      ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, "md")}</div>` : ""}
+      <div class="firm">${c.firmenname || ""}</div>
+      ${addr ? `<div class="addr">${addr}</div>` : ""}
     </div>`;
 }
 
 function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
   const customer = invoice?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
-  return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
+  return `<!DOCTYPE html><html><head><style>${elegantStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
         <h1>Rechnung</h1>
-        <div class="num">${invoice?.invoiceNumber ?? ''}</div>
+        <div class="num">${invoice?.invoiceNumber ?? ""}</div>
       </div>
       <div class="two-col">
         <div>
           <h4>Rechnungsempfänger</h4>
-          <p><strong>${customer?.name ?? ''}</strong></p>
-          ${customer?.address ? `<p>${customer.address}</p>` : ''}
-          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+          <p><strong>${customer?.name ?? ""}</strong></p>
+          ${customer?.address ? `<p>${customer.address}</p>` : ""}
+          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+          ${renderInvoiceExecutionAddress(invoice)}
         </div>
         <div>
           <h4>Details</h4>
           <p><em>Rechnungsdatum:</em> ${formatDate(invoice?.invoiceDate)}</p>
           <p><em>Zahlungsziel:</em> ${formatDate(invoice?.dueDate)}</p>
-          ${c.mwstAktiv && c.mwstNummer ? `<p><em>MwSt-Nr.:</em> ${c.mwstNummer}</p>` : ''}
+          ${c.mwstAktiv && c.mwstNummer ? `<p><em>MwSt-Nr.:</em> ${c.mwstNummer}</p>` : ""}
         </div>
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
       </table>
       <div class="totals">
-        <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-        <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
+        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
       </div>
-      ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
-      ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
+      ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+      ${renderInvoicePdfTextBlock(invoice)}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
 
 function renderElegantOffer(offer: any, c: CompanyInfo): string {
   const customer = offer?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
-  return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
+  return `<!DOCTYPE html><html><head><style>${elegantStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
         <h1>Angebot</h1>
-        <div class="num">${offer?.offerNumber ?? ''}</div>
+        <div class="num">${offer?.offerNumber ?? ""}</div>
       </div>
       <div class="two-col">
         <div>
           <h4>Angebotsempfänger</h4>
-          <p><strong>${customer?.name ?? ''}</strong></p>
-          ${customer?.address ? `<p>${customer.address}</p>` : ''}
-          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+          <p><strong>${customer?.name ?? ""}</strong></p>
+          ${customer?.address ? `<p>${customer.address}</p>` : ""}
+          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+          ${renderOfferExecutionAddress(offer)}
         </div>
         <div>
           <h4>Details</h4>
@@ -656,18 +1220,8 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
           <p><em>Gültig bis:</em> ${formatDate(offer?.validUntil)}</p>
         </div>
       </div>
-      <table>
-        <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
-      </table>
-      <div class="totals">
-        <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-        <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
-      </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
-      <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
@@ -676,26 +1230,40 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
 // PUBLIC API — dispatcher (signatures unchanged)
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null): string {
+export function generateInvoiceHtml(
+  invoice: any,
+  company?: CompanyInfo | null,
+): string {
   const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
-    case 'modern':  return renderModernInvoice(invoice, c);
-    case 'minimal': return renderMinimalInvoice(invoice, c);
-    case 'elegant': return renderElegantInvoice(invoice, c);
-    case 'classic':
-    default:        return renderClassicInvoice(invoice, c);
+    case "modern":
+      return renderModernInvoice(invoice, c);
+    case "minimal":
+      return renderMinimalInvoice(invoice, c);
+    case "elegant":
+      return renderElegantInvoice(invoice, c);
+    case "classic":
+    default:
+      return renderClassicInvoice(invoice, c);
   }
 }
 
-export function generateOfferHtml(offer: any, company?: CompanyInfo | null): string {
+export function generateOfferHtml(
+  offer: any,
+  company?: CompanyInfo | null,
+): string {
   const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
-    case 'modern':  return renderModernOffer(offer, c);
-    case 'minimal': return renderMinimalOffer(offer, c);
-    case 'elegant': return renderElegantOffer(offer, c);
-    case 'classic':
-    default:        return renderClassicOffer(offer, c);
+    case "modern":
+      return renderModernOffer(offer, c);
+    case "minimal":
+      return renderMinimalOffer(offer, c);
+    case "elegant":
+      return renderElegantOffer(offer, c);
+    case "classic":
+    default:
+      return renderClassicOffer(offer, c);
   }
 }

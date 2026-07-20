@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive, Trash2, Plus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,17 @@ import { isCustomerDataIncomplete, isRequiredCustomerFieldMissing } from '@/lib/
 import { cn } from '@/lib/utils';
 import { PlzOrtInput } from '@/components/plz-ort-input';
 import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
+import { formatCurrency } from '@/lib/currency';
+
+interface OrderItem {
+  id?: string;
+  serviceName?: string | null;
+  description?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+}
 
 interface Order {
   id: string;
@@ -24,8 +35,11 @@ interface Order {
   status: string;
   date: string;
   totalPrice: number;
+  currency?: string | null;
   specialNotes: string | null;
   needsReview: boolean;
+  reviewReasons?: string[] | null;
+  items?: OrderItem[] | null;
   hinweisLevel?: string;
   mediaUrl?: string | null;
   mediaType?: string | null;
@@ -65,6 +79,18 @@ interface Invoice {
   createdAt?: string;
 }
 
+interface CustomerExecutionAddress {
+  id: string;
+  siteName: string | null;
+  siteAddress: string;
+  sitePlz: string;
+  siteCity: string;
+  siteNote: string | null;
+  country?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
+
 interface Customer {
   id: string;
   customerNumber: string | null;
@@ -76,12 +102,13 @@ interface Customer {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
   orders: Order[];
   offers: Offer[];
   invoices: Invoice[];
 }
 
-const formatCHF = (n: number) => `CHF ${(n ?? 0).toFixed(2)}`;
+
 const formatDate = (d: string | null) => {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -128,14 +155,26 @@ export default function KundenDetailPage() {
   // weitergeführte (converted) orders, abgeschlossene (Angenommen/Abgelehnt/
   // Abgelaufen) offers, and erledigte/archivierte invoices. Pairs with the
   // "N Historie" chip in the customer list.
-  const tabFromUrl = searchParams?.get('tab') as 'auftraege' | 'angebote' | 'rechnungen' | 'historie' | null;
-  const [activeTab, setActiveTab] = useState<'auftraege' | 'angebote' | 'rechnungen' | 'historie'>(tabFromUrl || 'auftraege');
+  const tabFromUrl = searchParams?.get('tab') as 'auftraege' | 'angebote' | 'rechnungen' | 'historie' | 'archiv' | null;
+  const [activeTab, setActiveTab] = useState<'auftraege' | 'angebote' | 'rechnungen' | 'historie' | 'archiv'>(tabFromUrl || 'auftraege');
   const [tabInitialized, setTabInitialized] = useState(!!tabFromUrl);
 
   // Edit customer state
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', address: '', plz: '', city: '', country: 'CH', phone: '', email: '' });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingCustomer, setDeletingCustomer] = useState(false);
+  const [deletingExecutionAddressId, setDeletingExecutionAddressId] = useState<string | null>(null);
+  const [addExecutionAddressOpen, setAddExecutionAddressOpen] = useState(false);
+  const [savingExecutionAddress, setSavingExecutionAddress] = useState(false);
+  const [executionAddressForm, setExecutionAddressForm] = useState({
+    siteName: '',
+    siteAddress: '',
+    sitePlz: '',
+    siteCity: '',
+    siteNote: '',
+    country: 'CH',
+  });
 
   // Duplicate check state (new shared component)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -152,18 +191,41 @@ export default function KundenDetailPage() {
     | { type: 'invoice'; data: Invoice }
     | null
   >(null);
+  const [openOrderReviewTooltipId, setOpenOrderReviewTooltipId] = useState<string | null>(null);
 
   // Android/browser back: close the duplicate-check dialog FIRST instead of jumping
   // to the previously visited module. Safe version — see lib/use-dialog-back-guard.ts.
   useDialogBackGuard(dupCheckOpen, () => setDupCheckOpen(false));
   // Back-guard for the history-view dialog (Paket J)
   useDialogBackGuard(!!historyView, () => setHistoryView(null));
+  // Kundenprofil-Ausführungsort hinzufügen: Back schliesst zuerst den Dialog.
+  useDialogBackGuard(addExecutionAddressOpen, () => setAddExecutionAddressOpen(false));
 
   const loadCustomer = useCallback(async () => {
     try {
       const res = await fetch(`/api/customers/${customerId}/details`);
       if (res.ok) {
-        setCustomer(await res.json());
+        let loadedCustomer: Customer = await res.json();
+
+        // V17.69: Kundenbasierte Ausführungsorte auf der Detailseite sichtbar
+        // machen. Bestehende Detail-API beibehalten; falls sie die neue Relation
+        // noch nicht mitliefert, gezielt über die Kunden-API nachladen.
+        if (!Array.isArray(loadedCustomer.executionAddresses)) {
+          const enrichedRes = await fetch(`/api/customers/${customerId}`);
+          if (enrichedRes.ok) {
+            const enrichedCustomer = await enrichedRes.json();
+            loadedCustomer = {
+              ...loadedCustomer,
+              executionAddresses: Array.isArray(enrichedCustomer?.executionAddresses)
+                ? enrichedCustomer.executionAddresses
+                : [],
+            };
+          } else {
+            loadedCustomer = { ...loadedCustomer, executionAddresses: [] };
+          }
+        }
+
+        setCustomer(loadedCustomer);
       } else {
         toast.error('Kunde nicht gefunden');
         router.push('/kunden');
@@ -191,7 +253,7 @@ export default function KundenDetailPage() {
 
   // Sync tab from URL on navigation
   useEffect(() => {
-    if (tabFromUrl && ['auftraege', 'angebote', 'rechnungen', 'historie'].includes(tabFromUrl)) {
+    if (tabFromUrl && ['auftraege', 'angebote', 'rechnungen', 'historie', 'archiv'].includes(tabFromUrl)) {
       setActiveTab(tabFromUrl);
     }
   }, [tabFromUrl]);
@@ -246,6 +308,114 @@ export default function KundenDetailPage() {
     }
   };
 
+  const resetExecutionAddressForm = () => {
+    setExecutionAddressForm({
+      siteName: '',
+      siteAddress: '',
+      sitePlz: '',
+      siteCity: '',
+      siteNote: '',
+      country: 'CH',
+    });
+  };
+
+  const openAddExecutionAddressDialog = () => {
+    resetExecutionAddressForm();
+    setAddExecutionAddressOpen(true);
+  };
+
+  const closeAddExecutionAddressDialog = () => {
+    if (savingExecutionAddress) return;
+    setAddExecutionAddressOpen(false);
+    resetExecutionAddressForm();
+  };
+
+  const saveExecutionAddress = async () => {
+    const siteAddress = executionAddressForm.siteAddress.trim();
+    const sitePlz = executionAddressForm.sitePlz.trim();
+    const siteCity = executionAddressForm.siteCity.trim();
+
+    if (!siteAddress || !sitePlz || !siteCity) {
+      toast.error('Strasse, PLZ und Ort sind erforderlich');
+      return;
+    }
+
+    setSavingExecutionAddress(true);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/execution-addresses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteName: executionAddressForm.siteName.trim(),
+          siteAddress,
+          sitePlz,
+          siteCity,
+          siteNote: executionAddressForm.siteNote.trim(),
+          country: executionAddressForm.country || 'CH',
+        }),
+      });
+
+      if (res.ok) {
+        toast.success('Ausführungsort wurde im Kundenprofil gespeichert.');
+        setAddExecutionAddressOpen(false);
+        resetExecutionAddressForm();
+        await loadCustomer();
+        return;
+      }
+
+      const err = await res.json().catch(() => ({} as any));
+      toast.error(err?.error || 'Ausführungsort konnte nicht gespeichert werden');
+    } catch {
+      toast.error('Netzwerkfehler beim Speichern des Ausführungsorts');
+    } finally {
+      setSavingExecutionAddress(false);
+    }
+  };
+
+  const deleteExecutionAddress = async (addr: CustomerExecutionAddress) => {
+    if (!customer) return;
+    const label = addr.siteName?.trim() || [addr.siteAddress, addr.sitePlz, addr.siteCity].filter(Boolean).join(' ');
+    if (!window.confirm(`Ausführungsort "${label}" aus dem Kundenprofil entfernen?\n\nDieser Ausführungsort wird nur aus der gespeicherten Kundenliste entfernt. Bestehende Aufträge, Angebote und Rechnungen bleiben unverändert.`)) return;
+
+    setDeletingExecutionAddressId(addr.id);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/execution-addresses/${addr.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Ausführungsort wurde aus dem Kundenprofil entfernt.');
+        await loadCustomer();
+      } else {
+        const err = await res.json().catch(() => ({} as any));
+        toast.error(err?.error || 'Ausführungsort konnte nicht entfernt werden');
+      }
+    } catch {
+      toast.error('Netzwerkfehler beim Entfernen des Ausführungsorts');
+    } finally {
+      setDeletingExecutionAddressId(null);
+    }
+  };
+
+  const deleteCustomer = async () => {
+    if (!customer) return;
+    const label = customer.name?.trim() || customer.customerNumber || 'diesen Kunden';
+    if (!window.confirm(`Kunden "${label}" wirklich löschen? Aktive Aufträge, Angebote, Rechnungen oder archivierte Rechnungen können das Löschen blockieren.`)) return;
+
+    setDeletingCustomer(true);
+    try {
+      const res = await fetch(`/api/customers/${customerId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Kunde gelöscht');
+        router.push('/kunden');
+      } else {
+        const err = await res.json().catch(() => ({} as any));
+        toast.error(err?.error || 'Kunde konnte nicht gelöscht werden');
+      }
+    } catch {
+      toast.error('Netzwerkfehler beim Löschen');
+    } finally {
+      setDeletingCustomer(false);
+    }
+  };
+
   const isOverdue = (inv: Invoice) => {
     if (inv.status === 'Bezahlt' || inv.status === 'Erledigt') return false;
     if (!inv.dueDate) return false;
@@ -269,24 +439,197 @@ export default function KundenDetailPage() {
   //   Historisch Angebot: Status in {Angenommen, Abgelehnt, Abgelaufen}
   //   Aktive Rechnung:    Status != Erledigt
   //   Historisch Rechnung: Status == Erledigt (archiviert)
-  const isOrderActive = (o: Order) => !o.offerId && !o.invoiceId;
+  const isOrderActive = (o: Order) => !o.offerId && !o.invoiceId && o.status !== 'Erledigt';
   const isOfferActive = (o: Offer) => o.status === 'Entwurf' || o.status === 'Gesendet';
   const isInvoiceActive = (i: Invoice) => i.status !== 'Erledigt';
 
+  const customerCoreDataIncomplete = isCustomerDataIncomplete(customer);
   const activeOrders = customer.orders.filter(isOrderActive);
   const historicalOrders = customer.orders.filter(o => !isOrderActive(o));
   const activeOffers = customer.offers.filter(isOfferActive);
   const historicalOffers = customer.offers.filter(o => !isOfferActive(o));
   const activeInvoices = customer.invoices.filter(isInvoiceActive);
   const historicalInvoices = customer.invoices.filter(i => !isInvoiceActive(i));
-  const historieCount =
-    historicalOrders.length + historicalOffers.length + historicalInvoices.length;
+  const archivedInvoices = historicalInvoices;
+  const historieCount = historicalOrders.length + historicalOffers.length;
+  const archiveCount = archivedInvoices.length;
+  const savedExecutionAddresses = Array.isArray(customer.executionAddresses)
+    ? customer.executionAddresses.filter((addr) =>
+        Boolean(addr?.siteAddress?.trim() && addr?.sitePlz?.trim() && addr?.siteCity?.trim()),
+      )
+    : [];
+
+  const formatOrderItemLine = (item: OrderItem, currency = 'CHF') => {
+    const name = String(item.serviceName || item.description || 'Position').trim();
+    const quantity = Number(item.quantity || 0);
+    const unit = String(item.unit || '').trim();
+    const unitPrice = Number(item.unitPrice || 0);
+    const total = Number(item.totalPrice || (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0));
+    const quantityText = quantity > 0 ? (Number.isInteger(quantity) ? quantity.toFixed(0) : String(quantity)) : '';
+    const priceText = unitPrice > 0 ? `${currency} ${unitPrice.toFixed(2)}` : '';
+    const totalText = total > 0 ? ` = ${currency} ${total.toFixed(2)}` : '';
+    const calc = [quantityText, unit, priceText ? `× ${priceText}` : ''].filter(Boolean).join(' ');
+    return `• ${name}${calc ? ` — ${calc}${totalText}` : ''}`;
+  };
+
+  const buildCustomerOrderReviewTooltip = (
+    order: Order,
+    mode: 'customer' | 'address' | 'currency' | 'hard_amount' | 'service_soft' | 'fallback_soft',
+  ) => {
+    const currency = String((order as any).currency || 'CHF');
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemLines = items.slice(0, 6).map((item) => formatOrderItemLine(item, currency));
+
+    if (mode === 'customer') {
+      return 'Kundendaten prüfen\nPflichtangaben fehlen: Name, Strasse, PLZ oder Ort.';
+    }
+    if (mode === 'address') {
+      return 'Adresse prüfen\nAdressrolle oder Ausführungsadresse ist noch zu prüfen.';
+    }
+    if (mode === 'currency') {
+      return 'Währung prüfen\nWährung im Kundentext oder in einzelnen Positionen ist zu prüfen.';
+    }
+    if (mode === 'hard_amount') {
+      return 'Preis/Menge prüfen\nPreis, Menge oder Einheit fehlt und muss vor Angebot/Rechnung geprüft werden.';
+    }
+
+    const header = mode === 'service_soft'
+      ? 'Leistungen prüfen\nPreisabweichung oder Nicht-im-Katalog-Hinweis. Textpreis wurde übernommen.'
+      : 'Leistungen prüfen\nDieser Auftrag hat weiche Leistungs-Hinweise, aber keinen harten Blocker.';
+
+    return [header, itemLines.length > 0 ? itemLines.join('\n') : 'Details im Auftrag öffnen.']
+      .filter(Boolean)
+      .join('\n\n');
+  };
+
+  const getCustomerOrderReviewBadge = (order: Order) => {
+    if (!order.needsReview) return null;
+
+    const reasons = Array.isArray(order.reviewReasons)
+      ? order.reviewReasons.map((reason) => String(reason || '').toLowerCase()).filter(Boolean)
+      : [];
+
+    const hasReason = (matcher: (reason: string) => boolean) => reasons.some(matcher);
+
+    if (customerCoreDataIncomplete) {
+      return {
+        label: 'Kundendaten unvollständig',
+        mobileLabel: 'Prüfen',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'customer'),
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason === 'address_role_uncertain' ||
+      reason.includes('customer_address_quarantined') ||
+      reason.includes('ambiguous_role') ||
+      reason.includes('execution_address_incomplete') ||
+      reason.startsWith('intake_address:'),
+    )) {
+      return {
+        label: 'Adresse prüfen',
+        mobileLabel: 'Adresse',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'address'),
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('currency_') ||
+      reason.startsWith('item_currency_mismatch:') ||
+      reason.startsWith('currency_conflict_item:'),
+    )) {
+      return {
+        label: 'Währung prüfen',
+        mobileLabel: 'Währung',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'currency'),
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('unit_missing_in_text:') ||
+      reason.includes('price_missing') ||
+      reason.includes('quantity_missing') ||
+      reason.includes('amount_missing') ||
+      reason.includes('price_quantity'),
+    )) {
+      return {
+        label: 'Preis/Menge prüfen',
+        mobileLabel: 'Betrag',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'hard_amount'),
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('price_override:') ||
+      reason.startsWith('unit_mismatch:') ||
+      reason.includes('catalog') ||
+      reason.includes('nicht_im_katalog') ||
+      reason.includes('not_in_catalog'),
+    )) {
+      return {
+        label: 'Leistungen prüfen',
+        mobileLabel: 'Leistungen',
+        className: 'border-yellow-400 text-yellow-900 bg-yellow-50',
+        title: buildCustomerOrderReviewTooltip(order, 'service_soft'),
+      };
+    }
+
+    // V17.75: Wenn `needsReview` gesetzt ist, aber keine harte konkrete
+    // ReviewReason mitgeliefert wurde, darf das Kundenprofil nicht pauschal rot
+    // "Auftrag prüfen" zeigen. In den getesteten Fällen sind das weiche
+    // Leistungs-Hinweise wie Preisabweichung / Nicht im Katalog.
+    return {
+      label: 'Leistungen prüfen',
+      mobileLabel: 'Leistungen',
+      className: 'border-yellow-400 text-yellow-900 bg-yellow-50',
+      title: buildCustomerOrderReviewTooltip(order, 'fallback_soft'),
+    };
+  };
+
+  const renderCustomerOrderReviewBadge = (order: Order) => {
+    const reviewBadge = getCustomerOrderReviewBadge(order);
+    if (!reviewBadge) return null;
+    const isOpen = openOrderReviewTooltipId === order.id;
+
+    return (
+      <span
+        className="relative inline-flex shrink-0"
+        onMouseEnter={() => setOpenOrderReviewTooltipId(order.id)}
+        onMouseLeave={() => setOpenOrderReviewTooltipId((current) => current === order.id ? null : current)}
+      >
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpenOrderReviewTooltipId((current) => current === order.id ? null : order.id);
+          }}
+          className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] leading-5 ${reviewBadge.className}`}
+          aria-label={reviewBadge.title}
+        >
+          ⚠ <span className="sm:hidden ml-1">{reviewBadge.mobileLabel}</span><span className="hidden sm:inline ml-1">{reviewBadge.label}</span>
+        </button>
+        {isOpen && (
+          <span
+            className="fixed left-4 right-4 top-[18vh] z-[100] max-h-[58vh] w-auto overflow-auto rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100 sm:absolute sm:bottom-full sm:left-0 sm:right-auto sm:top-auto sm:z-50 sm:mb-2 sm:max-h-[60vh] sm:w-[min(340px,calc(100vw-2rem))]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {reviewBadge.title}
+          </span>
+        )}
+      </span>
+    );
+  };
 
   const tabs = [
     { key: 'auftraege' as const, label: 'Aufträge', count: activeOrders.length, icon: ClipboardList, historic: historicalOrders.length },
     { key: 'angebote' as const, label: 'Angebote', count: activeOffers.length, icon: FileCheck, historic: historicalOffers.length },
-    { key: 'rechnungen' as const, label: 'Rechnungen', count: activeInvoices.length, icon: FileText, historic: historicalInvoices.length },
+    { key: 'rechnungen' as const, label: 'Rechnungen', count: activeInvoices.length, icon: FileText, historic: archiveCount },
     { key: 'historie' as const, label: 'Historie', count: historieCount, icon: Archive, historic: 0 },
+    { key: 'archiv' as const, label: 'Archiv', count: archiveCount, icon: Archive, historic: 0 },
   ];
 
   // Stage I — On desktop the "→ Historie" hints inside the empty-state cards
@@ -298,6 +641,13 @@ export default function KundenDetailPage() {
     setActiveTab('historie');
     if (typeof document !== 'undefined') {
       document.getElementById('mobile-section-historie')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const goToArchiv = () => {
+    setActiveTab('archiv');
+    if (typeof document !== 'undefined') {
+      document.getElementById('mobile-section-archiv')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -313,7 +663,7 @@ export default function KundenDetailPage() {
             Keine aktiven Aufträge
             {historicalOrders.length > 0 && (
               <span className="block mt-1 text-xs">
-                {historicalOrders.length} weitergeführte{historicalOrders.length === 1 ? 'r' : ''} Auftrag{historicalOrders.length === 1 ? '' : 'e'} in
+                {historicalOrders.length} historische{historicalOrders.length === 1 ? 'r' : ''} Auftrag{historicalOrders.length === 1 ? '' : 'e'} in
                 <button
                   onClick={goToHistorie}
                   className="ml-1 underline decoration-dotted hover:text-foreground"
@@ -328,22 +678,19 @@ export default function KundenDetailPage() {
         activeOrders.map(order => (
           <Card key={order.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/auftraege?edit=${order.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
-                    {order.needsReview && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-red-300 text-red-600 shrink-0">⚠ <span className="sm:hidden">Prüfen</span><span className="hidden sm:inline">Kundendaten unvollständig</span></Badge>
-                    )}
+                    {renderCustomerOrderReviewBadge(order)}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {formatDate(order.date)}
                     {order.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(order.createdAt)}</span>}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF((order as any).total || order.totalPrice || 0)}</span>
-                  <Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+<span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span><Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                     {order.status}
                   </Badge>
                 </div>
@@ -379,7 +726,7 @@ export default function KundenDetailPage() {
         activeOffers.map(offer => (
           <Card key={offer.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/angebote?edit=${offer.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{offer.offerNumber}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -388,8 +735,8 @@ export default function KundenDetailPage() {
                   </p>
                   {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF(offer.total)}</span>
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+                  <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                   <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                     {offer.status}
                   </Badge>
@@ -411,12 +758,12 @@ export default function KundenDetailPage() {
             Keine aktiven Rechnungen
             {historicalInvoices.length > 0 && (
               <span className="block mt-1 text-xs">
-                {historicalInvoices.length} erledigte Rechnung{historicalInvoices.length === 1 ? '' : 'en'} in
+                {archivedInvoices.length} archivierte Rechnung{archivedInvoices.length === 1 ? '' : 'en'} in
                 <button
-                  onClick={goToHistorie}
+                  onClick={goToArchiv}
                   className="ml-1 underline decoration-dotted hover:text-foreground"
                 >
-                  Historie
+                  Archiv
                 </button>
               </span>
             )}
@@ -426,7 +773,7 @@ export default function KundenDetailPage() {
         activeInvoices.map(inv => (
           <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/rechnungen?edit=${inv.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{inv.invoiceNumber}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -435,8 +782,8 @@ export default function KundenDetailPage() {
                   </p>
                   {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF(inv.total)}</span>
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+                  <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
                   {isOverdue(inv) ? (
                     <Badge className="text-xs bg-red-100 text-red-800">Überfällig</Badge>
                   ) : (
@@ -462,7 +809,7 @@ export default function KundenDetailPage() {
           <CardContent className="py-8 text-center text-muted-foreground">
             Keine historischen Einträge
             <span className="block mt-1 text-xs">
-              Hier erscheinen konvertierte Aufträge, abgeschlossene Angebote und erledigte Rechnungen
+              Hier erscheinen weitergeführte Aufträge und abgeschlossene Angebote
             </span>
           </CardContent>
         </Card>
@@ -475,9 +822,9 @@ export default function KundenDetailPage() {
                   glance (instead of the technical "Konvertierte Aufträge"). */}
               <h3
                 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5"
-                title="Diese Aufträge wurden schon zu einem Angebot oder zu einer Rechnung weitergeführt."
+                title="Diese Aufträge wurden weitergeführt oder erledigt/archiviert."
               >
-                <ClipboardList className="w-3.5 h-3.5" /> Weitergeführte Aufträge ({historicalOrders.length})
+                <ClipboardList className="w-3.5 h-3.5" /> Historische Aufträge ({historicalOrders.length})
               </h3>
               <div className="space-y-2">
                 {historicalOrders.map(order => {
@@ -489,14 +836,14 @@ export default function KundenDetailPage() {
                   return (
                     <Card key={order.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'order', data: order })}>
                       <CardContent className="py-3 px-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
                               <Badge
                                 variant="outline"
                                 className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0"
-                                title="Dieser Auftrag wurde schon zu einem Angebot oder zu einer Rechnung weitergeführt."
+                                title="Dieser Auftrag wurde weitergeführt oder erledigt/archiviert."
                               >
                                 Weitergeführt
                               </Badge>
@@ -509,8 +856,8 @@ export default function KundenDetailPage() {
                               {order.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(order.createdAt)}</span>}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-medium">{formatCHF((order as any).total || order.totalPrice || 0)}</span>
+                          <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+                           <span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span>
                             <Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                               {order.status}
                             </Badge>
@@ -533,7 +880,7 @@ export default function KundenDetailPage() {
                 {historicalOffers.map(offer => (
                   <Card key={offer.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'offer', data: offer })}>
                     <CardContent className="py-3 px-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-sm">{offer.offerNumber}</p>
@@ -545,8 +892,8 @@ export default function KundenDetailPage() {
                           </p>
                           {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{formatCHF(offer.total)}</span>
+                        <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+                          <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                           <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                             {offer.status}
                           </Badge>
@@ -558,43 +905,55 @@ export default function KundenDetailPage() {
               </div>
             </div>
           )}
-
-          {historicalInvoices.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5" /> Archivierte Rechnungen ({historicalInvoices.length})
-              </h3>
-              <div className="space-y-2">
-                {historicalInvoices.map(inv => (
-                  <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'invoice', data: inv })}>
-                    <CardContent className="py-3 px-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-sm">{inv.invoiceNumber}</p>
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0">Historisch</Badge>
-                            <Badge variant="outline" className="text-[10px] border-gray-400 text-gray-600 shrink-0">→ Archiv</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {formatDate(inv.invoiceDate)}{inv.dueDate ? ` • Fällig: ${formatDate(inv.dueDate)}` : ''}
-                            {inv.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(inv.createdAt)}</span>}
-                          </p>
-                          {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{formatCHF(inv.total)}</span>
-                          <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
-                            {inv.status}
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
         </>
+      )}
+    </div>
+  );
+
+  const archivSection = (
+    <div className="space-y-2">
+      {archivedInvoices.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Keine archivierten Rechnungen
+            <span className="block mt-1 text-xs">
+              Erledigte Rechnungen aus dem Archiv werden hier beim Kunden angezeigt.
+            </span>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {archivedInvoices.map(inv => (
+            <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'invoice', data: inv })}>
+              <CardContent className="py-3 px-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-sm">{inv.invoiceNumber}</p>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0">Archiv</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatDate(inv.invoiceDate)}{inv.dueDate ? ` • Fällig: ${formatDate(inv.dueDate)}` : ''}
+                      {inv.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(inv.createdAt)}</span>}
+                    </p>
+                    {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
+                  </div>
+                  <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
+                    <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
+                    <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
+                      {inv.status}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          <div className="flex justify-end pt-1">
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => router.push('/archiv')}>
+              Archiv öffnen
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -664,6 +1023,9 @@ export default function KundenDetailPage() {
             <Button variant="outline" size="sm" className="gap-2" onClick={() => setDupCheckOpen(true)}>
               <Search className="w-4 h-4" /> Duplikate prüfen
             </Button>
+            <Button variant="outline" size="sm" className="gap-2 border-red-200 text-red-700 hover:bg-red-50" onClick={deleteCustomer} disabled={deletingCustomer}>
+              {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Kunde löschen
+            </Button>
           </div>
         </div>
 
@@ -700,6 +1062,84 @@ export default function KundenDetailPage() {
           </motion.div>
         )}
       </motion.div>
+
+      {/* V17.69 — gespeicherte kundenbasierte Ausführungsorte sichtbar machen.
+          Read-only: Bearbeiten/Löschen kommt erst später, wenn fachlich nötig. */}
+      <Card>
+        <CardContent className="py-4 px-4 space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-semibold">Gespeicherte Ausführungsorte</h3>
+              <Badge variant="outline" className="text-xs">{savedExecutionAddresses.length}</Badge>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 self-start sm:self-auto"
+              onClick={openAddExecutionAddressDialog}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ausführungsort hinzufügen
+            </Button>
+          </div>
+
+          {savedExecutionAddresses.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Noch keine Ausführungsorte bei diesem Kunden gespeichert. Du kannst hier direkt einen Ausführungsort hinzufügen oder vollständige Ausführungsadressen aus neuen Aufträgen speichern lassen.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {savedExecutionAddresses.map((addr) => (
+                <div
+                  key={addr.id}
+                  className="rounded-lg border bg-muted/20 px-3 py-2 text-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium break-words">
+                        {addr.siteName?.trim() || 'Ausführungsort'}
+                      </p>
+                      <p className="text-muted-foreground break-words">
+                        {addr.siteAddress}
+                      </p>
+                      <p className="text-muted-foreground break-words">
+                        {addr.sitePlz} {addr.siteCity}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => deleteExecutionAddress(addr)}
+                      disabled={deletingExecutionAddressId === addr.id}
+                      aria-label="Ausführungsort entfernen"
+                      title="Ausführungsort entfernen"
+                    >
+                      {deletingExecutionAddressId === addr.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                  {addr.siteNote?.trim() && (
+                    <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words">
+                      {addr.siteNote}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-2 text-[11px] text-muted-foreground">
+                    {addr.usageCount != null && <span>{addr.usageCount}× verwendet</span>}
+                    {addr.lastUsedAt && <span>Zuletzt: {formatDate(addr.lastUsedAt)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* === Stage I — Customer detail mobile/desktop split (no mobile tabs) ===
           Mobile (md:hidden): all four sections (Aufträge, Angebote, Rechnungen,
@@ -743,6 +1183,7 @@ export default function KundenDetailPage() {
           {activeTab === 'angebote' && angeboteSection}
           {activeTab === 'rechnungen' && rechnungenSection}
           {activeTab === 'historie' && historieSection}
+          {activeTab === 'archiv' && archivSection}
         </div>
       </div>
 
@@ -781,7 +1222,95 @@ export default function KundenDetailPage() {
           </h3>
           {historieSection}
         </section>
+        <section id="mobile-section-archiv">
+          <h3 className="text-base font-bold mb-3 flex items-center gap-2">
+            <Archive className="w-5 h-5 text-primary" />
+            Archiv
+            <span className="text-xs font-normal text-muted-foreground">({archiveCount})</span>
+          </h3>
+          {archivSection}
+        </section>
       </div>
+
+      {/* Kundenprofil: Ausführungsort manuell hinzufügen. Betrifft nur die gespeicherte Vorlage beim Kunden;
+          bestehende Aufträge, Angebote und Rechnungen bleiben Dokument-Snapshots. */}
+      <Dialog open={addExecutionAddressOpen} onOpenChange={(open) => {
+        if (!open) closeAddExecutionAddressDialog();
+        else setAddExecutionAddressOpen(true);
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              Ausführungsort hinzufügen
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveExecutionAddress();
+            }}
+          >
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Bezeichnung / Name</Label>
+                <Input
+                  value={executionAddressForm.siteName}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteName: event.target.value }))}
+                  placeholder="z. B. Bürogebäude Ost"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Strasse + Hausnr. *</Label>
+                <Input
+                  value={executionAddressForm.siteAddress}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteAddress: event.target.value }))}
+                  placeholder="z. B. Papiermühlestrasse 60"
+                  required
+                />
+              </div>
+              <PlzOrtInput
+                country={executionAddressForm.country}
+                onCountryChange={(country) => setExecutionAddressForm((form) => ({ ...form, country }))}
+                plzValue={executionAddressForm.sitePlz}
+                ortValue={executionAddressForm.siteCity}
+                onPlzChange={(sitePlz) => setExecutionAddressForm((form) => ({ ...form, sitePlz }))}
+                onOrtChange={(siteCity) => setExecutionAddressForm((form) => ({ ...form, siteCity }))}
+                onBothChange={(sitePlz, siteCity) => setExecutionAddressForm((form) => ({ ...form, sitePlz, siteCity }))}
+                required
+                compact
+              />
+              <div>
+                <Label className="text-xs">Notiz / Zugang / Hinweis</Label>
+                <textarea
+                  value={executionAddressForm.siteNote}
+                  onChange={(event) => setExecutionAddressForm((form) => ({ ...form, siteNote: event.target.value }))}
+                  className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Optional, z. B. Eingang hinten, Schlüsselbox, Parkplatzhinweis"
+                />
+              </div>
+            </div>
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              Dieser Ausführungsort wird nur als Vorlage im Kundenprofil gespeichert. Bestehende Aufträge, Angebote und Rechnungen bleiben unverändert.
+            </div>
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeAddExecutionAddressDialog}
+                disabled={savingExecutionAddress}
+              >
+                Abbrechen
+              </Button>
+              <Button type="submit" disabled={savingExecutionAddress} className="gap-1.5">
+                {savingExecutionAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingExecutionAddress ? 'Speichern...' : 'Speichern'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate Check Dialog (shared component) */}
       {customer && (
@@ -883,7 +1412,7 @@ export default function KundenDetailPage() {
                       </div>
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                        <p className="font-medium">{formatCHF((o as any).total || o.totalPrice || 0)}</p>
+                        <p className="font-medium">{formatCurrency((o as any).total || o.totalPrice || 0)}</p>
                       </div>
                       {convertedLabel && (
                         <div>
@@ -942,7 +1471,7 @@ export default function KundenDetailPage() {
                     </div>
                     <div>
                       <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                      <p className="font-medium">{formatCHF(o.total)}</p>
+                      <p className="font-medium">{formatCurrency(o.total)}</p>
                     </div>
                     {o.notes && (
                       <div className="col-span-2">
@@ -977,7 +1506,7 @@ export default function KundenDetailPage() {
                       </div>
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                        <p className="font-medium">{formatCHF(i.total)}</p>
+                        <p className="font-medium">{formatCurrency(i.total)}</p>
                       </div>
                       {i.notes && (
                         <div className="col-span-2">

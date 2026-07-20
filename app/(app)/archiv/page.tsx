@@ -7,19 +7,21 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import { formatCurrency } from '@/lib/currency';
 
 const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const MAX_BULK = 50;
 
 type ExportMode = 'year' | 'month' | 'range';
 
-interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; invoiceDate: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; }
+interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; subtotal: number; vatRate: number; vatAmount: number; total: number; currency?: 'CHF' | 'EUR' | string | null; status: string; invoiceDate: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; }
 
 export default function ArchivPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
+  const [visibleCount, setVisibleCount] = useState(30);
   const [yearFilter, setYearFilter] = useState<string>('all');
   const [downloading, setDownloading] = useState<string | null>(null);
 
@@ -45,23 +47,30 @@ export default function ArchivPage() {
     } catch {} finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' ? 'EUR' : 'CHF';
 
   // Derive available years from archived invoices (descending, newest year first)
-  const availableYears = Array.from(
-    new Set(
-      invoices
-        .map((inv) => {
-          if (!inv.invoiceDate) return null;
-          const d = new Date(inv.invoiceDate);
-          if (isNaN(d.getTime())) return null;
-          return d.getFullYear();
-        })
-        .filter((y): y is number => y !== null)
-    )
-  ).sort((a, b) => b - a);
+  const availableYears = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          invoices
+            .map((inv) => {
+              if (!inv.invoiceDate) return null;
+              const d = new Date(inv.invoiceDate);
+              if (isNaN(d.getTime())) return null;
+              return d.getFullYear();
+            })
+            .filter((y): y is number => y !== null),
+        ),
+      ).sort((a, b) => b - a),
+    [invoices],
+  );
 
-  const filtered = invoices
-    .filter((inv) => {
+  const filtered = useMemo(
+    () =>
+      invoices
+        .filter((inv) => {
       // Year filter (applied first)
       if (yearFilter !== 'all') {
         if (!inv.invoiceDate) return false;
@@ -80,23 +89,29 @@ export default function ArchivPage() {
         inv.items?.some((it: any) => (it.description ?? '').toLowerCase().includes(s))
       );
     })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'oldest':
-          return new Date(a.invoiceDate ?? 0).getTime() - new Date(b.invoiceDate ?? 0).getTime();
-        case 'amount_desc':
-          return Number(b.total ?? 0) - Number(a.total ?? 0);
-        case 'amount_asc':
-          return Number(a.total ?? 0) - Number(b.total ?? 0);
-        case 'customer_az':
-          return (a.customer?.name ?? '').localeCompare(b.customer?.name ?? '');
-        case 'customer_za':
-          return (b.customer?.name ?? '').localeCompare(a.customer?.name ?? '');
-        case 'newest':
-        default:
-          return new Date(b.invoiceDate ?? 0).getTime() - new Date(a.invoiceDate ?? 0).getTime();
-      }
-    });
+        .sort((a, b) => {
+          switch (sortBy) {
+            case 'oldest':
+              return new Date(a.invoiceDate ?? 0).getTime() - new Date(b.invoiceDate ?? 0).getTime();
+            case 'amount_desc':
+              return Number(b.total ?? 0) - Number(a.total ?? 0);
+            case 'amount_asc':
+              return Number(a.total ?? 0) - Number(b.total ?? 0);
+            case 'customer_az':
+              return (a.customer?.name ?? '').localeCompare(b.customer?.name ?? '');
+            case 'customer_za':
+              return (b.customer?.name ?? '').localeCompare(a.customer?.name ?? '');
+            case 'newest':
+            default:
+              return new Date(b.invoiceDate ?? 0).getTime() - new Date(a.invoiceDate ?? 0).getTime();
+          }
+        }),
+    [invoices, yearFilter, search, sortBy],
+  );
+
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [search, yearFilter, sortBy]);
 
   const isFilterActive = yearFilter !== 'all' || search.trim().length > 0;
 
@@ -252,19 +267,34 @@ export default function ArchivPage() {
   // deletedAt=null) automatically exclude this invoice afterwards, so the
   // customer can be deleted if this archived invoice was the only blocker.
   const deleteArchivedInvoice = async () => {
-    if (!deleteTarget) return;
+    const target = deleteTarget;
+    if (!target) return;
+    const removedIndex = invoices.findIndex((invoice) => invoice.id === target.id);
+    const restoreInvoice = () => {
+      setInvoices((current) => {
+        if (current.some((invoice) => invoice.id === target.id)) return current;
+        const next = [...current];
+        next.splice(Math.min(Math.max(removedIndex, 0), next.length), 0, target);
+        return next;
+      });
+    };
+
     setDeleting(true);
+    setDeleteTarget(null);
+    setInvoices((current) =>
+      current.filter((invoice) => invoice.id !== target.id),
+    );
     try {
-      const res = await fetch(`/api/invoices/${deleteTarget.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/invoices/${target.id}`, { method: 'DELETE' });
       if (res.ok) {
         toast.success('Archivierte Rechnung gelöscht');
-        setDeleteTarget(null);
-        load();
       } else {
         const data = await res.json().catch(() => null);
+        restoreInvoice();
         toast.error(data?.error || 'Fehler beim Löschen');
       }
     } catch {
+      restoreInvoice();
       toast.error('Fehler beim Löschen');
     } finally {
       setDeleting(false);
@@ -424,7 +454,7 @@ export default function ArchivPage() {
                   </span>
                   {exportPreview.count > 0 && (
                     <span className="text-muted-foreground font-mono text-xs">
-                      Total: CHF {exportPreview.total.toLocaleString('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                     Total: {formatCurrency(exportPreview.total)}
                     </span>
                   )}
                 </div>
@@ -463,8 +493,8 @@ export default function ArchivPage() {
       )}
 
       <div className="space-y-1">
-        {filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">{invoices.length === 0 ? 'Keine archivierten Rechnungen vorhanden' : 'Keine Treffer für die aktuelle Auswahl'}</p> :
-          filtered.map((inv, i) => {
+        {deleteTarget ? null : filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">{invoices.length === 0 ? 'Keine archivierten Rechnungen vorhanden' : 'Keine Treffer für die aktuelle Auswahl'}</p> :
+          filtered.slice(0, visibleCount).map((inv, i) => {
             const itemDescs = inv.items?.map((it: any) => it.description).filter(Boolean).join(', ') || '–';
             return (
               <motion.div key={inv.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
@@ -477,7 +507,7 @@ export default function ArchivPage() {
                       <span className="text-xs font-medium shrink-0">{inv.customer?.name ?? ''}{inv.customer?.customerNumber ? ` (${inv.customer.customerNumber})` : ''}</span>
                       <span className="text-xs text-muted-foreground truncate min-w-0" title={itemDescs}>{itemDescs}</span>
                       <div className="flex-1" />
-                      <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">CHF {Number(inv.total ?? 0).toFixed(0)}</span>
+                      <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">{formatCurrency(Number(inv.total ?? 0), invoiceCurrency(inv))}</span>
                       <div className="flex gap-0.5 shrink-0">
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadPdf(inv.id)} disabled={downloading === inv.id}>
                           {downloading === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -505,7 +535,7 @@ export default function ArchivPage() {
                           <span className="font-mono text-[11px] text-muted-foreground shrink-0">{inv.invoiceNumber}</span>
                           <span className="text-xs font-medium truncate">{inv.customer?.name ?? ''}</span>
                         </div>
-                        <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">CHF {Number(inv.total ?? 0).toFixed(0)}</span>
+                       <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">{formatCurrency(Number(inv.total ?? 0), invoiceCurrency(inv))}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-muted-foreground truncate">{itemDescs}</span>
@@ -536,6 +566,18 @@ export default function ArchivPage() {
           })}
       </div>
 
+      {!deleteTarget && filtered.length > visibleCount && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVisibleCount((count) => count + 30)}
+          >
+            Mehr laden ({filtered.length - visibleCount} weitere)
+          </Button>
+        </div>
+      )}
+
       {/* Stage L (2026-04-25) — confirmation dialog for permanent invoice delete */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
         <DialogContent className="max-w-md">
@@ -559,7 +601,7 @@ export default function ArchivPage() {
                   {deleteTarget.customer?.customerNumber ? ` (${deleteTarget.customer.customerNumber})` : ''}
                 </div>
                 <div className="font-mono text-xs text-muted-foreground">
-                  CHF {Number(deleteTarget.total ?? 0).toFixed(2)}
+                  {formatCurrency(Number(deleteTarget.total ?? 0), invoiceCurrency(deleteTarget))}
                 </div>
               </div>
             )}

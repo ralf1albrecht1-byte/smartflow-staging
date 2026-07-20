@@ -39,6 +39,7 @@ model User {
   accounts           Account[]
   sessions           Session[]
   customers          Customer[]
+  customerExecutionAddresses CustomerExecutionAddress[]
   orders             Order[]
   invoices           Invoice[]
   offers             Offer[]
@@ -86,7 +87,8 @@ model VerificationToken {
 
 model Customer {
   id             String    @id @default(cuid())
-  customerNumber String?   @unique
+  customerNumber String?
+  dataScope     String    @default("TEST")
   name           String
   address        String?
   plz            String?
@@ -98,13 +100,40 @@ model Customer {
   userId         String?
   user           User?     @relation(fields: [userId], references: [id])
   orders         Order[]
+  executionAddresses CustomerExecutionAddress[]
   invoices       Invoice[]
   offers         Offer[]
   deletedAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@unique([userId, dataScope, customerNumber])
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
+}
+
+
+model CustomerExecutionAddress {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  siteName    String?
+  siteAddress String
+  sitePlz     String
+  siteCity    String
+  siteNote    String?
+  country     String   @default("CH")
+  usageCount  Int      @default(1)
+  lastUsedAt  DateTime @default(now())
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([customerId, deletedAt, lastUsedAt])
 }
 
 model Service {
@@ -112,6 +141,7 @@ model Service {
   name         String
   defaultPrice Float
   unit         String   @default("Stunde")
+  positionType String   @default("service")
   userId       String?
   user         User?    @relation("UserServices", fields: [userId], references: [id])
   createdAt    DateTime @default(now())
@@ -133,10 +163,19 @@ model Order {
   totalPrice  Float    @default(0)
   vatRate     Float    @default(8.1)
   vatAmount   Float    @default(0)
-  total       Float    @default(0)
-  date        DateTime @default(now())
+total       Float    @default(0)
+currency    String   @default("CHF")
+siteAddressDifferent Boolean @default(false)
+siteName    String?
+siteAddress String?
+sitePlz     String?
+siteCity    String?
+siteNote    String?
+date        DateTime @default(now())
   notes          String?
   specialNotes   String?
+  intakeSchemaVersion String?
+  intakeSnapshot Json?
   needsReview    Boolean  @default(false)
   reviewReasons  String[] @default([])
   hinweisLevel   String   @default("none")
@@ -153,24 +192,59 @@ model Order {
   offer       Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
+  dataScope   String   @default("TEST")
   items       OrderItem[]
+  workSites   OrderWorkSite[]
+  originOrderIds String[] @default([])
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
+}
+
+model OrderWorkSite {
+  id            String @id @default(cuid())
+  orderId       String
+  order         Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  siteName      String?
+  siteAddress   String?
+  sitePlz       String?
+  siteCity      String?
+  siteNote      String?
+  isPrimary     Boolean @default(false)
+  sortOrder     Int     @default(0)
+  sourceOrderId String?
+  items         OrderItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([sourceOrderId])
 }
 
 model OrderItem {
   id          String @id @default(cuid())
   orderId     String
   order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  workSiteId  String?
+  workSite    OrderWorkSite? @relation(fields: [workSiteId], references: [id], onDelete: SetNull)
   serviceName String
+  positionType String @default("service")
   description String @default("")
   quantity    Float  @default(1)
   unit        String @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  sourceText       String?
+  detectedCurrency String?
+  needsReview      Boolean @default(false)
+  reviewReason     String?
+  sourceFingerprint String?
+
+  @@index([orderId])
+  @@index([workSiteId])
 }
 
 model Invoice {
@@ -184,18 +258,25 @@ model Invoice {
   vatRate       Float    @default(7.7)
   vatAmount     Float    @default(0)
   total         Float    @default(0)
+currency      String   @default("CHF")
   status        String   @default("Entwurf")
   invoiceDate   DateTime @default(now())
   dueDate       DateTime?
   notes         String?
+  customerSnapshot           Json?
+  customerSnapshotAt         DateTime?
+  archivedCustomerSnapshot   Json?
+  archivedCustomerSnapshotAt DateTime?
   sourceOfferId String?
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
+  dataScope     String    @default("TEST")
   archivedPdfPath String?
   deletedAt     DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 
@@ -204,10 +285,19 @@ model InvoiceItem {
   invoiceId   String
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
+  positionType String @default("service")
   quantity    Float   @default(1)
   unit        String  @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  siteName    String?
+  siteAddress String?
+  sitePlz     String?
+  siteCity    String?
+  siteNote    String?
+  sourceOrderId String?
+
+  @@index([invoiceId])
 }
 
 model Offer {
@@ -221,16 +311,21 @@ model Offer {
   vatRate     Float    @default(7.7)
   vatAmount   Float    @default(0)
   total       Float    @default(0)
+currency    String   @default("CHF")
   status      String   @default("Entwurf")
   offerDate   DateTime @default(now())
   validUntil  DateTime?
   notes       String?
+  customerSnapshot   Json?
+  customerSnapshotAt DateTime?
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
+  dataScope   String   @default("TEST")
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 
@@ -239,10 +334,19 @@ model OfferItem {
   offerId     String
   offer       Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
   description String
+  positionType String @default("service")
   quantity    Float  @default(1)
   unit        String @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  siteName    String?
+  siteAddress String?
+  sitePlz     String?
+  siteCity    String?
+  siteNote    String?
+  sourceOrderId String?
+
+  @@index([offerId])
 }
 
 model Counter {
@@ -340,6 +444,7 @@ model CompanySettings {
   testModus        Boolean @default(true)
   branche          String  @default("Gartenbau")
   hauptsprache     String  @default("Deutsch")
+  currency         String  @default("CHF")
   documentTemplate String  @default("classic")
   letterheadUrl    String?
   letterheadName   String?
@@ -348,3 +453,30 @@ model CompanySettings {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
+
+model IntakeQueueMessage {
+  id          String    @id @default(cuid())
+  channel     String
+  senderKey   String
+  messageKey  String    @unique
+  messageSid  String?
+  source      String    @default("WhatsApp")
+  senderName  String?
+  phoneNumber String?
+  userId      String?
+  messageText String    @db.Text
+  status      String    @default("pending")
+  groupKey    String?
+  processAfter DateTime
+  processedAt DateTime?
+  error       String?   @db.Text
+  retryCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([channel, messageSid])
+  @@index([channel, senderKey, status])
+  @@index([status, processAfter])
+  @@index([groupKey])
+}
+

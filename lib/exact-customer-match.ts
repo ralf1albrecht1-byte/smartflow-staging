@@ -41,6 +41,7 @@ import {
   normalizeCityForMatch,
 } from '@/lib/intake-sanitize';
 import { toE164Strict } from '@/lib/phone';
+import type { DataScope } from '@/lib/data-scope';
 
 export interface ExactMatchInput {
   name?: string | null;
@@ -154,6 +155,7 @@ export async function findExactDeterministicMatch(
   prisma: any,
   userId: string | null | undefined,
   incoming: ExactMatchInput,
+  dataScope?: DataScope,
 ): Promise<ExactMatchResult> {
   const inName = normalizeNameForMatch(incoming.name);
   const inStreet = normalizeStreetForMatch(incoming.street);
@@ -171,6 +173,7 @@ export async function findExactDeterministicMatch(
     where: {
       deletedAt: null,
       ...(userId ? { userId } : {}),
+      ...(dataScope ? { dataScope } : {}),
       plz: { contains: inPlz.slice(0, 4) },
     },
     select: {
@@ -348,6 +351,7 @@ export async function findNearExactDeterministicMatch(
   prisma: any,
   userId: string | null | undefined,
   incoming: ExactMatchInput,
+  dataScope?: DataScope,
 ): Promise<NearExactMatchResult> {
   const inName = normalizeNameForMatch(incoming.name);
   const inStreet = normalizeStreetForMatch(incoming.street);
@@ -367,6 +371,7 @@ export async function findNearExactDeterministicMatch(
   const where: any = {
     deletedAt: null,
     ...(userId ? { userId } : {}),
+      ...(dataScope ? { dataScope } : {}),
   };
   if (plzMissing) {
     // City present — DB-level substring on raw city column as a cheap narrow.

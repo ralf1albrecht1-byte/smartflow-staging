@@ -6,18 +6,28 @@ import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-s
 import { logAuditAsync } from '@/lib/audit';
 import { generateCustomerNumber } from '@/lib/customer-number';
 import { countVisibleLinked, countTotalLinked } from '@/lib/customer-links';
+import { getActiveDataScope } from '@/lib/data-scope';
 
 export async function GET() {
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const customers = await prisma.customer.findMany({
-      where: { deletedAt: null, userId },
+      // V17.87: Kundenentwürfe aus WhatsApp/Intake haben bewusst noch keine
+      // sichtbare Kundennummer. Sie bleiben am Auftrag für "Kunde prüfen",
+      // dürfen aber nicht als normale Kunden in der Kundenliste auftauchen.
+      where: { deletedAt: null, userId, dataScope, customerNumber: { not: null } },
       orderBy: { name: 'asc' },
       include: {
-        orders: { where: { deletedAt: null }, select: { id: true, offerId: true, invoiceId: true } },
-        offers: { where: { deletedAt: null }, select: { id: true, status: true } },
-        invoices: { where: { deletedAt: null }, select: { id: true, sourceOfferId: true, status: true } },
+        orders: { where: { deletedAt: null, dataScope }, select: { id: true, offerId: true, invoiceId: true } },
+        executionAddresses: {
+          where: { deletedAt: null },
+          orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }],
+          take: 12,
+        },
+        offers: { where: { deletedAt: null, dataScope }, select: { id: true, status: true } },
+        invoices: { where: { deletedAt: null, dataScope }, select: { id: true, sourceOfferId: true, status: true } },
       },
     });
     const result = customers.map((c: any) => {
@@ -58,9 +68,10 @@ export async function POST(request: Request) {
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const raw = await request.json();
     const data = normalizeCustomerData(raw);
-    const customerNumber = raw?.customerNumber || await generateCustomerNumber();
+    const customerNumber = raw?.customerNumber || await generateCustomerNumber(userId, dataScope);
     // Paket O: country is optional; when omitted, Prisma schema default ("CH") kicks in.
     const customer = await prisma.customer.create({
       data: {
@@ -74,6 +85,7 @@ export async function POST(request: Request) {
         email: data.email,
         notes: data.notes,
         userId,
+        dataScope,
       },
     });
     const su = await getSessionUser();

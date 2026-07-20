@@ -1,3 +1,21 @@
+export type DataScope = 'TEST' | 'LIVE';
+
+async function resolveCustomerLinksDataScope(
+  prisma: any,
+  userId: string,
+  requestedScope?: DataScope,
+): Promise<DataScope> {
+  if (requestedScope === 'TEST' || requestedScope === 'LIVE') {
+    return requestedScope;
+  }
+
+  const settings = await prisma.companySettings.findFirst({
+    where: { userId },
+    select: { testModus: true },
+  });
+
+  return settings?.testModus === false ? 'LIVE' : 'TEST';
+}
 /**
  * Single source of truth for counting records linked to a customer in a way that
  * matches exactly what the user sees in the module list pages.
@@ -8,9 +26,10 @@
  *                                         └─> i.e. only orders NOT yet converted to an offer/invoice
  *                                         └─> source: app/(app)/auftraege/page.tsx line ~211
  *
- *   Offers        (/angebote, default)   deletedAt=null && status ∈ {Entwurf, Gesendet}
- *                                         └─> "Aktive" filter is the default in the page
- *                                         └─> source: app/(app)/angebote/page.tsx line ~33, ~480
+ *   Offers        (/angebote, default)   deletedAt=null && status ∈
+ *                                         {Entwurf, Gesendet, Angenommen, Abgelehnt}
+ *                                         └─> "Alle" is the default filter in the page
+ *                                         └─> source: app/(app)/angebote/page.tsx
  *
  *   Invoices      (/rechnungen)          deletedAt=null && status !== 'Erledigt'
  *                                         └─> "Erledigt" is archived to /archiv
@@ -41,7 +60,15 @@ export type RawInvoice = {
   sourceOfferId?: string | null;
 };
 
-/** Offer statuses that make an offer visible in the /angebote default list. */
+/** Every regular offer status shown by the default "Alle" filter. */
+export const VISIBLE_OFFER_STATUSES = [
+  'Entwurf',
+  'Gesendet',
+  'Angenommen',
+  'Abgelehnt',
+] as const;
+
+/** Only unfinished offers. Kept separate for customer-delete blocking rules. */
 export const ACTIVE_OFFER_STATUSES = ['Entwurf', 'Gesendet'] as const;
 
 /** Order is visible in /auftraege. */
@@ -49,9 +76,9 @@ export function isVisibleOrder(o: RawOrder): boolean {
   return !o.offerId && !o.invoiceId;
 }
 
-/** Offer is visible in /angebote default ("Aktive") view. */
+/** Offer is visible in /angebote default ("Alle") view. */
 export function isVisibleOffer(o: RawOffer): boolean {
-  return (ACTIVE_OFFER_STATUSES as readonly string[]).includes(o.status);
+  return (VISIBLE_OFFER_STATUSES as readonly string[]).includes(o.status);
 }
 
 /** Invoice is visible in /rechnungen (i.e. NOT archived). */
@@ -112,7 +139,7 @@ export function countTotalLinked(
 export const VISIBLE_ORDER_WHERE = { deletedAt: null, offerId: null, invoiceId: null } as const;
 export const VISIBLE_OFFER_WHERE = {
   deletedAt: null,
-  status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] },
+  status: { in: VISIBLE_OFFER_STATUSES as unknown as string[] },
 } as const;
 export const VISIBLE_INVOICE_WHERE = {
   deletedAt: null,
@@ -164,14 +191,20 @@ export async function getCustomerDeleteBlockerCounts(
   prisma: any,
   customerId: string,
   userId: string,
+  requestedScope?: DataScope,
 ): Promise<CustomerDeleteBlockerCounts> {
+  const dataScope = await resolveCustomerLinksDataScope(
+    prisma,
+    userId,
+    requestedScope,
+  );
   const [activeOrders, activeOffers, activeInvoices, archivedInvoices, historicalOrders, historicalOffers] = await Promise.all([
-    prisma.order.count({ where: { customerId, deletedAt: null, userId, offerId: null, invoiceId: null } }),
-    prisma.offer.count({ where: { customerId, deletedAt: null, userId, status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
-    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, status: { not: 'Erledigt' } } }),
-    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, status: 'Erledigt' } }),
-    prisma.order.count({ where: { customerId, deletedAt: null, userId, OR: [{ offerId: { not: null } }, { invoiceId: { not: null } }] } }),
-    prisma.offer.count({ where: { customerId, deletedAt: null, userId, status: { notIn: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
+    prisma.order.count({ where: { customerId, deletedAt: null, userId, dataScope, offerId: null, invoiceId: null } }),
+    prisma.offer.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
+    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { not: 'Erledigt' } } }),
+    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, dataScope, status: 'Erledigt' } }),
+    prisma.order.count({ where: { customerId, deletedAt: null, userId, dataScope, OR: [{ offerId: { not: null } }, { invoiceId: { not: null } }] } }),
+    prisma.offer.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { notIn: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
   ]);
   return { activeOrders, activeOffers, activeInvoices, archivedInvoices, historicalOrders, historicalOffers };
 }

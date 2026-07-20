@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
 
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
     const su = await getSessionUser();
+    const dataScope = await getActiveDataScope(userId);
 
     const { keepId, mergeId, resolvedValues, contextCustomerId } = await request.json();
     if (!keepId || !mergeId) {
@@ -31,25 +33,25 @@ export async function POST(request: Request) {
     // Load both customers — MUST be active (deletedAt: null) and belong to user
     const [keepCustomer, mergeCustomer] = await Promise.all([
       prisma.customer.findFirst({
-        where: { id: keepId, userId, deletedAt: null },
+        where: { id: keepId, userId, dataScope, deletedAt: null },
         include: {
           _count: {
             select: {
-              orders: { where: { deletedAt: null } },
-              offers: { where: { deletedAt: null } },
-              invoices: { where: { deletedAt: null } },
+              orders: { where: { deletedAt: null, dataScope } },
+              offers: { where: { deletedAt: null, dataScope } },
+              invoices: { where: { deletedAt: null, dataScope } },
             },
           },
         },
       }),
       prisma.customer.findFirst({
-        where: { id: mergeId, userId, deletedAt: null },
+        where: { id: mergeId, userId, dataScope, deletedAt: null },
         include: {
           _count: {
             select: {
-              orders: { where: { deletedAt: null } },
-              offers: { where: { deletedAt: null } },
-              invoices: { where: { deletedAt: null } },
+              orders: { where: { deletedAt: null, dataScope } },
+              offers: { where: { deletedAt: null, dataScope } },
+              invoices: { where: { deletedAt: null, dataScope } },
             },
           },
         },
@@ -131,22 +133,28 @@ export async function POST(request: Request) {
     await prisma.$transaction([
       // Transfer ALL orders from secondary → primary (including archived/deleted)
       prisma.order.updateMany({
-        where: { customerId: secondaryId },
+        where: { customerId: secondaryId, userId, dataScope },
         data: { customerId: primaryId, needsReview: false, reviewReasons: [] },
       }),
       // Clear needsReview on primary's orders (duplicate resolved)
       prisma.order.updateMany({
-        where: { customerId: primaryId, needsReview: true },
+        where: { customerId: primaryId, userId, dataScope, needsReview: true },
         data: { needsReview: false, reviewReasons: [] },
+      }),
+      // V17.68b: Persistente Ausführungsorte beim Kunden-Merge mitnehmen.
+      // Keine Änderung an Merge-Richtung/Kundennummer/Validierung.
+      (prisma as any).customerExecutionAddress.updateMany({
+        where: { customerId: secondaryId, userId },
+        data: { customerId: primaryId, userId },
       }),
       // Transfer ALL offers (including archived/deleted)
       prisma.offer.updateMany({
-        where: { customerId: secondaryId },
+        where: { customerId: secondaryId, userId, dataScope },
         data: { customerId: primaryId },
       }),
       // Transfer ALL invoices (including archived/deleted)
       prisma.invoice.updateMany({
-        where: { customerId: secondaryId },
+        where: { customerId: secondaryId, userId, dataScope },
         data: { customerId: primaryId },
       }),
       // Update primary with merged field values.
@@ -191,7 +199,7 @@ export async function POST(request: Request) {
 
     // === POST-MERGE VALIDATION ===
     // 1. Verify customerNumber immutability
-    const primaryAfterMerge = await prisma.customer.findUnique({ where: { id: primaryId }, select: { customerNumber: true } });
+    const primaryAfterMerge = await prisma.customer.findFirst({ where: { id: primaryId, userId, dataScope }, select: { customerNumber: true } });
     if (primaryAfterMerge?.customerNumber !== preservedCustomerNumber) {
       console.error('[merge] CRITICAL: customerNumber changed during merge!', {
         primaryId, expected: preservedCustomerNumber, actual: primaryAfterMerge?.customerNumber,
@@ -201,10 +209,10 @@ export async function POST(request: Request) {
 
     // 2. Verify no dangling active references to secondary
     const [danglingOrders, danglingOffers, danglingInvoices, secondaryStillActive] = await Promise.all([
-      prisma.order.count({ where: { customerId: secondaryId, deletedAt: null } }),
-      prisma.offer.count({ where: { customerId: secondaryId, deletedAt: null } }),
-      prisma.invoice.count({ where: { customerId: secondaryId, deletedAt: null } }),
-      prisma.customer.findFirst({ where: { id: secondaryId, deletedAt: null } }),
+      prisma.order.count({ where: { customerId: secondaryId, userId, dataScope, deletedAt: null } }),
+      prisma.offer.count({ where: { customerId: secondaryId, userId, dataScope, deletedAt: null } }),
+      prisma.invoice.count({ where: { customerId: secondaryId, userId, dataScope, deletedAt: null } }),
+      prisma.customer.findFirst({ where: { id: secondaryId, userId, dataScope, deletedAt: null } }),
     ]);
 
     if (danglingOrders > 0 || danglingOffers > 0 || danglingInvoices > 0 || secondaryStillActive) {
@@ -233,9 +241,9 @@ export async function POST(request: Request) {
 
     // Get final counts
     const [orderCount, offerCount, invoiceCount] = await Promise.all([
-      prisma.order.count({ where: { customerId: primaryId, deletedAt: null } }),
-      prisma.offer.count({ where: { customerId: primaryId, deletedAt: null } }),
-      prisma.invoice.count({ where: { customerId: primaryId, deletedAt: null } }),
+      prisma.order.count({ where: { customerId: primaryId, userId, dataScope, deletedAt: null } }),
+      prisma.offer.count({ where: { customerId: primaryId, userId, dataScope, deletedAt: null } }),
+      prisma.invoice.count({ where: { customerId: primaryId, userId, dataScope, deletedAt: null } }),
     ]);
 
     // Audit log — full merge traceability

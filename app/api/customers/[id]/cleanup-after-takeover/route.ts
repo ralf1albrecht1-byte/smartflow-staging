@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { getCustomerDeleteBlockerCounts, isCustomerDeleteBlocked } from '@/lib/customer-links';
 
@@ -27,6 +28,7 @@ export async function POST(
   } catch {
     return unauthorizedResponse();
   }
+  const dataScope = await getActiveDataScope(userId);
 
   const oldCustomerId = params?.id;
   if (!oldCustomerId) {
@@ -52,8 +54,8 @@ export async function POST(
   try {
     // Verify both customers belong to this user
     const [oldCust, keptCust] = await Promise.all([
-      prisma.customer.findFirst({ where: { id: oldCustomerId, userId } }),
-      prisma.customer.findFirst({ where: { id: keptCustomerId, userId } }),
+      prisma.customer.findFirst({ where: { id: oldCustomerId, userId, dataScope } }),
+      prisma.customer.findFirst({ where: { id: keptCustomerId, userId, dataScope } }),
     ]);
 
     if (!oldCust) {
@@ -69,7 +71,7 @@ export async function POST(
     }
 
     // Check if old customer still has blocking documents
-    const counts = await getCustomerDeleteBlockerCounts(prisma, oldCustomerId, userId);
+    const counts = await getCustomerDeleteBlockerCounts(prisma, oldCustomerId, userId, dataScope);
     if (isCustomerDeleteBlocked(counts)) {
       return NextResponse.json({
         cleaned: false,

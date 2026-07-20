@@ -26,6 +26,7 @@
  */
 
 export interface ExtractedCustomerData {
+  name: string | null;
   phone: string | null;
   email: string | null;
   street: string | null;
@@ -96,8 +97,74 @@ export function sanitizeNotesForExtraction(text: string | null | undefined): str
   return cleaned;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// Onsite-contact phone guard
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Remove "Kontakt vor Ort" / "Hauswart vor Ort" blocks from the text used
+ * for PHONE extraction only. The original sanitized text is still used for
+ * name, e-mail and address extraction.
+ *
+ * Ziel: Telefonnummern von Hauswart, Empfang, Objektkontakt usw. dürfen
+ * niemals als normale Kundentelefonnummer in die Rechnungsadresse laufen.
+ */
+export function stripOnsiteContactSectionsForPhoneExtraction(
+  text: string | null | undefined,
+): string {
+  if (!text) return '';
+
+  const lines = String(text).split(/\r?\n/);
+  const kept: string[] = [];
+  let inOnsiteContactBlock = false;
+
+  const onsiteHeader =
+    /^\s*(?:(?:kontakt|kontaktperson|ansprechpartner|ansprechperson|person)\s+(?:vor\s+ort|am\s+arbeitsort|am\s+objekt|auf\s+der\s+baustelle|beim\s+objekt)|(?:hauswart|hausmeister|concierge|facility\s*manager|gardien|caretaker)\s+(?:vor\s+ort|am\s+objekt|auf\s+der\s+baustelle))\s*:?.*$/i;
+
+  const sectionHeader =
+    /^\s*(?:besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|objektadresse|ausführungsadresse|ausfuehrungsadresse)\s*:?\s*$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      inOnsiteContactBlock = false;
+      kept.push(line);
+      continue;
+    }
+
+    if (inOnsiteContactBlock && sectionHeader.test(trimmed)) {
+      inOnsiteContactBlock = false;
+      kept.push(line);
+      continue;
+    }
+
+    if (onsiteHeader.test(trimmed)) {
+      inOnsiteContactBlock = true;
+      continue;
+    }
+
+    if (inOnsiteContactBlock) {
+      continue;
+    }
+
+    // Inline variant:
+    // "Kontakt vor Ort: Hauswart Meier Tel. 079 123 45 67"
+    if (
+      /\b(?:kontakt|kontaktperson|ansprechpartner|ansprechperson|person)\s+(?:vor\s+ort|am\s+arbeitsort|am\s+objekt|auf\s+der\s+baustelle|beim\s+objekt)\b/i.test(trimmed)
+    ) {
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  return kept.join('\n');
+}
+
 export function extractCustomerDataFromText(text: string | null | undefined): ExtractedCustomerData {
-  const result: ExtractedCustomerData = { phone: null, email: null, street: null, plz: null, city: null };
+  const result: ExtractedCustomerData = { name: null, phone: null, email: null, street: null, plz: null, city: null };
   if (!text || !text.trim()) return result;
 
   // Layer 2 — drop metadata lines and timestamp/twilio fragments BEFORE any
@@ -106,22 +173,48 @@ export function extractCustomerDataFromText(text: string | null | undefined): Ex
   const sanitized = sanitizeNotesForExtraction(text);
   if (!sanitized.trim()) return result;
 
+
+
+
+  // ---- Name ----
+  const namePatterns = [
+    /\b(?:mein\s+name\s+ist|ich\s+heisse|ich\s+heiße|ich\s+bin|hier\s+ist|hier\s+spricht|kunde|name)\s*:?\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+){0,2})\b/u,
+  ];
+
+  for (const pat of namePatterns) {
+    const m = sanitized.match(pat);
+
+    if (m?.[1]) {
+      result.name = m[1].trim();
+      break;
+    }
+  }
+
+
+
+
   // ---- Telefon ----
   // Swiss patterns: +41 79 123 45 67, 079 123 45 67, 0564261234, 056 426 12 34
   // Also short numbers like "086577" and patterns with "tell/tel/telefon" keyword
   // Phase: also handle spaced digits from audio transcription: "0 8 7 6 5 4 3 2 1"
+  //
+  // WICHTIG:
+  // Für Telefon wird NICHT der komplette Text gescannt, sondern eine Version
+  // ohne "Kontakt vor Ort"-Blöcke. Sonst würde z. B. die Hauswart-Nummer
+  // fälschlich als Kundentelefon in der Rechnungsadresse landen.
+  const phoneScanText = stripOnsiteContactSectionsForPhoneExtraction(sanitized);
 
   // Pre-process: collapse spaced single digits that form a phone number.
   // Audio transcription often spells out: "0 8 7 6 5 4 3 2 1" or "zero eight seven..."
   // We normalize sequences of 6+ single digits separated by spaces: "0 8 7 6 ..." → "0876..."
-  const spacedDigitNormalized = sanitized.replace(
+  const spacedDigitNormalized = phoneScanText.replace(
     /\b(\d(?:\s+\d){5,})\b/g,
     (match) => match.replace(/\s+/g, ''),
   );
 
   // Also handle keyword-triggered extraction: "meine Telefonnummer ist 0 8 7 6 5 4 3 2 1"
   // or "my number is 0 8 7 ..." — extract digits after the keyword even when spaced
-  const keywordPhoneMatch = sanitized.match(
+  const keywordPhoneMatch = phoneScanText.match(
     /(?:telefonnummer|phone\s*number|nummer|number|rufnummer|handy|mobile|mobil)\s+(?:ist|is|lautet)?\s*((?:\d\s*){6,})/i,
   );
   let keywordExtractedPhone: string | null = null;
@@ -156,10 +249,12 @@ export function extractCustomerDataFromText(text: string | null | undefined): Ex
     }
   }
 
-  // Fallback: try standard patterns on original sanitized text
+  // Fallback: try standard patterns on phoneScanText.
+  // Do NOT use full sanitized text here. Full text may contain onsite-contact
+  // phones which are operational notes, not customer master data.
   if (!result.phone) {
     for (const pat of phonePatterns) {
-      const m = sanitized.match(pat);
+      const m = phoneScanText.match(pat);
       if (m) {
         result.phone = (m[1] || m[0]).replace(/[\s\-\/]+/g, ' ').trim();
         break;
@@ -275,7 +370,7 @@ export function autoFillCustomerFromNotes(
   if (!notes) return { ...currentCust };
   const extracted = extractCustomerDataFromText(notes);
   return {
-    name: currentCust.name,
+    name: currentCust.name || extracted.name || '',
     phone: currentCust.phone || extracted.phone || '',
     email: currentCust.email || extracted.email || '',
     address: currentCust.address || extracted.street || '',
@@ -283,3 +378,4 @@ export function autoFillCustomerFromNotes(
     city: currentCust.city || extracted.city || '',
   };
 }
+

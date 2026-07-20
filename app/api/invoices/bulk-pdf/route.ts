@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { getOrCreateArchivedPdf } from '@/lib/archived-pdf';
 import JSZip from 'jszip';
@@ -67,12 +68,13 @@ export async function POST(request: Request) {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     const body = await request.json();
     const { year, month, dateFrom, dateTo } = body ?? {};
 
     // Build date filter for archived invoices
-    const where: any = { userId, status: 'Erledigt', deletedAt: null };
+    const where: any = { userId, dataScope, status: 'Erledigt', deletedAt: null };
     const dateConditions: any = {};
 
     if (dateFrom && dateTo) {

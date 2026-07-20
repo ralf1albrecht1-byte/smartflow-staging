@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Check, ChevronsUpDown, Plus, Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
+import { getPositionTypeLabel, normalizePositionType, PositionType } from '@/lib/position-types';
 
 const normalizeServiceName = (name: string) =>
 name.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -12,6 +13,7 @@ id: string;
 name: string;
 defaultPrice: number;
 unit: string;
+positionType?: PositionType | string | null;
 }
 
 interface ServiceComboboxProps {
@@ -21,8 +23,12 @@ onChange: (name: string, service?: ServiceOption) => void;
 onServiceCreated?: (service: ServiceOption) => void;
 currentPrice?: string;
 currentUnit?: string;
+positionType?: PositionType | string | null;
+onPositionTypeChange?: (positionType: PositionType) => void;
 contextLabel?: string;
 placeholder?: string;
+showManualHint?: boolean;
+saveButtonPlacement?: 'inline' | 'below' | 'none';
 }
 
 export function ServiceCombobox({
@@ -32,8 +38,12 @@ onChange,
 onServiceCreated,
 currentPrice,
 currentUnit,
+positionType = 'service',
+onPositionTypeChange,
 contextLabel = 'Auftrag',
 placeholder = 'Leistung suchen oder eingeben...',
+showManualHint = true,
+saveButtonPlacement = 'inline',
 }: ServiceComboboxProps) {
 const [open, setOpen] = useState(false);
 const [query, setQuery] = useState('');
@@ -75,6 +85,7 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 
 const handleSelect = (svc: ServiceOption) => {
 onChange(svc.name, svc);
+if (svc.positionType) onPositionTypeChange?.(normalizePositionType(svc.positionType));
 setQuery('');
 setOpen(false);
 };
@@ -123,6 +134,7 @@ try {
       name: normalizedName,
       defaultPrice: Number(currentPrice),
 unit: currentUnit,
+      positionType: normalizePositionType(positionType),
     }),
   });
 
@@ -130,21 +142,22 @@ unit: currentUnit,
 
   const newService: ServiceOption = await res.json();
 
-  toast.success('Leistung wurde in \'Leistungen\' übernommen ✓');
+  toast.success('Position wurde in den Katalog übernommen ✓');
   setJustSaved(true);
   setQuery('');
   setOpen(false);
 
   onServiceCreated?.(newService);
+  onPositionTypeChange?.(normalizePositionType(newService.positionType));
   onChange(newService.name);
 } catch (err) {
-  toast.error('Leistung konnte nicht gespeichert werden');
+  toast.error('Position konnte nicht gespeichert werden');
 } finally {
   setSaving(false);
 }
 
 
-}, [value, saving, services, onChange, onServiceCreated, currentPrice, currentUnit]);
+}, [value, saving, services, onChange, onServiceCreated, currentPrice, currentUnit, positionType, onPositionTypeChange]);
 
 const isExistingService = value.trim() !== '' && !isManual;
 
@@ -169,7 +182,7 @@ inputRef.current?.focus();
 tabIndex={-1}
 > <ChevronsUpDown className="w-3.5 h-3.5" /> </button> </div>
 
-    {isManual && (
+    {isManual && saveButtonPlacement === 'inline' && (
       <button
         type="button"
         onClick={handleSaveAsService}
@@ -180,16 +193,35 @@ tabIndex={-1}
   Number(currentPrice) <= 0 ||
   !currentUnit
 }     className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 border border-primary/30 rounded-md px-2 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50"
-        title="Als wiederverwendbare Leistung speichern"
+        title="Diese Leistung dauerhaft in den Leistungskatalog übernehmen"
       >
         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-        <span className="hidden sm:inline whitespace-nowrap">Als Leistung speichern</span>
-        <span className="sm:hidden">Speichern</span>
+        <span className="hidden sm:inline whitespace-nowrap">In Katalog übernehmen</span>
+        <span className="sm:hidden">Leistungen</span>
       </button>
     )}
   </div>
 
-  {isManual && !open && (
+  {isManual && saveButtonPlacement === 'below' && (
+    <button
+      type="button"
+      onClick={handleSaveAsService}
+      disabled={
+        saving ||
+        !value ||
+        !currentPrice ||
+        Number(currentPrice) <= 0 ||
+        !currentUnit
+      }
+      className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 disabled:opacity-50"
+      title="Diese Leistung dauerhaft in den Leistungskatalog übernehmen"
+    >
+      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+      <span>In Katalog übernehmen</span>
+    </button>
+  )}
+
+  {showManualHint && isManual && !open && (
     <div className="mt-1 space-y-0.5">
       <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1">
         <Info className="w-3 h-3 mt-0.5 shrink-0" />
@@ -204,7 +236,7 @@ tabIndex={-1}
   {justSaved && isExistingService && !open && (
     <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
       <Check className="w-3 h-3" />
-      <span>Leistung gespeichert ✓</span>
+      <span>Position gespeichert ✓</span>
     </p>
   )}
 
@@ -236,7 +268,7 @@ tabIndex={-1}
           >
             <span className="truncate">{svc.name}</span>
             <span className="text-xs text-muted-foreground shrink-0">
-              CHF {Number(svc.defaultPrice ?? 0).toFixed(2)}/{svc.unit}
+              {getPositionTypeLabel(svc.positionType)} · CHF {Number(svc.defaultPrice ?? 0).toFixed(2)}/{svc.unit}
               {svc.name.toLowerCase() === value.toLowerCase() && (
                 <Check className="w-3 h-3 inline ml-1 text-primary" />
               )}

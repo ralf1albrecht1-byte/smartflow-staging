@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { DATA_SCOPE_TEST } from '@/lib/data-scope';
 
 /**
 
@@ -8,8 +9,8 @@ import { prisma } from '@/lib/prisma';
       TEST-RE-YYYY-XXX   or  RE-YYYY-XXX
   ```
 *
-* IMPORTANT: TEST and LIVE numbering are fully separated.
-* Each has its own independent sequence counter.
+* IMPORTANT: TEST and LIVE numbering are fully separated by prefix.
+* Each namespace calculates the next sequence from existing document numbers.
 *
 * `invoiceNumber` and `offerNumber` carry a GLOBAL @unique constraint
 * in the DB schema.  The sequence scan must therefore cover ALL rows
@@ -79,63 +80,81 @@ const seqStr = String(nextSeq).padStart(3, '0');
 return testModus ? `TEST-RE-${year}-${seqStr}` : `RE-${year}-${seqStr}`;
 }
 
-export async function resetTestCounters(userId: string): Promise<{ offersReset: number; invoicesReset: number; ordersReset: number }> {
-const testModus = await getTestModus(userId);
-if (!testModus) {
-throw new Error('Reset nur im Testmodus erlaubt');
-}
-
-const now = new Date();
-
-const offersResult = await prisma.offer.updateMany({
-where: {
-offerNumber: { startsWith: 'TEST-' },
-deletedAt: null,
-userId,
-},
-data: { deletedAt: now },
-});
-
-const invoicesResult = await prisma.invoice.updateMany({
-where: {
-invoiceNumber: { startsWith: 'TEST-' },
-deletedAt: null,
-userId,
-},
-data: { deletedAt: now },
-});
-
-const testOfferIds = (await prisma.offer.findMany({
-where: { offerNumber: { startsWith: 'TEST-' }, userId },
-select: { id: true },
-})).map((o: { id: string }) => o.id);
-
-const testInvoiceIds = (await prisma.invoice.findMany({
-where: { invoiceNumber: { startsWith: 'TEST-' }, userId },
-select: { id: true },
-})).map((i: { id: string }) => i.id);
-
-let ordersReset = 0;
-
-if (testOfferIds.length > 0) {
-const r = await prisma.order.updateMany({
-where: { offerId: { in: testOfferIds }, deletedAt: null, userId },
-data: { deletedAt: now },
-});
-ordersReset += r.count;
-}
-
-if (testInvoiceIds.length > 0) {
-const r = await prisma.order.updateMany({
-where: { invoiceId: { in: testInvoiceIds }, deletedAt: null, userId },
-data: { deletedAt: now },
-});
-ordersReset += r.count;
-}
-
-return {
-offersReset: offersResult.count,
-invoicesReset: invoicesResult.count,
-ordersReset,
+/**
+ * Moves the complete active TEST business dataset to the trash.
+ *
+ * Safety invariants:
+ * - Only rows belonging to this user are touched.
+ * - Only rows with dataScope = TEST are touched.
+ * - LIVE customers, orders, offers and invoices remain unchanged.
+ * - Services, company settings, counters and audit logs remain unchanged.
+ * - Customer execution addresses stay attached to their soft-deleted customer,
+ *   so restoring the customer also makes its addresses available again.
+ * - Number counters are not reset because trashed numbers remain reserved.
+ */
+export type ResetTestDataResult = {
+  offersReset: number;
+  invoicesReset: number;
+  ordersReset: number;
+  customersReset: number;
 };
+
+export async function resetTestCounters(userId: string): Promise<ResetTestDataResult> {
+  const testModus = await getTestModus(userId);
+  if (!testModus) {
+    throw new Error('Testdaten können nur im Testmodus in den Papierkorb verschoben werden');
+  }
+
+  const now = new Date();
+
+  return prisma.$transaction(
+    async (tx: any) => {
+      // Soft-delete every active TEST document, including free-standing orders.
+      const ordersResult = await tx.order.updateMany({
+        where: {
+          userId,
+          dataScope: DATA_SCOPE_TEST,
+          deletedAt: null,
+        },
+        data: { deletedAt: now },
+      });
+
+      const offersResult = await tx.offer.updateMany({
+        where: {
+          userId,
+          dataScope: DATA_SCOPE_TEST,
+          deletedAt: null,
+        },
+        data: { deletedAt: now },
+      });
+
+      const invoicesResult = await tx.invoice.updateMany({
+        where: {
+          userId,
+          dataScope: DATA_SCOPE_TEST,
+          deletedAt: null,
+        },
+        data: { deletedAt: now },
+      });
+
+      // Customers are soft-deleted only after their TEST documents were moved.
+      // Their execution addresses remain linked and are hidden with the customer.
+      const customersResult = await tx.customer.updateMany({
+        where: {
+          userId,
+          dataScope: DATA_SCOPE_TEST,
+          deletedAt: null,
+        },
+        data: { deletedAt: now },
+      });
+
+      return {
+        offersReset: offersResult.count,
+        invoicesReset: invoicesResult.count,
+        ordersReset: ordersResult.count,
+        customersReset: customersResult.count,
+      };
+    },
+    { timeout: 20000 },
+  );
 }
