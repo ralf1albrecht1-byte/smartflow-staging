@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L384_OFFER_CLOSED_CARD_TRASH_MENU_ZINDEX_ONLY
 // SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L377_OFFER_ACCESS_CHIP_WORKSITE_CONTEXT_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
@@ -5330,6 +5331,11 @@ export default function AngebotePage() {
   const [activeMobileReviewSiteKey, setActiveMobileReviewSiteKey] = useState<string | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
+  // V17.90L384: Das native Angebots-Aktionsmenü bleibt unverändert, aber
+  // seine Karte wird beim geöffneten Menü über benachbarte geschlossene Karten
+  // gehoben. Dadurch bleibt „Papierkorb“ auch bei kompakter Karte anklickbar.
+  const [openOfferCardActionMenuIdV17_90L384, setOpenOfferCardActionMenuIdV17_90L384] =
+    useState<string | null>(null);
   const [offerCardExpansionRestored, setOfferCardExpansionRestored] = useState(false);
   const [offerCardInitialStateApplied, setOfferCardInitialStateApplied] = useState(false);
 
@@ -9606,6 +9612,11 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.015 }}
+                      className={`relative ${
+                        openOfferCardActionMenuIdV17_90L384 === off.id
+                          ? "z-[300]"
+                          : "z-0"
+                      }`}
                     >
                       <Card
                         className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-all tap-safe rounded-xl active:scale-[0.998] overflow-visible"
@@ -9629,6 +9640,23 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                               data-offer-action-menu
                               className="relative shrink-0 group"
                               onClick={(e) => e.stopPropagation()}
+                              onToggle={(event) => {
+                                const currentMenu = event.currentTarget;
+                                if (currentMenu.open) {
+                                  document
+                                    .querySelectorAll<HTMLDetailsElement>(
+                                      "details[data-offer-action-menu][open]",
+                                    )
+                                    .forEach((menu) => {
+                                      if (menu !== currentMenu) menu.open = false;
+                                    });
+                                  setOpenOfferCardActionMenuIdV17_90L384(off.id);
+                                  return;
+                                }
+                                setOpenOfferCardActionMenuIdV17_90L384((current) =>
+                                  current === off.id ? null : current,
+                                );
+                              }}
                             >
                               <summary
                                 className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
