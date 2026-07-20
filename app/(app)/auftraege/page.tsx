@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L383_BLOCK_HANDOFF_WITH_OPEN_RED_REVIEWS
 // SMARTFLOW_V17_90L382_ORDER_DOG_CONTACT_EDITOR_GROUPING_ONLY
 // SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
@@ -12879,10 +12880,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Währung prüfen");
   }
 
-  if (
-    !getCanonicalIntakeV2(order) &&
-    reviewReasons.some(isRecognitionReviewReasonV17_90L69)
-  ) {
+  if (reviewReasons.some(isRecognitionReviewReasonV17_90L69)) {
     blockers.push("Leistung nicht erkannt");
   }
 
@@ -15448,6 +15446,23 @@ export default function AuftraegePage() {
       (hasGenericRecognitionReviewV17_90L70 &&
         allCurrentRecognitionReviewDetailsV17_90L69.length === 0),
   );
+  const hasOpenHandoffReviewDecisionV17_90L383 = Boolean(
+    hasCurrentRecognitionReviewV17_90L69 ||
+      formItems.some(
+        (item) =>
+          Boolean(item.pendingManualReviewDecision) &&
+          !Boolean(item.manualReviewConfirmed),
+      ),
+  );
+  const blockHandoffForOpenReviewV17_90L383 = (
+    targetLabel: "Angebot" | "Rechnung",
+  ) => {
+    if (!hasOpenHandoffReviewDecisionV17_90L383) return false;
+    toast.error(
+      `${targetLabel} nicht möglich: Offene Prüfungen zuerst übernehmen oder verwerfen.`,
+    );
+    return true;
+  };
 
   const visibleFormItemsWithIndexesV17_90L359 = formItems
     .map((item, index) => ({ item, index }))
@@ -19108,6 +19123,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
 
   // Save + Create Offer → navigate to /angebote with edit modal open
   const saveAndCreateOffer = async () => {
+    if (blockHandoffForOpenReviewV17_90L383("Angebot")) return;
     setSaving(true);
     try {
       const saved = await saveOrder();
@@ -19186,6 +19202,7 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
 
   // Save + Create Invoice → navigate to /rechnungen with edit modal open
   const saveAndCreateInvoice = async () => {
+    if (blockHandoffForOpenReviewV17_90L383("Rechnung")) return;
     setSaving(true);
     try {
       const saved = await saveOrder();
@@ -25251,7 +25268,14 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             type="button"
                             variant="outline"
                             onClick={saveAndCreateOffer}
-                            disabled={saving}
+                            disabled={
+                              saving || hasOpenHandoffReviewDecisionV17_90L383
+                            }
+                            title={
+                              hasOpenHandoffReviewDecisionV17_90L383
+                                ? "Offene Prüfungen zuerst übernehmen oder verwerfen."
+                                : undefined
+                            }
                             className="w-full border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
                           >
                             <FileCheck className="mr-1.5 h-4 w-4" />
@@ -25261,7 +25285,14 @@ Die Löschung wird erst mit „Speichern“ dauerhaft übernommen.`,
                             type="button"
                             variant="outline"
                             onClick={saveAndCreateInvoice}
-                            disabled={saving}
+                            disabled={
+                              saving || hasOpenHandoffReviewDecisionV17_90L383
+                            }
+                            title={
+                              hasOpenHandoffReviewDecisionV17_90L383
+                                ? "Offene Prüfungen zuerst übernehmen oder verwerfen."
+                                : undefined
+                            }
                             className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           >
                             <FileText className="mr-1.5 h-4 w-4" />
