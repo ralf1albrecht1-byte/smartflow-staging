@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371CR_HIDE_LEGACY_EXECUTION_ADDRESS_PANEL_WHEN_WORKSITES_VISIBLE_ALL3
 // SMARTFLOW_V17_90L371CQ_UNIT_MISSING_RED_VALIDATION_ALL3
@@ -126,6 +127,10 @@ import {
 import {
   buildUnifiedWorksiteInfoDisplayV17_90L378,
   groupWorksiteDisplayLinesV17_90L376,
+  isWorksiteAccessInstructionLineV17_90L380,
+  isWorksiteParkingOrLogisticsLineV17_90L380,
+  isWorksiteOperationalInstructionLineV17_90L380,
+  isWorksiteSiteLocalCommunicationLineV17_90L380,
 } from "@/lib/worksite-chip-display";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -147,7 +152,10 @@ import {
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { MwStControl } from "@/components/mwst-control";
 import { formatCurrency } from "@/lib/currency";
-import { splitSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  splitSpecialNotes,
+  classifySpecialNoteRoleV17_90L93,
+} from "@/lib/special-notes-utils";
 import {
   canonicalAppointmentBadgeV2,
   getCanonicalIntakeV2,
@@ -1321,9 +1329,7 @@ function escapeInvoiceWorkSiteContextRegExpV17_90L372(value: string): string {
 }
 
 function isInvoiceAccessOrKeyHintLineV17_90L372(value?: string | null): boolean {
-  return /\b(?:zugang|zutritt|schluessel|schlussel|schlüssel|key|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|badge|rezeption|reception|empfang|code|pin|tor|tuer|tur|tür|eingang|seitentor|seiteneingang|hintereingang)\b/i.test(
-    normalizeInvoiceServiceName(value),
-  );
+  return isWorksiteAccessInstructionLineV17_90L380(value);
 }
 
 function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
@@ -1390,7 +1396,13 @@ function collectInvoiceScopedAccessHintLinesV17_90L372(orders: any[]): string[] 
             "i",
           ),
         );
-        const rawHint = compactInvoiceValue(match?.[1] || "");
+        const rawHint = compactInvoiceValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
         if (rawHint) pushScoped(resolved.site.label, rawHint);
         continue;
       }
@@ -1413,6 +1425,145 @@ function replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
     ...lines.filter((line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line)),
     ...scoped,
   ]);
+}
+
+function collectInvoiceScopedOperationalHintLinesV17_90L380(
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const order of orders || []) {
+    const sites = (order?.workSites || [])
+      .map((site: any) => ({
+        label:
+          compactInvoiceValue(site?.siteName) ||
+          compactInvoiceValue(site?.siteAddress),
+        keys: [site?.siteName, site?.siteAddress]
+          .map(compactInvoiceValue)
+          .filter(Boolean),
+      }))
+      .filter((site: any) => site.label && site.keys.length > 0);
+    if (sites.length === 0) continue;
+
+    const rawSourceParts = [order?.notes, order?.audioTranscript].filter(
+      (source: any) => compactInvoiceValue(source),
+    );
+    const sourceParts =
+      rawSourceParts.length > 0
+        ? rawSourceParts
+        : [order?.specialNotes].filter((source: any) =>
+            compactInvoiceValue(source),
+          );
+    const lines = sourceParts
+      .flatMap(splitInvoiceSourceLinesV17_90L237)
+      .map((line) =>
+        compactInvoiceValue(
+          line.replace(
+            /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
+            "",
+          ),
+        ),
+      )
+      .filter(Boolean);
+
+    const pushScoped = (
+      siteLabel: string,
+      rawHint: unknown,
+      rawLine: string,
+    ) => {
+      const hint = compactInvoiceValue(rawHint).replace(/[.;,\s]+$/g, "");
+      if (!hint || (!matchesHint(hint) && !matchesHint(rawLine))) return;
+      const formatted = `${siteLabel}: ${hint}`;
+      const key = normalizeInvoiceServiceName(formatted);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      result.push(formatted);
+    };
+
+    let activeSiteLabel = "";
+    const resolveSiteFromLine = (line: string) => {
+      const lineKey = normalizeInvoiceServiceName(line);
+      if (!lineKey) return null;
+      for (const site of sites) {
+        for (const key of site.keys) {
+          const siteKey = normalizeInvoiceServiceName(key);
+          if (siteKey && lineKey.includes(siteKey)) return { site, key };
+        }
+      }
+      return null;
+    };
+
+    for (const line of lines) {
+      const resolved = resolveSiteFromLine(line);
+      if (resolved?.site?.label) activeSiteLabel = resolved.site.label;
+
+      if (resolved) {
+        const escaped = escapeInvoiceWorkSiteContextRegExpV17_90L372(
+          resolved.key,
+        );
+        const match = line.match(
+          new RegExp(
+            `^(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)?\\s*(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*(.*)$`,
+            "i",
+          ),
+        );
+        const rawHint = compactInvoiceValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
+        if (rawHint) pushScoped(resolved.site.label, rawHint, line);
+        continue;
+      }
+
+      if (activeSiteLabel && matchesHint(line)) {
+        pushScoped(activeSiteLabel, line, line);
+      }
+    }
+  }
+
+  return result;
+}
+
+function replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+  lines: string[],
+  orders: any[],
+  matchesHint: (line: string) => boolean,
+): string[] {
+  const scoped = collectInvoiceScopedOperationalHintLinesV17_90L380(
+    orders,
+    matchesHint,
+  );
+  if (scoped.length === 0) return lines;
+  return uniqueInvoiceLines([
+    ...lines.filter((line) => {
+      if (!matchesHint(line)) return true;
+      return /^(?!\s*(?:Zugang|Zutritt|Schlüssel|Schluessel|Schlussel|Key|Access|Achtung|Vorsicht|Gefahr|Warnung|Hinweis)\s*:)[^:]{2,120}:\s+/.test(
+        compactInvoiceValue(line),
+      );
+    }),
+    ...scoped,
+  ]);
+}
+
+function isInvoiceScopedAdditionalOperationalHintV17_90L380(
+  value?: string | null,
+): boolean {
+  const role = classifySpecialNoteRoleV17_90L93(value);
+  if (role === "parking" || role === "equipment" || role === "operational") {
+    return true;
+  }
+  return isWorksiteOperationalInstructionLineV17_90L380(value);
+}
+
+function isInvoiceScopedPrimaryCommunicationHintV17_90L380(
+  value?: string | null,
+): boolean {
+  return isWorksiteSiteLocalCommunicationLineV17_90L380(value);
 }
 
 
@@ -1508,9 +1659,7 @@ function extractInvoiceAccessLinesV17_90L237(
 }
 
 function isInvoiceParkingLineV17_90L265(value?: string | null): boolean {
-  return /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
-    normalizeInvoiceServiceName(value || ""),
-  );
+  return isWorksiteParkingOrLogisticsLineV17_90L380(value);
 }
 
 function isInvoiceLowInformationHintV17_90L265(
@@ -2332,16 +2481,34 @@ function buildInvoiceCanonicalWorkflowSummaryV17_90L274(
       invoiceAppointmentAnnouncementV17_90L371AN,
     );
 
-  const scopedInvoicePrimaryHintsV17_90L375 = replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
+  const scopedInvoiceAccessPrimaryHintsV17_90L375 = replaceInvoiceBareAccessHintsWithScopedContextV17_90L372(
     cleanPrimaryHintsV17_90L371AN,
     sourceOrders,
   );
+  const scopedInvoicePrimaryHintsV17_90L375 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      scopedInvoiceAccessPrimaryHintsV17_90L375,
+      sourceOrders,
+      isInvoiceScopedPrimaryCommunicationHintV17_90L380,
+    );
+  const scopedInvoiceHazardsV17_90L380 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      cleanHazardsV17_90L322,
+      sourceOrders,
+      (line) => classifySpecialNoteRoleV17_90L93(line) === "safety",
+    );
+  const scopedInvoiceOtherHintsV17_90L380 =
+    replaceInvoiceBareOperationalHintsWithScopedContextV17_90L380(
+      otherHints.filter(
+        (line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line),
+      ),
+      sourceOrders,
+      isInvoiceScopedAdditionalOperationalHintV17_90L380,
+    );
   return {
-    hazards: cleanHazardsV17_90L322,
+    hazards: scopedInvoiceHazardsV17_90L380,
     primaryHints: scopedInvoicePrimaryHintsV17_90L375,
-    otherHints: otherHints.filter(
-      (line) => !isInvoiceAccessOrKeyHintLineV17_90L372(line),
-    ),
+    otherHints: scopedInvoiceOtherHintsV17_90L380,
   };
 }
 

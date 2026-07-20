@@ -1,3 +1,4 @@
+// SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_CHIP_DISPLAY_ONLY
 // Pure display helpers. No order, offer, invoice, work-site or item data is mutated.
 
@@ -35,6 +36,132 @@ const normalizeWorksiteDisplayKeyV17_90L376 = (value: unknown): string =>
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+// V17.90L380: Satzbedeutung hat Vorrang vor einzelnen Wörtern. Ein Tor in
+// einem Freihalte-/Parkhinweis ist Logistik und kein Zugang; ein mitzubringendes
+// Verlängerungskabel ist Vorbereitung und keine Stromgefahr. Die Helfer sind
+// reine Anzeige-Klassifizierer und verändern keine gespeicherten Daten.
+export const isWorksiteParkingOrLogisticsLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+
+  if (
+    /\b(?:[a-z0-9-]*parkplatz(?:e|en)?|[a-z0-9-]*parkplatze|besucherfeld|stellplatz(?:e|en)?|parken|parkieren|parking|parkhaus|tiefgarage|ladezone|anlieferung)\b/.test(
+      key,
+    )
+  ) {
+    return true;
+  }
+
+  const hasKeepClearRule =
+    /\b(?:freihalten|frei halten|frei bleiben|nicht blockieren|nicht zustellen|nicht abstellen|parkverbot|lieferfahrzeug|lieferfahrzeuge|lieferwagen|lieferverkehr)\b/.test(
+      key,
+    );
+  const hasTrafficArea =
+    /\b(?:platz|tor|seitentor|rolltor|zufahrt|einfahrt|rampe|ladezone|anlieferung)\b/.test(
+      key,
+    );
+  return hasKeepClearRule && hasTrafficArea;
+};
+
+export const isWorksiteAccessInstructionLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key || isWorksiteParkingOrLogisticsLineV17_90L380(value)) return false;
+  if (isWorksiteCredentialLineV17_90L376(value)) return true;
+
+  return (
+    /\b(?:zugang|zutritt|eingang|hintereingang|seiteneingang|nebeneingang|lieferanteneingang|tuer|tur|seitentuer|seitentur|tor|rolltor|seitentor|garagentor|pforte|klingeln|gegensprechanlage|rezeption|reception|empfang|security desk|sicherheitsdienst|zufahrt)\b/.test(
+      key,
+    ) ||
+    /\b(?:nicht durch|nicht ueber|nicht uber)\b.*\b(?:burogebaude|buerogebaeude|buro|buero|gebaude|gebaeude|eingang)\b/.test(
+      key,
+    )
+  );
+};
+
+export const isWorksitePreparationInstructionLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+  if (
+    /\b(?:mitbringen|mitnehmen|bereitstellen|bereithalten|organisieren|abholen|zurueckgeben|zuruckgeben)\b/.test(
+      key,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(?:leiter|stehleiter|teleskopleiter|geruest|gerust|hubsteiger|hebebuehne|hebebuhne|bodenreinigungsmaschine|reinigungsmaschine|verlaengerungskabel|verlangerungskabel|werkzeug|material|reinigungstuecher|reinigungstucher|ausweis)\b/.test(
+      key,
+    ) &&
+    /\b(?:brauchen|benoetigt|benotigt|erforderlich|noetig|notig|mitbringen|mitnehmen|bereitstellen|bereithalten)\b/.test(
+      key,
+    )
+  );
+};
+
+export const isWorksiteOperationalInstructionLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+  if (
+    isWorksiteParkingOrLogisticsLineV17_90L380(value) ||
+    isWorksitePreparationInstructionLineV17_90L380(value)
+  ) {
+    return true;
+  }
+  return (
+    /\b(?:nicht verschieben|nicht bewegen|nicht anfassen|nicht ausstecken|nicht nass reinigen|nicht feucht reinigen|nicht betreten|warnschilder aufstellen|absperren|abdecken|offen halten|wieder schliessen|wieder schließen)\b/.test(
+      key,
+    ) ||
+    (/\b(?:empfindliche maschinen|empfindliche geraete|empfindliche gerate|maschinen|geraete|gerate)\b/.test(
+      key,
+    ) &&
+      /\b(?:nicht|duerfen nicht|durfen nicht|vorsichtig|empfindlich)\b/.test(
+        key,
+      ))
+  );
+};
+
+export const isWorksiteSiteLocalCommunicationLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+  if (/\b(?:nach abschluss|nach erledigung|nach ausfuehrung|nach ausfuhrung)\b/.test(key)) {
+    return false;
+  }
+  return (
+    /\b(?:bei ankunft|vor ankunft|vor arbeitsbeginn|vor beginn|vor dem arbeitsbeginn)\b/.test(
+      key,
+    ) &&
+    /\b(?:anrufen|telefonisch|telefon|whatsapp|sms|melden|kontaktieren|informieren|nachricht)\b/.test(
+      key,
+    )
+  );
+};
+
+export const isWorksiteExplicitElectricalRiskLineV17_90L380 = (
+  value: unknown,
+): boolean => {
+  const key = normalizeWorksiteDisplayKeyV17_90L376(value);
+  if (!key) return false;
+  return (
+    /\b(?:stromschlag|unter spannung|stromfuehrend|stromfuhrend|elektrische gefahr|elektrischer schlag|offene kabel|offenes kabel|lose kabel|loses kabel|beschaedigte kabel|beschadigte kabel|defekte kabel|defektes kabel)\b/.test(
+      key,
+    ) ||
+    (/\bkabel\b/.test(key) &&
+      /\b(?:offen|lose|beschaedigt|beschadigt|defekt|stromfuehrend|stromfuhrend|unter spannung|gefahr|vorsicht|achtung)\b/.test(
+        key,
+      ))
+  );
+};
 
 const RESERVED_DISPLAY_PREFIX_V17_90L376 =
   /^(?:allgemein|hinweis|hinweise|info|information|informationen|wichtige informationen|weitere besonderheiten|besonderheiten|gefahr|achtung|warnung|termin|datum|zeit|uhrzeit|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|heute|morgen|ubermorgen|uebermorgen|zugang|zutritt|schluessel|schlussel|schlüssel|key|code|pin|tuercode|türcode|turcode|badge|keycard|kontakt|telefon|telefonnummer|tel|sms|whatsapp|e mail|email|mail|parkplatz|parken|parking|objekt|strasse|strasse|straße|plz|ort)$/;
@@ -262,10 +389,9 @@ const isActionableUnifiedInfoLineV17_90L379 = (value: unknown): boolean => {
   if (isWorksiteCredentialLineV17_90L376(value)) return true;
 
   return (
-    // Zugang, Eingang, Türen, Tore und Zutrittsorganisation.
-    /\b(?:zugang|zutritt|eingang|hintereingang|seiteneingang|nebeneingang|tuer|tur|tor|rolltor|seitentor|garagentor|pforte|empfang|rezeption|hauswart|porte|entree|accesso|ingresso)\b/.test(
-      key,
-    ) ||
+    isWorksiteParkingOrLogisticsLineV17_90L380(value) ||
+    isWorksiteAccessInstructionLineV17_90L380(value) ||
+    isWorksiteOperationalInstructionLineV17_90L380(value) ||
     // Mitbringen, bereitstellen, Schutz- und Arbeitsmittel.
     /\b(?:leiter|stehleiter|teleskopleiter|geruest|gerust|hubsteiger|hebebuehne|hebebuhne|maschine|geraet|gerat|werkzeug|material|reinigungsmittel|schutzkleidung|schutzbrille|handschuhe|helm|maske|abdeckvlies|folie)\b/.test(
       key,

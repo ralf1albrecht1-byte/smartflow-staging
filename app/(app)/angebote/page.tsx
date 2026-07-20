@@ -1,4 +1,5 @@
 "use client";
+// SMARTFLOW_V17_90L380_WORKSITE_ROLE_SAFE_CONTEXT_DISPLAY_ONLY
 // SMARTFLOW_V17_90L377_OFFER_ACCESS_CHIP_WORKSITE_CONTEXT_ONLY
 // SMARTFLOW_V17_90L376_WORKSITE_ACCESS_CHIP_AND_INFO_DISPLAY_ONLY
 // SMARTFLOW_V17_90L371DA_ALL3_WORKSITE_CONTEXT_CHIPS
@@ -127,7 +128,10 @@ import {
 } from "@/components/customer-duplicate-check";
 import { MwStControl } from "@/components/mwst-control";
 import { formatCurrency } from "@/lib/currency";
-import { splitSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  splitSpecialNotes,
+  classifySpecialNoteRoleV17_90L93,
+} from "@/lib/special-notes-utils";
 import {
   canonicalAppointmentBadgeV2,
   getCanonicalIntakeV2,
@@ -147,6 +151,10 @@ import {
   buildUnifiedWorksiteInfoDisplayV17_90L378,
   buildWorksiteAccessChipDisplayV17_90L376,
   groupWorksiteDisplayLinesV17_90L376,
+  isWorksiteAccessInstructionLineV17_90L380,
+  isWorksiteParkingOrLogisticsLineV17_90L380,
+  isWorksiteOperationalInstructionLineV17_90L380,
+  isWorksiteSiteLocalCommunicationLineV17_90L380,
 } from "@/lib/worksite-chip-display";
 
 const SMARTFLOW_CLOSE_CARD_POPOVERS_EVENT_V17_90L227 = "smartflow:close-card-popovers-v17-90l227";
@@ -1790,15 +1798,11 @@ function extractOfferImportantInstructionLines(value?: string | null): string[] 
 }
 
 function isOfferParkingLineV17_90L101(value?: string | null): boolean {
-  return /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
-    normalizeOfferHint(value || ""),
-  );
+  return isWorksiteParkingOrLogisticsLineV17_90L380(value);
 }
 
 function isOfferAccessLineV17_90L337(value?: string | null): boolean {
-  const text = normalizeOfferHint(value || "");
-  if (!text) return false;
-  return /\b(?:schluessel|schlussel|schluesselbox|schlusselbox|schluesselkasten|schlusselkasten|schluesselkarte|schlusselkarte|key|keybox|keycard|badge|code|tuercode|turcode|tuerkode|turkode|torcode|torkode|eingangscode|zugangscode|pin|zugang|zutritt|empfang|rezeption|reception|eingang|hintereingang|seiteneingang|seitentor|rolltor|tor|seitentuer|seitentur|seitentüre|seitenzugang|tuer|tur|door|access|entrance|side\s*door|back\s*door|cle|cles|boite\s+a\s+cles|acces|entree|chiave|codice|ingresso|llave|codigo|acceso)\b/.test(text);
+  return isWorksiteAccessInstructionLineV17_90L380(value);
 }
 
 function isOfferOperationalHintLineV17_90L337(value?: string | null): boolean {
@@ -1902,7 +1906,13 @@ function collectOfferScopedAccessHintLinesV17_90L372(orders: any[]): string[] {
             "i",
           ),
         );
-        const rawHint = compactOfferValue(match?.[1] || "");
+        const rawHint = compactOfferValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
         if (rawHint) pushScoped(resolved.site.label, rawHint);
         continue;
       }
@@ -2122,7 +2132,13 @@ function collectOfferScopedOperationalHintLinesV17_90L373(
             "i",
           ),
         );
-        const rawHint = compactOfferValue(match?.[1] || "");
+        const rawHint = compactOfferValue(
+          match?.[1] ||
+            line.replace(
+              new RegExp(`(?:bei|beim|in|im|am|an)?\\s*${escaped}\\s*:?\\s*`, "i"),
+              "",
+            ),
+        );
         if (rawHint) pushScoped(resolved.site.label, rawHint, line);
         continue;
       }
@@ -2161,12 +2177,27 @@ function replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
 
 function isOfferDangerOrDogHintLineV17_90L373(value?: string | null): boolean {
   const raw = String(value || "");
-  const text = normalizeOfferHint(raw);
-  if (!text) return false;
+  if (!normalizeOfferHint(raw)) return false;
   return (
     isOfferDogHint(raw) ||
-    /\b(?:achtung|vorsicht|gefahr|warnung|danger|warning|risiko|rutschig|strom|kabel|nass|oel|öl|glas|scherbe|schacht|loch)\b/.test(text)
+    classifySpecialNoteRoleV17_90L93(raw) === "safety"
   );
+}
+
+function isOfferScopedAdditionalOperationalHintV17_90L380(
+  value?: string | null,
+): boolean {
+  const role = classifySpecialNoteRoleV17_90L93(value);
+  if (role === "parking" || role === "equipment" || role === "operational") {
+    return true;
+  }
+  return isWorksiteOperationalInstructionLineV17_90L380(value);
+}
+
+function isOfferScopedPrimaryCommunicationHintV17_90L380(
+  value?: string | null,
+): boolean {
+  return isWorksiteSiteLocalCommunicationLineV17_90L380(value);
 }
 
 function collectOfferServiceEvidenceLinesV17_90L237(orders: any[]): Set<string> {
@@ -2917,27 +2948,35 @@ function buildOfferInfoSummary(
         sourceOrders,
         isOfferDangerOrDogHintLineV17_90L373,
       ),
-      primary: cleanOfferPrimaryInfoLinesV17_90L351(
+      primary: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
+        cleanOfferPrimaryInfoLinesV17_90L351(
+          scopedOfferAccessLinesV17_90L374.length > 0
+            ? rawOfferPrimaryLinesV17_90L374.filter(
+                (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+              )
+            : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+                rawOfferPrimaryLinesV17_90L374,
+                sourceOrders,
+              ),
+        ),
+        sourceOrders,
+        isOfferScopedPrimaryCommunicationHintV17_90L380,
+      ),
+      additional: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
         scopedOfferAccessLinesV17_90L374.length > 0
-          ? rawOfferPrimaryLinesV17_90L374.filter(
-              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
-            )
+          ? uniqueOfferInfoLinesV17_66([
+              ...rawOfferAdditionalLinesV17_90L374.filter(
+                (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+              ),
+              ...scopedOfferAccessLinesV17_90L374,
+            ])
           : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-              rawOfferPrimaryLinesV17_90L374,
+              rawOfferAdditionalLinesV17_90L374,
               sourceOrders,
             ),
+        sourceOrders,
+        isOfferScopedAdditionalOperationalHintV17_90L380,
       ),
-      additional: scopedOfferAccessLinesV17_90L374.length > 0
-        ? uniqueOfferInfoLinesV17_66([
-            ...rawOfferAdditionalLinesV17_90L374.filter(
-              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
-            ),
-            ...scopedOfferAccessLinesV17_90L374,
-          ])
-        : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-            rawOfferAdditionalLinesV17_90L374,
-            sourceOrders,
-          ),
       hasCanonicalMarkers: true,
     } as OfferCanonicalWorkflowSummaryV17_90L273;
   }
@@ -3031,27 +3070,35 @@ function buildOfferInfoSummary(
       sourceOrders,
       isOfferDangerOrDogHintLineV17_90L373,
     ),
-    primary: cleanOfferPrimaryInfoLinesV17_90L351(
+    primary: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
+      cleanOfferPrimaryInfoLinesV17_90L351(
+        scopedOfferAccessLinesV17_90L374.length > 0
+          ? compactPrimary.filter(
+              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+            )
+          : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
+              compactPrimary,
+              sourceOrders,
+            ),
+      ),
+      sourceOrders,
+      isOfferScopedPrimaryCommunicationHintV17_90L380,
+    ),
+    additional: replaceOfferBareOperationalHintsWithScopedContextV17_90L373(
       scopedOfferAccessLinesV17_90L374.length > 0
-        ? compactPrimary.filter(
-            (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
-          )
+        ? uniqueOfferInfoLinesV17_66([
+            ...additional.filter(
+              (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
+            ),
+            ...scopedOfferAccessLinesV17_90L374,
+          ])
         : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-            compactPrimary,
+            additional,
             sourceOrders,
           ),
+      sourceOrders,
+      isOfferScopedAdditionalOperationalHintV17_90L380,
     ),
-    additional: scopedOfferAccessLinesV17_90L374.length > 0
-      ? uniqueOfferInfoLinesV17_66([
-          ...additional.filter(
-            (line) => !isOfferAccessOrKeyHintLineV17_90L372(line),
-          ),
-          ...scopedOfferAccessLinesV17_90L374,
-        ])
-      : replaceOfferBareAccessHintsWithScopedContextV17_90L372(
-          additional,
-          sourceOrders,
-        ),
   };
 }
 

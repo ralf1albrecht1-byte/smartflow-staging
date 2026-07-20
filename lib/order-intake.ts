@@ -2,6 +2,7 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
+// SMARTFLOW_V17_90L380_COMMUNICATION_NOT_MISSING_WORK_GUARD
 // SMARTFLOW_V17_90L371BY_MULTIROOT_ADDRESS_REPAIR
 // SMARTFLOW_V17_90L371AQ_UNIT_CLEAN_EQUIPMENT_HOUR_GUARD
 // SMARTFLOW_V17_90L371BL_MATERIAL_SURFACE_INVALID_KEEP_GUARD
@@ -17461,6 +17462,20 @@ export async function processIncomingMessage(
             (firstAiOnsiteContactSnapshotV17_90L225 as any)?.evidence,
           ),
         },
+        // V17.90L380: Eine bereits als Kommunikation oder Termin erkennbare
+        // normale Hinweiszeile ist verbindliche Nicht-Leistungs-Evidenz.
+        // Dadurch werden z. B. Abschlussfotos per E-Mail nicht mehr als
+        // fehlende abrechenbare Leistung bestätigt. Andere ordinary-Hinweise
+        // bleiben weiterhin vollständig für die semantische Prüfung offen.
+        ...firstAiRoleSnapshotV17_90L214.ordinary
+          .filter((line) => {
+            const role = classifySpecialNoteRoleV17_90L93(line);
+            return role === "communication" || role === "appointment";
+          })
+          .map((line) => ({
+            role: classifySpecialNoteRoleV17_90L93(line),
+            text: compactExactSourceTextV17_90L251(line),
+          })),
       ].filter((entry) => entry.text),
     });
   markIntakePerfV17_90L337("03c_work_coverage_end", {
